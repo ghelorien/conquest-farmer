@@ -1,0 +1,19 @@
+character: Parasite
+observation_mode: memory_only
+player_profile: profiles/classic-1074-player-candidate.yaml
+inventory_profile: profiles/classic-1074-inventory-candidate.yaml
+capture_output: 2
+capture_origin: [2560, 0]
+template: profiles/templates/pheasant-name.png
+client_size: [1584, 861]
+# Small clearing actually visited during supervised navigation and combat.
+boundary: [405, 442, 440, 472]
+minimum_health: 0.40
+heal_below: 0.40
+interval: 0.3
+potion_key: 112
+ammo_key: 113
+loot_allowlist: [Stancher]
+maximum_actions: 600
+route: [[433, 461], [437, 459], [437, 465], [432, 466]]
+max_distance_pixels: 380

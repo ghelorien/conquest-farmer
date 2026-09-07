@@ -1,0 +1,14 @@
+schema_version: 1
+expected_sha256: c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396
+module: imconquer.exe
+root_rva: 0x697970
+pointer_offsets: [0, 0]
+vtable_rva: 0x5cef40
+name_offset: 0xa4
+max_hp_offset: 0x3e0
+position_offset: 0xe8
+kill_counter_offset: 0xa40
+level_offset: 0x6f8
+# Current Twin City value observed as 1002; cross-map qualification pending.
+map_rva: 0x699564
+qualification: candidate

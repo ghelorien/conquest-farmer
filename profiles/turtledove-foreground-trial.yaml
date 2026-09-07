@@ -1,0 +1,81 @@
+character: Parasite
+observation_mode: memory_only
+player_profile: profiles/classic-1074-player-candidate.yaml
+inventory_profile: profiles/classic-1074-inventory-candidate.yaml
+capture_output: 2
+capture_origin:
+- 2560
+- 0
+template: profiles/templates/turtledove-name.png
+client_size:
+- 1584
+- 861
+boundary:
+- 654
+- 548
+- 708
+- 610
+minimum_health: 0.4
+heal_below: 0.4
+interval: 0.3
+potion_key: 112
+ammo_key: 113
+loot_allowlist:
+- Stancher
+maximum_actions: 600
+route:
+- - 668
+  - 570
+- - 688
+  - 570
+- - 688
+  - 590
+- - 668
+  - 590
+max_distance_pixels: 450
+monster: Turtledove
+recovery:
+  enabled: true
+  return_route:
+  - - 438
+    - 386
+  - - 439
+    - 391
+  - - 439
+    - 397
+  - - 439
+    - 403
+  - - 439
+    - 409
+  - - 438
+    - 415
+  - - 438
+    - 421
+  - - 439
+    - 427
+  - - 439
+    - 431
+  - - 441
+    - 436
+  - - 443
+    - 440
+  - - 470
+    - 465
+  - - 500
+    - 490
+  - - 533
+    - 500
+  - - 560
+    - 535
+  - - 590
+    - 535
+  - - 610
+    - 560
+  - - 634
+    - 550
+  - - 652
+    - 550
+  - - 660
+    - 570
+  - - 668
+    - 570

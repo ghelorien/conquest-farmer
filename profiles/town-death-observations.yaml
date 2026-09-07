@@ -1,0 +1,9 @@
+# Read-only ground truth from the game after an interrupted input test.
+schema_version: 1
+source: "Game screenshot: Parasite at (446, 383), HP 0/51, Revive button visible. No further game input is authorized by this observation."
+observed_at: "2026-09-07T14:58:00Z"
+expected_sha256: c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396
+observations:
+  - {name: hp_u16, kind: u16, value: 0}
+  - {name: hp_u32, kind: u32, value: 0}
+  - {name: position_u32, kind: xy_u32, value: [446, 383]}

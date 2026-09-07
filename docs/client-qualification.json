@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "assessed_at": "2026-09-07T16:16:47.727031+00:00",
+  "client_sha256": "c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396",
+  "architecture": "x64",
+  "gate": "blocked",
+  "autonomous_actions_enabled": false,
+  "latest_access_recheck": {
+    "assessed_at": "2026-09-07T16:06:54.286341+00:00",
+    "pid": 47420,
+    "same_executable_and_process_session": true,
+    "administrator_worker_read_access": "passed",
+    "live_name": "Parasite",
+    "live_hp": 51,
+    "live_position": [
+      441,
+      387
+    ],
+    "matches_screen": true
+  },
+  "read_only_memory": {
+    "access": "passed_with_administrator_permissions",
+    "actual_reads": "passed",
+    "game_state_layout": "unqualified",
+    "finding": "Module-relative pointer chain resolves matching name, HP and position in the current session. Real restart and full semantic validation remain outstanding."
+  },
+  "background_mouse_messages": {
+    "qualification": "failed",
+    "test": "One left click aimed at the Status button while the game was unfocused",
+    "client_point": [
+      849,
+      819
+    ],
+    "client_size": [
+      1584,
+      861
+    ],
+    "messages_queued": true,
+    "status_panel_opened": false,
+    "hp_candidates_before": [
+      51,
+      51,
+      51
+    ],
+    "hp_candidates_after": [
+      51,
+      51,
+      51
+    ],
+    "position_candidates_before": [
+      [
+        430,
+        380
+      ],
+      [
+        430,
+        380
+      ]
+    ],
+    "position_candidates_after": [
+      [
+        431,
+        381
+      ],
+      [
+        432,
+        382
+      ]
+    ],
+    "subsequent_screen_position": [
+      443,
+      391
+    ],
+    "subsequent_screen_hp": "51/51",
+    "foreground_unchanged_at_sample_times": true,
+    "cursor_unchanged_at_sample_times": false,
+    "conclusion": "The intended panel effect was not achieved and movement occurred. This input method is not qualified for background farming. Cursor movement means the test cannot establish input isolation or attribute the movement conclusively."
+  },
+  "cleanup_check": {
+    "game_mouse_capture": false,
+    "physical_left_button_down": false,
+    "physical_right_button_down": false
+  },
+  "not_completed": [
+    "validated HP, map, position, entities, inventory, and supply readers",
+    "restart-safe pointer resolution",
+    "background movement, attack, potion, and pickup qualification",
+    "minimized operation qualification",
+    "route recording and autonomous farming",
+    "supervised 30-minute acceptance run"
+  ],
+  "character_setup": {
+    "class": "InternArcher",
+    "level": 1,
+    "equipped": [
+      "starter bow",
+      "Coat",
+      "LuckyArrow"
+    ],
+    "equipped_arrow_counter": 200,
+    "physical_attack": [
+      10,
+      12
+    ],
+    "defense": 2
+  },
+  "background_keyboard": {
+    "qualification": "inconclusive",
+    "tested_keys": [
+      "F11",
+      "F10"
+    ],
+    "messages_queued": true,
+    "foreground_at_both_samples": "TeamViewer",
+    "cursor_unchanged_at_sample_times": true,
+    "game_key_capture_observed": false,
+    "foreground_virtual_key_baseline_capture_observed": false,
+    "binding_left_unassigned": true,
+    "next_diagnostic": "Explicit scan-code SendInput baseline; source corrected, running worker not yet updated"
+  },
+  "live_input_worker": {
+    "pid": 28836,
+    "protocol_version": 2,
+    "running_input_revision": 4,
+    "source_input_revision": 4
+  },
+  "current_user_priority": {
+    "mode": "foreground farming first",
+    "background_support": "deferred unless a small fix",
+    "minimized_support": "deferred"
+  },
+  "foreground_navigation": {
+    "movement_verified": true,
+    "jump_input_live_test": "passed",
+    "latest_position": [
+      413,
+      445
+    ],
+    "latest_hp": 24,
+    "latest_max_hp": 117,
+    "kills_confirmed": 18,
+    "remaining_equipped_arrows": 170
+  },
+  "foreground_combat": {
+    "status": "bounded_supervised_trials_work",
+    "automatic_trials_confirmed_kills": 15,
+    "manual_confirmed_kills": 3,
+    "qualified_v1": false,
+    "latest_stop_reason": "low_health",
+    "current_hp_source": "visible health bar via DXCam/OpenCV",
+    "max_hp_memory_offset": "0x3e0",
+    "known_remaining_potions": 0,
+    "report": "docs/foreground-combat-2026-09-07.md"
+  }
+}

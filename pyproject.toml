@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conquest-farmer"
+version = "0.1.0"
+description = "Read-only feasibility diagnostics for a Classic Conquer farming client"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2,<3", "PyYAML>=6,<7", "numpy>=2,<3", "opencv-python>=4,<6", "dxcam>=0.3,<0.4; sys_platform == 'win32'", "pywin32>=310; sys_platform == 'win32'"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+conquest = "conquest.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

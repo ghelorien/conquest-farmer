@@ -1,0 +1,23 @@
+expected_sha256: c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396
+module: ImConquer.exe
+root_rva: 0x699370
+pointer_offsets: [0x18, 8, 0]
+collection_vtable_rva: 0x5ccc90
+begin_offset: 0x58
+end_offset: 0x60
+capacity_offset: 0x68
+entry_stride: 16
+entry_object_offset: 8
+monster_vtable_rva: 0x5c5e20
+monster_kind: 2
+id_offset: 0x78
+kind_offset: 0x80
+name_offset: 0xa4
+position_offset: 0xe8
+draw_position_offset: 0xf8
+max_hp_offset: 0x3e0
+level_offset: 0x6f8
+max_objects: 4096
+max_monsters: 256
+max_sample_seconds: 3
+qualification: candidate

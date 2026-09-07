@@ -1,0 +1,16 @@
+# Offsets observed in the fingerprint-pinned player from the matching profile.
+# Live semantics require controlled-change verification; restart remains unqualified.
+expected_sha256: c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396
+deque_map: 0xb88
+deque_map_size: 0xb90
+deque_start: 0xb98
+deque_count: 0xba0
+lookup_count: 0xbb8
+silver: 0xa90
+equipped_ammo: 0xc28
+item_vtable_rva: 0x5cf220
+item_uid: 0x8
+item_type: 0x10
+item_amount: 0x62
+item_limit: 0x64
+capacity: 40

@@ -1,0 +1,87 @@
+schema_version: 1
+source: https://wiki.conqueronline.net/guides/Leveling/Powerleveling
+source_checked: 2026-09-07
+mode: solo_archer
+automatic_stage_changes: false
+reviews:
+- id: bamboo_bow
+  level: 8
+  title: Bamboo Bow equipped; attack 23-26
+  status: completed
+  evidence: reports/progression-level-9.json
+- id: bow_proficiency
+  level: 10
+  title: Check Bow proficiency progress after its level-10 gate
+  source: live skill panel at level 9
+- id: dress
+  level: 12
+  title: Review Dress armor and Robin trial
+  source: client item catalog; server leveling guide
+- id: archer_promotion
+  level: 15
+  title: Visit Archer trainer; check promotion and available skills
+  source: retail baseline; private-server trainer verification required
+- id: hunting_bow
+  level: 15
+  title: Check Hunting Bow and Deerskin Coat requirements and funds
+  source: client item catalog; verify current attributes and proficiency
+- id: scatter
+  level: 23
+  title: Check Scatter with Archer trainer; calibrate only after learning
+  source: retail baseline; private-server trainer verification required
+stages:
+- name: pheasant
+  monster: Pheasant
+  guide_monster_band:
+  - 1
+  - 7
+  review_character_level: 1
+  area: Twin City / Wild Plain
+  trial_profile: profiles/pheasant-foreground-trial.yaml
+  route_qualified: false
+- name: turtledove
+  monster: Turtledove
+  guide_monster_band:
+  - 7
+  - 12
+  review_character_level: 7
+  area: Twin City / Wild Plain
+  trial_profile: profiles/turtledove-foreground-trial.yaml
+  route_qualified: false
+  calibration_evidence:
+  - reports/turtledove-calibration.png
+  - reports/turtledove-trial/trial.sqlite3
+- name: robin
+  monster: Robin
+  guide_monster_band:
+  - 12
+  - 17
+  review_character_level: 12
+  area: Twin City / Wild Plain
+  trial_profile: null
+  route_qualified: false
+- name: apparition
+  monster: Apparition
+  guide_monster_band:
+  - 17
+  - 22
+  review_character_level: 17
+  area: Twin City / Wild Plain
+  trial_profile: null
+  route_qualified: false
+- name: poltergeist
+  monster: Poltergeist
+  guide_monster_band:
+  - 22
+  - 27
+  review_character_level: 22
+  area: Twin City / Wild Plain
+  trial_profile: null
+  route_qualified: false
+transition_evidence:
+- verified_character_level_and_equipment
+- recorded_traversable_waypoints
+- verified_attack_and_healing_outcomes
+- improved_experience_per_minute
+- sustainable_arrow_and_potion_use
+- no_death_or_repeated_movement_failure

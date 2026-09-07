@@ -1,0 +1,12 @@
+schema_version: 1
+source: "Game screenshot: Parasite stationary at (430, 380), HP 51/51. Search values only; field layouts remain unknown."
+observed_at: "2026-09-07T15:09:00Z"
+expected_sha256: c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396
+observations:
+  - {name: hp_u16, kind: u16, value: 51}
+  - {name: hp_u32, kind: u32, value: 51}
+  - {name: x_u16, kind: u16, value: 430}
+  - {name: y_u16, kind: u16, value: 380}
+  - {name: x_u32, kind: u32, value: 430}
+  - {name: y_u32, kind: u32, value: 380}
+  - {name: position_u32, kind: xy_u32, value: [430, 380]}
