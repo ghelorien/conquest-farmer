@@ -13,4 +13,5 @@ item_uid: 0x8
 item_type: 0x10
 item_amount: 0x62
 item_limit: 0x64
+item_plus: 0x6b # Low byte; client name formatter uses this for (+N).
 capacity: 40

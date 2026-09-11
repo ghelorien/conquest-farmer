@@ -1,0 +1,931 @@
+{
+  "started_at": 1788917644,
+  "sampled_at": 1788917711.8301158,
+  "attacks": [
+    [
+      1788917646.7904708,
+      {
+        "number": 1,
+        "point": [
+          390,
+          268
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447111,
+        "object_address": 397953408,
+        "world_position": [
+          255,
+          580
+        ],
+        "target_hp": 199,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917647.9073632,
+      {
+        "number": 2,
+        "point": [
+          454,
+          268
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447111,
+        "object_address": 397953408,
+        "world_position": [
+          256,
+          579
+        ],
+        "target_hp": 96,
+        "distance_tiles": 5,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917650.9573288,
+      {
+        "number": 3,
+        "point": [
+          710,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447259,
+        "object_address": 424940560,
+        "world_position": [
+          282,
+          581
+        ],
+        "target_hp": 303,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917652.2409968,
+      {
+        "number": 4,
+        "point": [
+          646,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447259,
+        "object_address": 424940560,
+        "world_position": [
+          281,
+          582
+        ],
+        "target_hp": 204,
+        "distance_tiles": 5,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917653.107215,
+      {
+        "number": 5,
+        "point": [
+          582,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447259,
+        "object_address": 424940560,
+        "world_position": [
+          280,
+          583
+        ],
+        "target_hp": 97,
+        "distance_tiles": 4,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917654.5243127,
+      {
+        "number": 6,
+        "point": [
+          518,
+          460
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447259,
+        "object_address": 424940560,
+        "world_position": [
+          278,
+          583
+        ],
+        "target_hp": 97,
+        "distance_tiles": 2,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917655.5069907,
+      {
+        "number": 7,
+        "point": [
+          518,
+          460
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447259,
+        "object_address": 424940560,
+        "world_position": [
+          278,
+          583
+        ],
+        "target_hp": 4,
+        "distance_tiles": 2,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917656.3740363,
+      {
+        "number": 8,
+        "point": [
+          518,
+          460
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447259,
+        "object_address": 424940560,
+        "world_position": [
+          278,
+          583
+        ],
+        "target_hp": 4,
+        "distance_tiles": 2,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917660.441893,
+      {
+        "number": 9,
+        "point": [
+          710,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447239,
+        "object_address": 424917376,
+        "world_position": [
+          292,
+          585
+        ],
+        "target_hp": 303,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917661.3249633,
+      {
+        "number": 10,
+        "point": [
+          646,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447239,
+        "object_address": 424917376,
+        "world_position": [
+          291,
+          586
+        ],
+        "target_hp": 197,
+        "distance_tiles": 5,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917662.173759,
+      {
+        "number": 11,
+        "point": [
+          614,
+          476
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447239,
+        "object_address": 424917376,
+        "world_position": [
+          290,
+          586
+        ],
+        "target_hp": 197,
+        "distance_tiles": 4,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917663.0242455,
+      {
+        "number": 12,
+        "point": [
+          550,
+          476
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447239,
+        "object_address": 424917376,
+        "world_position": [
+          289,
+          587
+        ],
+        "target_hp": 90,
+        "distance_tiles": 3,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917663.8911397,
+      {
+        "number": 13,
+        "point": [
+          518,
+          460
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447239,
+        "object_address": 424917376,
+        "world_position": [
+          288,
+          587
+        ],
+        "target_hp": 90,
+        "distance_tiles": 2,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917668.5577703,
+      {
+        "number": 14,
+        "point": [
+          710,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447219,
+        "object_address": 397932800,
+        "world_position": [
+          301,
+          577
+        ],
+        "target_hp": 303,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917669.657058,
+      {
+        "number": 15,
+        "point": [
+          646,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447219,
+        "object_address": 397932800,
+        "world_position": [
+          300,
+          578
+        ],
+        "target_hp": 183,
+        "distance_tiles": 5,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917670.7235181,
+      {
+        "number": 16,
+        "point": [
+          582,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447219,
+        "object_address": 397932800,
+        "world_position": [
+          299,
+          579
+        ],
+        "target_hp": 73,
+        "distance_tiles": 4,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917675.0403259,
+      {
+        "number": 17,
+        "point": [
+          710,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447112,
+        "object_address": 397935376,
+        "world_position": [
+          307,
+          572
+        ],
+        "target_hp": 303,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917677.0068693,
+      {
+        "number": 18,
+        "point": [
+          582,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447112,
+        "object_address": 397935376,
+        "world_position": [
+          305,
+          574
+        ],
+        "target_hp": 192,
+        "distance_tiles": 4,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917678.824244,
+      {
+        "number": 19,
+        "point": [
+          518,
+          460
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447112,
+        "object_address": 397935376,
+        "world_position": [
+          303,
+          574
+        ],
+        "target_hp": 84,
+        "distance_tiles": 2,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917681.106851,
+      {
+        "number": 20,
+        "point": [
+          710,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447109,
+        "object_address": 562985744,
+        "world_position": [
+          316,
+          572
+        ],
+        "target_hp": 303,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917682.690021,
+      {
+        "number": 21,
+        "point": [
+          582,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447109,
+        "object_address": 562985744,
+        "world_position": [
+          314,
+          574
+        ],
+        "target_hp": 192,
+        "distance_tiles": 4,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917683.606811,
+      {
+        "number": 22,
+        "point": [
+          518,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447109,
+        "object_address": 562985744,
+        "world_position": [
+          313,
+          575
+        ],
+        "target_hp": 92,
+        "distance_tiles": 3,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917684.5564225,
+      {
+        "number": 23,
+        "point": [
+          518,
+          460
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447109,
+        "object_address": 562985744,
+        "world_position": [
+          312,
+          574
+        ],
+        "target_hp": 92,
+        "distance_tiles": 2,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917685.706849,
+      {
+        "number": 24,
+        "point": [
+          678,
+          508
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447093,
+        "object_address": 397953408,
+        "world_position": [
+          316,
+          573
+        ],
+        "target_hp": 88,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917687.9897869,
+      {
+        "number": 25,
+        "point": [
+          358,
+          284
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447164,
+        "object_address": 397945680,
+        "world_position": [
+          301,
+          571
+        ],
+        "target_hp": 105,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917689.3732986,
+      {
+        "number": 26,
+        "point": [
+          326,
+          492
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447126,
+        "object_address": 397943104,
+        "world_position": [
+          307,
+          586
+        ],
+        "target_hp": 303,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917690.2398472,
+      {
+        "number": 27,
+        "point": [
+          326,
+          460
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447126,
+        "object_address": 397943104,
+        "world_position": [
+          306,
+          585
+        ],
+        "target_hp": 187,
+        "distance_tiles": 5,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917691.2562287,
+      {
+        "number": 28,
+        "point": [
+          326,
+          428
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447126,
+        "object_address": 397943104,
+        "world_position": [
+          305,
+          584
+        ],
+        "target_hp": 187,
+        "distance_tiles": 4,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917692.373603,
+      {
+        "number": 29,
+        "point": [
+          326,
+          396
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447126,
+        "object_address": 397943104,
+        "world_position": [
+          304,
+          583
+        ],
+        "target_hp": 92,
+        "distance_tiles": 3,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917693.4234266,
+      {
+        "number": 30,
+        "point": [
+          166,
+          412
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447175,
+        "object_address": 397950832,
+        "world_position": [
+          302,
+          586
+        ],
+        "target_hp": 6,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917697.8397024,
+      {
+        "number": 31,
+        "point": [
+          710,
+          300
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447219,
+        "object_address": 403411760,
+        "world_position": [
+          306,
+          571
+        ],
+        "target_hp": 197,
+        "distance_tiles": 6,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917699.490368,
+      {
+        "number": 32,
+        "point": [
+          678,
+          316
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447219,
+        "object_address": 403411760,
+        "world_position": [
+          306,
+          572
+        ],
+        "target_hp": 80,
+        "distance_tiles": 5,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917703.9563422,
+      {
+        "number": 33,
+        "point": [
+          326,
+          460
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447084,
+        "object_address": 397937952,
+        "world_position": [
+          301,
+          590
+        ],
+        "target_hp": 303,
+        "distance_tiles": 5,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917705.1734257,
+      {
+        "number": 34,
+        "point": [
+          326,
+          396
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447084,
+        "object_address": 397937952,
+        "world_position": [
+          299,
+          588
+        ],
+        "target_hp": 203,
+        "distance_tiles": 3,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917706.0563924,
+      {
+        "number": 35,
+        "point": [
+          390,
+          396
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447084,
+        "object_address": 397937952,
+        "world_position": [
+          300,
+          587
+        ],
+        "target_hp": 111,
+        "distance_tiles": 2,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917706.9730852,
+      {
+        "number": 36,
+        "point": [
+          390,
+          396
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447084,
+        "object_address": 397937952,
+        "world_position": [
+          300,
+          587
+        ],
+        "target_hp": 111,
+        "distance_tiles": 2,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ],
+    [
+      1788917708.0897968,
+      {
+        "number": 37,
+        "point": [
+          390,
+          396
+        ],
+        "button": "right",
+        "ability": "Scatter",
+        "entity_id": 447084,
+        "object_address": 397937952,
+        "world_position": [
+          300,
+          587
+        ],
+        "target_hp": 8,
+        "distance_tiles": 2,
+        "confidence": 1.0,
+        "outcome": "awaiting_observation"
+      }
+    ]
+  ],
+  "escapes": [],
+  "hp_decreases": [
+    {
+      "entity": 447111,
+      "before": 199,
+      "after": 96,
+      "distance": 5
+    },
+    {
+      "entity": 447259,
+      "before": 303,
+      "after": 204,
+      "distance": 5
+    },
+    {
+      "entity": 447259,
+      "before": 204,
+      "after": 97,
+      "distance": 4
+    },
+    {
+      "entity": 447259,
+      "before": 97,
+      "after": 4,
+      "distance": 2
+    },
+    {
+      "entity": 447239,
+      "before": 303,
+      "after": 197,
+      "distance": 5
+    },
+    {
+      "entity": 447239,
+      "before": 197,
+      "after": 90,
+      "distance": 3
+    },
+    {
+      "entity": 447219,
+      "before": 303,
+      "after": 183,
+      "distance": 5
+    },
+    {
+      "entity": 447219,
+      "before": 183,
+      "after": 73,
+      "distance": 4
+    },
+    {
+      "entity": 447112,
+      "before": 303,
+      "after": 192,
+      "distance": 4
+    },
+    {
+      "entity": 447112,
+      "before": 192,
+      "after": 84,
+      "distance": 2
+    },
+    {
+      "entity": 447109,
+      "before": 303,
+      "after": 192,
+      "distance": 4
+    },
+    {
+      "entity": 447109,
+      "before": 192,
+      "after": 92,
+      "distance": 3
+    },
+    {
+      "entity": 447126,
+      "before": 303,
+      "after": 187,
+      "distance": 5
+    },
+    {
+      "entity": 447126,
+      "before": 187,
+      "after": 92,
+      "distance": 3
+    },
+    {
+      "entity": 447219,
+      "before": 197,
+      "after": 80,
+      "distance": 5
+    },
+    {
+      "entity": 447084,
+      "before": 303,
+      "after": 203,
+      "distance": 3
+    },
+    {
+      "entity": 447084,
+      "before": 203,
+      "after": 111,
+      "distance": 2
+    },
+    {
+      "entity": 447084,
+      "before": 111,
+      "after": 8,
+      "distance": 2
+    }
+  ]
+}

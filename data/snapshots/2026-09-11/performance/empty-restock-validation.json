@@ -1,0 +1,260 @@
+{
+  "time": 1789045554.060669,
+  "app_pid": 82084,
+  "revision": 1,
+  "life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 0,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      417,
+      436
+    ],
+    "current_hp": 771,
+    "max_hp": 881,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 26512.671,
+    "timestamp": 26512.671,
+    "dead_candidate": false
+  },
+  "enabled": true,
+  "runback": {
+    "kind": "hunt",
+    "map_id": 1011,
+    "destination": [
+      405,
+      477
+    ],
+    "position": [
+      405,
+      428
+    ],
+    "started_at": 1789045446.665508,
+    "updated_at": 1789045535.0522943,
+    "result": "arrived",
+    "elapsed_seconds": 88.4,
+    "active_seconds": 81.2,
+    "paused_seconds": 7.2,
+    "tiles_travelled": 358,
+    "tiles_per_second": 4.41,
+    "stalls": 11,
+    "recoveries": 5,
+    "hp_lost": 27,
+    "minimum_hp_percent": 89.2,
+    "deaths": 0,
+    "urgent": false,
+    "paused": false,
+    "source": "read_only_memory"
+  },
+  "original_return_supplies": {
+    "arrows": 199,
+    "potions": 10,
+    "free_slots": 19
+  },
+  "original_failure": "Inventory opening unverified before arrow equip",
+  "tests_passed": 189,
+  "recent_events": [
+    {
+      "time": 1789045445.2859473,
+      "event": "reload_outcome",
+      "payload": {
+        "outcome": "verified",
+        "ammo": 1000
+      }
+    },
+    {
+      "time": 1789045479.409329,
+      "event": "kill_verified",
+      "payload": {
+        "count": 1,
+        "total": 1,
+        "counter": 1929,
+        "character_level": 55,
+        "ammo": 999,
+        "kills_per_hour": 109.60906101571956
+      }
+    },
+    {
+      "time": 1789045491.823887,
+      "event": "kill_verified",
+      "payload": {
+        "count": 1,
+        "total": 2,
+        "counter": 1930,
+        "character_level": 55,
+        "ammo": 998,
+        "kills_per_hour": 159.0597799673057
+      }
+    },
+    {
+      "time": 1789045494.0193748,
+      "event": "kill_verified",
+      "payload": {
+        "count": 1,
+        "total": 3,
+        "counter": 1931,
+        "character_level": 55,
+        "ammo": 997,
+        "kills_per_hour": 227.59361894928716
+      }
+    },
+    {
+      "time": 1789045497.3633215,
+      "event": "kill_verified",
+      "payload": {
+        "count": 1,
+        "total": 4,
+        "counter": 1932,
+        "character_level": 55,
+        "ammo": 996,
+        "kills_per_hour": 283.48130795126445
+      }
+    },
+    {
+      "time": 1789045521.791532,
+      "event": "kill_verified",
+      "payload": {
+        "count": 1,
+        "total": 5,
+        "counter": 1933,
+        "character_level": 55,
+        "ammo": 995,
+        "kills_per_hour": 239.25352898956297
+      }
+    },
+    {
+      "time": 1789045529.105663,
+      "event": "kill_verified",
+      "payload": {
+        "count": 1,
+        "total": 6,
+        "counter": 1934,
+        "character_level": 55,
+        "ammo": 989,
+        "kills_per_hour": 261.66910971931566
+      }
+    },
+    {
+      "time": 1789045530.8939195,
+      "event": "kill_verified",
+      "payload": {
+        "count": 4,
+        "total": 10,
+        "counter": 1938,
+        "character_level": 55,
+        "ammo": 986,
+        "kills_per_hour": 426.9044682667795
+      }
+    },
+    {
+      "time": 1789045532.4396899,
+      "event": "kill_verified",
+      "payload": {
+        "count": 3,
+        "total": 13,
+        "counter": 1941,
+        "character_level": 55,
+        "ammo": 983,
+        "kills_per_hour": 544.9781659388647
+      }
+    },
+    {
+      "time": 1789045534.0874217,
+      "event": "kill_verified",
+      "payload": {
+        "count": 1,
+        "total": 14,
+        "counter": 1942,
+        "character_level": 55,
+        "ammo": 980,
+        "kills_per_hour": 575.7960037015521
+      }
+    },
+    {
+      "time": 1789045535.0522943,
+      "event": "boundary_return_completed",
+      "payload": {
+        "position": [
+          405,
+          429
+        ]
+      }
+    },
+    {
+      "time": 1789045535.9755602,
+      "event": "kill_verified",
+      "payload": {
+        "count": 5,
+        "total": 19,
+        "counter": 1947,
+        "character_level": 55,
+        "ammo": 977,
+        "kills_per_hour": 764.9124376551746
+      }
+    },
+    {
+      "time": 1789045541.7455986,
+      "event": "kill_verified",
+      "payload": {
+        "count": 5,
+        "total": 24,
+        "counter": 1952,
+        "character_level": 55,
+        "ammo": 971,
+        "kills_per_hour": 907.6774383325793
+      }
+    },
+    {
+      "time": 1789045545.2326047,
+      "event": "kill_verified",
+      "payload": {
+        "count": 2,
+        "total": 26,
+        "counter": 1954,
+        "character_level": 55,
+        "ammo": 965,
+        "kills_per_hour": 948.5973731149796
+      }
+    },
+    {
+      "time": 1789045548.2057595,
+      "event": "kill_verified",
+      "payload": {
+        "count": 3,
+        "total": 29,
+        "counter": 1957,
+        "character_level": 55,
+        "ammo": 959,
+        "kills_per_hour": 1027.1445578064008
+      }
+    },
+    {
+      "time": 1789045551.575795,
+      "event": "kill_verified",
+      "payload": {
+        "count": 3,
+        "total": 32,
+        "counter": 1960,
+        "character_level": 55,
+        "ammo": 956,
+        "kills_per_hour": 1096.9756989411178
+      }
+    },
+    {
+      "time": 1789045552.826866,
+      "event": "kill_verified",
+      "payload": {
+        "count": 4,
+        "total": 36,
+        "counter": 1964,
+        "character_level": 55,
+        "ammo": 953,
+        "kills_per_hour": 1219.5810513240403
+      }
+    }
+  ]
+}

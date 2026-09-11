@@ -1,0 +1,135 @@
+{
+  "at": 1789075276.5194378,
+  "windows": {
+    "latest5": {
+      "kills": 140,
+      "observations": 344,
+      "empty": 156,
+      "attacks": 108,
+      "top_attack_cells": [
+        [
+          [
+            384,
+            352
+          ],
+          8
+        ],
+        [
+          [
+            448,
+            416
+          ],
+          8
+        ],
+        [
+          [
+            416,
+            384
+          ],
+          7
+        ],
+        [
+          [
+            448,
+            384
+          ],
+          7
+        ],
+        [
+          [
+            320,
+            320
+          ],
+          6
+        ]
+      ]
+    },
+    "prior5": {
+      "kills": 196,
+      "observations": 350,
+      "empty": 144,
+      "attacks": 120,
+      "top_attack_cells": [
+        [
+          [
+            448,
+            480
+          ],
+          9
+        ],
+        [
+          [
+            480,
+            352
+          ],
+          8
+        ],
+        [
+          [
+            416,
+            480
+          ],
+          6
+        ],
+        [
+          [
+            480,
+            448
+          ],
+          5
+        ],
+        [
+          [
+            384,
+            480
+          ],
+          5
+        ]
+      ]
+    },
+    "older15": {
+      "kills": 1574,
+      "observations": 1022,
+      "empty": 275,
+      "attacks": 417,
+      "top_attack_cells": [
+        [
+          [
+            352,
+            384
+          ],
+          24
+        ],
+        [
+          [
+            480,
+            384
+          ],
+          22
+        ],
+        [
+          [
+            448,
+            384
+          ],
+          19
+        ],
+        [
+          [
+            480,
+            352
+          ],
+          18
+        ],
+        [
+          [
+            416,
+            448
+          ],
+          18
+        ]
+      ]
+    }
+  },
+  "action": "Read-only diagnosis of declining recent throughput; complete15m still above40, no route mutation."
+}

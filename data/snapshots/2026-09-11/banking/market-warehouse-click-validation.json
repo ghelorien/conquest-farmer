@@ -1,0 +1,39 @@
+{
+  "time": 1789056445.839524,
+  "source": "read_only_memory",
+  "map_id": 1036,
+  "npc_id": 101388,
+  "npc_position": [
+    182,
+    180
+  ],
+  "player_position": [
+    182,
+    184
+  ],
+  "failed_point": [
+    638,
+    281
+  ],
+  "verified_point": [
+    638,
+    249
+  ],
+  "repeat_open_verified": true,
+  "deposited_meteor_uids": [
+    293101846,
+    293101847,
+    293101848,
+    293101849,
+    293101850,
+    293101851,
+    293101852
+  ],
+  "remaining_carried_valuables": [],
+  "expected_scroll_uid": 293101544,
+  "expected_scroll_missing": true,
+  "tests": "61 passed",
+  "app_pid": 154948,
+  "loaded_revision": 1,
+  "live_open_bank_verified": true
+}

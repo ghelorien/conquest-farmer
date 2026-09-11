@@ -1,0 +1,2608 @@
+[
+  {
+    "at": 1789065459.4081347,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        545,
+        486
+      ],
+      "current_hp": 741,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46418.062,
+      "timestamp": 46418.062,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": []
+  },
+  {
+    "at": 1789065460.0094657,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        545,
+        491
+      ],
+      "current_hp": 741,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46418.609,
+      "timestamp": 46418.609,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": []
+  },
+  {
+    "at": 1789065460.6265914,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        545,
+        493
+      ],
+      "current_hp": 652,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46419.343,
+      "timestamp": 46419.343,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": [
+      {
+        "id": 415138,
+        "type": 8202,
+        "name": "BanditAide",
+        "position": [
+          516,
+          479
+        ],
+        "draw": [
+          30,
+          -311
+        ],
+        "distance": 29,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413118,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          538,
+          468
+        ],
+        "draw": [
+          1086,
+          -135
+        ],
+        "distance": 25,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413097,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          544,
+          479
+        ],
+        "draw": [
+          926,
+          137
+        ],
+        "distance": 14,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458842,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          542,
+          491
+        ],
+        "draw": [
+          478,
+          297
+        ],
+        "distance": 3,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458689,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          543,
+          491
+        ],
+        "draw": [
+          510,
+          313
+        ],
+        "distance": 2,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408900,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          541,
+          494
+        ],
+        "draw": [
+          350,
+          329
+        ],
+        "distance": 4,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458817,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          467
+        ],
+        "draw": [
+          1310,
+          -55
+        ],
+        "distance": 26,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458577,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          543,
+          474
+        ],
+        "draw": [
+          1054,
+          27
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458758,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          550,
+          475
+        ],
+        "draw": [
+          1246,
+          169
+        ],
+        "distance": 18,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458548,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          556,
+          460
+        ],
+        "draw": [
+          1918,
+          25
+        ],
+        "distance": 33,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408902,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          554,
+          462
+        ],
+        "draw": [
+          1790,
+          25
+        ],
+        "distance": 31,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458673,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          559,
+          465
+        ],
+        "draw": [
+          1854,
+          153
+        ],
+        "distance": 28,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458696,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          553,
+          466
+        ],
+        "draw": [
+          1630,
+          73
+        ],
+        "distance": 27,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408892,
+        "type": 8103,
+        "name": "RatMessenger",
+        "position": [
+          553,
+          493
+        ],
+        "draw": [
+          766,
+          505
+        ],
+        "distance": 8,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458791,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          561,
+          468
+        ],
+        "draw": [
+          1822,
+          233
+        ],
+        "distance": 25,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413116,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          562,
+          462
+        ],
+        "draw": [
+          2046,
+          153
+        ],
+        "distance": 31,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458715,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          562,
+          461
+        ],
+        "draw": [
+          2078,
+          137
+        ],
+        "distance": 32,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458697,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          563,
+          464
+        ],
+        "draw": [
+          2014,
+          201
+        ],
+        "distance": 29,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458661,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          564,
+          470
+        ],
+        "draw": [
+          1854,
+          313
+        ],
+        "distance": 23,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458658,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          566,
+          484
+        ],
+        "draw": [
+          1470,
+          569
+        ],
+        "distance": 21,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458865,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          564,
+          490
+        ],
+        "draw": [
+          1214,
+          633
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413095,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          563,
+          492
+        ],
+        "draw": [
+          1118,
+          649
+        ],
+        "distance": 18,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458776,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          565,
+          499
+        ],
+        "draw": [
+          958,
+          793
+        ],
+        "distance": 20,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458869,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          565,
+          503
+        ],
+        "draw": [
+          830,
+          857
+        ],
+        "distance": 20,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458731,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          573,
+          459
+        ],
+        "draw": [
+          2494,
+          281
+        ],
+        "distance": 34,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458845,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          573,
+          461
+        ],
+        "draw": [
+          2430,
+          313
+        ],
+        "distance": 32,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458549,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          568,
+          467
+        ],
+        "draw": [
+          2078,
+          329
+        ],
+        "distance": 26,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458588,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          569,
+          483
+        ],
+        "draw": [
+          1598,
+          601
+        ],
+        "distance": 24,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458868,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          575,
+          474
+        ],
+        "draw": [
+          2078,
+          553
+        ],
+        "distance": 30,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458851,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          576,
+          480
+        ],
+        "draw": [
+          1918,
+          665
+        ],
+        "distance": 31,
+        "error": "Monster changed before health observation"
+      }
+    ]
+  },
+  {
+    "at": 1789065462.0128734,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        545,
+        481
+      ],
+      "current_hp": 652,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46420.625,
+      "timestamp": 46420.625,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": [
+      {
+        "id": 415138,
+        "type": 8202,
+        "name": "BanditAide",
+        "position": [
+          516,
+          479
+        ],
+        "draw": [
+          -354,
+          -119
+        ],
+        "distance": 29,
+        "hp": 140
+      },
+      {
+        "id": 413118,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          538,
+          468
+        ],
+        "draw": [
+          702,
+          57
+        ],
+        "distance": 13,
+        "hp": 214
+      },
+      {
+        "id": 413097,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          544,
+          479
+        ],
+        "draw": [
+          542,
+          329
+        ],
+        "distance": 2,
+        "hp": 811
+      },
+      {
+        "id": 458842,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          543,
+          492
+        ],
+        "draw": [
+          94,
+          521
+        ],
+        "distance": 11,
+        "hp": 134
+      },
+      {
+        "id": 458689,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          492
+        ],
+        "draw": [
+          126,
+          537
+        ],
+        "distance": 11,
+        "hp": 164
+      },
+      {
+        "id": 408900,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          542,
+          493
+        ],
+        "draw": [
+          30,
+          521
+        ],
+        "distance": 12,
+        "hp": 1657
+      },
+      {
+        "id": 458817,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          467
+        ],
+        "draw": [
+          926,
+          137
+        ],
+        "distance": 14,
+        "hp": 999
+      },
+      {
+        "id": 458577,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          475
+        ],
+        "draw": [
+          670,
+          257
+        ],
+        "distance": 6,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458758,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          550,
+          475
+        ],
+        "draw": [
+          862,
+          361
+        ],
+        "distance": 6,
+        "hp": 175
+      },
+      {
+        "id": 458548,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          556,
+          460
+        ],
+        "draw": [
+          1534,
+          217
+        ],
+        "distance": 21,
+        "hp": 999
+      },
+      {
+        "id": 408902,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          554,
+          462
+        ],
+        "draw": [
+          1406,
+          217
+        ],
+        "distance": 19,
+        "hp": 2000
+      },
+      {
+        "id": 458673,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          559,
+          465
+        ],
+        "draw": [
+          1470,
+          345
+        ],
+        "distance": 16,
+        "hp": 999
+      },
+      {
+        "id": 458696,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          554,
+          467
+        ],
+        "draw": [
+          1246,
+          289
+        ],
+        "distance": 14,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408892,
+        "type": 8103,
+        "name": "RatMessenger",
+        "position": [
+          553,
+          493
+        ],
+        "draw": [
+          382,
+          697
+        ],
+        "distance": 12,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458791,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          561,
+          468
+        ],
+        "draw": [
+          1438,
+          425
+        ],
+        "distance": 16,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413116,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          562,
+          462
+        ],
+        "draw": [
+          1662,
+          345
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458715,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          562,
+          461
+        ],
+        "draw": [
+          1694,
+          329
+        ],
+        "distance": 20,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458697,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          563,
+          464
+        ],
+        "draw": [
+          1630,
+          393
+        ],
+        "distance": 18,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458661,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          564,
+          470
+        ],
+        "draw": [
+          1470,
+          505
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458658,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          566,
+          484
+        ],
+        "draw": [
+          1086,
+          761
+        ],
+        "distance": 21,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458865,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          564,
+          490
+        ],
+        "draw": [
+          830,
+          825
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413095,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          563,
+          492
+        ],
+        "draw": [
+          734,
+          841
+        ],
+        "distance": 18,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458776,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          565,
+          499
+        ],
+        "draw": [
+          574,
+          985
+        ],
+        "distance": 20,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458869,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          565,
+          503
+        ],
+        "draw": [
+          446,
+          1049
+        ],
+        "distance": 22,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458731,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          573,
+          459
+        ],
+        "draw": [
+          2110,
+          473
+        ],
+        "distance": 28,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458845,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          573,
+          461
+        ],
+        "draw": [
+          2046,
+          505
+        ],
+        "distance": 28,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458549,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          568,
+          467
+        ],
+        "draw": [
+          1694,
+          521
+        ],
+        "distance": 23,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458588,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          569,
+          483
+        ],
+        "draw": [
+          1214,
+          793
+        ],
+        "distance": 24,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458868,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          575,
+          474
+        ],
+        "draw": [
+          1694,
+          745
+        ],
+        "distance": 30,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458851,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          576,
+          480
+        ],
+        "draw": [
+          1534,
+          857
+        ],
+        "distance": 31,
+        "error": "Monster changed before health observation"
+      }
+    ]
+  },
+  {
+    "at": 1789065463.4588237,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        539,
+        481
+      ],
+      "current_hp": 613,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46422.062,
+      "timestamp": 46422.062,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": [
+      {
+        "id": 415138,
+        "type": 8202,
+        "name": "BanditAide",
+        "position": [
+          516,
+          479
+        ],
+        "draw": [
+          -164,
+          -24
+        ],
+        "distance": 23,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413118,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          538,
+          469
+        ],
+        "draw": [
+          860,
+          168
+        ],
+        "distance": 12,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413097,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          544,
+          479
+        ],
+        "draw": [
+          732,
+          424
+        ],
+        "distance": 5,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458842,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          543,
+          492
+        ],
+        "draw": [
+          284,
+          616
+        ],
+        "distance": 11,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458689,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          492
+        ],
+        "draw": [
+          316,
+          632
+        ],
+        "distance": 11,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408900,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          542,
+          493
+        ],
+        "draw": [
+          220,
+          616
+        ],
+        "distance": 12,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458817,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          467
+        ],
+        "draw": [
+          1116,
+          232
+        ],
+        "distance": 14,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458577,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          476
+        ],
+        "draw": [
+          828,
+          376
+        ],
+        "distance": 5,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458758,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          550,
+          476
+        ],
+        "draw": [
+          1020,
+          472
+        ],
+        "distance": 11,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458548,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          556,
+          460
+        ],
+        "draw": [
+          1724,
+          312
+        ],
+        "distance": 21,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408902,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          554,
+          462
+        ],
+        "draw": [
+          1596,
+          312
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458673,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          559,
+          465
+        ],
+        "draw": [
+          1660,
+          440
+        ],
+        "distance": 20,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458696,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          554,
+          467
+        ],
+        "draw": [
+          1436,
+          392
+        ],
+        "distance": 15,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408892,
+        "type": 8103,
+        "name": "RatMessenger",
+        "position": [
+          554,
+          493
+        ],
+        "draw": [
+          604,
+          808
+        ],
+        "distance": 15,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458791,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          561,
+          468
+        ],
+        "draw": [
+          1628,
+          520
+        ],
+        "distance": 22,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413116,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          562,
+          462
+        ],
+        "draw": [
+          1852,
+          440
+        ],
+        "distance": 23,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458715,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          562,
+          461
+        ],
+        "draw": [
+          1884,
+          424
+        ],
+        "distance": 23,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458697,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          563,
+          464
+        ],
+        "draw": [
+          1820,
+          488
+        ],
+        "distance": 24,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458661,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          564,
+          470
+        ],
+        "draw": [
+          1660,
+          600
+        ],
+        "distance": 25,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458658,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          566,
+          484
+        ],
+        "draw": [
+          1276,
+          856
+        ],
+        "distance": 27,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458865,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          564,
+          490
+        ],
+        "draw": [
+          1020,
+          920
+        ],
+        "distance": 25,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413095,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          563,
+          492
+        ],
+        "draw": [
+          924,
+          936
+        ],
+        "distance": 24,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458776,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          565,
+          499
+        ],
+        "draw": [
+          764,
+          1080
+        ],
+        "distance": 26,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458869,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          565,
+          503
+        ],
+        "draw": [
+          636,
+          1144
+        ],
+        "distance": 26,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458718,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          541,
+          508
+        ],
+        "draw": [
+          -292,
+          840
+        ],
+        "distance": 27,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458670,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          557,
+          510
+        ],
+        "draw": [
+          156,
+          1128
+        ],
+        "distance": 29,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458710,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          559,
+          510
+        ],
+        "draw": [
+          220,
+          1160
+        ],
+        "distance": 29,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458864,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          560,
+          507
+        ],
+        "draw": [
+          348,
+          1128
+        ],
+        "distance": 26,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458529,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          557,
+          513
+        ],
+        "draw": [
+          60,
+          1176
+        ],
+        "distance": 32,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458534,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          550,
+          449
+        ],
+        "draw": [
+          1884,
+          40
+        ],
+        "distance": 32,
+        "error": "Monster changed before health observation"
+      }
+    ]
+  },
+  {
+    "at": 1789065464.4262488,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        533,
+        481
+      ],
+      "current_hp": 613,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46423.015,
+      "timestamp": 46423.015,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": []
+  },
+  {
+    "at": 1789065465.046386,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        533,
+        489
+      ],
+      "current_hp": 613,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46423.765,
+      "timestamp": 46423.765,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": [
+      {
+        "id": 415138,
+        "type": 8202,
+        "name": "BanditAide",
+        "position": [
+          516,
+          479
+        ],
+        "draw": [
+          284,
+          -54
+        ],
+        "distance": 17,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413118,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          539,
+          471
+        ],
+        "draw": [
+          1276,
+          186
+        ],
+        "distance": 18,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413097,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          543,
+          480
+        ],
+        "draw": [
+          1116,
+          394
+        ],
+        "distance": 10,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458842,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          543,
+          492
+        ],
+        "draw": [
+          732,
+          586
+        ],
+        "distance": 10,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458689,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          492
+        ],
+        "draw": [
+          764,
+          602
+        ],
+        "distance": 11,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408900,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          542,
+          493
+        ],
+        "draw": [
+          668,
+          586
+        ],
+        "distance": 9,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458817,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          467
+        ],
+        "draw": [
+          1564,
+          202
+        ],
+        "distance": 22,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458577,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          478
+        ],
+        "draw": [
+          1212,
+          378
+        ],
+        "distance": 11,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458758,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          548,
+          478
+        ],
+        "draw": [
+          1340,
+          442
+        ],
+        "distance": 15,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458548,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          557,
+          461
+        ],
+        "draw": [
+          2172,
+          314
+        ],
+        "distance": 28,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408902,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          554,
+          462
+        ],
+        "draw": [
+          2044,
+          282
+        ],
+        "distance": 27,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458673,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          559,
+          465
+        ],
+        "draw": [
+          2108,
+          410
+        ],
+        "distance": 26,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458696,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          554,
+          467
+        ],
+        "draw": [
+          1884,
+          362
+        ],
+        "distance": 22,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408892,
+        "type": 8103,
+        "name": "RatMessenger",
+        "position": [
+          554,
+          493
+        ],
+        "draw": [
+          1052,
+          778
+        ],
+        "distance": 21,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458791,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          561,
+          468
+        ],
+        "draw": [
+          2076,
+          490
+        ],
+        "distance": 28,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413116,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          561,
+          461
+        ],
+        "draw": [
+          2300,
+          378
+        ],
+        "distance": 28,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458715,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          562,
+          461
+        ],
+        "draw": [
+          2332,
+          394
+        ],
+        "distance": 29,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458697,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          563,
+          464
+        ],
+        "draw": [
+          2268,
+          458
+        ],
+        "distance": 30,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458661,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          564,
+          470
+        ],
+        "draw": [
+          2108,
+          570
+        ],
+        "distance": 31,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458658,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          567,
+          485
+        ],
+        "draw": [
+          1724,
+          858
+        ],
+        "distance": 34,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458865,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          564,
+          490
+        ],
+        "draw": [
+          1468,
+          890
+        ],
+        "distance": 31,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413095,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          562,
+          492
+        ],
+        "draw": [
+          1340,
+          890
+        ],
+        "distance": 29,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458776,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          565,
+          500
+        ],
+        "draw": [
+          1180,
+          1066
+        ],
+        "distance": 32,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458869,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          565,
+          503
+        ],
+        "draw": [
+          1084,
+          1114
+        ],
+        "distance": 32,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458718,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          541,
+          508
+        ],
+        "draw": [
+          156,
+          810
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458670,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          558,
+          509
+        ],
+        "draw": [
+          668,
+          1098
+        ],
+        "distance": 25,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458710,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          559,
+          510
+        ],
+        "draw": [
+          668,
+          1130
+        ],
+        "distance": 26,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458864,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          560,
+          507
+        ],
+        "draw": [
+          796,
+          1098
+        ],
+        "distance": 27,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458529,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          557,
+          513
+        ],
+        "draw": [
+          508,
+          1146
+        ],
+        "distance": 24,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 469434,
+        "type": 7,
+        "name": "Bandit",
+        "position": [
+          506,
+          520
+        ],
+        "draw": [
+          -1348,
+          442
+        ],
+        "distance": 31,
+        "error": "Monster changed before health observation"
+      }
+    ]
+  },
+  {
+    "at": 1789065466.4923363,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        527,
+        490
+      ],
+      "current_hp": 613,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46425.203,
+      "timestamp": 46425.203,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": [
+      {
+        "id": 415138,
+        "type": 8202,
+        "name": "BanditAide",
+        "position": [
+          516,
+          479
+        ],
+        "draw": [
+          519,
+          30
+        ],
+        "distance": 11,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413118,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          540,
+          473
+        ],
+        "draw": [
+          1479,
+          318
+        ],
+        "distance": 17,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413097,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          542,
+          481
+        ],
+        "draw": [
+          1259,
+          478
+        ],
+        "distance": 15,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458842,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          543,
+          492
+        ],
+        "draw": [
+          967,
+          670
+        ],
+        "distance": 16,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458689,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          492
+        ],
+        "draw": [
+          999,
+          686
+        ],
+        "distance": 17,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408900,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          540,
+          495
+        ],
+        "draw": [
+          775,
+          670
+        ],
+        "distance": 13,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458817,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          467
+        ],
+        "draw": [
+          1799,
+          286
+        ],
+        "distance": 23,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458577,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          544,
+          480
+        ],
+        "draw": [
+          1383,
+          494
+        ],
+        "distance": 17,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458758,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          546,
+          480
+        ],
+        "draw": [
+          1447,
+          526
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408902,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          554,
+          462
+        ],
+        "draw": [
+          2279,
+          366
+        ],
+        "distance": 28,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458696,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          554,
+          467
+        ],
+        "draw": [
+          2119,
+          446
+        ],
+        "distance": 27,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408892,
+        "type": 8103,
+        "name": "RatMessenger",
+        "position": [
+          554,
+          493
+        ],
+        "draw": [
+          1287,
+          876
+        ],
+        "distance": 27,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458718,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          541,
+          508
+        ],
+        "draw": [
+          391,
+          894
+        ],
+        "distance": 18,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 469434,
+        "type": 7,
+        "name": "Bandit",
+        "position": [
+          506,
+          520
+        ],
+        "draw": [
+          -1113,
+          526
+        ],
+        "distance": 30,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458531,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          554,
+          523
+        ],
+        "draw": [
+          327,
+          1342
+        ],
+        "distance": 33,
+        "error": "Monster changed before health observation"
+      }
+    ]
+  },
+  {
+    "at": 1789065467.3292582,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        521,
+        490
+      ],
+      "current_hp": 613,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46425.968,
+      "timestamp": 46425.968,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": [
+      {
+        "id": 415138,
+        "type": 8202,
+        "name": "BanditAide",
+        "position": [
+          516,
+          479
+        ],
+        "draw": [
+          717,
+          128
+        ],
+        "distance": 11,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413118,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          540,
+          473
+        ],
+        "draw": [
+          1677,
+          416
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413097,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          541,
+          482
+        ],
+        "draw": [
+          1421,
+          576
+        ],
+        "distance": 20,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458842,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          543,
+          492
+        ],
+        "draw": [
+          1165,
+          768
+        ],
+        "distance": 22,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408900,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          540,
+          495
+        ],
+        "draw": [
+          973,
+          768
+        ],
+        "distance": 19,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458718,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          541,
+          508
+        ],
+        "draw": [
+          589,
+          992
+        ],
+        "distance": 20,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 469434,
+        "type": 7,
+        "name": "Bandit",
+        "position": [
+          506,
+          520
+        ],
+        "draw": [
+          -915,
+          624
+        ],
+        "distance": 30,
+        "error": "Monster changed before health observation"
+      }
+    ]
+  },
+  {
+    "at": 1789065468.1298327,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        513,
+        490
+      ],
+      "current_hp": 613,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46426.765,
+      "timestamp": 46426.765,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": [
+      {
+        "id": 415138,
+        "type": 8202,
+        "name": "BanditAide",
+        "position": [
+          516,
+          479
+        ],
+        "draw": [
+          967,
+          254
+        ],
+        "distance": 11,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413118,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          540,
+          474
+        ],
+        "draw": [
+          1895,
+          558
+        ],
+        "distance": 27,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413097,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          540,
+          483
+        ],
+        "draw": [
+          1607,
+          702
+        ],
+        "distance": 27,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458842,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          543,
+          492
+        ],
+        "draw": [
+          1415,
+          894
+        ],
+        "distance": 30,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408900,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          539,
+          496
+        ],
+        "draw": [
+          1159,
+          894
+        ],
+        "distance": 26,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 458718,
+        "type": 8,
+        "name": "Ratling",
+        "position": [
+          541,
+          508
+        ],
+        "draw": [
+          839,
+          1118
+        ],
+        "distance": 28,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 469434,
+        "type": 7,
+        "name": "Bandit",
+        "position": [
+          506,
+          520
+        ],
+        "draw": [
+          -665,
+          750
+        ],
+        "distance": 30,
+        "error": "Monster changed before health observation"
+      }
+    ]
+  },
+  {
+    "at": 1789065468.7594874,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        509,
+        490
+      ],
+      "current_hp": 613,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46427.343,
+      "timestamp": 46427.343,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": []
+  },
+  {
+    "at": 1789065469.367746,
+    "life": {
+      "character": "Parasite",
+      "object_address": 124894384,
+      "status": 0,
+      "appearance": 0,
+      "map_id": 1011,
+      "position": [
+        506,
+        490
+      ],
+      "current_hp": 613,
+      "max_hp": 968,
+      "ghost_candidate": false,
+      "revive_gate_value": 0,
+      "revive_ready_candidate": false,
+      "started_at": 46428.046,
+      "timestamp": 46428.046,
+      "dead_candidate": false
+    },
+    "manual": false,
+    "actors": [
+      {
+        "id": 415138,
+        "type": 8202,
+        "name": "BanditAide",
+        "position": [
+          516,
+          479
+        ],
+        "draw": [
+          1182,
+          361
+        ],
+        "distance": 11,
+        "hp": 140
+      },
+      {
+        "id": 413118,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          540,
+          475
+        ],
+        "draw": [
+          2078,
+          681
+        ],
+        "distance": 34,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 413097,
+        "type": 67,
+        "name": "FireRatL38",
+        "position": [
+          539,
+          484
+        ],
+        "draw": [
+          1758,
+          809
+        ],
+        "distance": 33,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 408900,
+        "type": 8203,
+        "name": "RatAide",
+        "position": [
+          538,
+          495
+        ],
+        "draw": [
+          1374,
+          969
+        ],
+        "distance": 32,
+        "error": "Monster changed before health observation"
+      },
+      {
+        "id": 469434,
+        "type": 7,
+        "name": "Bandit",
+        "position": [
+          505,
+          519
+        ],
+        "draw": [
+          -450,
+          835
+        ],
+        "distance": 29,
+        "error": "Monster changed before health observation"
+      }
+    ]
+  }
+]

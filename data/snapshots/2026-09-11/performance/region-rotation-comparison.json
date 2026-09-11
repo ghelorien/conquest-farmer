@@ -1,0 +1,228 @@
+{
+  "phase": "interrupted",
+  "plan": {
+    "stages": [
+      {
+        "kind": "sample",
+        "route_id": "bandit-region-rotation",
+        "minutes": 15
+      },
+      {
+        "kind": "sample",
+        "route_id": "bandit-northern-fields",
+        "minutes": 15
+      },
+      {
+        "kind": "sample",
+        "route_id": "bandit-region-rotation",
+        "minutes": 15
+      },
+      {
+        "kind": "sample",
+        "route_id": "bandit-northern-fields",
+        "minutes": 15
+      },
+      {
+        "kind": "validate_winner",
+        "minutes": 15
+      }
+    ],
+    "minutes": 75,
+    "candidate_ids": [
+      "bandit-region-rotation",
+      "bandit-northern-fields"
+    ]
+  },
+  "current_stage": 0,
+  "samples": [],
+  "fallback": "bandit-northern-fields",
+  "memory_only": true,
+  "winner": null,
+  "maximum_elapsed_minutes": 120,
+  "notes": "Initial movement shakedown excluded: normal chase could divert away from the intended region. Preserve raw events. Corrected scatter and chase bounds before comparison.",
+  "started_at": 1789133128.3737073,
+  "stage_started_at": 1789133128.3737073,
+  "stage_due_at": 1789134028.3737073,
+  "active_route": "bandit-region-rotation",
+  "stage_start_gear": {
+    "level": 70,
+    "profession": 42,
+    "map_id": 1011,
+    "equipment": {
+      "head": {
+        "uid": 293210212,
+        "type_id": 113335,
+        "name": "LeopardHat",
+        "level": 62,
+        "profession": 40,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 0,
+        "attack_max": 0,
+        "defense": 30,
+        "dodge": 0
+      },
+      "necklace": {
+        "uid": 292927322,
+        "type_id": 120065,
+        "name": "JadeNecklace",
+        "level": 37,
+        "profession": 0,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 0,
+        "attack_max": 0,
+        "defense": 10,
+        "dodge": 0
+      },
+      "armor": {
+        "uid": 292966993,
+        "type_id": 133428,
+        "name": "WolfCoat",
+        "level": 42,
+        "profession": 40,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 0,
+        "attack_max": 0,
+        "defense": 37,
+        "dodge": 0
+      },
+      "bow": {
+        "uid": 292370471,
+        "type_id": 500119,
+        "name": "IronBow",
+        "level": 65,
+        "profession": 40,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 402,
+        "attack_max": 493,
+        "defense": 0,
+        "dodge": 0
+      },
+      "arrows": {
+        "uid": 293227769,
+        "type_id": 1050001,
+        "name": "IronArrow",
+        "level": 32,
+        "profession": 40,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 50,
+        "attack_max": 50,
+        "defense": 0,
+        "dodge": 0
+      },
+      "ring": {
+        "uid": 289796675,
+        "type_id": 150119,
+        "name": "JadeRing",
+        "level": 60,
+        "profession": 0,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 95,
+        "attack_max": 221,
+        "defense": 0,
+        "dodge": 0
+      },
+      "boots": {
+        "uid": 292927325,
+        "type_id": 160075,
+        "name": "EagleBoots",
+        "level": 40,
+        "profession": 0,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 0,
+        "attack_max": 0,
+        "defense": 0,
+        "dodge": 9
+      }
+    }
+  },
+  "shakedown_started_at": 1789132850.8874896,
+  "shakedown_ended_at": 1789133128.3737073,
+  "mechanics_verified": {
+    "transitions": [
+      {
+        "time": 1789133161.65981,
+        "from_region": "north",
+        "to_region": "center",
+        "empty_fraction": 0.6,
+        "idle_seconds": 3.125,
+        "activity": "Rotating from north to center: few nearby targets"
+      },
+      {
+        "time": 1789133211.9985688,
+        "from_region": "center",
+        "to_region": "south",
+        "empty_fraction": 0.7647058823529411,
+        "idle_seconds": 3.1719999999913853,
+        "activity": "Rotating from center to south: few nearby targets"
+      },
+      {
+        "time": 1789133270.0750608,
+        "from_region": "south",
+        "to_region": "north",
+        "empty_fraction": 1.0,
+        "idle_seconds": 8.703000000008615,
+        "activity": "Rotating from south to north: few nearby targets"
+      }
+    ],
+    "source": "read_only_memory region_rotated events",
+    "full_order_observed": true
+  },
+  "interrupted_at": 1789139127.4806926,
+  "interruption_reason": "Market warehouse frontage obstruction stopped controller; scheduled comparison remained on stage zero, so no comparative winner is qualified.",
+  "raw_observation": {
+    "start": 1789133128.3737073,
+    "end": 1789139127.4806926,
+    "seconds": 5999.1,
+    "kills": 4682,
+    "kills_per_minute": 46.83,
+    "projected_kills_per_hour": 2810,
+    "empty_observations": 2112,
+    "observations": 4272,
+    "minimum_hp_ratio": 0.6048171275646744,
+    "events": {
+      "trial_started": 6,
+      "boundary_return_started": 6,
+      "level_observed": 6,
+      "health_observation": 30320,
+      "observation": 4272,
+      "movement_attempt": 2477,
+      "trial_stopped": 6,
+      "paused": 718,
+      "resumed": 718,
+      "movement_verified": 2287,
+      "ranged_escape": 28,
+      "boundary_return_completed": 5,
+      "farming_area_reached": 5,
+      "attack_attempt": 1371,
+      "kill_verified": 1353,
+      "region_rotated": 41,
+      "movement_stuck": 58,
+      "movement_recovery": 58,
+      "state_retry": 2,
+      "healing_attempt": 4,
+      "healing_outcome": 3,
+      "level_changed": 1
+    }
+  }
+}

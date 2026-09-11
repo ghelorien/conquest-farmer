@@ -1,0 +1,19 @@
+{
+  "checked_at": 1789070786.1069026,
+  "app_pid": 249768,
+  "vendor": {
+    "reachable": true,
+    "npc_id": 101388,
+    "position": [
+      182,
+      180
+    ],
+    "point": [
+      638,
+      217
+    ]
+  },
+  "live_open_verified": false,
+  "live_open_limitation": "Previous attempt returned Game lost focus; no input sent. Farming remains manually Off.",
+  "tests_passed": 229
+}

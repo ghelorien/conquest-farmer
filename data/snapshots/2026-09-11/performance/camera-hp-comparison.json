@@ -1,0 +1,264 @@
+{
+  "at": 1789067381.5478172,
+  "samples": 18,
+  "old": {
+    "Monster changed before health observation": 18
+  },
+  "new": {
+    "read": 18
+  },
+  "rows": [
+    {
+      "at": 1789067371.6011071,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "new": {
+        "hp": 817
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067372.398253,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "old": {
+        "error": "Monster changed before health observation"
+      },
+      "new": {
+        "hp": 817
+      }
+    },
+    {
+      "at": 1789067373.1649783,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "new": {
+        "hp": 817
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067373.298361,
+      "entity_id": 469731,
+      "position": [
+        415,
+        498
+      ],
+      "new": {
+        "hp": 817
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067374.1086702,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "old": {
+        "error": "Monster changed before health observation"
+      },
+      "new": {
+        "hp": 817
+      }
+    },
+    {
+      "at": 1789067374.2124248,
+      "entity_id": 469731,
+      "position": [
+        415,
+        498
+      ],
+      "old": {
+        "error": "Monster changed before health observation"
+      },
+      "new": {
+        "hp": 817
+      }
+    },
+    {
+      "at": 1789067374.9555001,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "new": {
+        "hp": 817
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067375.138011,
+      "entity_id": 469731,
+      "position": [
+        415,
+        498
+      ],
+      "new": {
+        "hp": 817
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067375.888199,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "old": {
+        "error": "Monster changed before health observation"
+      },
+      "new": {
+        "hp": 817
+      }
+    },
+    {
+      "at": 1789067375.9614697,
+      "entity_id": 469731,
+      "position": [
+        415,
+        498
+      ],
+      "old": {
+        "error": "Monster changed before health observation"
+      },
+      "new": {
+        "hp": 817
+      }
+    },
+    {
+      "at": 1789067376.7852323,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "new": {
+        "hp": 0
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067376.833222,
+      "entity_id": 469731,
+      "position": [
+        415,
+        498
+      ],
+      "new": {
+        "hp": 817
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067378.4384093,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "new": {
+        "hp": 0
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067378.6882665,
+      "entity_id": 469731,
+      "position": [
+        416,
+        498
+      ],
+      "new": {
+        "hp": 817
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067379.414137,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "old": {
+        "error": "Monster changed before health observation"
+      },
+      "new": {
+        "hp": 0
+      }
+    },
+    {
+      "at": 1789067379.7779644,
+      "entity_id": 469731,
+      "position": [
+        416,
+        498
+      ],
+      "old": {
+        "error": "Monster changed before health observation"
+      },
+      "new": {
+        "hp": 817
+      }
+    },
+    {
+      "at": 1789067380.4948359,
+      "entity_id": 470035,
+      "position": [
+        428,
+        465
+      ],
+      "new": {
+        "hp": 0
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    },
+    {
+      "at": 1789067380.5282304,
+      "entity_id": 469731,
+      "position": [
+        416,
+        498
+      ],
+      "new": {
+        "hp": 817
+      },
+      "old": {
+        "error": "Monster changed before health observation"
+      }
+    }
+  ]
+}

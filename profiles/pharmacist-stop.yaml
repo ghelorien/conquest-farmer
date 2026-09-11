@@ -1,0 +1,66 @@
+schema_version: 1
+id: twin-city-pharmacist
+map_id: 1002
+stand_at:
+- 466
+- 333
+npc_name: Pharmacist
+npc_position_candidate:
+- 466
+- 327
+source: User selected standing tile; vendor ID/type/name/model observed in read-only
+  scene sample on 2026-09-08
+client_size:
+- 1036
+- 793
+open_shop_point:
+- 707
+- 261
+town_start:
+- 430
+- 381
+planned_waypoints:
+- - 430
+  - 381
+- - 430
+  - 369
+- - 430
+  - 357
+- - 430
+  - 345
+- - 430
+  - 334
+- - 442
+  - 334
+- - 454
+  - 334
+- - 459
+  - 334
+- - 459
+  - 333
+- - 466
+  - 333
+qualification: npc_reader_replay_verified; live reader and active shop items pending
+  validation
+buy_painkiller:
+  point:
+  - 186
+  - 228
+  button: right
+  type_id: 1000020
+  unit_price: 60
+  healing: 250
+  target_count: 15
+healing_policy: Choose the least expensive usable HP potion that can restore one full
+  current maximum-health bar, subject to funds and free slots.
+npc_entity_id: 100102
+npc_type_id: 3
+shop_memory_qualified: false
+purchase_enabled: false
+observation_policy: memory_only; historical screen points do not authorize vendor
+  interaction
+catalog_pharmacist_type_candidates:
+- 3
+- 9
+- 23
+npc_model: 30

@@ -1,0 +1,15 @@
+{
+  "time": 1789041441.7017295,
+  "started_at": 1789041365.6273394,
+  "seconds": 76.1,
+  "app_pid": 54804,
+  "revision": 3,
+  "kills": 46,
+  "movement_attempts": 36,
+  "blocked_moves": 3,
+  "landing_to_scatter_samples": 15,
+  "median_landing_to_scatter_seconds": 0.228,
+  "alive": true,
+  "hp": 745,
+  "enabled": true
+}

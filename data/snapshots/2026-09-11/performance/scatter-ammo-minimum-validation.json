@@ -1,0 +1,45 @@
+{
+  "at": 1789049757.958339,
+  "app_pid": 109800,
+  "scatter_ammo_minimum_revision": 1,
+  "control": {
+    "enabled": true,
+    "target_ids": [],
+    "target_type_ids": [
+      7,
+      66
+    ],
+    "resolved_target_ids": [],
+    "input_mode": "foreground",
+    "revision": 3,
+    "execution_state": "farming",
+    "note": "Hunting"
+  },
+  "life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 0,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      399,
+      456
+    ],
+    "current_hp": 724,
+    "max_hp": 911,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 30716.625,
+    "timestamp": 30716.625,
+    "dead_candidate": false
+  },
+  "observed_at": 1789049757.8970597,
+  "controller": {
+    "pid": 113316,
+    "phase": "hunting",
+    "activity": "Heading back to the hunting area"
+  },
+  "tests_passed": 154,
+  "policy": "Scatter requires 3 in equipped or usable reserve stack; reload first, otherwise restock. Refill remains 5 potions / 10 arrow packs."
+}

@@ -22,6 +22,7 @@ class InventoryLayout(BaseModel):
     item_type: Offset
     item_amount: Offset
     item_limit: Offset
+    item_plus: Offset | None = None
     capacity: int = Field(default=40, ge=1, le=100)
 
 
@@ -32,6 +33,7 @@ class Item:
     amount: int
     limit: int
     slot: int | None
+    plus: int | None = None
 
 
 @dataclass(frozen=True)
@@ -71,7 +73,10 @@ def read_inventory(session, player, layout, module_base, clock=time.monotonic):
         raise ValueError("Inventory map size is invalid")
     if not 0 <= count <= layout.capacity or count != lookup_count or count > table_size:
         raise ValueError("Inventory count is inconsistent")
-    if first >= table_size and (table_size != 0 or first != 0 or count != 0):
+    # The deque keeps a logical offset, which can exceed the map length after
+    # removals. The pointer slots wrap modulo table_size; all raw header fields
+    # and item identities are still rechecked below before accepting the read.
+    if not 0<=first<=0xffffffffffffffff or (table_size==0 and first!=0):
         raise ValueError("Inventory start is outside the calibrated map")
     block_fields = [(table + ((first + index) % table_size) * 8, "u64") for index in range(count)]
     blocks = sample(session, block_fields)
@@ -82,19 +87,23 @@ def read_inventory(session, player, layout, module_base, clock=time.monotonic):
         raise ValueError("Inventory contains null or duplicate item pointers")
     fields = []
     active = [(slot, ptr) for slot, ptr in enumerate(pointers) if ptr]
+    stride=6 if layout.item_plus is not None else 5
     for slot, ptr in active:
         fields.extend([(ptr, "u64"), (ptr + layout.item_uid, "u32"),
                        (ptr + layout.item_type, "u32"), (ptr + layout.item_amount, "u16"),
                        (ptr + layout.item_limit, "u16")])
+        if layout.item_plus is not None:
+            fields.append((ptr+layout.item_plus,"u16"))
     values = sample(session, fields)
     items, ammo = [], None
     for index, (slot, ptr) in enumerate(active):
-        vtable, uid, type_id, amount, limit = values[index * 5:index * 5 + 5]
+        vtable, uid, type_id, amount, limit = values[index * stride:index * stride + 5]
         if vtable != module_base + layout.item_vtable_rva or not uid or not type_id:
             raise ValueError("Inventory item identity is invalid")
         if amount > limit or limit == 0:
             raise ValueError("Inventory item amount is invalid")
-        item = Item(uid, type_id, amount, limit, slot if slot < count else None)
+        plus=(values[index*stride+5]&0xff) if stride==6 else None
+        item = Item(uid, type_id, amount, limit, slot if slot < count else None,plus)
         if slot < count:
             items.append(item)
         else:
@@ -109,10 +118,10 @@ def read_inventory(session, player, layout, module_base, clock=time.monotonic):
     # Accept its newer amount only if every identity/topology field is stable.
     if ammo is not None:
         ammo_index = next(index for index,(slot,ptr) in enumerate(active) if slot == count)
-        amount_index = ammo_index * 5 + 3
+        amount_index = ammo_index * stride + 3
         if 0 <= final_values[amount_index] <= values[amount_index]:
             values[amount_index] = final_values[amount_index]
-            ammo = Item(ammo.uid, ammo.type_id, final_values[amount_index], ammo.limit, None)
+            ammo = Item(ammo.uid, ammo.type_id, final_values[amount_index], ammo.limit, None,ammo.plus)
     if (sample(session, header_fields) != header or sample(session, block_fields) != blocks
             or sample(session, pointer_fields) != pointers or final_values != values
             or sample(session, [(player + layout.silver, "u32")])[0] != silver):

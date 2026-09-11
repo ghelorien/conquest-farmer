@@ -1,0 +1,107 @@
+import time,yaml
+from pathlib import Path
+from types import SimpleNamespace as NS
+from conquest.market_services import execute
+from conquest.memory_entities import EntityLayout,MemoryEntityReader
+from conquest.memory_health import HealthLayout
+from conquest.memory_life import read_life
+from conquest.addressing import resolve_player
+from conquest.worker import request
+
+def service(loop,body):
+    import importlib,conquest.market_services
+    execute=importlib.reload(conquest.market_services).execute
+    conquest.market_services.MODELS.update({'TreasureBank':{86},'ComposeBank':{86},
+        'HelpNpc':{4297},'WeaponMaster':{9506},'ArtisanRow':{8506},'PrizeNPC':{1067}})
+    care=loop.care
+    if body.get('action')=='qualify-pack-meteors':
+        from conquest.discord_notify import read_json,write_json
+        from conquest.meteor_banking import POLICY,JOURNAL,exchange_received
+        policy=read_json(POLICY);journal=read_json(JOURNAL)
+        if journal.get('phase')!='carried_in_market':raise ValueError('Batch is not ready; no exchange repeated')
+        life=loop.living()['embedded_controls']['life']
+        if life['map_id']!=1036:raise ValueError('Meteors must stay in Market')
+        loc=service(loop,{'action':'service-locate','name':'MillionaireLee'})
+        import json
+        if json.loads(json.dumps(loc['identity']))!=policy['exchange']['identity']:raise ValueError('Exchanger identity changed')
+        before=loop.town('supplies')
+        if sorted(i['uid'] for i in before['items'] if i['type_id']==1088001)!=sorted(journal['meteor_uids']):raise ValueError('Meteor batch changed')
+        service(loop,{'action':'service-open','name':'MillionaireLee'})
+        for index,step in enumerate(policy['exchange']['dialogs']):
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                loop.check_stop()
+                try:data=service(loop,{'action':'service-dialog'})
+                except ValueError:
+                    time.sleep(.1);continue
+                if data['records']!=step['records']:
+                    time.sleep(.1);continue
+                try:conquest.market_services.dialog_point(loop.qualification_trade.observer,step['option'],step['records'])
+                except ValueError as error:
+                    if 'layout' not in str(error):raise
+                    service(loop,{'action':'service-scroll-dialog','name':'MillionaireLee','records':data['records']})
+                    time.sleep(.15);continue
+                if index==len(policy['exchange']['dialogs'])-1:
+                    journal.update(phase='exchange_pending',before=before);write_json(JOURNAL,journal)
+                service(loop,{'action':'service-select','name':'MillionaireLee','option':step['option'],'records':step['records']})
+                break
+            else:raise ValueError('Packing dialog was not qualified')
+        deadline=time.monotonic()+5
+        while time.monotonic()<deadline:
+            after=loop.town('supplies')
+            if exchange_received(before,after,0):
+                scroll=next(i for i in after['items'] if i['uid'] not in {x['uid'] for x in before['items']})
+                journal.update(phase='storing_scroll',scroll_uid=scroll['uid'],after=after,exchange_verified=True,fee=0);write_json(JOURNAL,journal)
+                loop.record('meteor_exchange_verified',activity='Ten Meteors packed; carrying MeteorScroll to Market warehouse',scroll_uid=scroll['uid'])
+                return {'verified':True,'removed_uids':journal['meteor_uids'],'scroll':scroll,'fee':0}
+            time.sleep(.1)
+        raise ValueError('Exchange unverified; no second exchange or return trip issued')
+    if body.get('action')=='qualify-market-jump':
+        from conquest.navigation import read_terrain
+        from conquest.scene_input import memory_player_anchor
+        h=loop.living();life=h['embedded_controls']['life'];source=tuple(life['position']);target=tuple(body['destination'])
+        dx,dy=target[0]-source[0],target[1]-source[1]
+        if life['map_id']!=1036 or (dx and dy) or not 8<=abs(dx)+abs(dy)<=12:raise ValueError('Only bounded Market cardinal jumps')
+        terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',1036)
+        if not terrain.walkable(source) or not terrain.walkable(target):raise ValueError('Landing is blocked')
+        anchor=memory_player_anchor(NS(adapter=care.session),NS(**life));point=(round(anchor[0]+(dx-dy)*32),round(anchor[1]+(dx+dy)*16))
+        if not(80<point[0]<956 and 140<point[1]<667):raise ValueError('Landing is outside safe input area')
+        fresh=loop.living()['embedded_controls']
+        if tuple(fresh['life']['position'])!=source or fresh['control']['enabled'] or fresh.get('manual_mouse'):raise ValueError('Input state changed')
+        addresses=resolve_player(care.session,care.layout)
+        request(care.info,'foreground-click',{'point':list(point),'button':'left','control':True,'expected_size':[1036,793],'require_foreground':True,'expires_at':time.time()+4,'guard':{'name_address':hex(addresses['name']),'name':'Parasite','hp_address':hex(addresses['max_hp']),'max_hp':life['max_hp']}})
+        samples=[];deadline=time.monotonic()+3
+        while time.monotonic()<deadline:
+            h=loop.living();care.check(h);p=h['embedded_controls']['life'];samples.append(p['position'])
+            if p['map_id']!=1036:raise ValueError('Map changed')
+            if len(samples)>1 and samples[-2:]==[list(target),list(target)]:return {'source':source,'target':target,'point':point,'reached':True,'samples':samples}
+            time.sleep(.1)
+        return {'source':source,'target':target,'reached':False,'samples':samples}
+    if body.get('action')=='qualify-dialog-resize':
+        from conquest.memory_shop import MemoryGui
+        gui=MemoryGui(care.session);w=gui.read('Dialog')
+        fresh=loop.living()['embedded_controls'];life=fresh['life']
+        if fresh['control']['enabled'] or fresh.get('manual_mouse'):raise ValueError('Input belongs to user or farmer')
+        if gui.read('Dialog')!=w:raise ValueError('Dialog moved')
+        addresses=resolve_player(care.session,care.layout)
+        x,y=w.position;ww,hh=w.size
+        result=request(care.info,'foreground-drag',{'source':[round(x+ww-5),round(y+hh-5)],'destination':[round(x+ww+100),round(y+hh+180)],'expected_size':[1036,793],'expires_at':time.time()+4,'guard':{'name_address':hex(addresses['name']),'name':'Parasite','hp_address':hex(addresses['max_hp']),'max_hp':life['max_hp']}})
+        time.sleep(.3)
+        return {'drag':result,'before':str(w),'after':str(gui.read('Dialog'))}
+    if not hasattr(loop,'qualification_trade'):
+        observer=NS(adapter=care.session,character='Parasite',health_layout=HealthLayout.model_validate(care.health_layout),
+            entities=MemoryEntityReader(care.session,EntityLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-entities-candidate.yaml').read_text()))))
+        def life(**kwargs):
+            loop.check_stop();current=read_life(observer.adapter,observer.health_layout,observer.character)
+            if current.dead_candidate:raise ValueError('Living player required')
+            return current
+        def click(point):
+            fresh=loop.living()['embedded_controls'];current=life()
+            if fresh['control']['enabled'] or fresh.get('manual_mouse'):raise ValueError('Input belongs to user or farmer')
+            addresses=resolve_player(care.session,care.layout)
+            return request(care.info,'foreground-click',{'point':list(point),'button':'left','control':False,
+                'expected_size':[1036,793],'require_foreground':True,'expires_at':time.time()+4,
+                'guard':{'name_address':hex(addresses['name']),'name':'Parasite',
+                         'hp_address':hex(addresses['max_hp']),'max_hp':current.max_hp}})
+        loop.qualification_trade=NS(observer=observer,life=life,click=click)
+    return execute(loop.qualification_trade,body)

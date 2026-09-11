@@ -1,0 +1,12 @@
+import json,struct
+from conquest.worker import request
+from conquest.discord_notify import read_json
+from conquest.memory_health import HealthWorkerSession
+p=read_json('reports/desktop-farming/app-state.json')['worker_info_path'];h=request(p,'health');s=HealthWorkerSession(p,h['expected_sha256']);b=s.modules[0]['base'];c=struct.unpack('<Q',s.read_block(b+0x6966f0,8))[0];n,cap,a=struct.unpack('<IIQ',s.read_block(c+0x3e58,16));frame=struct.unpack('<I',s.read_block(c+0x3e38,4))[0]
+rows=[]
+for v in struct.unpack('<'+'Q'*n,s.read_block(a,n*8)):
+ d=s.read_block(v,0x250);frame=struct.unpack('<I',s.read_block(c+0x3e38,4))[0]
+ if d[0x97] and 0<=frame-struct.unpack_from('<I',d,0x248)[0]<=3:
+  name=s.read_block(struct.unpack_from('<Q',d)[0],96).split(b'\0')[0].decode();rows.append((name,struct.unpack_from('<4f',d,0x18)))
+print(rows)
+

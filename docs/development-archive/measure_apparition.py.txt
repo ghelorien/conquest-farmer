@@ -1,0 +1,15 @@
+import time,json,sqlite3,collections
+from pathlib import Path
+from conquest.worker import request
+start=time.time()
+out=Path('reports/apparition-optimization-samples.jsonl')
+for step in range(90):
+ try:
+    s=json.load(open('reports/desktop-farming/app-state.json'))
+    e=request(s['worker_info_path'],'health')['embedded_controls']
+    life=e.get('life') or {}
+    row={'time':time.time(),'elapsed':time.time()-start,'position':life.get('position'),'hp':life.get('current_hp'),'max_hp':life.get('max_hp'),'state':s.get('state'),'kills':s.get('kills'),'attempts':s.get('attempts'),'enabled':e['control']['enabled'],'monsters':e.get('monsters',[])}
+    with out.open('a',encoding='utf-8') as f:f.write(json.dumps(row)+'\n')
+    print(json.dumps({k:v for k,v in row.items() if k!='monsters'}),flush=True)
+ except Exception as error:print(type(error).__name__,str(error),flush=True)
+ time.sleep(5)

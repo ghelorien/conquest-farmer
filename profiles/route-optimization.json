@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "minimum_minutes": 60,
+  "maximum_minutes": 120,
+  "sample_minutes": 15,
+  "rounds": 2,
+  "preferred_candidates": 3,
+  "validation_minutes": 15,
+  "target_kills_per_minute": 40,
+  "stretch_kills_per_minute": 50,
+  "reassess_window_minutes": 15,
+  "reassess_confirmation_minutes": 5,
+  "metric": "verified_kills_per_wall_clock_hour",
+  "include_normal_downtime": true,
+  "memory_only": true
+}

@@ -1,0 +1,68 @@
+import json, sqlite3, time, sys, collections
+from pathlib import Path
+from conquest.discord_notify import read_json, write_json, process_alive
+from conquest.worker import request
+from conquest.routes import RouteLibrary
+
+REPORT='reports/performance/bandit-route-experiment.json'
+
+def measure(start,end):
+    with sqlite3.connect(Path('reports/desktop-farming/trial.sqlite3').resolve().as_uri()+'?mode=ro',uri=True) as db:
+        rows=[(t,e,json.loads(p)) for t,e,p in db.execute('select time,event,payload from events where time>=? and time<? order by time',(start,end))]
+    counts=collections.Counter(e for t,e,p in rows)
+    kills=sum(p['count'] for t,e,p in rows if e=='kill_verified' and type(p.get('count')) is int and 0<p['count']<=32)
+    obs=[p for t,e,p in rows if e=='observation']
+    return dict(start=start,end=end,seconds=round(end-start,1),kills=kills,kills_per_minute=round(kills*60/(end-start),2),projected_kills_per_hour=round(kills*3600/(end-start)),empty_observations=sum(p.get('targets')==0 for p in obs),observations=len(obs),minimum_hp_ratio=min((p['health_ratio'] for p in obs),default=None),events=dict(counts))
+
+def health():
+    app=read_json('reports/desktop-farming/app-state.json')
+    return app,request(app['worker_info_path'],'health')['embedded_controls']
+
+def report():
+    m=read_json(REPORT)
+    for trial in m['trials']:
+        trial['metrics']=measure(trial['start'],trial.get('end',time.time()))
+    write_json(REPORT,m)
+    print(json.dumps(m,indent=2))
+
+if __name__=='__main__':
+    command=sys.argv[1]
+    if command=='baseline':
+        m=read_json(REPORT);now=time.time()
+        m['trials'].append({'variant':'bandit-original','start':now-300,'end':now,'retrospective':True})
+        write_json(REPORT,m);report()
+    elif command=='switch':
+        rid=sys.argv[2];lib=RouteLibrary();candidate=lib.load(rid)
+        assert rid in read_json(REPORT)['variants']
+        app,d=health()
+        assert d['control']['enabled'],'Farming is Off; no restart authorized by this tool'
+        assert not d['manual_mouse'],'Manual mouse takes priority'
+        assert d['observations_available'] and time.time()-d['observed_at']<1
+        assert d['life']['map_id']==1011 and not d['life']['dead_candidate']
+        assert not read_json('.runtime/storage-halt.json').get('active')
+        assert read_json('reports/overnight/status.json').get('phase')=='hunting'
+        info=app['worker_info_path'];start=time.time()
+        controller_pid=read_json('reports/overnight/status.json').get('pid')
+        # One brief, explicit route-selection pause, with no game/client reload.
+        off=request(info,'controls',{'enabled':False});revision=off['revision']
+        for _ in range(80):
+            _,d=health()
+            assert not d['control']['enabled'] and d['control']['revision']==revision,'Intent changed during selection'
+            assert not d['manual_mouse'],'Manual mouse takes priority'
+            if not d.get('external_execution') and process_alive(controller_pid) is False:break
+            time.sleep(.1)
+        else:raise RuntimeError('Runner has not released input; leaving Off')
+        lib.save(candidate.model_copy(update={'id':'bandit','name':candidate.name+' · active'}),replace=True)
+        request(info,'controls',{'route_id':'bandit'})
+        time.sleep(.3)
+        app,d=health()
+        assert not d['control']['enabled'] and not d['manual_mouse'],'Intent changed during selection'
+        assert d['control']['revision']==revision,'Selection changed controls unexpectedly'
+        request(info,'controls',{'enabled':True})
+        m=read_json(REPORT)
+        for trial in m['trials']:
+            if 'end' not in trial:trial['end']=start
+        m['trials'].append({'variant':rid,'start':start,'transition_seconds':round(time.time()-start,2)})
+        m['active_variant']=rid;write_json(REPORT,m)
+        print('Started',rid,'including transition time in kill-rate measurement')
+    elif command=='report':report()

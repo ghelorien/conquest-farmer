@@ -1,0 +1,114 @@
+{
+  "baseline": {
+    "start": 1788906077,
+    "end": 1788906817,
+    "verified_kills": 34,
+    "overall_kpm": 2.756756756756757,
+    "productive_kpm": 7.157894736842105,
+    "movement_failures": 100
+  },
+  "route_change_at": 1788906918.7764018,
+  "candidate_anchor": [
+    300,
+    605
+  ],
+  "southeast_before_kiting": {
+    "start": 1788906934.8542078,
+    "last_kill_at": 1788907032.4205854,
+    "kills": 21,
+    "kpm_to_last_kill": 12.914284925613476,
+    "healing_attempts": 9,
+    "movement_failures": 2,
+    "return_failed": true,
+    "return_failure": "short corner run rejected by older guard; fixed and tested"
+  },
+  "kiting_trial_controller_started_at": 1788907300.830477,
+  "east_before_chase_commit": {
+    "start": 1788907905.8958683,
+    "end": 1788908114.2375553,
+    "kills": 32,
+    "kpm": 9.2156304769263,
+    "heals": 1,
+    "movement_failures": 1
+  },
+  "southwest_with_ranged_fixes": {
+    "start": 1788907718.4627647,
+    "end": 1788907879.9317648,
+    "seconds": 161.46899999999732,
+    "kills": 30,
+    "hunting_kpm": 11.147650632629357,
+    "verified_heals": 2,
+    "movement_failures": 1,
+    "ranged_escapes": 1
+  },
+  "east_with_chase_commit": {
+    "start": 1788908134.4443004,
+    "end": 1788908285.0853004,
+    "seconds": 150.64100000000326,
+    "kills": 28,
+    "hunting_kpm": 11.152342323802708,
+    "verified_heals": 3,
+    "movement_failures": 2,
+    "ranged_escapes": 2
+  },
+  "final_route": "apparition",
+  "final_anchor": [
+    300,
+    605
+  ],
+  "selection_reason": "Similar measured hunting rates; broader southeast circuit used fewer potions per kill and stays away from the failed western edge.",
+  "sustained_20_kpm_verified": false,
+  "full_cycle_rate_verified": false,
+  "tests_passed": 688,
+  "verified_restock_after_return": {
+    "time": 1788908521.5476055,
+    "event": "restock_complete",
+    "phase": "restocking",
+    "supplies": {
+      "arrows": 1772,
+      "potions": 15,
+      "free_slots": 11,
+      "silver": 31336
+    }
+  },
+  "final_controller": {
+    "pid": 673052,
+    "route": "apparition",
+    "cycles": 1,
+    "started_at": 1788908415.8556755,
+    "ends_at": null,
+    "phase": "hunting",
+    "updated_at": 1788908580.927639,
+    "event": "heartbeat",
+    "destination": [
+      452,
+      335
+    ],
+    "activity": "Heading back to the hunting area",
+    "receipt": {
+      "bought": 1050000,
+      "amount": 200,
+      "price": 200,
+      "silver": 31336
+    },
+    "supplies": {
+      "arrows": 1770,
+      "potions": 15,
+      "free_slots": 11,
+      "silver": 31336
+    },
+    "position": [
+      515,
+      569
+    ],
+    "kills": 0,
+    "pickups": null,
+    "experience": {
+      "level": 23,
+      "experience_candidate": 9211,
+      "percent_candidate": 9.424656973591315,
+      "xp_per_hour_candidate": 3940.886699507183,
+      "validated": false
+    }
+  }
+}

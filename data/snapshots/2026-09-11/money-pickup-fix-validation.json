@@ -1,0 +1,59 @@
+[
+  {
+    "time": 1788925161.319451,
+    "silver": 10899,
+    "position": [
+      356,
+      216
+    ],
+    "state": "farming",
+    "kills": 1,
+    "pickup": null,
+    "attempt": {
+      "uid": 363,
+      "type_id": 1090020,
+      "position": [
+        356,
+        214
+      ],
+      "silver": true,
+      "point": [
+        774,
+        300
+      ]
+    },
+    "loot_note": null
+  },
+  {
+    "time": 1788925163.414502,
+    "silver": 11221,
+    "position": [
+      352,
+      215
+    ],
+    "state": "farming",
+    "kills": 1,
+    "pickup": {
+      "uid": 453,
+      "type_id": 1090020,
+      "silver": true,
+      "increase": 322,
+      "total": 1,
+      "timestamp": 1788925161.974182
+    },
+    "attempt": {
+      "uid": 453,
+      "type_id": 1090020,
+      "position": [
+        356,
+        214
+      ],
+      "silver": true,
+      "point": [
+        518,
+        396
+      ]
+    },
+    "loot_note": null
+  }
+]

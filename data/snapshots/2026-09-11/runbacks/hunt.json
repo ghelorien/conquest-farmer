@@ -1,0 +1,28 @@
+{
+  "kind": "hunt",
+  "map_id": 1011,
+  "destination": [
+    373,
+    377
+  ],
+  "position": [
+    331,
+    337
+  ],
+  "started_at": 1789164177.861995,
+  "updated_at": 1789164197.5902262,
+  "result": "arrived",
+  "elapsed_seconds": 19.7,
+  "active_seconds": 19.5,
+  "paused_seconds": 0.2,
+  "tiles_travelled": 104,
+  "tiles_per_second": 5.32,
+  "stalls": 0,
+  "recoveries": 0,
+  "hp_lost": 0,
+  "minimum_hp_percent": 80.4,
+  "deaths": 0,
+  "urgent": false,
+  "paused": false,
+  "source": "read_only_memory"
+}

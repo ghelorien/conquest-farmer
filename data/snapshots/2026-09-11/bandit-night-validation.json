@@ -1,0 +1,22 @@
+{
+  "verified_at": 1788926880.066554,
+  "plan": {
+    "active": true,
+    "route_id": "bandit",
+    "upgrade_maps": [
+      1002,
+      1011
+    ],
+    "started_at": 1788926671.476938,
+    "label": "Tonight: stay at Bandits until awake",
+    "ends_when": "user resumes automatic leveling"
+  },
+  "route": "bandit",
+  "phase": "restocking",
+  "detail": null,
+  "position": [
+    36,
+    343
+  ],
+  "map": 1011
+}

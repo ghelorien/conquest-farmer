@@ -1,0 +1,252 @@
+schema_version: 1
+id: bandit-northern-fields
+name: Bandit northern fields
+map_id: 1011
+restock_map_id: 1011
+monster_type_ids:
+- 7
+- 66
+recommended_levels:
+- 32
+- 36
+town_anchor:
+- 210
+- 195
+restock_anchor:
+- 191
+- 250
+hunting_anchor:
+- 373
+- 377
+kite_when_surrounded: true
+jump_scatter: true
+attack_range_tiles: 16
+hunting_boundary:
+- 329
+- 337
+- 457
+- 417
+patrol_search:
+  idle_seconds: 5.0
+  expansion_tiles: 12
+  maximum_expansions: 1
+  sweep_spacing_tiles: 32
+patrol:
+- - 341
+  - 349
+- - 373
+  - 349
+- - 405
+  - 349
+- - 437
+  - 349
+- - 445
+  - 377
+- - 437
+  - 404
+- - 405
+  - 405
+- - 373
+  - 405
+- - 341
+  - 405
+- - 341
+  - 377
+outbound_waypoints:
+- - 210
+  - 195
+- - 212
+  - 197
+- - 213
+  - 200
+- - 215
+  - 202
+- - 215
+  - 207
+- - 217
+  - 209
+- - 217
+  - 217
+- - 220
+  - 217
+- - 220
+  - 226
+- - 220
+  - 231
+- - 227
+  - 231
+- - 227
+  - 236
+- - 229
+  - 238
+- - 229
+  - 247
+- - 229
+  - 251
+- - 230
+  - 254
+- - 230
+  - 263
+- - 232
+  - 265
+- - 244
+  - 265
+- - 256
+  - 265
+- - 268
+  - 265
+- - 280
+  - 265
+- - 292
+  - 265
+- - 304
+  - 265
+- - 316
+  - 265
+- - 328
+  - 265
+- - 340
+  - 265
+- - 341
+  - 268
+- - 341
+  - 277
+- - 341
+  - 286
+- - 341
+  - 295
+- - 341
+  - 304
+- - 341
+  - 313
+- - 341
+  - 322
+- - 341
+  - 331
+- - 341
+  - 340
+- - 341
+  - 349
+- - 341
+  - 358
+- - 341
+  - 367
+- - 341
+  - 376
+- - 344
+  - 377
+- - 356
+  - 377
+- - 368
+  - 377
+- - 373
+  - 377
+return_waypoints:
+- - 373
+  - 377
+- - 361
+  - 377
+- - 349
+  - 377
+- - 337
+  - 377
+- - 325
+  - 377
+- - 313
+  - 377
+- - 301
+  - 377
+- - 289
+  - 377
+- - 277
+  - 377
+- - 265
+  - 377
+- - 260
+  - 377
+- - 260
+  - 365
+- - 260
+  - 353
+- - 260
+  - 341
+- - 260
+  - 329
+- - 260
+  - 317
+- - 260
+  - 305
+- - 260
+  - 293
+- - 260
+  - 281
+- - 260
+  - 269
+- - 260
+  - 265
+- - 248
+  - 265
+- - 236
+  - 265
+- - 230
+  - 265
+- - 230
+  - 253
+- - 230
+  - 250
+- - 229
+  - 247
+- - 229
+  - 236
+- - 227
+  - 234
+- - 227
+  - 231
+- - 219
+  - 231
+- - 219
+  - 219
+- - 219
+  - 212
+- - 217
+  - 210
+- - 217
+  - 205
+- - 215
+  - 203
+- - 213
+  - 201
+- - 213
+  - 196
+- - 210
+  - 196
+- - 210
+  - 195
+terrain_sha256: 433b3163a38d068e978fa6609c2d8e32f48bd27b188e15cddc3b3583ca9e9921
+supplies:
+  arrow_type: 1050001
+  arrows_return_below: 3
+  arrows_restock_to: 10000
+  healing_type: 1000020
+  healing_return_below: 1
+  healing_restock_to: 5
+  minimum_free_slots: 4
+equipment_review_levels:
+- 8
+- 12
+- 15
+- 23
+tasks:
+- travel_to_hunt
+- hunt_and_loot
+- return_to_town
+- restock
+- check_equipment
+- resume_hunt
+qualification: planned
+recover_after_death: true
+movement: jump
+notes: Memory-recorded Bandit-HP817 targets at358,367 and361,390 yielded21 verified
+  kills during the prior return. Explore the northern field after the wider southern
+  circuit depleted. Terrain-checked direct town connections; normal types7/66 only;
+  no winner claim.

@@ -1,0 +1,52 @@
+{
+  "time": 1789061508.9925966,
+  "source": "read_only_memory",
+  "warehouse_approach": [
+    [
+      190,
+      189
+    ],
+    [
+      186,
+      184
+    ],
+    [
+      182,
+      184
+    ]
+  ],
+  "deposited_uids": [
+    293112564,
+    293120479,
+    293124583
+  ],
+  "market_exit_jumps": [
+    [
+      204,
+      193
+    ],
+    [
+      216,
+      193
+    ],
+    [
+      216,
+      205
+    ],
+    [
+      216,
+      217
+    ]
+  ],
+  "exit_interaction_position": [
+    214,
+    218
+  ],
+  "arrival_map": 1011,
+  "arrival_position": [
+    193,
+    266
+  ],
+  "journal_phase": "completed",
+  "tests_passed": 36
+}

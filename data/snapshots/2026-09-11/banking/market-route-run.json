@@ -1,0 +1,43 @@
+{
+  "checked_at": 1789036639.6017413,
+  "control_intent": {
+    "enabled": false,
+    "source": "UI button or F10",
+    "time": 1789036623.3108494
+  },
+  "life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 0,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      231,
+      254
+    ],
+    "current_hp": 695,
+    "max_hp": 872,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 17598.328,
+    "timestamp": 17598.328,
+    "dead_candidate": false
+  },
+  "control": {
+    "enabled": false,
+    "target_ids": [],
+    "target_type_ids": [
+      7,
+      66
+    ],
+    "resolved_target_ids": [],
+    "input_mode": "foreground",
+    "revision": 0,
+    "execution_state": "off",
+    "note": "Farming is off"
+  },
+  "silver": 3100,
+  "bag_meteors": 0,
+  "outcome": "Market arrival verified; qualification ended on explicit UI/F10 Stop; no Meteor withdrawal or exchange"
+}

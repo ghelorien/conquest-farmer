@@ -1,0 +1,1028 @@
+[
+  {
+    "object_address": 405034192,
+    "entity_id": 449429,
+    "name": "Poltergeist",
+    "position": [
+      139,
+      422
+    ],
+    "draw_position": [
+      -1018,
+      76
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 405052224,
+    "entity_id": 408831,
+    "name": "HeavyGhostL23",
+    "position": [
+      143,
+      386
+    ],
+    "draw_position": [
+      262,
+      -436
+    ],
+    "max_hp": 1096,
+    "level": 23,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 64
+  },
+  {
+    "object_address": 405049648,
+    "entity_id": 449294,
+    "name": "Poltergeist",
+    "position": [
+      141,
+      429
+    ],
+    "draw_position": [
+      -1178,
+      220
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 405057376,
+    "entity_id": 449335,
+    "name": "Poltergeist",
+    "position": [
+      141,
+      431
+    ],
+    "draw_position": [
+      -1242,
+      252
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 405059952,
+    "entity_id": 449376,
+    "name": "Poltergeist",
+    "position": [
+      145,
+      428
+    ],
+    "draw_position": [
+      -1018,
+      268
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 405062528,
+    "entity_id": 449340,
+    "name": "Poltergeist",
+    "position": [
+      145,
+      426
+    ],
+    "draw_position": [
+      -956,
+      237
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884006688,
+    "entity_id": 449407,
+    "name": "Poltergeist",
+    "position": [
+      143,
+      424
+    ],
+    "draw_position": [
+      -954,
+      172
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884001536,
+    "entity_id": 408837,
+    "name": "HeavyGhostL23",
+    "position": [
+      143,
+      435
+    ],
+    "draw_position": [
+      -1306,
+      348
+    ],
+    "max_hp": 1096,
+    "level": 23,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 64
+  },
+  {
+    "object_address": 562975440,
+    "entity_id": 408824,
+    "name": "HeavyGhostL23",
+    "position": [
+      150,
+      404
+    ],
+    "draw_position": [
+      -95,
+      -36
+    ],
+    "max_hp": 1096,
+    "level": 23,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 64
+  },
+  {
+    "object_address": 562967712,
+    "entity_id": 449435,
+    "name": "Poltergeist",
+    "position": [
+      147,
+      431
+    ],
+    "draw_position": [
+      -1050,
+      348
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 562978016,
+    "entity_id": 449268,
+    "name": "Poltergeist",
+    "position": [
+      150,
+      436
+    ],
+    "draw_position": [
+      -1116,
+      476
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 562980592,
+    "entity_id": 449410,
+    "name": "Poltergeist",
+    "position": [
+      148,
+      433
+    ],
+    "draw_position": [
+      -1082,
+      396
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 562972864,
+    "entity_id": 449442,
+    "name": "Poltergeist",
+    "position": [
+      150,
+      441
+    ],
+    "draw_position": [
+      -1273,
+      555
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 562983168,
+    "entity_id": 408830,
+    "name": "HeavyGhostL23",
+    "position": [
+      154,
+      401
+    ],
+    "draw_position": [
+      133,
+      -19
+    ],
+    "max_hp": 1096,
+    "level": 23,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 64
+  },
+  {
+    "object_address": 562970288,
+    "entity_id": 408840,
+    "name": "HeavyGhostL23",
+    "position": [
+      151,
+      403
+    ],
+    "draw_position": [
+      -26,
+      -36
+    ],
+    "max_hp": 1096,
+    "level": 23,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 64
+  },
+  {
+    "object_address": 562996048,
+    "entity_id": 449403,
+    "name": "Poltergeist",
+    "position": [
+      152,
+      427
+    ],
+    "draw_position": [
+      -762,
+      364
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 562988320,
+    "entity_id": 449409,
+    "name": "Poltergeist",
+    "position": [
+      158,
+      430
+    ],
+    "draw_position": [
+      -666,
+      508
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 562985744,
+    "entity_id": 408832,
+    "name": "HeavyGhostL23",
+    "position": [
+      154,
+      435
+    ],
+    "draw_position": [
+      -954,
+      524
+    ],
+    "max_hp": 1096,
+    "level": 23,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 64
+  },
+  {
+    "object_address": 562990896,
+    "entity_id": 449421,
+    "name": "Poltergeist",
+    "position": [
+      156,
+      433
+    ],
+    "draw_position": [
+      -826,
+      524
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 562993472,
+    "entity_id": 408829,
+    "name": "HeavyGhostL23",
+    "position": [
+      154,
+      434
+    ],
+    "draw_position": [
+      -922,
+      508
+    ],
+    "max_hp": 1096,
+    "level": 23,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 64
+  },
+  {
+    "object_address": 141951680,
+    "entity_id": 401630,
+    "name": "GhostKing",
+    "position": [
+      157,
+      433
+    ],
+    "draw_position": [
+      -794,
+      540
+    ],
+    "max_hp": 30000,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 8300
+  },
+  {
+    "object_address": 141949104,
+    "entity_id": 408820,
+    "name": "HeavyGhostL23",
+    "position": [
+      155,
+      440
+    ],
+    "draw_position": [
+      -1082,
+      620
+    ],
+    "max_hp": 1096,
+    "level": 23,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 64
+  },
+  {
+    "object_address": 141943952,
+    "entity_id": 449312,
+    "name": "Poltergeist",
+    "position": [
+      166,
+      422
+    ],
+    "draw_position": [
+      -154,
+      508
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 141938800,
+    "entity_id": 449324,
+    "name": "Poltergeist",
+    "position": [
+      163,
+      425
+    ],
+    "draw_position": [
+      -346,
+      508
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 141941376,
+    "entity_id": 449466,
+    "name": "Poltergeist",
+    "position": [
+      164,
+      435
+    ],
+    "draw_position": [
+      -634,
+      684
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 141959408,
+    "entity_id": 408826,
+    "name": "HeavyGhostL23",
+    "position": [
+      166,
+      435
+    ],
+    "draw_position": [
+      -570,
+      716
+    ],
+    "max_hp": 1096,
+    "level": 23,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 64
+  },
+  {
+    "object_address": 141954256,
+    "entity_id": 449456,
+    "name": "Poltergeist",
+    "position": [
+      162,
+      441
+    ],
+    "draw_position": [
+      -890,
+      748
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 141956832,
+    "entity_id": 449291,
+    "name": "Poltergeist",
+    "position": [
+      168,
+      417
+    ],
+    "draw_position": [
+      70,
+      460
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 141946528,
+    "entity_id": 449314,
+    "name": "Poltergeist",
+    "position": [
+      169,
+      422
+    ],
+    "draw_position": [
+      -58,
+      556
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 141961984,
+    "entity_id": 449428,
+    "name": "Poltergeist",
+    "position": [
+      170,
+      431
+    ],
+    "draw_position": [
+      -314,
+      716
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 141964560,
+    "entity_id": 449387,
+    "name": "Poltergeist",
+    "position": [
+      171,
+      429
+    ],
+    "draw_position": [
+      -218,
+      700
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 141967136,
+    "entity_id": 449292,
+    "name": "Poltergeist",
+    "position": [
+      171,
+      439
+    ],
+    "draw_position": [
+      -538,
+      860
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884009264,
+    "entity_id": 449315,
+    "name": "Poltergeist",
+    "position": [
+      176,
+      438
+    ],
+    "draw_position": [
+      -346,
+      924
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884011840,
+    "entity_id": 449439,
+    "name": "Poltergeist",
+    "position": [
+      172,
+      441
+    ],
+    "draw_position": [
+      -570,
+      908
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884027296,
+    "entity_id": 449287,
+    "name": "Poltergeist",
+    "position": [
+      183,
+      432
+    ],
+    "draw_position": [
+      70,
+      940
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 405036768,
+    "entity_id": 449477,
+    "name": "Poltergeist",
+    "position": [
+      180,
+      431
+    ],
+    "draw_position": [
+      6,
+      876
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424263408,
+    "entity_id": 449473,
+    "name": "Poltergeist",
+    "position": [
+      176,
+      425
+    ],
+    "draw_position": [
+      70,
+      716
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424265984,
+    "entity_id": 449436,
+    "name": "Poltergeist",
+    "position": [
+      179,
+      435
+    ],
+    "draw_position": [
+      -154,
+      924
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424268560,
+    "entity_id": 401625,
+    "name": "HumanMessenger",
+    "position": [
+      180,
+      437
+    ],
+    "draw_position": [
+      -186,
+      972
+    ],
+    "max_hp": 1100,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 8100
+  },
+  {
+    "object_address": 424255680,
+    "entity_id": 449339,
+    "name": "Poltergeist",
+    "position": [
+      177,
+      438
+    ],
+    "draw_position": [
+      -314,
+      940
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424271136,
+    "entity_id": 449420,
+    "name": "Poltergeist",
+    "position": [
+      176,
+      435
+    ],
+    "draw_position": [
+      -250,
+      876
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424258256,
+    "entity_id": 449378,
+    "name": "Poltergeist",
+    "position": [
+      182,
+      423
+    ],
+    "draw_position": [
+      326,
+      780
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424260832,
+    "entity_id": 449359,
+    "name": "Poltergeist",
+    "position": [
+      183,
+      439
+    ],
+    "draw_position": [
+      -154,
+      1052
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424281440,
+    "entity_id": 449353,
+    "name": "Poltergeist",
+    "position": [
+      183,
+      427
+    ],
+    "draw_position": [
+      230,
+      860
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424276288,
+    "entity_id": 449354,
+    "name": "Poltergeist",
+    "position": [
+      186,
+      382
+    ],
+    "draw_position": [
+      1766,
+      188
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424284016,
+    "entity_id": 449296,
+    "name": "Poltergeist",
+    "position": [
+      186,
+      441
+    ],
+    "draw_position": [
+      -122,
+      1132
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424273712,
+    "entity_id": 449432,
+    "name": "Poltergeist",
+    "position": [
+      187,
+      416
+    ],
+    "draw_position": [
+      710,
+      748
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 424278864,
+    "entity_id": 449320,
+    "name": "Poltergeist",
+    "position": [
+      189,
+      429
+    ],
+    "draw_position": [
+      358,
+      988
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884014416,
+    "entity_id": 449426,
+    "name": "Poltergeist",
+    "position": [
+      189,
+      376
+    ],
+    "draw_position": [
+      2054,
+      140
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884004112,
+    "entity_id": 449278,
+    "name": "Poltergeist",
+    "position": [
+      189,
+      377
+    ],
+    "draw_position": [
+      2022,
+      156
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884022144,
+    "entity_id": 449416,
+    "name": "Poltergeist",
+    "position": [
+      189,
+      391
+    ],
+    "draw_position": [
+      1574,
+      380
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884024720,
+    "entity_id": 449443,
+    "name": "Poltergeist",
+    "position": [
+      189,
+      384
+    ],
+    "draw_position": [
+      1798,
+      268
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 884019568,
+    "entity_id": 449472,
+    "name": "Poltergeist",
+    "position": [
+      189,
+      386
+    ],
+    "draw_position": [
+      1734,
+      300
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 405047072,
+    "entity_id": 449480,
+    "name": "Poltergeist",
+    "position": [
+      189,
+      393
+    ],
+    "draw_position": [
+      1510,
+      412
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 402281008,
+    "entity_id": 449311,
+    "name": "Poltergeist",
+    "position": [
+      189,
+      395
+    ],
+    "draw_position": [
+      1446,
+      444
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 402275856,
+    "entity_id": 449355,
+    "name": "Poltergeist",
+    "position": [
+      189,
+      396
+    ],
+    "draw_position": [
+      1414,
+      460
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  },
+  {
+    "object_address": 402278432,
+    "entity_id": 449333,
+    "name": "Poltergeist",
+    "position": [
+      179,
+      442
+    ],
+    "draw_position": [
+      -378,
+      1036
+    ],
+    "max_hp": 548,
+    "level": 22,
+    "current_hp": null,
+    "alive": null,
+    "type_id": 5
+  }
+]

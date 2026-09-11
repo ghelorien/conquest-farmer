@@ -1,0 +1,45 @@
+import time,json,os
+from pathlib import Path
+from threading import Event
+from conquest.worker import request
+from conquest.discord_notify import read_json,process_alive
+from conquest.route_controller import controller_guard
+from conquest.overnight import OvernightLoop
+from conquest.safe_reload import park
+app=read_json('reports/desktop-farming/app-state.json'); info=app['worker_info_path']
+h=request(info,'health');d=h['embedded_controls'];status=read_json('reports/overnight/status.json')
+assert d['control']['enabled'] and not d.get('manual_mouse')
+assert d.get('life') and not d['life']['dead_candidate'] and d['life']['current_hp']>=d['life']['max_hp']*.7
+assert status['phase']=='hunting' and process_alive(status['pid'])
+assert not read_json('.runtime/storage-halt.json').get('active')
+stop=Path('.runtime/overnight.stop');assert not stop.exists()
+marker='Protected town reload handoff';stop.write_text(marker)
+request(info,'controls',{'enabled':False})
+for _ in range(200):
+ h=request(info,'health');d=h['embedded_controls']
+ if d.get('manual_mouse'):raise ValueError('Manual takeover; reload deferred')
+ if not process_alive(status['pid']) and not d.get('external_execution'):break
+ time.sleep(.1)
+else:raise ValueError('Original controller did not release input')
+assert stop.read_text()==marker,'Stop intent changed'
+stop.unlink()
+with controller_guard() as acquired:
+ assert acquired,'Another controller owns input'
+ loop=OvernightLoop('bandit');loop.refresh();loop.phase='restocking'
+ try:
+  loop.record('reload_town_return',activity='Heading to safe town for app reload; healing and recovery active')
+  loop.travel(loop.route.restock_anchor,activity='Heading to safe town for app reload')
+  loop.restock(review_both_cities=False)
+  park(loop,Event(),lambda note:loop.record('reload_parking',activity=note))
+  loop.record('reload_town_ready',activity='Safe town reached; handing off to app reload')
+  print(json.dumps({'town_ready':True,'pid':os.getpid()}),flush=True)
+  request(info,'reload-app')
+  # Keep the real restocking coordinator alive until the app has captured the
+  # pre-reload resume intent. Its safe coordinator then waits for this exit.
+  for _ in range(50):
+   if read_json('reports/desktop-farming/app-state.json').get('reload_preparing'):break
+   time.sleep(.1)
+  else:raise ValueError('App did not accept the protected reload')
+  loop.phase='stopped';loop.record('reload_town_handoff',activity='App safe reload owns the next action')
+ except Exception as error:
+  loop.phase='needs_attention';loop.record('reload_town_failed',detail=str(error));raise

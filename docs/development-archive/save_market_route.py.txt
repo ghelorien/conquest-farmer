@@ -1,0 +1,6 @@
+import json,time
+from pathlib import Path
+out=json.load(open('reports/banking/phoenix-market-dialog.json'))
+back=json.load(open('reports/banking/market-return-dialog.json'))
+plan={'enabled':False,'qualified':False,'reason':'Meteor packing NPC is not mapped on this server; HelpNpc at 203196 offers help links only. No automatic withdrawal or exchange is enabled.','batch_size':10,'origins':{'1011':{'outbound':{'verified':True,'source_map':1011,'destination_map':1036,'approach':[228,249],'npc':'Conductress','identity':out['service']['identity'],'fare':100,'arrival':[211,196],'activity':'Heading to Phoenix Conductress for Market Meteor banking','dialogs':[{'records':out['dialog']['records'],'option':'Market'}]},'return':{'verified':True,'source_map':1036,'destination_map':1011,'approach':[212,212],'npc':'Mark.Controller','identity':{'map_id':1036,'type_id':0,'name':'Mark.Controller','model':417,'position':[215,220]},'fare':0,'arrival':[193,266],'activity':'Returning from Market to Phoenix City','dialogs':[{'records':back['records'],'option':'Yeah. Thanks.'}]}}},'exchange':None,'market_warehouse':{'map_id':1036,'type_id':0,'name':'Warehouseman','model':87,'position':[182,180]},'verified_at':time.time()}
+Path('profiles/meteor-banking.json').write_text(json.dumps(plan,indent=2)+'\n')

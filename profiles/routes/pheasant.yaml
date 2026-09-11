@@ -1,0 +1,184 @@
+schema_version: 1
+id: pheasant
+name: Pheasant route
+map_id: 1002
+monster_type_ids:
+- 1
+recommended_levels:
+- 1
+- 6
+town_anchor:
+- 430
+- 380
+hunting_anchor:
+- 435
+- 460
+hunting_boundary:
+- 405
+- 442
+- 440
+- 472
+patrol:
+- - 433
+  - 461
+- - 437
+  - 459
+- - 437
+  - 465
+- - 432
+  - 466
+outbound_waypoints:
+- - 430
+  - 380
+- - 430
+  - 384
+- - 430
+  - 388
+- - 430
+  - 392
+- - 430
+  - 396
+- - 430
+  - 397
+- - 434
+  - 397
+- - 437
+  - 397
+- - 437
+  - 401
+- - 437
+  - 405
+- - 437
+  - 409
+- - 437
+  - 413
+- - 437
+  - 417
+- - 437
+  - 419
+- - 438
+  - 419
+- - 438
+  - 423
+- - 438
+  - 427
+- - 438
+  - 431
+- - 438
+  - 435
+- - 438
+  - 437
+- - 437
+  - 437
+- - 437
+  - 441
+- - 437
+  - 443
+- - 436
+  - 443
+- - 436
+  - 447
+- - 435
+  - 447
+- - 435
+  - 451
+- - 435
+  - 455
+- - 435
+  - 459
+- - 435
+  - 460
+return_waypoints:
+- - 435
+  - 460
+- - 435
+  - 459
+- - 435
+  - 455
+- - 435
+  - 451
+- - 435
+  - 447
+- - 436
+  - 447
+- - 436
+  - 443
+- - 437
+  - 443
+- - 437
+  - 441
+- - 437
+  - 437
+- - 438
+  - 437
+- - 438
+  - 435
+- - 438
+  - 431
+- - 438
+  - 427
+- - 438
+  - 423
+- - 438
+  - 419
+- - 437
+  - 419
+- - 437
+  - 417
+- - 437
+  - 413
+- - 437
+  - 409
+- - 437
+  - 405
+- - 437
+  - 401
+- - 437
+  - 397
+- - 434
+  - 397
+- - 430
+  - 397
+- - 430
+  - 396
+- - 430
+  - 392
+- - 430
+  - 388
+- - 430
+  - 384
+- - 430
+  - 380
+terrain_sha256: cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c
+supplies:
+  arrow_type: 1050000
+  arrows_return_below: 3
+  arrows_restock_to: 2000
+  healing_type: 1000020
+  healing_return_below: 1
+  healing_restock_to: 5
+  minimum_free_slots: 4
+equipment_review_levels:
+- 8
+- 12
+- 15
+- 23
+tasks:
+- travel_to_hunt
+- hunt_and_loot
+- return_to_town
+- restock
+- check_equipment
+- resume_hunt
+qualification: planned
+notes: Travel paths are planned from installed terrain. Live full-cycle validation,
+  shops, and automatic equipment changes remain pending.
+recover_after_death: true
+movement: jump
+restock_anchor:
+- 466
+- 333
+patrol_search:
+  idle_seconds: 7.5
+  expansion_tiles: 12
+  maximum_expansions: 4

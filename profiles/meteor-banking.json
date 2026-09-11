@@ -1,0 +1,257 @@
+{
+  "enabled": true,
+  "qualified": true,
+  "reason": "Exact exchange and scroll storage verified; resumable full-loop coordinator integrated. Connected approach (230,240) uses fresh NPC reachability and exact dialogue confirmation; unattended end-to-end run still needs live validation.",
+  "batch_size": 10,
+  "origins": {
+    "1011": {
+      "outbound": {
+        "verified": true,
+        "source_map": 1011,
+        "destination_map": 1036,
+        "approach": [
+          228,
+          249
+        ],
+        "npc": "Conductress",
+        "identity": {
+          "map_id": 1011,
+          "type_id": 0,
+          "name": "Conductress",
+          "model": 287,
+          "position": [
+            228,
+            255
+          ]
+        },
+        "fare": 100,
+        "arrival": [
+          211,
+          196
+        ],
+        "activity": "Heading to Phoenix Conductress for Market Meteor banking",
+        "dialogs": [
+          {
+            "records": [
+              {
+                "kind": 0,
+                "option": 0,
+                "text": "Where are you heading? I can teleport you for a price of 100 silver."
+              },
+              {
+                "kind": 1,
+                "option": 0,
+                "text": "Twin City"
+              },
+              {
+                "kind": 1,
+                "option": 1,
+                "text": "Market"
+              },
+              {
+                "kind": 1,
+                "option": 2,
+                "text": "Just passing by."
+              },
+              {
+                "kind": 3,
+                "option": 255,
+                "text": ""
+              },
+              {
+                "kind": 4,
+                "option": 255,
+                "text": ""
+              }
+            ],
+            "option": "Market"
+          }
+        ]
+      },
+      "return": {
+        "verified": true,
+        "source_map": 1036,
+        "destination_map": 1011,
+        "approach": [
+          214,
+          218
+        ],
+        "npc": "Mark.Controller",
+        "identity": {
+          "map_id": 1036,
+          "type_id": 0,
+          "name": "Mark.Controller",
+          "model": 417,
+          "position": [
+            215,
+            220
+          ]
+        },
+        "fare": 0,
+        "arrival": [
+          193,
+          266
+        ],
+        "activity": "Returning from Market to Phoenix City",
+        "dialogs": [
+          {
+            "records": [
+              {
+                "kind": 0,
+                "option": 0,
+                "text": "Do you want to leave the market? I can teleport you for free."
+              },
+              {
+                "kind": 1,
+                "option": 0,
+                "text": "Yeah. Thanks."
+              },
+              {
+                "kind": 1,
+                "option": 1,
+                "text": "No, I shall stay here."
+              },
+              {
+                "kind": 3,
+                "option": 255,
+                "text": ""
+              },
+              {
+                "kind": 4,
+                "option": 255,
+                "text": ""
+              }
+            ],
+            "option": "Yeah. Thanks."
+          }
+        ],
+        "waypoints": [
+          [
+            204,
+            193
+          ],
+          [
+            216,
+            193
+          ],
+          [
+            216,
+            205
+          ],
+          [
+            216,
+            217
+          ]
+        ]
+      }
+    }
+  },
+  "exchange": {
+    "identity": {
+      "map_id": 1036,
+      "type_id": 0,
+      "name": "MillionaireLee",
+      "model": 4294,
+      "position": [
+        242,
+        242
+      ]
+    },
+    "approach": [
+      230,
+      240
+    ],
+    "fee": 0,
+    "fee_verified": true,
+    "dialogs": [
+      {
+        "records": [
+          {
+            "kind": 0,
+            "option": 0,
+            "text": "Hunting meteors and DragonBalls is an exciting thing. However, they also pile up in your inventories."
+          },
+          {
+            "kind": 1,
+            "option": 0,
+            "text": "Agreed. How do you deal with it?"
+          },
+          {
+            "kind": 1,
+            "option": 1,
+            "text": "I am poor and do not have the problem."
+          },
+          {
+            "kind": 3,
+            "option": 255,
+            "text": ""
+          },
+          {
+            "kind": 4,
+            "option": 255,
+            "text": ""
+          }
+        ],
+        "option": "Agreed. How do you deal with it?"
+      },
+      {
+        "records": [
+          {
+            "kind": 0,
+            "option": 0,
+            "text": "I can pack DragonBalls and meteors for you. Give me 10 meteors or 10 DragonBalls, I will make it to a MeteorScroll or a DragonScroll that occupies only one slot. Just right click on it, it will return into 10 meteors or 10 DragonBalls again."
+          },
+          {
+            "kind": 1,
+            "option": 0,
+            "text": "Cool. Please pack my meteors."
+          },
+          {
+            "kind": 1,
+            "option": 1,
+            "text": "Cool. Please pack my DragonBalls."
+          },
+          {
+            "kind": 3,
+            "option": 255,
+            "text": ""
+          },
+          {
+            "kind": 4,
+            "option": 255,
+            "text": ""
+          }
+        ],
+        "option": "Cool. Please pack my meteors."
+      }
+    ],
+    "observed_npc_id": 101390,
+    "observed_at": 1789037376.345048,
+    "transaction_verified": true,
+    "verified_at": 1789037979.1585355
+  },
+  "market_warehouse": {
+    "map_id": 1036,
+    "type_id": 0,
+    "name": "Warehouseman",
+    "model": 87,
+    "position": [
+      182,
+      180
+    ]
+  },
+  "verified_at": 1789014040.607664,
+  "overflow_enabled": true,
+  "overflow_rule": "Carry extra valuables to Market when local storage is full and fewer than ten Meteors are available locally. Stop and disconnect if Market is full.",
+  "return_requires_no_carried_valuables": true,
+  "market_bank_approach": [
+    182,
+    184
+  ],
+  "market_bank_waypoints": [
+    [
+      186,
+      184
+    ]
+  ]
+}

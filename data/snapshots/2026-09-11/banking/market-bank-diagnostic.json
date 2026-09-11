@@ -1,0 +1,117 @@
+{
+  "items": [
+    {
+      "uid": 292928817,
+      "type_id": 562000,
+      "amount": 1198,
+      "limit": 1198,
+      "slot": 0,
+      "plus": 0
+    },
+    {
+      "uid": 292937059,
+      "type_id": 1060023,
+      "amount": 1,
+      "limit": 1,
+      "slot": 1,
+      "plus": 0
+    },
+    {
+      "uid": 292937060,
+      "type_id": 1060023,
+      "amount": 1,
+      "limit": 1,
+      "slot": 2,
+      "plus": 0
+    },
+    {
+      "uid": 292937061,
+      "type_id": 1060023,
+      "amount": 1,
+      "limit": 1,
+      "slot": 3,
+      "plus": 0
+    },
+    {
+      "uid": 292937062,
+      "type_id": 1060023,
+      "amount": 1,
+      "limit": 1,
+      "slot": 4,
+      "plus": 0
+    },
+    {
+      "uid": 292937063,
+      "type_id": 1060023,
+      "amount": 1,
+      "limit": 1,
+      "slot": 5,
+      "plus": 0
+    },
+    {
+      "uid": 292937318,
+      "type_id": 1060020,
+      "amount": 1,
+      "limit": 1,
+      "slot": 6,
+      "plus": 0
+    },
+    {
+      "uid": 292937319,
+      "type_id": 1060020,
+      "amount": 1,
+      "limit": 1,
+      "slot": 7,
+      "plus": 0
+    },
+    {
+      "uid": 292937320,
+      "type_id": 1060020,
+      "amount": 1,
+      "limit": 1,
+      "slot": 8,
+      "plus": 0
+    },
+    {
+      "uid": 292937321,
+      "type_id": 1060020,
+      "amount": 1,
+      "limit": 1,
+      "slot": 9,
+      "plus": 0
+    },
+    {
+      "uid": 292937323,
+      "type_id": 1060020,
+      "amount": 1,
+      "limit": 1,
+      "slot": 10,
+      "plus": 0
+    },
+    {
+      "uid": 292937324,
+      "type_id": 1060020,
+      "amount": 1,
+      "limit": 1,
+      "slot": 11,
+      "plus": 0
+    },
+    {
+      "uid": 292937325,
+      "type_id": 1060020,
+      "amount": 1,
+      "limit": 1,
+      "slot": 12,
+      "plus": 0
+    },
+    {
+      "uid": 293029895,
+      "type_id": 720027,
+      "amount": 1,
+      "limit": 1,
+      "slot": 13,
+      "plus": 0
+    }
+  ],
+  "capacity": 60
+}

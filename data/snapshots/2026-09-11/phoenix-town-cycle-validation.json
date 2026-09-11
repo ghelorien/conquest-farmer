@@ -1,0 +1,70 @@
+{
+  "recorded_at": 1788922586.4886837,
+  "source": "read_only_memory",
+  "town_visit": {
+    "identity": {
+      "pid": 194080,
+      "path": "C:\\Program Files\\Classic Conquer 2.0\\bin\\64\\ImConquer.exe",
+      "creation_time_100ns": 134333092696223329,
+      "architecture": "x64"
+    },
+    "map_id": 1011,
+    "terrain_sha256": "[REDACTED_64HEX]",
+    "completed": true,
+    "position": [
+      191,
+      250
+    ],
+    "observed_at": 1788922426.8051403
+  },
+  "route": {
+    "pid": 762044,
+    "route": "wingedsnake",
+    "cycles": 1,
+    "started_at": 1788922426.5135353,
+    "ends_at": null,
+    "phase": "hunting",
+    "updated_at": 1788922585.258996,
+    "event": "heartbeat",
+    "city": "PhoenixCity",
+    "activity": "Heading back to the hunting area",
+    "destination": [
+      204,
+      245
+    ],
+    "position": [
+      319,
+      84
+    ],
+    "receipt": {
+      "bought": 1050000,
+      "amount": 200,
+      "price": 200,
+      "silver": 28116
+    },
+    "level": 29,
+    "vendor": 4,
+    "upgrades": [],
+    "supplies": {
+      "arrows": 1627,
+      "potions": 15,
+      "free_slots": 15,
+      "silver": 28375
+    },
+    "level_bracket": "wingedsnake",
+    "level_range": [
+      27,
+      31
+    ],
+    "next_route": "Lv 027–031 · WingedSnake",
+    "kills": 6,
+    "pickups": null,
+    "experience": {
+      "level": 30,
+      "experience_candidate": 37970,
+      "percent_candidate": 19.211114821448447,
+      "xp_per_hour_candidate": 1462603.3022053964,
+      "validated": false
+    }
+  }
+}

@@ -1,0 +1,21 @@
+schema_version: 1
+qualification: candidate
+player:
+  schema_version: 1
+  expected_sha256: c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396
+  module: ImConquer.exe
+  # Singleton getter at RVA 0x181b30 returns the actual character object.
+  root_rva: 0x69c730
+  pointer_offsets: [0, 0]
+  vtable_rva: 0x5cef60
+  name_offset: 0x94
+  max_hp_offset: 0x3d0
+  position_offset: 0xd8
+  level_offset: 0x6e8
+  qualification: candidate
+# Getter RVA 0x1a9f90; index 1 is a current-HP candidate.
+# Damage, healing, death and actual client-restart checks remain outstanding.
+attribute_pointer_offset: 0x968
+hp_attribute_index: 1
+max_attributes: 1024
+max_sample_seconds: 1

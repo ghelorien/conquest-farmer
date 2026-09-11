@@ -1,0 +1,458 @@
+{
+  "origin": 1011,
+  "meteor_uids": [
+    293383915,
+    293383928,
+    293385132,
+    293385181,
+    293385467,
+    293363297,
+    293378810,
+    293380227,
+    293380659,
+    293380968
+  ],
+  "started_at": 1789164098.3320477,
+  "phase": "completed",
+  "withdrawals": [
+    {
+      "withdrawn": 293363297,
+      "type_id": 1088001,
+      "verified_in_inventory": true
+    },
+    {
+      "withdrawn": 293378810,
+      "type_id": 1088001,
+      "verified_in_inventory": true
+    },
+    {
+      "withdrawn": 293380227,
+      "type_id": 1088001,
+      "verified_in_inventory": true
+    },
+    {
+      "withdrawn": 293380659,
+      "type_id": 1088001,
+      "verified_in_inventory": true
+    },
+    {
+      "withdrawn": 293380968,
+      "type_id": 1088001,
+      "verified_in_inventory": true
+    }
+  ],
+  "departure_attempted": true,
+  "before": {
+    "started_at": 145069.015,
+    "timestamp": 145069.015,
+    "items": [
+      {
+        "uid": 293376903,
+        "type_id": 1050001,
+        "amount": 5,
+        "limit": 1000,
+        "slot": 0,
+        "plus": 0
+      },
+      {
+        "uid": 293376904,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 1,
+        "plus": 0
+      },
+      {
+        "uid": 293376905,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 2,
+        "plus": 0
+      },
+      {
+        "uid": 293376906,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 3,
+        "plus": 0
+      },
+      {
+        "uid": 293376908,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 4,
+        "plus": 0
+      },
+      {
+        "uid": 293382409,
+        "type_id": 721263,
+        "amount": 1,
+        "limit": 1,
+        "slot": 5,
+        "plus": 0
+      },
+      {
+        "uid": 293382915,
+        "type_id": 130339,
+        "amount": 2788,
+        "limit": 3927,
+        "slot": 6,
+        "plus": 0
+      },
+      {
+        "uid": 293383915,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 7,
+        "plus": 0
+      },
+      {
+        "uid": 293383928,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 8,
+        "plus": 0
+      },
+      {
+        "uid": 293385132,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 9,
+        "plus": 0
+      },
+      {
+        "uid": 293385181,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 10,
+        "plus": 0
+      },
+      {
+        "uid": 293385467,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 11,
+        "plus": 0
+      },
+      {
+        "uid": 293388729,
+        "type_id": 420065,
+        "amount": 453,
+        "limit": 2891,
+        "slot": 12,
+        "plus": 1
+      },
+      {
+        "uid": 293389064,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 13,
+        "plus": 0
+      },
+      {
+        "uid": 293389065,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 14,
+        "plus": 0
+      },
+      {
+        "uid": 293389067,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 15,
+        "plus": 0
+      },
+      {
+        "uid": 293389068,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 16,
+        "plus": 0
+      },
+      {
+        "uid": 293389071,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 17,
+        "plus": 0
+      },
+      {
+        "uid": 293389086,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 18,
+        "plus": 0
+      },
+      {
+        "uid": 293389090,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 19,
+        "plus": 0
+      },
+      {
+        "uid": 293389094,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 20,
+        "plus": 0
+      },
+      {
+        "uid": 293389098,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 21,
+        "plus": 0
+      },
+      {
+        "uid": 293363297,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 22,
+        "plus": 0
+      },
+      {
+        "uid": 293378810,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 23,
+        "plus": 0
+      },
+      {
+        "uid": 293380227,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 24,
+        "plus": 0
+      },
+      {
+        "uid": 293380659,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 25,
+        "plus": 0
+      },
+      {
+        "uid": 293380968,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 26,
+        "plus": 0
+      }
+    ],
+    "equipped_ammo": {
+      "uid": 293341599,
+      "type_id": 1050001,
+      "amount": 327,
+      "limit": 1000,
+      "slot": null,
+      "plus": 0
+    },
+    "silver": 3100,
+    "capacity": 40
+  },
+  "scroll_uid": 293389149,
+  "after": {
+    "started_at": 145069.828,
+    "timestamp": 145069.843,
+    "items": [
+      {
+        "uid": 293376903,
+        "type_id": 1050001,
+        "amount": 5,
+        "limit": 1000,
+        "slot": 0,
+        "plus": 0
+      },
+      {
+        "uid": 293376904,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 1,
+        "plus": 0
+      },
+      {
+        "uid": 293376905,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 2,
+        "plus": 0
+      },
+      {
+        "uid": 293376906,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 3,
+        "plus": 0
+      },
+      {
+        "uid": 293376908,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 4,
+        "plus": 0
+      },
+      {
+        "uid": 293382409,
+        "type_id": 721263,
+        "amount": 1,
+        "limit": 1,
+        "slot": 5,
+        "plus": 0
+      },
+      {
+        "uid": 293382915,
+        "type_id": 130339,
+        "amount": 2788,
+        "limit": 3927,
+        "slot": 6,
+        "plus": 0
+      },
+      {
+        "uid": 293388729,
+        "type_id": 420065,
+        "amount": 453,
+        "limit": 2891,
+        "slot": 7,
+        "plus": 1
+      },
+      {
+        "uid": 293389064,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 8,
+        "plus": 0
+      },
+      {
+        "uid": 293389065,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 9,
+        "plus": 0
+      },
+      {
+        "uid": 293389067,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 10,
+        "plus": 0
+      },
+      {
+        "uid": 293389068,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 11,
+        "plus": 0
+      },
+      {
+        "uid": 293389071,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 12,
+        "plus": 0
+      },
+      {
+        "uid": 293389086,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 13,
+        "plus": 0
+      },
+      {
+        "uid": 293389090,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 14,
+        "plus": 0
+      },
+      {
+        "uid": 293389094,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 15,
+        "plus": 0
+      },
+      {
+        "uid": 293389098,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 16,
+        "plus": 0
+      },
+      {
+        "uid": 293389149,
+        "type_id": 720027,
+        "amount": 1,
+        "limit": 1,
+        "slot": 17,
+        "plus": 0
+      }
+    ],
+    "equipped_ammo": {
+      "uid": 293341599,
+      "type_id": 1050001,
+      "amount": 327,
+      "limit": 1000,
+      "slot": null,
+      "plus": 0
+    },
+    "silver": 3100,
+    "capacity": 40
+  },
+  "exchange_verified": true,
+  "receipts": [
+    {
+      "stored": 293382915,
+      "type_id": 130339,
+      "verified_in_warehouse": true
+    },
+    {
+      "stored": 293388729,
+      "type_id": 420065,
+      "verified_in_warehouse": true
+    },
+    {
+      "stored": 293389149,
+      "type_id": 720027,
+      "verified_in_warehouse": true
+    }
+  ],
+  "market_verified_at": 1789164150.4652376,
+  "completed_at": 1789164175.8128
+}

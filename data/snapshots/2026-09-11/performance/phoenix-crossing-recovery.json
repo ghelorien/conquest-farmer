@@ -1,0 +1,64 @@
+{
+  "time": 1789145187.1211786,
+  "cause": "Phoenix crossing repeatedly retried long jumps after small walking progress; camera-adjusted projection also allowed HUD clicks",
+  "fixes": [
+    "Keep short runs until twelve tiles past failed jump",
+    "Clear stale failed edges only after meaningful movement",
+    "Phoenix alternate landings with distinct directions",
+    "HUD exclusion based on live camera anchor"
+  ],
+  "tests_passed": 205,
+  "banked_uid": 293344886,
+  "deposit_verified_at": 1789145057.3752272,
+  "phase": "hunting",
+  "control": true,
+  "life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 134217728,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      499,
+      462
+    ],
+    "current_hp": 850,
+    "max_hp": 1130,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 126143.546,
+    "timestamp": 126143.546,
+    "dead_candidate": false
+  },
+  "metrics": {
+    "start": 1789145078.0025725,
+    "end": 1789145187.1211786,
+    "seconds": 109.1,
+    "kills": 142,
+    "kills_per_minute": 78.08,
+    "projected_kills_per_hour": 4685,
+    "empty_observations": 61,
+    "observations": 117,
+    "minimum_hp_ratio": 0.7522123893805309,
+    "events": {
+      "trial_started": 2,
+      "boundary_return_started": 2,
+      "level_observed": 2,
+      "health_observation": 856,
+      "observation": 117,
+      "movement_attempt": 75,
+      "trial_stopped": 1,
+      "paused": 15,
+      "resumed": 15,
+      "movement_verified": 62,
+      "boundary_return_completed": 1,
+      "farming_area_reached": 1,
+      "attack_attempt": 32,
+      "kill_verified": 31,
+      "movement_stuck": 9,
+      "movement_recovery": 9,
+      "region_rotated": 1
+    }
+  }
+}

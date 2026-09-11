@@ -1,0 +1,344 @@
+schema_version: 1
+id: bandit-southern-fields
+name: Bandit southern fields
+map_id: 1011
+restock_map_id: 1011
+monster_type_ids:
+- 7
+- 66
+recommended_levels:
+- 32
+- 36
+town_anchor:
+- 210
+- 195
+restock_anchor:
+- 191
+- 250
+hunting_anchor:
+- 477
+- 549
+kite_when_surrounded: true
+jump_scatter: true
+attack_range_tiles: 16
+hunting_boundary:
+- 417
+- 513
+- 513
+- 609
+patrol_search:
+  idle_seconds: 5.0
+  expansion_tiles: 12
+  maximum_expansions: 1
+  sweep_spacing_tiles: 24
+patrol:
+- - 453
+  - 525
+- - 477
+  - 525
+- - 501
+  - 525
+- - 501
+  - 549
+- - 501
+  - 573
+- - 477
+  - 597
+- - 453
+  - 597
+- - 429
+  - 573
+- - 429
+  - 549
+- - 453
+  - 549
+- - 477
+  - 573
+outbound_waypoints:
+- - 210
+  - 195
+- - 210
+  - 197
+- - 213
+  - 197
+- - 213
+  - 201
+- - 215
+  - 201
+- - 215
+  - 207
+- - 217
+  - 207
+- - 217
+  - 217
+- - 220
+  - 217
+- - 220
+  - 229
+- - 220
+  - 231
+- - 227
+  - 231
+- - 227
+  - 236
+- - 229
+  - 236
+- - 229
+  - 248
+- - 229
+  - 251
+- - 230
+  - 251
+- - 230
+  - 263
+- - 230
+  - 265
+- - 242
+  - 265
+- - 254
+  - 265
+- - 266
+  - 265
+- - 278
+  - 265
+- - 290
+  - 265
+- - 302
+  - 265
+- - 314
+  - 265
+- - 326
+  - 265
+- - 338
+  - 265
+- - 341
+  - 265
+- - 341
+  - 277
+- - 341
+  - 289
+- - 341
+  - 301
+- - 341
+  - 313
+- - 341
+  - 325
+- - 341
+  - 337
+- - 341
+  - 349
+- - 341
+  - 361
+- - 341
+  - 373
+- - 341
+  - 385
+- - 341
+  - 397
+- - 341
+  - 409
+- - 341
+  - 421
+- - 341
+  - 433
+- - 341
+  - 445
+- - 341
+  - 457
+- - 341
+  - 469
+- - 341
+  - 477
+- - 353
+  - 477
+- - 365
+  - 477
+- - 377
+  - 477
+- - 389
+  - 477
+- - 401
+  - 477
+- - 405
+  - 477
+- - 417
+  - 477
+- - 429
+  - 477
+- - 441
+  - 477
+- - 453
+  - 477
+- - 465
+  - 477
+- - 477
+  - 477
+- - 477
+  - 489
+- - 477
+  - 501
+- - 477
+  - 513
+- - 477
+  - 525
+- - 477
+  - 537
+- - 477
+  - 549
+return_waypoints:
+- - 477
+  - 549
+- - 477
+  - 537
+- - 477
+  - 525
+- - 477
+  - 513
+- - 477
+  - 501
+- - 477
+  - 489
+- - 477
+  - 477
+- - 465
+  - 477
+- - 453
+  - 477
+- - 441
+  - 477
+- - 429
+  - 477
+- - 417
+  - 477
+- - 405
+  - 477
+- - 393
+  - 477
+- - 381
+  - 477
+- - 369
+  - 477
+- - 357
+  - 477
+- - 345
+  - 477
+- - 333
+  - 477
+- - 321
+  - 477
+- - 312
+  - 477
+- - 312
+  - 465
+- - 312
+  - 453
+- - 312
+  - 441
+- - 312
+  - 429
+- - 312
+  - 417
+- - 312
+  - 405
+- - 312
+  - 393
+- - 312
+  - 381
+- - 312
+  - 369
+- - 312
+  - 357
+- - 312
+  - 345
+- - 312
+  - 333
+- - 312
+  - 321
+- - 312
+  - 309
+- - 312
+  - 297
+- - 312
+  - 285
+- - 312
+  - 273
+- - 312
+  - 265
+- - 300
+  - 265
+- - 288
+  - 265
+- - 276
+  - 265
+- - 264
+  - 265
+- - 252
+  - 265
+- - 240
+  - 265
+- - 230
+  - 265
+- - 230
+  - 253
+- - 230
+  - 250
+- - 229
+  - 250
+- - 229
+  - 238
+- - 229
+  - 236
+- - 227
+  - 236
+- - 227
+  - 231
+- - 219
+  - 231
+- - 219
+  - 219
+- - 219
+  - 212
+- - 217
+  - 212
+- - 217
+  - 205
+- - 215
+  - 205
+- - 215
+  - 201
+- - 213
+  - 201
+- - 213
+  - 196
+- - 210
+  - 196
+- - 210
+  - 195
+terrain_sha256: 433b3163a38d068e978fa6609c2d8e32f48bd27b188e15cddc3b3583ca9e9921
+supplies:
+  arrow_type: 1050001
+  arrows_return_below: 3
+  arrows_restock_to: 10000
+  healing_type: 1000020
+  healing_return_below: 1
+  healing_restock_to: 5
+  minimum_free_slots: 4
+equipment_review_levels:
+- 8
+- 12
+- 15
+- 23
+tasks:
+- travel_to_hunt
+- hunt_and_loot
+- return_to_town
+- restock
+- check_equipment
+- resume_hunt
+qualification: planned
+recover_after_death: true
+movement: jump
+notes: Exploratory southern Bandit patrol after live survey found eastern corridor
+  entering Ratling territory. Existing normal Bandits observed near505519; terrain-checked
+  extension south, target IDs7/66 only. Density and survival need live validation;
+  preserve healing, storage, manual controls and town connections.

@@ -1,0 +1,10 @@
+{
+  "time": 1789039532.6352007,
+  "pid": 39368,
+  "meteor_loop_revision": 1,
+  "runback_monitor_revision": 1,
+  "tests_passed": 247,
+  "live_full_cycle_verified": false,
+  "intent": "Off; manual Stop respected",
+  "resume_phase": "stored_in_market"
+}

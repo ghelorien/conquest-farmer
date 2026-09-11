@@ -1,0 +1,51 @@
+{
+  "records": [
+    {
+      "kind": 0,
+      "option": 0,
+      "text": "Do you want to leave the market? I can teleport you for free."
+    },
+    {
+      "kind": 1,
+      "option": 0,
+      "text": "Yeah. Thanks."
+    },
+    {
+      "kind": 1,
+      "option": 1,
+      "text": "No, I shall stay here."
+    },
+    {
+      "kind": 3,
+      "option": 255,
+      "text": ""
+    },
+    {
+      "kind": 4,
+      "option": 255,
+      "text": ""
+    }
+  ],
+  "window": {
+    "address": 70527968,
+    "name": "Dialog",
+    "position": [
+      378.0,
+      20.0
+    ],
+    "size": [
+      260.0,
+      140.0
+    ],
+    "scroll": [
+      0.0,
+      0.0
+    ]
+  },
+  "table": [
+    398.0,
+    130.0,
+    618.0,
+    22.0
+  ]
+}

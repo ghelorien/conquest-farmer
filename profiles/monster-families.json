@@ -1,0 +1,283 @@
+{
+  "1": [
+    {
+      "type_id": 1,
+      "name": "Pheasant",
+      "level": 1
+    }
+  ],
+  "2": [
+    {
+      "type_id": 2,
+      "name": "Turtledove",
+      "level": 7
+    }
+  ],
+  "3": [
+    {
+      "type_id": 3,
+      "name": "Robin",
+      "level": 12
+    }
+  ],
+  "4": [
+    {
+      "type_id": 4,
+      "name": "Apparition",
+      "level": 17
+    }
+  ],
+  "5": [
+    {
+      "type_id": 5,
+      "name": "Poltergeist",
+      "level": 22
+    }
+  ],
+  "6": [
+    {
+      "type_id": 6,
+      "name": "WingedSnake",
+      "level": 27
+    },
+    {
+      "type_id": 65,
+      "name": "WingedSnakeL28",
+      "level": 28
+    }
+  ],
+  "7": [
+    {
+      "type_id": 7,
+      "name": "Bandit",
+      "level": 32
+    },
+    {
+      "type_id": 66,
+      "name": "BanditL33",
+      "level": 33
+    }
+  ],
+  "8": [
+    {
+      "type_id": 8,
+      "name": "Ratling",
+      "level": 37
+    }
+  ],
+  "9": [
+    {
+      "type_id": 9,
+      "name": "FireSpirit",
+      "level": 42
+    },
+    {
+      "type_id": 68,
+      "name": "FireSpiritL43",
+      "level": 43
+    }
+  ],
+  "10": [
+    {
+      "type_id": 10,
+      "name": "Macaque",
+      "level": 47
+    },
+    {
+      "type_id": 69,
+      "name": "MacaqueL48",
+      "level": 48
+    }
+  ],
+  "11": [
+    {
+      "type_id": 11,
+      "name": "GiantApe",
+      "level": 52
+    },
+    {
+      "type_id": 70,
+      "name": "GiantApeL53",
+      "level": 53
+    }
+  ],
+  "12": [
+    {
+      "type_id": 12,
+      "name": "ThunderApe",
+      "level": 57
+    },
+    {
+      "type_id": 71,
+      "name": "ThunderApeL58",
+      "level": 58
+    }
+  ],
+  "13": [
+    {
+      "type_id": 13,
+      "name": "Snakeman",
+      "level": 62
+    },
+    {
+      "type_id": 72,
+      "name": "SnakemanL63",
+      "level": 63
+    }
+  ],
+  "14": [
+    {
+      "type_id": 14,
+      "name": "SandMonster",
+      "level": 67
+    },
+    {
+      "type_id": 73,
+      "name": "SandMonsterL68",
+      "level": 68
+    }
+  ],
+  "15": [
+    {
+      "type_id": 15,
+      "name": "HillMonster",
+      "level": 72
+    },
+    {
+      "type_id": 74,
+      "name": "HillMonsterL73",
+      "level": 73
+    }
+  ],
+  "16": [
+    {
+      "type_id": 16,
+      "name": "RockMonster",
+      "level": 77
+    },
+    {
+      "type_id": 75,
+      "name": "RockMonsterL78",
+      "level": 78
+    }
+  ],
+  "17": [
+    {
+      "type_id": 17,
+      "name": "BladeGhost",
+      "level": 82
+    },
+    {
+      "type_id": 76,
+      "name": "BladeGhostL83",
+      "level": 83
+    }
+  ],
+  "18": [
+    {
+      "type_id": 18,
+      "name": "Birdman",
+      "level": 87
+    },
+    {
+      "type_id": 77,
+      "name": "BirdmanL88",
+      "level": 88
+    }
+  ],
+  "19": [
+    {
+      "type_id": 19,
+      "name": "HawKing",
+      "level": 92
+    }
+  ],
+  "55": [
+    {
+      "type_id": 55,
+      "name": "BanditL97",
+      "level": 97
+    },
+    {
+      "type_id": 79,
+      "name": "BanditL98",
+      "level": 98
+    }
+  ],
+  "20": [
+    {
+      "type_id": 20,
+      "name": "TombBat",
+      "level": 102
+    },
+    {
+      "type_id": 80,
+      "name": "TombBatL103",
+      "level": 103
+    }
+  ],
+  "56": [
+    {
+      "type_id": 56,
+      "name": "BloodyBat",
+      "level": 107
+    },
+    {
+      "type_id": 81,
+      "name": "BloodyBatL108",
+      "level": 108
+    }
+  ],
+  "57": [
+    {
+      "type_id": 57,
+      "name": "BullMonster",
+      "level": 112
+    },
+    {
+      "type_id": 82,
+      "name": "BullMonsterL113",
+      "level": 113
+    }
+  ],
+  "58": [
+    {
+      "type_id": 58,
+      "name": "RedDevilL117",
+      "level": 117
+    },
+    {
+      "type_id": 83,
+      "name": "RedDevilL118",
+      "level": 118
+    }
+  ],
+  "2411": [
+    {
+      "type_id": 2411,
+      "name": "IcySerpent",
+      "level": 122
+    }
+  ],
+  "2419": [
+    {
+      "type_id": 2419,
+      "name": "FrostBladeDevil",
+      "level": 128
+    }
+  ],
+  "2684": [
+    {
+      "type_id": 2684,
+      "name": "Wraith",
+      "level": 132
+    }
+  ],
+  "2686": [
+    {
+      "type_id": 2686,
+      "name": "OceanGhost",
+      "level": 137
+    }
+  ]
+}

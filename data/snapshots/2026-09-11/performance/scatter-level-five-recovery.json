@@ -1,0 +1,66 @@
+{
+  "time": 1789149772.4656234,
+  "app_pid": 765352,
+  "ranges": {
+    "bow": {
+      "type_id": 500119,
+      "range": 18
+    },
+    "scatter": {
+      "type_id": 8001,
+      "level": 5,
+      "range": 12,
+      "distance": 20
+    },
+    "source": "read_only_memory"
+  },
+  "enabled": true,
+  "execution_state": "farming",
+  "life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 134217744,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      438,
+      346
+    ],
+    "current_hp": 948,
+    "max_hp": 1139,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 130728.906,
+    "timestamp": 130728.906,
+    "dead_candidate": false
+  },
+  "activity": "Blocked movement; taking another path",
+  "metrics": {
+    "start": 1789149712.4656234,
+    "end": 1789149772.4656234,
+    "seconds": 60.0,
+    "kills": 120,
+    "kills_per_minute": 120.0,
+    "projected_kills_per_hour": 7200,
+    "empty_observations": 20,
+    "observations": 66,
+    "minimum_hp_ratio": 0.8323090430201932,
+    "events": {
+      "observation": 66,
+      "movement_attempt": 40,
+      "health_observation": 453,
+      "movement_verified": 31,
+      "kill_verified": 27,
+      "movement_stuck": 5,
+      "movement_recovery": 5,
+      "boundary_return_completed": 1,
+      "farming_area_reached": 1,
+      "paused": 8,
+      "resumed": 8,
+      "attack_attempt": 23,
+      "ranged_escape": 1
+    }
+  },
+  "tests_passed": 28
+}

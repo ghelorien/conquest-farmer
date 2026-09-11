@@ -1,0 +1,570 @@
+{
+  "exported_at": 1789165933.5822942,
+  "source": "read-only snapshot of trial.sqlite3",
+  "event_history_start": 1788835838.7901773,
+  "event_history_end": 1789164430.9760947,
+  "valid_kill_events": 39181,
+  "excluded_invalid_kill_events": 0,
+  "total_verified_kills": 102757,
+  "notes": "UTC calendar-hour buckets; missing hours have no verified kills in this database. First and last buckets may be partial. Rates include elapsed time, not just active combat.",
+  "hours": [
+    {
+      "start_utc": "2026-09-08T02:00:00+00:00",
+      "start": 1788832800,
+      "verified_kills": 10,
+      "complete_hour_in_observed_history": false
+    },
+    {
+      "start_utc": "2026-09-08T03:00:00+00:00",
+      "start": 1788836400,
+      "verified_kills": 14,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T04:00:00+00:00",
+      "start": 1788840000,
+      "verified_kills": 164,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T05:00:00+00:00",
+      "start": 1788843600,
+      "verified_kills": 93,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T06:00:00+00:00",
+      "start": 1788847200,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T07:00:00+00:00",
+      "start": 1788850800,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T08:00:00+00:00",
+      "start": 1788854400,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T09:00:00+00:00",
+      "start": 1788858000,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T10:00:00+00:00",
+      "start": 1788861600,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T11:00:00+00:00",
+      "start": 1788865200,
+      "verified_kills": 59,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T12:00:00+00:00",
+      "start": 1788868800,
+      "verified_kills": 162,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T13:00:00+00:00",
+      "start": 1788872400,
+      "verified_kills": 106,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T14:00:00+00:00",
+      "start": 1788876000,
+      "verified_kills": 242,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T15:00:00+00:00",
+      "start": 1788879600,
+      "verified_kills": 178,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T16:00:00+00:00",
+      "start": 1788883200,
+      "verified_kills": 285,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T17:00:00+00:00",
+      "start": 1788886800,
+      "verified_kills": 48,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T18:00:00+00:00",
+      "start": 1788890400,
+      "verified_kills": 216,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T19:00:00+00:00",
+      "start": 1788894000,
+      "verified_kills": 73,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T20:00:00+00:00",
+      "start": 1788897600,
+      "verified_kills": 36,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T21:00:00+00:00",
+      "start": 1788901200,
+      "verified_kills": 270,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T22:00:00+00:00",
+      "start": 1788904800,
+      "verified_kills": 165,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-08T23:00:00+00:00",
+      "start": 1788908400,
+      "verified_kills": 506,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T00:00:00+00:00",
+      "start": 1788912000,
+      "verified_kills": 237,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T01:00:00+00:00",
+      "start": 1788915600,
+      "verified_kills": 356,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T02:00:00+00:00",
+      "start": 1788919200,
+      "verified_kills": 184,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T03:00:00+00:00",
+      "start": 1788922800,
+      "verified_kills": 107,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T04:00:00+00:00",
+      "start": 1788926400,
+      "verified_kills": 45,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T05:00:00+00:00",
+      "start": 1788930000,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T06:00:00+00:00",
+      "start": 1788933600,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T07:00:00+00:00",
+      "start": 1788937200,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T08:00:00+00:00",
+      "start": 1788940800,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T09:00:00+00:00",
+      "start": 1788944400,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T10:00:00+00:00",
+      "start": 1788948000,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T11:00:00+00:00",
+      "start": 1788951600,
+      "verified_kills": 236,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T12:00:00+00:00",
+      "start": 1788955200,
+      "verified_kills": 571,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T13:00:00+00:00",
+      "start": 1788958800,
+      "verified_kills": 181,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T14:00:00+00:00",
+      "start": 1788962400,
+      "verified_kills": 744,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T15:00:00+00:00",
+      "start": 1788966000,
+      "verified_kills": 650,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T16:00:00+00:00",
+      "start": 1788969600,
+      "verified_kills": 622,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T17:00:00+00:00",
+      "start": 1788973200,
+      "verified_kills": 1068,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T18:00:00+00:00",
+      "start": 1788976800,
+      "verified_kills": 428,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T19:00:00+00:00",
+      "start": 1788980400,
+      "verified_kills": 179,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T20:00:00+00:00",
+      "start": 1788984000,
+      "verified_kills": 620,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T21:00:00+00:00",
+      "start": 1788987600,
+      "verified_kills": 630,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T22:00:00+00:00",
+      "start": 1788991200,
+      "verified_kills": 370,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-09T23:00:00+00:00",
+      "start": 1788994800,
+      "verified_kills": 300,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T00:00:00+00:00",
+      "start": 1788998400,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T01:00:00+00:00",
+      "start": 1789002000,
+      "verified_kills": 1193,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T02:00:00+00:00",
+      "start": 1789005600,
+      "verified_kills": 1547,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T03:00:00+00:00",
+      "start": 1789009200,
+      "verified_kills": 1492,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T04:00:00+00:00",
+      "start": 1789012800,
+      "verified_kills": 366,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T05:00:00+00:00",
+      "start": 1789016400,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T06:00:00+00:00",
+      "start": 1789020000,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T07:00:00+00:00",
+      "start": 1789023600,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T08:00:00+00:00",
+      "start": 1789027200,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T09:00:00+00:00",
+      "start": 1789030800,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T10:00:00+00:00",
+      "start": 1789034400,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T11:00:00+00:00",
+      "start": 1789038000,
+      "verified_kills": 690,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T12:00:00+00:00",
+      "start": 1789041600,
+      "verified_kills": 1235,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T13:00:00+00:00",
+      "start": 1789045200,
+      "verified_kills": 2177,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T14:00:00+00:00",
+      "start": 1789048800,
+      "verified_kills": 2569,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T15:00:00+00:00",
+      "start": 1789052400,
+      "verified_kills": 2260,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T16:00:00+00:00",
+      "start": 1789056000,
+      "verified_kills": 1808,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T17:00:00+00:00",
+      "start": 1789059600,
+      "verified_kills": 909,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T18:00:00+00:00",
+      "start": 1789063200,
+      "verified_kills": 1187,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T19:00:00+00:00",
+      "start": 1789066800,
+      "verified_kills": 1115,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T20:00:00+00:00",
+      "start": 1789070400,
+      "verified_kills": 4130,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T21:00:00+00:00",
+      "start": 1789074000,
+      "verified_kills": 1280,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T22:00:00+00:00",
+      "start": 1789077600,
+      "verified_kills": 1767,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-10T23:00:00+00:00",
+      "start": 1789081200,
+      "verified_kills": 4988,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T00:00:00+00:00",
+      "start": 1789084800,
+      "verified_kills": 3994,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T01:00:00+00:00",
+      "start": 1789088400,
+      "verified_kills": 4573,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T02:00:00+00:00",
+      "start": 1789092000,
+      "verified_kills": 4830,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T03:00:00+00:00",
+      "start": 1789095600,
+      "verified_kills": 6874,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T04:00:00+00:00",
+      "start": 1789099200,
+      "verified_kills": 3495,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T05:00:00+00:00",
+      "start": 1789102800,
+      "verified_kills": 2002,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T06:00:00+00:00",
+      "start": 1789106400,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T07:00:00+00:00",
+      "start": 1789110000,
+      "verified_kills": 0,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T08:00:00+00:00",
+      "start": 1789113600,
+      "verified_kills": 1728,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T09:00:00+00:00",
+      "start": 1789117200,
+      "verified_kills": 670,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T10:00:00+00:00",
+      "start": 1789120800,
+      "verified_kills": 1954,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T11:00:00+00:00",
+      "start": 1789124400,
+      "verified_kills": 885,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T12:00:00+00:00",
+      "start": 1789128000,
+      "verified_kills": 2028,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T13:00:00+00:00",
+      "start": 1789131600,
+      "verified_kills": 3813,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T14:00:00+00:00",
+      "start": 1789135200,
+      "verified_kills": 3010,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T15:00:00+00:00",
+      "start": 1789138800,
+      "verified_kills": 4468,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T16:00:00+00:00",
+      "start": 1789142400,
+      "verified_kills": 2628,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T17:00:00+00:00",
+      "start": 1789146000,
+      "verified_kills": 2588,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T18:00:00+00:00",
+      "start": 1789149600,
+      "verified_kills": 3976,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T19:00:00+00:00",
+      "start": 1789153200,
+      "verified_kills": 3463,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T20:00:00+00:00",
+      "start": 1789156800,
+      "verified_kills": 2699,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T21:00:00+00:00",
+      "start": 1789160400,
+      "verified_kills": 1883,
+      "complete_hour_in_observed_history": true
+    },
+    {
+      "start_utc": "2026-09-11T22:00:00+00:00",
+      "start": 1789164000,
+      "verified_kills": 328,
+      "complete_hour_in_observed_history": false
+    }
+  ]
+}

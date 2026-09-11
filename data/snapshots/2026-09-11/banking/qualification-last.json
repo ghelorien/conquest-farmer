@@ -1,0 +1,25 @@
+{
+  "op": "trip",
+  "command": {
+    "direction": "return"
+  },
+  "result": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 0,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      193,
+      266
+    ],
+    "current_hp": 695,
+    "max_hp": 872,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 20946.843,
+    "timestamp": 20946.843,
+    "dead_candidate": false
+  }
+}

@@ -1,0 +1,35 @@
+import json,time
+from pathlib import Path
+from conquest.worker import request
+from conquest.discord_notify import read_json
+from conquest.route_controller import controller_guard
+from conquest.overnight import OvernightLoop,OvernightStopped
+from conquest.navigation import read_terrain
+from conquest.banking import open_warehouse,after_shopping
+
+app=read_json('reports/desktop-farming/app-state.json');info=app['worker_info_path']
+d=request(info,'health')['embedded_controls']
+assert d['control']['revision']==26 and not d['control']['enabled']
+assert not d['manual_mouse'] and not d['external_execution']
+assert not Path('.runtime/overnight.stop').exists() and not read_json('.runtime/storage-halt.json').get('active')
+with controller_guard() as acquired:
+    assert acquired,'Another controller owns movement'
+    loop=OvernightLoop('bandit');loop.refresh();loop.phase='restocking'
+    original=loop.check_stop
+    def guard():
+        original()
+        c=request(info,'health')['embedded_controls']['control']
+        if c['revision']!=26 or c['enabled']:raise OvernightStopped('Control intent changed')
+    loop.check_stop=guard
+    loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',1011)
+    try:
+        for panel in ('Dialog','Inventory','Warehouse'):
+            try:loop.town('close' if panel=='Warehouse' else 'service-close-panel',window=panel)
+            except ValueError as e:
+                if not any(x in str(e) for x in ('not active','absent')):raise
+        loop.travel((230,250),activity='Crossing the Phoenix approach using a straight westward landing',vendor_type=0,arrival_radius=0)
+        print(json.dumps({'life':loop.living()['embedded_controls']['life'],'vendor':loop.town('vendor-status',vendor_type=0)}),flush=True)
+        print('banking_complete',after_shopping(loop),flush=True)
+        loop.phase='stopped';loop.record('phoenix_recovery_ready',activity='Warehouse verified; ready to resume deposits')
+    except Exception as e:
+        loop.phase='needs_attention';loop.record('phoenix_recovery_failed',detail=str(e));raise

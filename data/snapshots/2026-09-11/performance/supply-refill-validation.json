@@ -1,0 +1,63 @@
+{
+  "at": 1789047794.8361313,
+  "route_id": "bandit",
+  "supplies": {
+    "arrow_type": 1050001,
+    "arrows_return_below": 1,
+    "arrows_restock_to": 10000,
+    "healing_type": 1000020,
+    "healing_return_below": 1,
+    "healing_restock_to": 5,
+    "minimum_free_slots": 4
+  },
+  "tests_passed": 152,
+  "app_reload": "deferred safely; no quiet nearby spot",
+  "controller_pid": 98812,
+  "controller_started_at": 1789047769.1258917,
+  "controller_phase": "hunting",
+  "control_intent": {
+    "enabled": true,
+    "source": "authenticated bridge",
+    "time": 1789047769.9101355
+  },
+  "activity": "Casting Scatter at nearby monsters",
+  "note": "New controller started after source/config updates and loads the new refill quantities. Existing desktop process retained. No additional town trip requested.",
+  "live_validation": {
+    "at": 1789049495.7442076,
+    "restock_completed_at": 1789049412.8214538,
+    "arrows": 10000,
+    "potions_retained": 6,
+    "transport_silver": 200,
+    "free_slots": 25,
+    "withdrawal_verified": 49537,
+    "source": "read-only memory, verified withdrawal and purchase receipts",
+    "runback": {
+      "kind": "hunt",
+      "map_id": 1011,
+      "destination": [
+        405,
+        477
+      ],
+      "position": [
+        381,
+        477
+      ],
+      "started_at": 1789049413.468031,
+      "updated_at": 1789049487.6861854,
+      "result": "arrived",
+      "elapsed_seconds": 74.2,
+      "active_seconds": 74.1,
+      "paused_seconds": 0.1,
+      "tiles_travelled": 426,
+      "tiles_per_second": 5.75,
+      "stalls": 7,
+      "recoveries": 0,
+      "hp_lost": 89,
+      "minimum_hp_percent": 90.2,
+      "deaths": 0,
+      "urgent": false,
+      "paused": false,
+      "source": "read_only_memory"
+    }
+  }
+}

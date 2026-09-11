@@ -1,0 +1,25 @@
+import json,struct
+from conquest.worker import request
+from conquest.discord_notify import read_json,write_json
+from conquest.memory_health import HealthWorkerSession
+from conquest.loot_ownership import SystemMessageReader
+p=read_json('reports/desktop-farming/app-state.json')['worker_info_path']
+h=request(p,'health');s=HealthWorkerSession(p,h['expected_sha256'])
+life=h['embedded_controls']['life'];actor=life['object_address']
+header=s.read_block(actor+0x1968,24);start,end,capacity=struct.unpack('<3Q',header)
+assert start<=end<=capacity and 0<end-start<=128*16 and (end-start)%16==0
+entries=s.read_block(start,end-start);rows=[]
+for offset in range(0,len(entries),16):
+    pointer=struct.unpack_from('<Q',entries,offset)[0];raw=s.read_block(pointer,0x68)
+    if struct.unpack_from('<I',raw,0x10)[0]!=8001:continue
+    assert s.read_block(pointer,0x68)==raw
+    rows.append({'type_id':8001,'name':raw[0x18:0x20].decode(errors='replace'),
+        'level':struct.unpack_from('<I',raw,0x48)[0],
+        'range':struct.unpack_from('<I',raw,0x60)[0],
+        'distance':struct.unpack_from('<I',raw,0x64)[0]})
+assert s.read_block(actor+0x1968,24)==header
+try:messages=[m.text for m in SystemMessageReader(s).read(max_age=5)][-8:]
+except ValueError as e:messages=[str(e)]
+result={'scatter':rows,'system_messages':messages}
+write_json('reports/performance/scatter-startup-inspection.json',result)
+print(json.dumps(result))

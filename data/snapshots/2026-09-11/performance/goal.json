@@ -1,0 +1,41 @@
+{
+  "target_kills_per_minute": 20,
+  "window_seconds": 900,
+  "target_kills_per_window": 300,
+  "measurement": "player memory kill-counter increments; includes travel, restocking and recovery",
+  "route": "poltergeist",
+  "started_at": 1788962796.1445732,
+  "changes": [
+    "Single attacks for isolated targets; Scatter for groups",
+    "Approach stops only where the target is in range and in the clear input area",
+    "Defense observes nearby unselected threats for escape and no longer freezes an empty-target patrol",
+    "Continuous funded runs target 20 potions and return below five"
+  ],
+  "status": "achieved",
+  "single_target_update_at": 1788962810.0,
+  "last_measured_at": 1788971373.2578976,
+  "rolling_windows": {
+    "60": {
+      "kills": 12,
+      "kills_per_minute": 12.0
+    },
+    "300": {
+      "kills": 85,
+      "kills_per_minute": 17.0
+    },
+    "900": {
+      "kills": 255,
+      "kills_per_minute": 17.0
+    }
+  },
+  "tests": "936 passed",
+  "last_change_at": 1788963539.5727785,
+  "deployed_app_pid": 1015400,
+  "validation_started_at": 1788963665.7841682,
+  "previous_goal_turn": "progress: deployed defense and stock fixes; automatic restock and banking verified",
+  "scroll_return": "Prepared and tested; disabled pending fresh live purchase/use verification",
+  "rate_target_met": false,
+  "achieved_at": 1788964597.6565948,
+  "verified_kills_per_minute": 25.266666666666666,
+  "verification": "reports/performance/validation.json"
+}

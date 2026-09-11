@@ -13,6 +13,8 @@ reports/
 *.pem
 *.key
 *.pfx
+*.dpapi
+*.bin
 *.dmp
 *.sqlite
 *.sqlite3

@@ -1,0 +1,16 @@
+{
+  "timestamp": 1788903023.1047354,
+  "target_kills_per_minute": 20,
+  "benchmark_started_at": 1788902791.8342874,
+  "elapsed_seconds": 231.3,
+  "verified_kills": 41,
+  "kills_last_60_seconds": 5,
+  "average_kills_per_minute": 10.64,
+  "state": "Patrolling",
+  "position": [
+    760,
+    594
+  ],
+  "health_ratio": 0.9526627218934911,
+  "target_sustained_verified": false
+}

@@ -1,0 +1,15 @@
+import json,time
+from pathlib import Path
+from conquest.overnight import OvernightLoop
+loop=OvernightLoop('apparition');loop.refresh();loop.phase='restocking'
+results=[]
+for kind,name,point in [(4,'Armorer',(416,369)),(1,'Shopkeeper',(415,358)),(5,'Blacksmith',(452,335))]:
+ loop.town('close',window='Shop');loop.town('close',window='Inventory')
+ loop.travel(point)
+ result=loop.town('open',vendor_type=kind)
+ products=loop.town('shop',vendor_type=kind)
+ results.append({'vendor_type':kind,'vendor_name':name,'observed_at':time.time(),'snapshot':products})
+ Path('reports/archer-shop-inventories.json').write_text(json.dumps(results,indent=2),encoding='utf-8')
+ print(json.dumps({'vendor':name,'products':len(products['products'])}),flush=True)
+loop.town('close',window='Shop');loop.town('close',window='Inventory')
+print('Shop inspection complete',flush=True)

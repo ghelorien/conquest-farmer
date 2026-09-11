@@ -1,0 +1,129 @@
+{
+  "cities": [
+    {
+      "map_id": 1002,
+      "name": "TwinCity",
+      "town_anchor": [
+        466,
+        333
+      ],
+      "town_boundary": [
+        348,
+        209,
+        507,
+        433
+      ],
+      "terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
+      "source": "installed ini/region.json town bounds; terrain-checked anchor",
+      "services": {
+        "pharmacist": [
+          466,
+          333
+        ],
+        "blacksmith": [
+          452,
+          335
+        ],
+        "equipment": [
+          [
+            1,
+            [
+              415,
+              358
+            ]
+          ],
+          [
+            4,
+            [
+              416,
+              369
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "map_id": 1011,
+      "name": "PhoenixCity",
+      "town_anchor": [
+        191,
+        250
+      ],
+      "town_boundary": [
+        111,
+        111,
+        254,
+        258
+      ],
+      "terrain_sha256": "433b3163a38d068e978fa6609c2d8e32f48bd27b188e15cddc3b3583ca9e9921",
+      "source": "installed ini/region.json town bounds; terrain-checked anchor",
+      "services": {
+        "pharmacist": [
+          191,
+          250
+        ],
+        "blacksmith": [
+          199,
+          229
+        ],
+        "equipment": [
+          [
+            4,
+            [
+              204,
+              245
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "map_id": 1020,
+      "name": "ApeCity",
+      "town_anchor": [
+        554,
+        545
+      ],
+      "town_boundary": [
+        515,
+        477,
+        593,
+        614
+      ],
+      "terrain_sha256": "2feb3cdcf2a5cfe8a3358f15103c9994b83094e319f7d780908da5e85658ca80",
+      "source": "installed ini/region.json town bounds; terrain-checked anchor"
+    },
+    {
+      "map_id": 1015,
+      "name": "BirdIsland",
+      "town_anchor": [
+        734,
+        555
+      ],
+      "town_boundary": [
+        682,
+        494,
+        783,
+        617
+      ],
+      "terrain_sha256": "083f8af7cbc96bf542e64bbf97104d2608b370120b048ca774d7f3116431cce4",
+      "source": "installed ini/region.json town bounds; terrain-checked anchor"
+    },
+    {
+      "map_id": 1000,
+      "name": "DesertCity",
+      "town_anchor": [
+        495,
+        612
+      ],
+      "town_boundary": [
+        445,
+        528,
+        545,
+        697
+      ],
+      "terrain_sha256": "3d8a7ec5d308f8a3cfd5305768093115274265426ce3295f5bc0c111384d9213",
+      "source": "installed ini/region.json town bounds; terrain-checked anchor"
+    }
+  ]
+}

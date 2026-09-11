@@ -1,0 +1,16 @@
+import json
+from pathlib import Path
+from conquest.overnight import OvernightLoop
+loop=OvernightLoop()
+loop.phase='restocking'
+loop.record('warehouse_deposit',activity='Depositing Meteor in warehouse')
+try:
+    loop.refresh()
+    result=loop.town('warehouse-deposit',uid=292575188)
+    Path('reports/meteor-warehouse-receipt.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+    loop.record('warehouse_deposited',activity='Meteor stored in warehouse',receipt=result)
+    print(result,flush=True)
+except Exception as error:
+    loop.phase='needs_attention'
+    loop.record('warehouse_failed',detail=str(error))
+    raise

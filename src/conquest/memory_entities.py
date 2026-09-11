@@ -5,7 +5,7 @@ observations deliberately do not authorize combat until current HP is mapped.
 """
 from dataclasses import asdict, dataclass
 import time
-from typing import Literal
+from typing import Literal, Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,6 +26,7 @@ class EntityLayout(BaseModel):
     entry_object_offset: Literal[8] = 8
     monster_vtable_rva: Offset
     monster_kind: int = Field(ge=0, le=255)
+    monster_type_ids: tuple[Annotated[int,Field(strict=True,ge=1,le=65535)], ...] = Field(default=(),max_length=1024)
     id_offset: Offset
     kind_offset: Offset
     name_offset: Offset
@@ -51,6 +52,7 @@ class MonsterObservation:
     # Neither a live-looking object nor max HP establishes current HP.
     current_hp: None = None
     alive: None = None
+    type_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -141,7 +143,8 @@ class MemoryEntityReader:
         typed = [obj for obj, vtable in zip(objects, vtables) if vtable == module + p.monster_vtable_rva]
         kind_fields = [(obj + p.kind_offset, "u32") for obj in typed]
         kinds = sample_fields(s, kind_fields)
-        actors = [obj for obj, kind in zip(typed, kinds) if kind == p.monster_kind]
+        accepted_types = set(p.monster_type_ids or (p.monster_kind,))
+        actors = [obj for obj, kind in zip(typed, kinds) if kind in accepted_types]
         if len(actors) > p.max_monsters:
             raise ValueError("Scene exceeds bounded monster count")
         specs = [(p.id_offset, "u32"), (p.kind_offset, "u32"), (p.name_offset, "utf8"),
@@ -166,13 +169,13 @@ class MemoryEntityReader:
         monsters = []
         for i, obj in enumerate(actors):
             uid, kind, name, position, draw_x, draw_y, max_hp, level = values[i * 8:i * 8 + 8]
-            if kind != p.monster_kind:
+            if kind not in accepted_types:
                 continue  # Cleared actor storage and other actor kinds are not monsters.
             if (not uid or not name or not name.isprintable() or len(name) > 63
                     or any(not 0 <= coordinate <= 65535 for coordinate in position)
                     or not 1 <= max_hp <= 100000000 or not 1 <= level <= 255):
                 raise ValueError("Monster identity or attributes are invalid")
-            monsters.append(MonsterObservation(obj, uid, name, position, (draw_x, draw_y), max_hp, level))
+            monsters.append(MonsterObservation(obj, uid, name, position, (draw_x, draw_y), max_hp, level,type_id=kind))
         if len({m.entity_id for m in monsters}) != len(monsters):
             raise ValueError("Duplicate monster IDs")
         return EntitySnapshot(started, finished, tuple(monsters), len(objects))

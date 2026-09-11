@@ -1,0 +1,174 @@
+{
+  "time": 1788910002.2211924,
+  "deployment": "surround escape with landing and fresh-origin guards",
+  "tests_passed": 692,
+  "escapes": [
+    {
+      "source": [
+        273,
+        627
+      ],
+      "destination": [
+        261,
+        627
+      ],
+      "interrupted_attack": false,
+      "time": 1788909806.140321,
+      "landing_seen": true
+    },
+    {
+      "source": [
+        253,
+        615
+      ],
+      "destination": [
+        253,
+        603
+      ],
+      "interrupted_attack": true,
+      "time": 1788909857.5125523,
+      "landing_seen": true
+    },
+    {
+      "source": [
+        288,
+        606
+      ],
+      "destination": [
+        288,
+        615
+      ],
+      "interrupted_attack": true,
+      "time": 1788909866.6064734,
+      "landing_seen": false
+    },
+    {
+      "source": [
+        340,
+        606
+      ],
+      "destination": [
+        340,
+        594
+      ],
+      "interrupted_attack": false,
+      "time": 1788909887.6055858,
+      "landing_seen": true
+    },
+    {
+      "source": [
+        309,
+        627
+      ],
+      "destination": [
+        321,
+        627
+      ],
+      "interrupted_attack": true,
+      "time": 1788909943.523369,
+      "landing_seen": true
+    },
+    {
+      "source": [
+        321,
+        627
+      ],
+      "destination": [
+        311,
+        627
+      ],
+      "interrupted_attack": true,
+      "time": 1788909950.2045527,
+      "landing_seen": true
+    },
+    {
+      "source": [
+        322,
+        626
+      ],
+      "destination": [
+        310,
+        626
+      ],
+      "interrupted_attack": false,
+      "time": 1788909958.6924543,
+      "landing_seen": true
+    },
+    {
+      "source": [
+        281,
+        628
+      ],
+      "destination": [
+        281,
+        636
+      ],
+      "interrupted_attack": false,
+      "time": 1788909987.004102,
+      "landing_seen": true
+    },
+    {
+      "source": [
+        281,
+        625
+      ],
+      "destination": [
+        281,
+        634
+      ],
+      "interrupted_attack": false,
+      "time": 1788909989.2709918,
+      "landing_seen": true
+    },
+    {
+      "source": [
+        281,
+        634
+      ],
+      "destination": [
+        293,
+        634
+      ],
+      "interrupted_attack": false,
+      "time": 1788909995.807765,
+      "landing_seen": true
+    },
+    {
+      "source": [
+        289,
+        625
+      ],
+      "destination": [
+        289,
+        613
+      ],
+      "interrupted_attack": true,
+      "time": 1788909999.5420597,
+      "landing_seen": true
+    }
+  ],
+  "landing_check": "Exact destination present in memory health observations within 2 seconds; false means not observed, not a confirmed failed jump.",
+  "state": "farming",
+  "kills": 36,
+  "life": {
+    "character": "Parasite",
+    "object_address": 109932992,
+    "status": 512,
+    "appearance": 0,
+    "map_id": 1002,
+    "position": [
+      289,
+      613
+    ],
+    "current_hp": 408,
+    "max_hp": 434,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 100012.75,
+    "timestamp": 100012.75,
+    "dead_candidate": false
+  },
+  "enabled": true,
+  "executing": true
+}

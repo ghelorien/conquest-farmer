@@ -1,0 +1,21 @@
+{
+  "pid": 743784,
+  "updated_at": 1788919856.1578724,
+  "position": [
+    524,
+    676
+  ],
+  "xp_skill": {
+    "charge": 10,
+    "ready": false,
+    "flying": false,
+    "source": "read_only_memory"
+  },
+  "xp_fly": {
+    "event": "xp_fly_verified",
+    "activity": "Fly active; continuing combat",
+    "charge": 0,
+    "source": "read_only_memory"
+  },
+  "selected_route": "poltergeist"
+}

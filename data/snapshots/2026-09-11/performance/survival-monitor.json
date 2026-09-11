@@ -1,0 +1,935 @@
+{
+  "start": 1788984300,
+  "end": 1788987900,
+  "interval_minutes": 5,
+  "status": "completed",
+  "checks": [
+    {
+      "time": 1788984530.217189,
+      "initial_state": "Dead; route controller stopped by PermissionError replacing session-plan.json",
+      "initial_death_position": [
+        125,
+        382
+      ],
+      "recovery": "Revived in Twin City; 710/710 HP",
+      "intervention": "Unique JSON temporary files, sharing-violation retries, nonfatal savings display write failure",
+      "tests": "84 passed",
+      "deployment": "Safe reload completed",
+      "app_pid": 1136988,
+      "resumed_at": 1788984553.412086
+    },
+    {
+      "time": 1788984711.3172534,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Travelling to hunting area",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 134218240,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          212,
+          621
+        ],
+        "current_hp": 709,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 174722.906,
+        "timestamp": 174722.906,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 2,
+          "kills_per_minute": 0.4
+        },
+        "900": {
+          "kills": 2,
+          "kills_per_minute": 0.13333333333333333
+        }
+      },
+      "silver": 405,
+      "potions": 12,
+      "recent_events": [
+        {
+          "time": 1788984555.4549422,
+          "event": "started",
+          "phase": "starting"
+        },
+        {
+          "time": 1788984556.909094,
+          "event": "ammunition_selected",
+          "phase": "starting",
+          "arrow_type": 1050001,
+          "activity": "Using IronArrow for combat and restocking"
+        },
+        {
+          "time": 1788984556.9674108,
+          "event": "supplies_ready",
+          "phase": "starting",
+          "supplies": {
+            "arrows": 2209,
+            "potions": 12,
+            "free_slots": 21,
+            "silver": 405
+          }
+        },
+        {
+          "time": 1788984557.3313959,
+          "event": "route_hold_active",
+          "phase": "starting",
+          "route_hold": {
+            "active": true,
+            "mode": "save_silver",
+            "route_id": "poltergeist",
+            "upgrade_maps": [
+              1002
+            ],
+            "silver_target": null,
+            "starting_silver": 961,
+            "balance": 503,
+            "started_at": 1788953794.20565,
+            "label": "Continuous Poltergeist farming",
+            "ends_when": "User stops farming after returning",
+            "observed_at": 1788983175.830918,
+            "allow_iron_arrows": true
+          },
+          "activity": "Continuous Poltergeist farming; no silver limit"
+        },
+        {
+          "time": 1788984557.3313959,
+          "event": "level_bracket_checked",
+          "phase": "starting",
+          "level": 43,
+          "level_bracket": "firespirit",
+          "level_range": [
+            42,
+            46
+          ],
+          "next_route": "Lv 042–046 · FireSpirit"
+        },
+        {
+          "time": 1788984557.4958746,
+          "event": "hunt_started",
+          "phase": "hunting",
+          "activity": "Heading back to the hunting area"
+        }
+      ]
+    },
+    {
+      "time": 1788985015.750661,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Farming",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 512,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          166,
+          363
+        ],
+        "current_hp": 527,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 175027.39,
+        "timestamp": 175027.39,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 90,
+          "kills_per_minute": 18.0
+        },
+        "900": {
+          "kills": 92,
+          "kills_per_minute": 6.133333333333334
+        }
+      },
+      "silver": 3383,
+      "potions": 12,
+      "recent_events": [],
+      "recent_trial_events": [
+        [
+          1788984786.5937886,
+          "boundary_return_completed",
+          {
+            "position": [
+              100,
+              365
+            ]
+          }
+        ],
+        [
+          1788984786.597295,
+          "farming_area_reached",
+          {
+            "position": [
+              100,
+              365
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "time": 1788985315.761486,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Farming",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 134218240,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          148,
+          373
+        ],
+        "current_hp": 455,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 175327.5,
+        "timestamp": 175327.5,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 157,
+          "kills_per_minute": 31.4
+        },
+        "900": {
+          "kills": 249,
+          "kills_per_minute": 16.6
+        },
+        "first_quarter": {
+          "kills": 194,
+          "kills_per_minute": 12.933333333333334
+        }
+      },
+      "silver": 11419,
+      "potions": 12,
+      "recent_events": [],
+      "recent_trial_events": [
+        [
+          1788985076.5929785,
+          "boundary_return_started",
+          {
+            "position": [
+              178,
+              386
+            ],
+            "destination": [
+              110,
+              345
+            ],
+            "travel_boundary": [
+              94,
+              333,
+              190,
+              398
+            ]
+          }
+        ],
+        [
+          1788985077.8880498,
+          "boundary_return_completed",
+          {
+            "position": [
+              177,
+              391
+            ]
+          }
+        ],
+        [
+          1788985077.8982077,
+          "farming_area_reached",
+          {
+            "position": [
+              177,
+              391
+            ]
+          }
+        ],
+        [
+          1788985097.9509234,
+          "boundary_return_started",
+          {
+            "position": [
+              178,
+              403
+            ],
+            "destination": [
+              110,
+              345
+            ],
+            "travel_boundary": [
+              94,
+              333,
+              190,
+              415
+            ]
+          }
+        ],
+        [
+          1788985099.4528174,
+          "boundary_return_completed",
+          {
+            "position": [
+              177,
+              399
+            ]
+          }
+        ],
+        [
+          1788985099.4584458,
+          "farming_area_reached",
+          {
+            "position": [
+              177,
+              399
+            ]
+          }
+        ],
+        [
+          1788985103.9174318,
+          "boundary_return_started",
+          {
+            "position": [
+              178,
+              399
+            ],
+            "destination": [
+              110,
+              345
+            ],
+            "travel_boundary": [
+              94,
+              333,
+              190,
+              411
+            ]
+          }
+        ],
+        [
+          1788985105.062897,
+          "boundary_return_completed",
+          {
+            "position": [
+              177,
+              399
+            ]
+          }
+        ],
+        [
+          1788985105.0715573,
+          "farming_area_reached",
+          {
+            "position": [
+              177,
+              399
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "time": 1788985613.6134048,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Patrolling",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 512,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          135,
+          385
+        ],
+        "current_hp": 606,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 175625.312,
+        "timestamp": 175625.312,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 105,
+          "kills_per_minute": 21.0
+        },
+        "900": {
+          "kills": 350,
+          "kills_per_minute": 23.333333333333332
+        }
+      },
+      "silver": 16220,
+      "potions": 11,
+      "recent_events": [],
+      "recent_trial_events": [
+        [
+          1788985448.0865421,
+          "healing_outcome",
+          {
+            "outcome": "verified",
+            "item_uid": 292879785,
+            "health_ratio": 0.9225352112676056
+          }
+        ]
+      ]
+    },
+    {
+      "time": 1788985912.9072542,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Patrolling",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 512,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          133,
+          403
+        ],
+        "current_hp": 471,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 175924.609,
+        "timestamp": 175924.609,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 117,
+          "kills_per_minute": 23.4
+        },
+        "900": {
+          "kills": 379,
+          "kills_per_minute": 25.266666666666666
+        }
+      },
+      "silver": 22401,
+      "potions": 11,
+      "recent_events": [],
+      "recent_trial_events": [
+        [
+          1788985823.083227,
+          "farming_area_reached",
+          {
+            "position": [
+              110,
+              329
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "time": 1788986185.4474373,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Farming",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 512,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          136,
+          402
+        ],
+        "current_hp": 585,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 176197.171,
+        "timestamp": 176197.171,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 84,
+          "kills_per_minute": 16.8
+        },
+        "900": {
+          "kills": 311,
+          "kills_per_minute": 20.733333333333334
+        },
+        "second_quarter": {
+          "kills": 329,
+          "kills_per_minute": 21.933333333333334
+        }
+      },
+      "silver": 25434,
+      "potions": 8,
+      "recent_events": [],
+      "recent_trial_events": [
+        [
+          1788985928.447251,
+          "farming_area_reached",
+          {
+            "position": [
+              110,
+              412
+            ]
+          }
+        ],
+        [
+          1788985940.042609,
+          "healing_outcome",
+          {
+            "outcome": "verified",
+            "item_uid": 292879786,
+            "health_ratio": 0.9492957746478873
+          }
+        ],
+        [
+          1788986053.7477646,
+          "healing_outcome",
+          {
+            "outcome": "verified",
+            "item_uid": 292879787,
+            "health_ratio": 0.8915492957746479
+          }
+        ],
+        [
+          1788986074.1715422,
+          "healing_outcome",
+          {
+            "outcome": "verified",
+            "item_uid": 292879788,
+            "health_ratio": 0.823943661971831
+          }
+        ],
+        [
+          1788986095.4445856,
+          "farming_area_reached",
+          {
+            "position": [
+              176,
+              371
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "time": 1788986486.7877195,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Running",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 0,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          130,
+          407
+        ],
+        "current_hp": 501,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 176498.406,
+        "timestamp": 176498.406,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 36,
+          "kills_per_minute": 7.2
+        },
+        "900": {
+          "kills": 237,
+          "kills_per_minute": 15.8
+        }
+      },
+      "silver": 26585,
+      "potions": 8,
+      "recent_events": [],
+      "recent_trial_events": [
+        [
+          1788986358.7636282,
+          "trial_stopped",
+          {
+            "reason": "duration_limit",
+            "duration": 1800.0469999999914,
+            "attack_attempts": 498,
+            "verified_heals": 4,
+            "verified_reloads": 1,
+            "deaths": 0,
+            "verified_revivals": 0,
+            "confirmed_kills": 571,
+            "confirmed_pickups": 0
+          }
+        ],
+        [
+          1788986360.745531,
+          "farming_area_reached",
+          {
+            "position": [
+              110,
+              340
+            ]
+          }
+        ]
+      ],
+      "assessment": "Rate fell below target; inspected five-minute trace: 188/235 observations had no attackable target, 172 movements verified, varied positions across sweep. No fixed-position patrol loop or survival failure. Keep current safe route rather than reloading during combat; reassess next sample."
+    },
+    {
+      "time": 1788986783.6276982,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Patrolling",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 0,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          119,
+          372
+        ],
+        "current_hp": 449,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 176795.187,
+        "timestamp": 176795.187,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 18,
+          "kills_per_minute": 3.6
+        },
+        "900": {
+          "kills": 139,
+          "kills_per_minute": 9.266666666666667
+        }
+      },
+      "silver": 27157,
+      "potions": 8,
+      "recent_events": [],
+      "recent_trial_events": [],
+      "assessment": "Persistent low target availability: 193 of 234 sampled observations had zero attackable targets. Verified varied movement through the full sweep; no stationary loop. One live scene read at [159,408] contained no monsters. No survival or input failure; do not widen into unverified threats or reload solely on this sample. Reassess the next quarter and retain full-hour performance deficit."
+    },
+    {
+      "time": 1788987087.7997544,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Patrolling",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 0,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          106,
+          391
+        ],
+        "current_hp": 564,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 177099.375,
+        "timestamp": 177099.375,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 7,
+          "kills_per_minute": 1.4
+        },
+        "900": {
+          "kills": 61,
+          "kills_per_minute": 4.066666666666666
+        },
+        "third_quarter": {
+          "kills": 80,
+          "kills_per_minute": 5.333333333333333
+        }
+      },
+      "silver": 27368,
+      "potions": 7,
+      "recent_events": [],
+      "recent_trial_events": [
+        [
+          1788986896.0875323,
+          "healing_outcome",
+          {
+            "outcome": "verified",
+            "item_uid": 292879790,
+            "health_ratio": 0.9450704225352112
+          }
+        ]
+      ],
+      "assessment": "Low kill rate persists. Read-only audit saw 46 Poltergeist candidates in one scene, so lack of attackable targets must not be equated with no nearby monsters. Additional remote HP probes rejected rapidly changing/reused objects (identity/projection guards); no unverified target was attacked. Could not independently establish HP or the exact targeting bottleneck. Survival remains stable; no speculative live code change."
+    },
+    {
+      "time": 1788987384.9079192,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Patrolling",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 0,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          147,
+          407
+        ],
+        "current_hp": 662,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 177396.609,
+        "timestamp": 177396.609,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 10,
+          "kills_per_minute": 2.0
+        },
+        "900": {
+          "kills": 35,
+          "kills_per_minute": 2.3333333333333335
+        }
+      },
+      "silver": 27368,
+      "potions": 6,
+      "recent_events": [],
+      "recent_trial_events": [
+        [
+          1788987371.3579648,
+          "healing_outcome",
+          {
+            "outcome": "verified",
+            "item_uid": 292879792,
+            "health_ratio": 0.9323943661971831
+          }
+        ]
+      ]
+    },
+    {
+      "time": 1788987696.3754432,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Farming",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 134217728,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          132,
+          372
+        ],
+        "current_hp": 554,
+        "max_hp": 710,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 177708.14,
+        "timestamp": 177708.14,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 36,
+          "kills_per_minute": 7.2
+        },
+        "900": {
+          "kills": 53,
+          "kills_per_minute": 3.533333333333333
+        }
+      },
+      "silver": 27707,
+      "potions": 6,
+      "recent_events": [],
+      "recent_trial_events": []
+    },
+    {
+      "time": 1788987992.6757731,
+      "app_pid": 1136988,
+      "controller_pid": 1130280,
+      "controller_alive": true,
+      "phase": "hunting",
+      "state": "Farming",
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 0,
+        "appearance": 0,
+        "map_id": 1002,
+        "position": [
+          112,
+          364
+        ],
+        "current_hp": 719,
+        "max_hp": 719,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 178004.281,
+        "timestamp": 178004.281,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "manual_mouse": false,
+      "enabled": true,
+      "windows": {
+        "300": {
+          "kills": 90,
+          "kills_per_minute": 18.0
+        },
+        "900": {
+          "kills": 134,
+          "kills_per_minute": 8.933333333333334
+        },
+        "fourth_quarter": {
+          "kills": 116,
+          "kills_per_minute": 7.733333333333333
+        },
+        "hour": {
+          "kills": 719,
+          "kills_per_minute": 11.983333333333333
+        }
+      },
+      "silver": 30714,
+      "potions": 5,
+      "recent_events": [],
+      "recent_trial_events": [
+        [
+          1788987826.778686,
+          "healing_outcome",
+          {
+            "outcome": "verified",
+            "item_uid": 292879796,
+            "health_ratio": 0.8211267605633803
+          }
+        ]
+      ]
+    }
+  ],
+  "completed_at": 1788988031.1497915,
+  "final": {
+    "start": 1788984300,
+    "end": 1788987900,
+    "kills": 719,
+    "kills_per_minute": 11.983333333333333,
+    "target_kills": 1200,
+    "target_met": false,
+    "quarter_kills": [
+      194,
+      329,
+      80,
+      116
+    ],
+    "initial_incident": "Found dead after earlier session-plan replacement failure; revived and safely deployed write fix",
+    "new_deaths_observed_after_recovery": 0,
+    "new_controller_failures_after_recovery": 0,
+    "restock_trips_during_hour": 0,
+    "focus_stable_at_checks": true,
+    "farming_continues": true,
+    "final_hp": 719,
+    "final_max_hp": 719,
+    "potions": 5,
+    "wallet": 30714,
+    "bank_last_verified": 171941,
+    "known_limitations": [
+      "Kill rate declined substantially despite continuing movement; exact targeting bottleneck remains unresolved",
+      "Serial remote monster HP checks could not validate rapidly changing objects; this does not prove nearby monsters absent or dead",
+      "Windows focus-denial recovery remains unproven; no recurrence during this monitoring hour",
+      "No restock occurred during this hour, so this window does not qualify a full restock cycle"
+    ]
+  }
+}

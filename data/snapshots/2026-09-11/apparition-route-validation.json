@@ -1,0 +1,231 @@
+{
+  "recorded_at": 1788905982.6513338,
+  "route_id": "apparition",
+  "qualification": "travel_verified",
+  "position": [
+    262,
+    582
+  ],
+  "health": [
+    229,
+    338
+  ],
+  "kills": 2,
+  "attempts": 3,
+  "events": [
+    {
+      "time": 1788905976.3889823,
+      "event": "attack_attempt",
+      "number": 3,
+      "point": [
+        582,
+        364
+      ],
+      "entity_id": 447159,
+      "object_address": 177599456,
+      "world_position": [
+        262,
+        580
+      ],
+      "distance_tiles": 2,
+      "confidence": 1.0,
+      "outcome": "awaiting_observation"
+    },
+    {
+      "time": 1788905975.0573235,
+      "event": "movement_attempt",
+      "point": [
+        902,
+        588
+      ],
+      "waypoint": [
+        262,
+        582
+      ],
+      "approaching": false,
+      "movement": "jump"
+    },
+    {
+      "time": 1788905973.7394412,
+      "event": "movement_attempt",
+      "point": [
+        902,
+        588
+      ],
+      "waypoint": [
+        250,
+        582
+      ],
+      "approaching": false,
+      "movement": "jump"
+    },
+    {
+      "time": 1788905972.622349,
+      "event": "movement_attempt",
+      "point": [
+        358,
+        476
+      ],
+      "waypoint": [
+        238,
+        582
+      ],
+      "approaching": false,
+      "movement": "run"
+    },
+    {
+      "time": 1788905971.5391743,
+      "event": "movement_attempt",
+      "point": [
+        198,
+        236
+      ],
+      "waypoint": [
+        238,
+        577
+      ],
+      "approaching": false,
+      "movement": "jump"
+    },
+    {
+      "time": 1788905970.7892156,
+      "event": "movement_attempt",
+      "point": [
+        390,
+        428
+      ],
+      "waypoint": [
+        248,
+        577
+      ],
+      "approaching": false,
+      "movement": "run"
+    },
+    {
+      "time": 1788905962.9603434,
+      "event": "kill_verified",
+      "count": 1,
+      "total": 2,
+      "counter": 2,
+      "character_level": 18,
+      "ammo": 130,
+      "kills_per_hour": 65.25048937867193
+    },
+    {
+      "time": 1788905957.5056016,
+      "event": "attack_attempt",
+      "number": 2,
+      "point": [
+        486,
+        508
+      ],
+      "entity_id": 447237,
+      "object_address": 177589152,
+      "world_position": [
+        252,
+        578
+      ],
+      "distance_tiles": 4,
+      "confidence": 1.0,
+      "outcome": "awaiting_observation"
+    },
+    {
+      "time": 1788905956.4558856,
+      "event": "movement_attempt",
+      "point": [
+        230,
+        540
+      ],
+      "waypoint": [
+        249,
+        574
+      ],
+      "approaching": false,
+      "movement": "jump"
+    },
+    {
+      "time": 1788905955.4398859,
+      "event": "movement_attempt",
+      "point": [
+        230,
+        540
+      ],
+      "waypoint": [
+        249,
+        565
+      ],
+      "approaching": false,
+      "movement": "jump"
+    },
+    {
+      "time": 1788905954.389464,
+      "event": "movement_attempt",
+      "point": [
+        230,
+        540
+      ],
+      "waypoint": [
+        249,
+        556
+      ],
+      "approaching": false,
+      "movement": "jump"
+    },
+    {
+      "time": 1788905952.806326,
+      "event": "movement_attempt",
+      "point": [
+        870,
+        220
+      ],
+      "waypoint": [
+        248,
+        547
+      ],
+      "approaching": false,
+      "movement": "jump"
+    },
+    {
+      "time": 1788905951.9388733,
+      "event": "movement_attempt",
+      "point": [
+        902,
+        588
+      ],
+      "waypoint": [
+        253,
+        558
+      ],
+      "approaching": false,
+      "movement": "jump"
+    },
+    {
+      "time": 1788905951.205768,
+      "event": "movement_attempt",
+      "point": [
+        614,
+        348
+      ],
+      "waypoint": [
+        241,
+        558
+      ],
+      "approaching": false,
+      "movement": "run"
+    },
+    {
+      "time": 1788905950.3057628,
+      "event": "movement_attempt",
+      "point": [
+        390,
+        460
+      ],
+      "waypoint": [
+        241,
+        561
+      ],
+      "approaching": false,
+      "movement": "run"
+    }
+  ]
+}

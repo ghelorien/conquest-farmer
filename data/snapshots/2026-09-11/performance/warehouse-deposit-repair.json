@@ -1,0 +1,21 @@
+{
+  "at": 1789115461.9669485,
+  "cause": "Pre-input warehouse/inventory snapshot change was not classified as retryable",
+  "fix": "Typed pre-input observation retry; post-input uncertainty remains terminal",
+  "tests_passed": 156,
+  "app_pid": 550140,
+  "controller_pid": 412464,
+  "market_bank_verified_at": 1789115397.3868463,
+  "meteor_loop_completed_at": 1789115436.121709,
+  "deposited_uids": [
+    293233115,
+    293234928,
+    293236298,
+    293237414,
+    293240846,
+    293245194,
+    293248225
+  ],
+  "resume_at": 1789115440,
+  "validation": "Market deposits and Phoenix return verified; returning to monsters"
+}

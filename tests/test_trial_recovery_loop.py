@@ -63,7 +63,7 @@ def test_live_loop_revives_before_supply_stop_and_returns_without_combat(tmp_pat
     monkeypatch.setattr(trial,"DesktopFrames",lambda *args:camera)
     monkeypatch.setattr(trial,"resolve_player",lambda *args:dict.fromkeys(
         ("name","position","max_hp","kill_counter","level","map"),1))
-    monkeypatch.setattr(trial,"health_ratio",lambda frame:state["health"])
+    monkeypatch.setattr(trial,"health_ratio",lambda frame, size:state["health"])
     monkeypatch.setattr(trial,"revive_button",lambda *args:(735,310))
     monkeypatch.setattr(trial.cv2,"imwrite",lambda *args:True)
     monkeypatch.setattr(trial,"targets",lambda *args:[])

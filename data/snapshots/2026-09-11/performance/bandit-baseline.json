@@ -1,0 +1,1073 @@
+{
+  "at": 1789001875.8453221,
+  "health": {
+    "worker": "live",
+    "protocol_version": 2,
+    "input_revision": 9,
+    "read_only": false,
+    "memory_read_revision": 1,
+    "expected_sha256": "[REDACTED_64HEX]",
+    "target": {
+      "pid": 194080,
+      "path": "C:\\Program Files\\Classic Conquer 2.0\\bin\\64\\ImConquer.exe",
+      "creation_time_100ns": 134333092696223329,
+      "architecture": "x64"
+    },
+    "window": {
+      "pid": 194080,
+      "hwnd": 1771016,
+      "root_hwnd": 1771016,
+      "client_size": [
+        1036,
+        793
+      ],
+      "foreground": 1771016,
+      "cursor": [
+        963,
+        434
+      ],
+      "minimized": false
+    },
+    "modules": [
+      {
+        "name": "imconquer.exe",
+        "path": "c:\\program files\\classic conquer 2.0\\bin\\64\\imconquer.exe",
+        "base": 5368709120,
+        "size": 42749952
+      }
+    ],
+    "embedded_controls": {
+      "monsters": [
+        {
+          "object_address": 410315136,
+          "entity_id": 428443,
+          "name": "BanditL33",
+          "position": [
+            358,
+            449
+          ],
+          "draw_position": [
+            806,
+            796
+          ],
+          "max_hp": 2451,
+          "level": 33,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 66
+        },
+        {
+          "object_address": 410325440,
+          "entity_id": 428410,
+          "name": "BanditL33",
+          "position": [
+            352,
+            441
+          ],
+          "draw_position": [
+            870,
+            572
+          ],
+          "max_hp": 2451,
+          "level": 33,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 66
+        },
+        {
+          "object_address": 428986368,
+          "entity_id": 469640,
+          "name": "Bandit",
+          "position": [
+            350,
+            419
+          ],
+          "draw_position": [
+            1510,
+            188
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 428994096,
+          "entity_id": 428428,
+          "name": "BanditL33",
+          "position": [
+            348,
+            424
+          ],
+          "draw_position": [
+            1286,
+            236
+          ],
+          "max_hp": 2451,
+          "level": 33,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 66
+        },
+        {
+          "object_address": 159767296,
+          "entity_id": 469915,
+          "name": "Bandit",
+          "position": [
+            342,
+            426
+          ],
+          "draw_position": [
+            1030,
+            172
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 159746688,
+          "entity_id": 470053,
+          "name": "Bandit",
+          "position": [
+            357,
+            430
+          ],
+          "draw_position": [
+            1382,
+            476
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 425238752,
+          "entity_id": 469965,
+          "name": "Bandit",
+          "position": [
+            346,
+            419
+          ],
+          "draw_position": [
+            1382,
+            124
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 425246480,
+          "entity_id": 470054,
+          "name": "Bandit",
+          "position": [
+            355,
+            417
+          ],
+          "draw_position": [
+            1734,
+            236
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 115122272,
+          "entity_id": 428473,
+          "name": "BanditL33",
+          "position": [
+            337,
+            443
+          ],
+          "draw_position": [
+            326,
+            364
+          ],
+          "max_hp": 2451,
+          "level": 33,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 66
+        },
+        {
+          "object_address": 115124848,
+          "entity_id": 469475,
+          "name": "Bandit",
+          "position": [
+            364,
+            424
+          ],
+          "draw_position": [
+            1798,
+            492
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 115145456,
+          "entity_id": 469590,
+          "name": "Bandit",
+          "position": [
+            364,
+            449
+          ],
+          "draw_position": [
+            998,
+            892
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 428968336,
+          "entity_id": 469398,
+          "name": "Bandit",
+          "position": [
+            356,
+            442
+          ],
+          "draw_position": [
+            966,
+            652
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 428970912,
+          "entity_id": 469677,
+          "name": "Bandit",
+          "position": [
+            329,
+            460
+          ],
+          "draw_position": [
+            -474,
+            508
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 428973488,
+          "entity_id": 469429,
+          "name": "Bandit",
+          "position": [
+            366,
+            436
+          ],
+          "draw_position": [
+            1478,
+            716
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 428976064,
+          "entity_id": 469825,
+          "name": "Bandit",
+          "position": [
+            340,
+            423
+          ],
+          "draw_position": [
+            1062,
+            92
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 428991520,
+          "entity_id": 469904,
+          "name": "Bandit",
+          "position": [
+            342,
+            429
+          ],
+          "draw_position": [
+            934,
+            220
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 428981216,
+          "entity_id": 469425,
+          "name": "Bandit",
+          "position": [
+            350,
+            461
+          ],
+          "draw_position": [
+            166,
+            860
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 428978640,
+          "entity_id": 469397,
+          "name": "Bandit",
+          "position": [
+            335,
+            449
+          ],
+          "draw_position": [
+            58,
+            428
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 428983792,
+          "entity_id": 469448,
+          "name": "Bandit",
+          "position": [
+            343,
+            412
+          ],
+          "draw_position": [
+            1510,
+            -36
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 410297104,
+          "entity_id": 469994,
+          "name": "Bandit",
+          "position": [
+            345,
+            410
+          ],
+          "draw_position": [
+            1638,
+            -36
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 410309984,
+          "entity_id": 469615,
+          "name": "Bandit",
+          "position": [
+            350,
+            411
+          ],
+          "draw_position": [
+            1766,
+            60
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 410302256,
+          "entity_id": 469433,
+          "name": "Bandit",
+          "position": [
+            344,
+            412
+          ],
+          "draw_position": [
+            1542,
+            -20
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 410304832,
+          "entity_id": 428440,
+          "name": "BanditL33",
+          "position": [
+            348,
+            413
+          ],
+          "draw_position": [
+            1638,
+            60
+          ],
+          "max_hp": 2451,
+          "level": 33,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 66
+        },
+        {
+          "object_address": 410307408,
+          "entity_id": 469527,
+          "name": "Bandit",
+          "position": [
+            365,
+            409
+          ],
+          "draw_position": [
+            2310,
+            268
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 410312560,
+          "entity_id": 469741,
+          "name": "Bandit",
+          "position": [
+            364,
+            442
+          ],
+          "draw_position": [
+            1222,
+            780
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 410299680,
+          "entity_id": 469446,
+          "name": "Bandit",
+          "position": [
+            332,
+            408
+          ],
+          "draw_position": [
+            1286,
+            -276
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 410317712,
+          "entity_id": 469868,
+          "name": "Bandit",
+          "position": [
+            352,
+            408
+          ],
+          "draw_position": [
+            1926,
+            44
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 410320288,
+          "entity_id": 469592,
+          "name": "Bandit",
+          "position": [
+            337,
+            407
+          ],
+          "draw_position": [
+            1478,
+            -212
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 425228448,
+          "entity_id": 470057,
+          "name": "Bandit",
+          "position": [
+            370,
+            414
+          ],
+          "draw_position": [
+            2310,
+            428
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 425233600,
+          "entity_id": 469513,
+          "name": "Bandit",
+          "position": [
+            368,
+            422
+          ],
+          "draw_position": [
+            1990,
+            524
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 425223296,
+          "entity_id": 469559,
+          "name": "Bandit",
+          "position": [
+            368,
+            428
+          ],
+          "draw_position": [
+            1798,
+            620
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 425225872,
+          "entity_id": 470003,
+          "name": "Bandit",
+          "position": [
+            374,
+            424
+          ],
+          "draw_position": [
+            2118,
+            652
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 425241328,
+          "entity_id": 469924,
+          "name": "Bandit",
+          "position": [
+            373,
+            443
+          ],
+          "draw_position": [
+            1478,
+            940
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        },
+        {
+          "object_address": 425243904,
+          "entity_id": 469426,
+          "name": "Bandit",
+          "position": [
+            348,
+            461
+          ],
+          "draw_position": [
+            102,
+            828
+          ],
+          "max_hp": 817,
+          "level": 32,
+          "current_hp": null,
+          "alive": null,
+          "type_id": 7
+        }
+      ],
+      "observations_available": true,
+      "observation_note": "Connected to embedded client",
+      "hp_candidate": 845,
+      "max_hp_candidate": 845,
+      "life": {
+        "character": "Parasite",
+        "object_address": 109932992,
+        "status": 0,
+        "appearance": 0,
+        "map_id": 1011,
+        "position": [
+          341,
+          441
+        ],
+        "current_hp": 845,
+        "max_hp": 845,
+        "ghost_candidate": false,
+        "revive_gate_value": 0,
+        "revive_ready_candidate": false,
+        "started_at": 191885.656,
+        "timestamp": 191885.656,
+        "dead_candidate": false
+      },
+      "focused": true,
+      "minimized": false,
+      "observed_at": 1789001875.80543,
+      "read_only_worker": true,
+      "blockers": [
+        "Monster life state and kill-linked loot need live validation",
+        "Input for the embedded client has not been verified"
+      ],
+      "encounter": {
+        "state": "idle",
+        "note": "Waiting for a selected monster",
+        "monster_id": null,
+        "kill_event_id": null,
+        "collected_drop_ids": [],
+        "pending_drop_ids": []
+      },
+      "control": {
+        "enabled": false,
+        "target_ids": [],
+        "target_type_ids": [
+          7,
+          66
+        ],
+        "resolved_target_ids": [
+          428410,
+          428428,
+          428440,
+          428443,
+          428473,
+          469397,
+          469398,
+          469425,
+          469426,
+          469429,
+          469433,
+          469446,
+          469448,
+          469475,
+          469513,
+          469527,
+          469559,
+          469590,
+          469592,
+          469615,
+          469640,
+          469677,
+          469741,
+          469825,
+          469868,
+          469904,
+          469915,
+          469924,
+          469965,
+          469994,
+          470003,
+          470053,
+          470054,
+          470057
+        ],
+        "input_mode": "foreground",
+        "revision": 0,
+        "execution_state": "off",
+        "note": "Farming is off"
+      },
+      "external_execution": false,
+      "manual_mouse": true
+    }
+  },
+  "gear": {
+    "level": 51,
+    "profession": 42,
+    "map_id": 1011,
+    "equipment": {
+      "head": {
+        "uid": 292683228,
+        "type_id": 113403,
+        "name": "BadgerHat",
+        "level": 22,
+        "profession": 40,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 0,
+        "attack_max": 0,
+        "defense": 8,
+        "dodge": 0
+      },
+      "necklace": {
+        "uid": 292927322,
+        "type_id": 120065,
+        "name": "JadeNecklace",
+        "level": 37,
+        "profession": 0,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 0,
+        "attack_max": 0,
+        "defense": 10,
+        "dodge": 0
+      },
+      "armor": {
+        "uid": 292927825,
+        "type_id": 133325,
+        "name": "WolfCoat",
+        "level": 42,
+        "profession": 40,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 0,
+        "attack_max": 0,
+        "defense": 30,
+        "dodge": 0
+      },
+      "bow": {
+        "uid": 292370471,
+        "type_id": 500089,
+        "name": "QinBow",
+        "level": 50,
+        "profession": 40,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 267,
+        "attack_max": 327,
+        "defense": 0,
+        "dodge": 0
+      },
+      "arrows": {
+        "uid": 292903584,
+        "type_id": 1050001,
+        "name": "IronArrow",
+        "level": 32,
+        "profession": 40,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 50,
+        "attack_max": 50,
+        "defense": 0,
+        "dodge": 0
+      },
+      "ring": {
+        "uid": 289796675,
+        "type_id": 150099,
+        "name": "IvoryRing",
+        "level": 50,
+        "profession": 0,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 42,
+        "attack_max": 106,
+        "defense": 0,
+        "dodge": 0
+      },
+      "boots": {
+        "uid": 292927325,
+        "type_id": 160075,
+        "name": "EagleBoots",
+        "level": 40,
+        "profession": 0,
+        "sex": 0,
+        "plus": 0,
+        "gem1": 0,
+        "gem2": 0,
+        "attack_min": 0,
+        "attack_max": 0,
+        "defense": 0,
+        "dodge": 9
+      }
+    }
+  },
+  "supplies": {
+    "started_at": 191885.734,
+    "timestamp": 191885.734,
+    "items": [
+      {
+        "uid": 292910123,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 0,
+        "plus": 0
+      },
+      {
+        "uid": 292910124,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 1,
+        "plus": 0
+      },
+      {
+        "uid": 292924697,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 2,
+        "plus": 0
+      },
+      {
+        "uid": 292924699,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 3,
+        "plus": 0
+      },
+      {
+        "uid": 292924701,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 4,
+        "plus": 0
+      },
+      {
+        "uid": 292924703,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 5,
+        "plus": 0
+      },
+      {
+        "uid": 292924704,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 6,
+        "plus": 0
+      },
+      {
+        "uid": 292924707,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 7,
+        "plus": 0
+      },
+      {
+        "uid": 292924711,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 8,
+        "plus": 0
+      },
+      {
+        "uid": 292924714,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 9,
+        "plus": 0
+      },
+      {
+        "uid": 292924716,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 10,
+        "plus": 0
+      },
+      {
+        "uid": 292924719,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 11,
+        "plus": 0
+      },
+      {
+        "uid": 292924721,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 12,
+        "plus": 0
+      },
+      {
+        "uid": 292924722,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 13,
+        "plus": 0
+      },
+      {
+        "uid": 292924723,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 14,
+        "plus": 0
+      },
+      {
+        "uid": 292924726,
+        "type_id": 1000020,
+        "amount": 1,
+        "limit": 1,
+        "slot": 15,
+        "plus": 0
+      },
+      {
+        "uid": 292924745,
+        "type_id": 1050001,
+        "amount": 1000,
+        "limit": 1000,
+        "slot": 16,
+        "plus": 0
+      },
+      {
+        "uid": 292927318,
+        "type_id": 150075,
+        "amount": 3094,
+        "limit": 3099,
+        "slot": 17,
+        "plus": 0
+      },
+      {
+        "uid": 292932504,
+        "type_id": 500077,
+        "amount": 4099,
+        "limit": 4099,
+        "slot": 18,
+        "plus": 0
+      },
+      {
+        "uid": 292938538,
+        "type_id": 113348,
+        "amount": 1955,
+        "limit": 3689,
+        "slot": 19,
+        "plus": 0
+      },
+      {
+        "uid": 292938757,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 20,
+        "plus": 0
+      },
+      {
+        "uid": 292938772,
+        "type_id": 133708,
+        "amount": 2953,
+        "limit": 3602,
+        "slot": 21,
+        "plus": 0
+      },
+      {
+        "uid": 292938910,
+        "type_id": 421015,
+        "amount": 1698,
+        "limit": 1698,
+        "slot": 22,
+        "plus": 1
+      },
+      {
+        "uid": 292939008,
+        "type_id": 1088001,
+        "amount": 1,
+        "limit": 1,
+        "slot": 23,
+        "plus": 0
+      },
+      {
+        "uid": 292939261,
+        "type_id": 133825,
+        "amount": 1988,
+        "limit": 4173,
+        "slot": 24,
+        "plus": 1
+      }
+    ],
+    "equipped_ammo": {
+      "uid": 292903584,
+      "type_id": 1050001,
+      "amount": 881,
+      "limit": 1000,
+      "slot": null,
+      "plus": 0
+    },
+    "silver": 36479,
+    "capacity": 40
+  }
+}

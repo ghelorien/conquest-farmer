@@ -1,0 +1,17 @@
+{
+  "trips": [
+    {
+      "source_map": 1002,
+      "npc_id_observed": 100121,
+      "npc_name": "Conductress",
+      "npc_position": [435, 440],
+      "option": "Phoenix Castle",
+      "destination_map": 1011,
+      "arrival_map": 1002,
+      "arrival_position": [958, 555],
+      "price": 100,
+      "verified": true,
+      "observed_at": 1788921023.0
+    }
+  ]
+}

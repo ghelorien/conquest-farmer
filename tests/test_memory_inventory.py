@@ -48,7 +48,7 @@ def populated():
                                            (0x500000, 103, 1050000, 170, 200)]:
         memory.values.update({ptr: MODULE + layout.item_vtable_rva,
                               ptr+layout.item_uid: uid, ptr+layout.item_type: type_id,
-                              ptr+layout.item_amount: amount, ptr+layout.item_limit: limit})
+                              ptr+layout.item_amount: amount, ptr+layout.item_limit: limit,ptr+layout.item_plus:0})
     return memory, layout
 
 
@@ -63,7 +63,7 @@ def test_wrapped_inventory_order_and_equipped_ammo(populated):
 
 @pytest.mark.parametrize("offset,value,match", [
     ("deque_count", 41, "count"), ("lookup_count", 3, "count"),
-    ("deque_map_size", 9, "map size"), ("deque_start", 8, "start")])
+    ("deque_map_size", 9, "map size"), ("deque_start", -1, "start")])
 def test_invalid_container_rejected(populated, offset, value, match):
     memory, layout = populated
     memory.values[PLAYER + getattr(layout, offset)] = value
@@ -110,3 +110,32 @@ def test_process_exit_and_fingerprint_change(populated):
         read_inventory(memory, PLAYER, layout, MODULE)
     with pytest.raises(ValueError, match="fingerprint"):
         MemoryInventoryReader(memory, SimpleNamespace(expected_sha256="0"*64), layout)
+
+
+def test_plus_is_read_from_low_byte_not_neighboring_attribute(populated):
+    memory,layout=populated
+    memory.values[0x400000+layout.item_plus]=0x0703
+    result=read_inventory(memory,PLAYER,layout,MODULE)
+    assert result.items[0].plus==3 and result.items[1].plus==0
+
+
+def test_plus_changing_during_sale_observation_invalidates_inventory(populated):
+    memory,layout=populated
+    address=0x400000+layout.item_plus
+    memory.mutate=lambda m:m.values.update({address:1}) if m.read_counts.get(address)==2 else None
+    with pytest.raises(ValueError,match='changed'):read_inventory(memory,PLAYER,layout,MODULE)
+
+
+@pytest.mark.parametrize('first',[15,71,0xffffffffffffffff])
+def test_logical_inventory_offset_can_wrap_past_map_size(populated,first):
+    memory,layout=populated
+    memory.values[PLAYER+layout.deque_start]=first
+    result=read_inventory(memory,PLAYER,layout,MODULE)
+    assert [(i.slot,i.uid) for i in result.items]==[(0,101),(1,102)]
+
+
+def test_wrapped_offset_change_during_read_still_invalidates_snapshot(populated):
+    memory,layout=populated;address=PLAYER+layout.deque_start
+    memory.values[address]=15
+    memory.mutate=lambda m:m.values.update({address:23}) if m.read_counts.get(address)==2 else None
+    with pytest.raises(ValueError,match='changed'):read_inventory(memory,PLAYER,layout,MODULE)

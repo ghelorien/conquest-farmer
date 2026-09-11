@@ -1,0 +1,36 @@
+[
+  {
+    "id": "pheasant",
+    "legs": [
+      {
+        "phase": "outbound",
+        "tile_steps": 91,
+        "segments": 29
+      },
+      {
+        "phase": "return",
+        "tile_steps": 91,
+        "segments": 29
+      }
+    ],
+    "patrol_connected": true,
+    "qualification": "planned"
+  },
+  {
+    "id": "turtledove",
+    "legs": [
+      {
+        "phase": "outbound",
+        "tile_steps": 428,
+        "segments": 130
+      },
+      {
+        "phase": "return",
+        "tile_steps": 428,
+        "segments": 130
+      }
+    ],
+    "patrol_connected": true,
+    "qualification": "planned"
+  }
+]

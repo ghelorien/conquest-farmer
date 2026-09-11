@@ -37,6 +37,11 @@ def process_id(value: str) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Classic Conquer feasibility diagnostics")
     commands = parser.add_subparsers(dest="command", required=True)
+    health = commands.add_parser("sample-health", help="Read candidate current and maximum HP from memory; never authorizes input")
+    health.add_argument("--worker-info", required=True, type=Path)
+    health.add_argument("--profile", required=True, type=Path)
+    health.add_argument("--character", required=True)
+    health.add_argument("--output", type=Path)
     entities = commands.add_parser("sample-entities", help="Read candidate monster IDs and positions from memory; sends no input")
     entities.add_argument("--worker-info", required=True, type=Path)
     entities.add_argument("--profile", required=True, type=Path)
@@ -53,6 +58,10 @@ def main(argv=None) -> int:
     dashboard.add_argument("--port", type=int, default=8765)
     dashboard.add_argument("--profile", type=Path, help="Farming profile for independent live health tracking")
     dashboard.add_argument("--worker-info", type=Path)
+    dashboard.add_argument("--health-profile", type=Path, help="Enable live control observations with this candidate health profile")
+    dashboard.add_argument("--entity-profile", type=Path, default=Path("profiles/classic-1074-entities-candidate.yaml"))
+    dashboard.add_argument("--character", default="Parasite")
+    dashboard.add_argument("--control-settings", type=Path, default=Path(".runtime/dashboard-controls.json"))
     inventory = commands.add_parser("sample-inventory", help="Read candidate inventory and equipped ammo from memory; sends no input")
     inventory.add_argument("--worker-info", required=True, type=Path)
     inventory.add_argument("--player-profile", required=True, type=Path)
@@ -92,6 +101,7 @@ def main(argv=None) -> int:
     worker.add_argument("--expected-sha256", required=True, type=sha256)
     worker.add_argument("--info", required=True, type=Path)
     worker.add_argument("--lifetime", type=int, default=1800)
+    worker.add_argument("--read-only", action="store_true", help="Disable every game input operation during memory calibration")
     observe = commands.add_parser("observe", help="Record candidate values to SQLite without sending game input")
     observe.add_argument("--pid", required=True, type=process_id)
     observe.add_argument("--watch", required=True, type=Path, help="Session-pinned candidate report")
@@ -112,6 +122,24 @@ def main(argv=None) -> int:
     logger.addHandler(handler)
     logger.propagate = False
     try:
+        if args.command == "sample-health":
+            import yaml
+            from conquest.memory_health import HealthLayout, HealthWorkerSession, MemoryHealthReader
+            try:
+                layout = HealthLayout.model_validate(yaml.safe_load(args.profile.read_text(encoding="utf-8")))
+                session = HealthWorkerSession(args.worker_info, layout.player.expected_sha256)
+                report = MemoryHealthReader(session, layout, args.character).report()
+                status = 3
+            except (ValueError, OSError, RuntimeError, KeyError, TypeError, UnicodeError) as error:
+                report = {"schema_version": 1, "stage": "memory_health_candidate_failed",
+                          "qualified": False, "autonomous_actions_enabled": False, "error": str(error)}
+                status = 2
+            encoded = json.dumps(report, indent=2)
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(encoded, encoding="utf-8")
+            print(encoded)
+            return status
         if args.command == "sample-entities":
             import yaml
             from conquest.addressing import WorkerPointerSession
@@ -139,13 +167,20 @@ def main(argv=None) -> int:
                 return 2
         if args.command == "dashboard":
             from conquest.dashboard import serve_dashboard
-            if bool(args.profile) != bool(args.worker_info):
-                parser.error("Dashboard live health requires both --profile and --worker-info")
+            from conquest.control import FarmingControl
+            from conquest.control_runtime import ControlRuntime
+            if args.profile and not args.worker_info:
+                parser.error("Dashboard live health requires --worker-info")
+            if args.health_profile and not args.worker_info:
+                parser.error("Dashboard controls require --worker-info")
             monitor = None
             if args.profile:
                 from conquest.health_monitor import from_profile
                 monitor = from_profile(args.profile, args.worker_info)
-            serve_dashboard(args.database, args.port, monitor=monitor)
+            control = FarmingControl(args.control_settings)
+            runtime = ControlRuntime(control, args.worker_info, args.health_profile,
+                                     args.entity_profile, args.character) if args.health_profile else None
+            serve_dashboard(args.database, args.port, monitor=monitor, control=control, runtime=runtime)
             return 0
         if args.command == "sample-inventory":
             import yaml
@@ -173,7 +208,8 @@ def main(argv=None) -> int:
         if args.command == "worker":
             from conquest.worker import serve
             try:
-                serve(args.pid, args.hwnd, args.expected_sha256, args.info, args.lifetime)
+                serve(args.pid, args.hwnd, args.expected_sha256, args.info, args.lifetime,
+                      read_only=args.read_only)
                 return 0
             except (OSError, ValueError) as error:
                 logger.error("worker_failed", extra={"fields": {"detail": str(error)}})

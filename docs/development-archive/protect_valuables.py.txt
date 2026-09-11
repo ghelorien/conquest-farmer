@@ -1,0 +1,31 @@
+import json,time
+from pathlib import Path
+from conquest.worker import request
+from conquest.overnight import OvernightLoop,OvernightStopped
+from conquest.route_controller import controller_guard,process_alive
+from conquest.banking import after_shopping
+started=time.time();a=json.loads(Path('reports/desktop-farming/app-state.json').read_text());info=a['worker_info_path']
+request(info,'controls',{'enabled':False})
+for _ in range(100):
+ h=request(info,'health')['embedded_controls'];r=json.loads(Path('reports/overnight/status.json').read_text())
+ if not h.get('external_execution') and not process_alive(r.get('pid')):break
+ time.sleep(.15)
+else:raise RuntimeError('Previous controller did not release input')
+with controller_guard() as acquired:
+ if not acquired:raise RuntimeError('Another controller owns input')
+ loop=OvernightLoop('bandit');loop.refresh();loop.phase='restocking'
+ original=loop.check_stop
+ def check_stop():
+  original();s=json.loads(Path('reports/desktop-farming/app-state.json').read_text());i=s.get('control_intent') or {}
+  if i.get('source')=='UI button or F10' and i.get('time',0)>started and i.get('enabled') is False:
+   raise OvernightStopped('User stopped the warehouse trip')
+ loop.check_stop=check_stop
+ try:
+  loop.record('protecting_valuables',activity='Heading to Warehouseman to secure carried valuables')
+  after_shopping(loop)
+  loop.record('valuables_trip_complete',activity='Valuables banked; returning to Bandits')
+ except Exception as error:
+  loop.phase='needs_attention';loop.record('failed',detail=str(error));raise
+ loop.phase='stopped';loop.record('protected_valuables_handoff')
+print('bank_complete',flush=True)
+print(request(info,'controls',{'enabled':True}),flush=True)

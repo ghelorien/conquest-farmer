@@ -1,0 +1,83 @@
+{
+  "app_state": {
+    "state": "Patrolling",
+    "kills": 23,
+    "attempts": 24,
+    "pid": 230700,
+    "updated_at": 1788841162.7362635,
+    "ui_revision": 3,
+    "selected_route": null,
+    "worker_info_path": "[REDACTED]",
+    "hwnd": 1771016,
+    "keyboard_focus_hwnd": 1771016,
+    "experience": {
+      "level": 14,
+      "experience_candidate": 1599,
+      "percent_candidate": 7.402777777777778,
+      "xp_per_hour_candidate": 45900.54881090954,
+      "validated": false
+    },
+    "health_ratio": 0.6388888888888888,
+    "ammo": 94,
+    "position": [
+      593,
+      534
+    ],
+    "patrol_search": {
+      "boundary": [
+        584,
+        510,
+        704,
+        630
+      ],
+      "idle_seconds": 7.5,
+      "expansion": 3,
+      "patrol": [
+        [
+          588,
+          514
+        ],
+        [
+          700,
+          514
+        ],
+        [
+          700,
+          626
+        ],
+        [
+          588,
+          626
+        ]
+      ]
+    },
+    "kills_per_hour": 768.559600497519,
+    "loot_reader_note": "Ground item fields changed or are invalid",
+    "pickup_status": "memory_pickup_attempt",
+    "pickup_detail": {
+      "uid": 1835,
+      "type_id": 421003,
+      "position": [
+        626,
+        558
+      ],
+      "silver": false,
+      "point": [
+        614,
+        380
+      ]
+    },
+    "pickups": 7,
+    "last_pickup": {
+      "uid": 1835,
+      "type_id": 421003,
+      "silver": false,
+      "increase": 1706,
+      "total": 7
+    }
+  },
+  "silver": 7383,
+  "potions": 10,
+  "source": "Read-only memory; no image observation",
+  "limitation": "Ground record candidate ID is not qualified as server UID; per-kill loot attribution remains unresolved"
+}

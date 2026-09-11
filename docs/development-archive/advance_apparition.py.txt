@@ -1,0 +1,11 @@
+from conquest.overnight import OvernightLoop
+loop=OvernightLoop('apparition')
+try:
+    loop.refresh()
+    loop.record('started',activity='Preparing supplies for the level 18 Apparition route')
+    loop.restock()
+except Exception as error:
+    loop.phase='needs_attention'
+    loop.record('failed',detail=str(error))
+    raise
+loop.run()

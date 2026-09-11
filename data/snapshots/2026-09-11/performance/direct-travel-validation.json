@@ -1,0 +1,246 @@
+{
+  "at": 1789077399.3824878,
+  "loaded_app_pid": 290436,
+  "tests_passed": 247,
+  "planned_steps": {
+    "bank_to_hunt": {
+      "before": 302,
+      "after": 198
+    },
+    "return_to_pharmacist": {
+      "before": 322,
+      "after": 196
+    },
+    "pharmacist_to_bank": {
+      "before": 67,
+      "after": 53
+    }
+  },
+  "live_legs": [
+    {
+      "kind": "hunt",
+      "map_id": 1011,
+      "destination": [
+        341,
+        441
+      ],
+      "position": [
+        312,
+        407
+      ],
+      "started_at": 1789077302.1247406,
+      "updated_at": 1789077302.8509376,
+      "result": "requested_stop",
+      "elapsed_seconds": 0.7,
+      "active_seconds": 0.6,
+      "paused_seconds": 0,
+      "tiles_travelled": 2,
+      "tiles_per_second": 3.2,
+      "stalls": 0,
+      "recoveries": 0,
+      "hp_lost": 0,
+      "minimum_hp_percent": 88.9,
+      "deaths": 0,
+      "urgent": false,
+      "paused": false,
+      "source": "read_only_memory"
+    },
+    {
+      "kind": "town",
+      "map_id": 1011,
+      "destination": [
+        230,
+        250
+      ],
+      "position": [
+        226,
+        259
+      ],
+      "started_at": 1789077303.2877011,
+      "updated_at": 1789077339.717553,
+      "result": "arrived",
+      "elapsed_seconds": 36.4,
+      "active_seconds": 36.4,
+      "paused_seconds": 0,
+      "tiles_travelled": 161,
+      "tiles_per_second": 4.43,
+      "stalls": 0,
+      "recoveries": 0,
+      "hp_lost": 11,
+      "minimum_hp_percent": 87.8,
+      "deaths": 0,
+      "urgent": false,
+      "paused": false,
+      "source": "read_only_memory"
+    },
+    {
+      "kind": "town",
+      "map_id": 1011,
+      "destination": [
+        191,
+        250
+      ],
+      "position": [
+        193,
+        254
+      ],
+      "started_at": 1789077341.2562444,
+      "updated_at": 1789077345.8457427,
+      "result": "arrived",
+      "elapsed_seconds": 4.6,
+      "active_seconds": 4.5,
+      "paused_seconds": 0,
+      "tiles_travelled": 33,
+      "tiles_per_second": 7.28,
+      "stalls": 0,
+      "recoveries": 0,
+      "hp_lost": 0,
+      "minimum_hp_percent": 87.8,
+      "deaths": 0,
+      "urgent": false,
+      "paused": false,
+      "source": "read_only_memory"
+    },
+    {
+      "kind": "town",
+      "map_id": 1011,
+      "destination": [
+        199,
+        229
+      ],
+      "position": [
+        192,
+        233
+      ],
+      "started_at": 1789077348.2575705,
+      "updated_at": 1789077366.866111,
+      "result": "arrived",
+      "elapsed_seconds": 18.6,
+      "active_seconds": 18.5,
+      "paused_seconds": 0,
+      "tiles_travelled": 78,
+      "tiles_per_second": 4.21,
+      "stalls": 2,
+      "recoveries": 2,
+      "hp_lost": 0,
+      "minimum_hp_percent": 87.8,
+      "deaths": 0,
+      "urgent": false,
+      "paused": false,
+      "source": "read_only_memory"
+    },
+    {
+      "kind": "town",
+      "map_id": 1011,
+      "destination": [
+        204,
+        245
+      ],
+      "position": [
+        192,
+        233
+      ],
+      "started_at": 1789077368.0914474,
+      "updated_at": 1789077368.1373775,
+      "result": "arrived",
+      "elapsed_seconds": 0.0,
+      "active_seconds": 0,
+      "paused_seconds": 0,
+      "tiles_travelled": 0,
+      "tiles_per_second": 0.0,
+      "stalls": 0,
+      "recoveries": 0,
+      "hp_lost": 0,
+      "minimum_hp_percent": 87.8,
+      "deaths": 0,
+      "urgent": false,
+      "paused": false,
+      "source": "read_only_memory"
+    },
+    {
+      "kind": "town",
+      "map_id": 1011,
+      "destination": [
+        227,
+        243
+      ],
+      "position": [
+        227,
+        258
+      ],
+      "started_at": 1789077369.3110464,
+      "updated_at": 1789077379.6616635,
+      "result": "arrived",
+      "elapsed_seconds": 10.3,
+      "active_seconds": 10.3,
+      "paused_seconds": 0,
+      "tiles_travelled": 55,
+      "tiles_per_second": 5.34,
+      "stalls": 0,
+      "recoveries": 0,
+      "hp_lost": 0,
+      "minimum_hp_percent": 87.8,
+      "deaths": 0,
+      "urgent": false,
+      "paused": false,
+      "source": "read_only_memory"
+    },
+    {
+      "kind": "hunt",
+      "map_id": 1011,
+      "destination": [
+        341,
+        441
+      ],
+      "position": [
+        313,
+        415
+      ],
+      "started_at": 1789077381.533531,
+      "updated_at": 1789077410.3590622,
+      "result": "arrived",
+      "elapsed_seconds": 28.8,
+      "active_seconds": 28.7,
+      "paused_seconds": 0.1,
+      "tiles_travelled": 170,
+      "tiles_per_second": 5.92,
+      "stalls": 1,
+      "recoveries": 1,
+      "hp_lost": 0,
+      "minimum_hp_percent": 87.8,
+      "deaths": 0,
+      "urgent": false,
+      "paused": false,
+      "source": "read_only_memory"
+    }
+  ],
+  "note": "New app loaded; natural bank/shopping/return completed. Hunt return28.8s, one recovered stall, no HP loss/death. Planned path reductions are not a matched live speed benchmark.",
+  "live_return": {
+    "kind": "hunt",
+    "map_id": 1011,
+    "destination": [
+      341,
+      441
+    ],
+    "position": [
+      313,
+      415
+    ],
+    "started_at": 1789077381.533531,
+    "updated_at": 1789077410.3590622,
+    "result": "arrived",
+    "elapsed_seconds": 28.8,
+    "active_seconds": 28.7,
+    "paused_seconds": 0.1,
+    "tiles_travelled": 170,
+    "tiles_per_second": 5.92,
+    "stalls": 1,
+    "recoveries": 1,
+    "hp_lost": 0,
+    "minimum_hp_percent": 87.8,
+    "deaths": 0,
+    "urgent": false,
+    "paused": false,
+    "source": "read_only_memory"
+  }
+}

@@ -23,7 +23,7 @@ class Memory:
             0x400000 + p.capacity_offset: 0x500100,
         }
         for index, (address, kind, name) in enumerate([
-            (0x600000, 2, "Turtledove"), (0x700000, 0, "OtherPlayer"), (0x800000, 1, "Guard")
+            (0x600000, 2, "Turtledove"), (0x700000, 0, "OtherPlayer"), (0x800000, 900, "Guard")
         ]):
             self.values[0x500008 + index * 16] = address
             self.values.update({
@@ -76,6 +76,15 @@ def test_memory_ids_positions_exclude_players_and_do_not_infer_alive(setup):
     assert monster.draw_position == (-60, 800)  # Offscreen actors are still observable.
     assert monster.current_hp is None and monster.alive is None
     assert reader.report()["autonomous_actions_enabled"] is False
+
+
+def test_type_field_is_species_id_so_pheasants_are_included(setup):
+    memory,layout,reader = setup
+    memory.values[0x800000+layout.kind_offset] = 1
+    memory.values[0x800000+layout.name_offset] = 'Pheasant'
+    result = reader.read()
+    assert [(m.entity_id,m.type_id,m.name) for m in result.monsters]==[
+        (450000,2,'Turtledove'),(450002,1,'Pheasant')]
 
 
 @pytest.mark.parametrize("value", [0x4ffff0, 0x500009, 0x600000])

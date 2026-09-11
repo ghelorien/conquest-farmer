@@ -1,0 +1,310 @@
+[
+  {
+    "id": "pheasant",
+    "name": "Lv 001\u2013006 \u00b7 Pheasant",
+    "levels": [
+      1,
+      6
+    ],
+    "monster_type_id": 1,
+    "saved_route": "pheasant",
+    "status": "saved"
+  },
+  {
+    "id": "turtledove",
+    "name": "Lv 007\u2013011 \u00b7 Turtledove",
+    "levels": [
+      7,
+      11
+    ],
+    "monster_type_id": 2,
+    "saved_route": "turtledove",
+    "status": "saved"
+  },
+  {
+    "id": "robin",
+    "name": "Lv 012\u2013016 \u00b7 Robin",
+    "levels": [
+      12,
+      16
+    ],
+    "monster_type_id": 3,
+    "saved_route": "robin",
+    "status": "planned"
+  },
+  {
+    "id": "apparition",
+    "name": "Lv 017\u2013021 \u00b7 Apparition",
+    "levels": [
+      17,
+      21
+    ],
+    "monster_type_id": 4,
+    "saved_route": "apparition",
+    "status": "saved"
+  },
+  {
+    "id": "poltergeist",
+    "name": "Lv 022\u2013026 \u00b7 Poltergeist",
+    "levels": [
+      22,
+      26
+    ],
+    "monster_type_id": 5,
+    "saved_route": "poltergeist",
+    "status": "planned"
+  },
+  {
+    "id": "wingedsnake",
+    "name": "Lv 027\u2013031 \u00b7 WingedSnake",
+    "levels": [
+      27,
+      31
+    ],
+    "monster_type_id": 6,
+    "saved_route": "wingedsnake",
+    "status": "planned"
+  },
+  {
+    "id": "bandit",
+    "name": "Lv 032\u2013036 \u00b7 Bandit",
+    "levels": [
+      32,
+      36
+    ],
+    "monster_type_id": 7,
+    "saved_route": "bandit",
+    "status": "planned"
+  },
+  {
+    "id": "ratling",
+    "name": "Lv 037\u2013041 \u00b7 Ratling",
+    "levels": [
+      37,
+      41
+    ],
+    "monster_type_id": 8,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "firespirit",
+    "name": "Lv 042\u2013046 \u00b7 FireSpirit",
+    "levels": [
+      42,
+      46
+    ],
+    "monster_type_id": 9,
+    "saved_route": "firespirit",
+    "status": "planned"
+  },
+  {
+    "id": "macaque",
+    "name": "Lv 047\u2013051 \u00b7 Macaque",
+    "levels": [
+      47,
+      51
+    ],
+    "monster_type_id": 10,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "giantape",
+    "name": "Lv 052\u2013056 \u00b7 GiantApe",
+    "levels": [
+      52,
+      56
+    ],
+    "monster_type_id": 11,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "thunderape",
+    "name": "Lv 057\u2013061 \u00b7 ThunderApe",
+    "levels": [
+      57,
+      61
+    ],
+    "monster_type_id": 12,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "snakeman",
+    "name": "Lv 062\u2013066 \u00b7 Snakeman",
+    "levels": [
+      62,
+      66
+    ],
+    "monster_type_id": 13,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "sandmonster",
+    "name": "Lv 067\u2013071 \u00b7 SandMonster",
+    "levels": [
+      67,
+      71
+    ],
+    "monster_type_id": 14,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "hillmonster",
+    "name": "Lv 072\u2013076 \u00b7 HillMonster",
+    "levels": [
+      72,
+      76
+    ],
+    "monster_type_id": 15,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "rockmonster",
+    "name": "Lv 077\u2013081 \u00b7 RockMonster",
+    "levels": [
+      77,
+      81
+    ],
+    "monster_type_id": 16,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "bladeghost",
+    "name": "Lv 082\u2013086 \u00b7 BladeGhost",
+    "levels": [
+      82,
+      86
+    ],
+    "monster_type_id": 17,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "birdman",
+    "name": "Lv 087\u2013091 \u00b7 Birdman",
+    "levels": [
+      87,
+      91
+    ],
+    "monster_type_id": 18,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "hawking",
+    "name": "Lv 092\u2013096 \u00b7 HawKing",
+    "levels": [
+      92,
+      96
+    ],
+    "monster_type_id": 19,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "bandit-97",
+    "name": "Lv 097\u2013101 \u00b7 BanditL97",
+    "levels": [
+      97,
+      101
+    ],
+    "monster_type_id": 55,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "tombbat",
+    "name": "Lv 102\u2013106 \u00b7 TombBat",
+    "levels": [
+      102,
+      106
+    ],
+    "monster_type_id": 20,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "bloodybat",
+    "name": "Lv 107\u2013111 \u00b7 BloodyBat",
+    "levels": [
+      107,
+      111
+    ],
+    "monster_type_id": 56,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "bullmonster",
+    "name": "Lv 112\u2013116 \u00b7 BullMonster",
+    "levels": [
+      112,
+      116
+    ],
+    "monster_type_id": 57,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "reddevil-117",
+    "name": "Lv 117\u2013121 \u00b7 RedDevilL117",
+    "levels": [
+      117,
+      121
+    ],
+    "monster_type_id": 58,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "level-122-126",
+    "name": "Lv 122\u2013126 \u00b7 IcySerpent",
+    "levels": [
+      122,
+      126
+    ],
+    "monster_type_id": 2411,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "level-127-131",
+    "name": "Lv 127\u2013131 \u00b7 FrostBladeDevil",
+    "levels": [
+      127,
+      131
+    ],
+    "monster_type_id": 2419,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "level-132-136",
+    "name": "Lv 132\u2013136 \u00b7 Wraith",
+    "levels": [
+      132,
+      136
+    ],
+    "monster_type_id": 2684,
+    "saved_route": null,
+    "status": "needs_survey"
+  },
+  {
+    "id": "level-137-140",
+    "name": "Lv 137\u2013140 \u00b7 OceanGhost",
+    "levels": [
+      137,
+      140
+    ],
+    "monster_type_id": 2686,
+    "saved_route": null,
+    "status": "needs_survey"
+  }
+]

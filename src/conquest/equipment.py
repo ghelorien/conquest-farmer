@@ -1,0 +1,194 @@
+"""Memory-qualified archer shop upgrades during scheduled town visits."""
+import struct
+from dataclasses import asdict
+from conquest.addressing import checked_address
+from conquest.memory_life import CLIENT_SHA256
+
+SLOTS={'head':0xbd8,'necklace':0xbe8,'armor':0xbf8,'bow':0xc08,
+       'arrows':0xc18,'ring':0xc28,'boots':0xc48}
+VENDORS={5:('bow','arrows'),1:('ring','boots','necklace'),4:('armor','head')}
+RESERVE_SILVER=3000
+
+def category(kind):
+    if kind in (1050000,1050001,1050002,1050020):return 'arrows'
+    group=kind//1000
+    return {113:'head',132:'armor',133:'armor',500:'bow',150:'ring',120:'necklace',160:'boots'}.get(group)
+
+def item_details(session,address,base):
+    raw=session.read_block(checked_address(address),0x78)
+    if struct.unpack_from('<Q',raw)[0]!=base+0x5cf220:raise ValueError('Equipment item type changed')
+    uid,kind=struct.unpack_from('<I',raw,8)[0],struct.unpack_from('<I',raw,0x10)[0]
+    length,capacity=struct.unpack_from('<QQ',raw,0x28)
+    if not uid or not 0<kind<100000000 or not 1<=length<=63 or not length<=capacity<=1024:
+        raise ValueError('Invalid equipment identity')
+    name=(raw[0x18:0x28] if capacity<=15 else session.read_block(checked_address(struct.unpack_from('<Q',raw,0x18)[0]),length))[:length].decode('utf-8')
+    latest=session.read_block(address,0x78)
+    if any(raw[a:b]!=latest[a:b] for a,b in ((0,0x74),)):raise ValueError('Equipment changed during observation')
+    return dict(uid=uid,type_id=kind,name=name,level=raw[0x3a],profession=raw[0x38],sex=raw[0x3b],
+        plus=raw[0x6b] if raw[0x6b]<=12 else None,gem1=raw[0x69],gem2=raw[0x6a],
+        attack_min=struct.unpack_from('<H',raw,0x52)[0],attack_max=struct.unpack_from('<H',raw,0x50)[0],
+        defense=struct.unpack_from('<H',raw,0x54)[0],dodge=struct.unpack_from('<H',raw,0x58)[0])
+
+def read_equipment(observer):
+    from conquest.memory_life import read_life
+    life=read_life(observer.adapter,observer.health_layout,observer.character)
+    s=observer.adapter
+    if s.expected_sha256!=CLIENT_SHA256:raise ValueError('Unqualified equipment client')
+    base=next(m['base'] for m in s.modules if m['name'].casefold()=='imconquer.exe')
+    actor=life.object_address
+    level=struct.unpack('<I',s.read_block(actor+0x6e8,4))[0]
+    profession=struct.unpack('<I',s.read_block(actor+0x6d4,4))[0]
+    if not 1<=level<=140 or not 40<=profession<=45:raise ValueError('Upgrade requires a memory-identified archer')
+    pointers={slot:s.read_block(actor+offset,8) for slot,offset in SLOTS.items()}
+    equipped={slot:item_details(s,struct.unpack('<Q',ptr)[0],base) for slot,ptr in pointers.items() if struct.unpack('<Q',ptr)[0]}
+    if any(category(item['type_id'])!=slot for slot,item in equipped.items()):raise ValueError('Equipped slot layout differs from archer profile')
+    if any(s.read_block(actor+SLOTS[slot],8)!=ptr for slot,ptr in pointers.items()):raise ValueError('Equipped slots changed during observation')
+    if s.read_block(actor+0x6e8,4)!=struct.pack('<I',level):raise ValueError('Level changed during equipment observation')
+    fresh=read_life(s,observer.health_layout,observer.character)
+    if fresh.object_address!=actor or fresh.dead_candidate:raise ValueError('Character changed during equipment observation')
+    s.assert_identity()
+    return {'level':level,'profession':profession,'map_id':fresh.map_id,'equipment':equipped}
+
+def upgrade_reason(product,state):
+    get=product.get if isinstance(product,dict) else lambda key,default=None:getattr(product,key,default)
+    slot=category(get('type_id'))
+    if slot not in ('head','armor','bow','ring','necklace','boots'):return 'Unsupported equipment type'
+    if not 1<=get('level',0)<=state['level']:return 'Required level is too high or unknown'
+    if get('profession',0) not in (0,40,41):return 'Not compatible with archer'
+    old=state['equipment'].get(slot)
+    sex=get('sex',0)
+    known_sex=state['equipment'].get('armor',{}).get('sex',0)
+    if sex and sex!=known_sex:return 'Character requirement does not match'
+    if slot=='armor' and old and (get('type_id')//100)%10 != (old['type_id']//100)%10:
+        return 'Armor form does not match'
+    if not old:return None
+    if old.get('plus')!=0 or old['type_id']%10>=7 or old.get('gem1') or old.get('gem2'):
+        return 'Keeping protected or unverified equipped gear'
+    if get('level',0)<=old['level']:return 'Already wearing this level tier or higher'
+    keys=('attack_min','attack_max') if slot in ('bow','ring') else ('defense','dodge')
+    if not (all(get(k,0)>=old.get(k,0) for k in keys) and any(get(k,0)>old.get(k,0) for k in keys)):
+        return 'No improvement without a stat downgrade'
+    return None
+
+
+def upgrade_candidate(product,state):
+    return upgrade_reason(product,state) is None
+
+
+def review_slots(products,state,silver):
+    """Explain every mapped slot against this particular live shop's inventory."""
+    from conquest.arrow_upgrades import eligible_arrow
+    result={}
+    for slot in SLOTS:
+        stock=[p for p in products if category(p['type_id'])==slot]
+        old=state['equipment'].get(slot,{})
+        candidates=[];reasons=[]
+        for p in stock:
+            if slot=='arrows':
+                if not eligible_arrow(p,state):reason='Required level or ammunition type is not supported'
+                elif p['attack_min']+p['attack_max']<=old.get('attack_min',0)+old.get('attack_max',0):
+                    reason='Already using equal or better ammunition'
+                elif p['attack_min']<old.get('attack_min',0) or p['attack_max']<old.get('attack_max',0):
+                    reason='No improvement without a stat downgrade'
+                else:reason=None
+            else:reason=upgrade_reason(p,state)
+            if reason is None and not 0<p['price']<=silver-RESERVE_SILVER:
+                reason='Keeping silver for supplies'
+            if reason is None:candidates.append(p['name'])
+            else:reasons.append(reason)
+        result[slot]={'equipped':old.get('name'), 'upgrades':candidates,
+                      'reasons':sorted(set(reasons)) if stock else ['This shop does not stock this slot']}
+    return result
+
+
+def choose_upgrades(products,state,silver,reserve=RESERVE_SILVER):
+    chosen=[]
+    for slot in ('bow','armor','ring','boots','necklace','head'):
+        candidates=[p for p in products if category(p['type_id'])==slot and upgrade_candidate(p,state)
+                    and 0<p['price']<=silver-reserve]
+        if candidates:
+            best=max(candidates,key=lambda p:(p['level'],p['attack_min']+p['attack_max']+p['defense']+p['dodge']))
+            chosen.append(best);silver-=best['price']
+    return chosen
+
+def equip_receipt(uid,slot,before_bag,before_gear,after_bag,after_gear):
+    if after_gear['equipment'].get(slot,{}).get('uid')!=uid:return False
+    for name,old in before_gear['equipment'].items():
+        if name!=slot and after_gear['equipment'].get(name,{}).get('uid')!=old['uid']:return False
+    old=before_gear['equipment'].get(slot)
+    expected={(i.uid,i.type_id) for i in before_bag.items if i.uid!=uid}
+    if old:
+        ammo=getattr(before_bag,'equipped_ammo',None)
+        if slot!='arrows' or ammo is None or ammo.amount>0:
+            expected.add((old['uid'],old['type_id']))
+    return after_bag.silver==before_bag.silver and {(i.uid,i.type_id) for i in after_bag.items}==expected
+
+
+class EquipmentReview:
+    def __init__(self,loop):
+        self.loop=loop
+
+    def visit(self,vendor):
+        from conquest.savings import savings_plan
+        if savings_plan():
+            if vendor==5:
+                from conquest.savings import review_ammunition
+                review_ammunition(self.loop)
+            return True
+        from pathlib import Path
+        import time
+        from conquest.discord_notify import read_json,write_json
+        loop=self.loop
+        journal=Path('.runtime/equipment-upgrades.json')
+        attempts=read_json(journal,[])
+        try:
+            state=loop.town('gear');bag=loop.town('supplies')
+            shop=loop.town('shop',vendor_type=vendor)
+            if 'products' not in shop or 'level' not in state or 'equipment' not in state:
+                raise ValueError('Equipment review memory snapshot unavailable')
+            catalog=Path('profiles/archer-shop-catalog.json')
+            saved=read_json(catalog,{})
+            map_id=state.get('map_id',getattr(getattr(loop,'terrain',None),'map_id',None))
+            if map_id is None:raise ValueError('Shop city is unknown')
+            saved.setdefault('cities',{}).setdefault(str(map_id),{})[str(vendor)]={
+                'observed_at':time.time(),'products':shop['products']}
+            write_json(catalog,saved)
+            if vendor==5:
+                from conquest.arrow_upgrades import review_arrows
+                state=review_arrows(loop,shop['products'],state,bag['silver'])
+                bag=loop.town('supplies')
+            options=[p for p in shop['products'] if category(p['type_id']) in VENDORS[vendor]]
+            choices=choose_upgrades(options,state,bag['silver'])
+            loop.record('equipment_review',level=state['level'],vendor=vendor,
+                activity=f"Checking level {state['level']} archer equipment",map_id=map_id,
+                slots=review_slots(shop['products'],state,bag['silver']),upgrades=[p['name'] for p in choices])
+            for product in choices:
+                key=(state['level'],product['type_id'])
+                if any((a['level'],a['type_id'])==key for a in attempts):continue
+                attempt={'level':state['level'],'type_id':product['type_id'],'name':product['name'],
+                         'timestamp':time.time(),'state':'attempting'}
+                attempts.append(attempt);write_json(journal,attempts)
+                try:
+                    bag=loop.town('supplies')
+                    carried=[i for i in bag['items'] if i['type_id']==product['type_id']]
+                    if len(carried)>1:raise ValueError('Ambiguous carried upgrade')
+                    if carried:uid=carried[0]['uid']
+                    else:
+                        receipt=loop.town('buy-equipment',vendor_type=vendor,type_id=product['type_id'])
+                        uid=receipt['uid'];attempt.update(state='bought',uid=uid);write_json(journal,attempts)
+                    loop.town('close',window='Shop')
+                    receipt=loop.town('equip',uid=uid)
+                    attempt.update(state='equipped',receipt=receipt);write_json(journal,attempts)
+                    loop.record('equipment_upgraded',receipt=receipt,
+                        activity=f"Equipped {product['name']} (level {product['level']})")
+                    state=loop.town('gear')
+                except ValueError as error:
+                    attempt.update(state='deferred',detail=str(error));write_json(journal,attempts)
+                    loop.record('equipment_deferred',detail=str(error),activity='Keeping current gear; upgrade deferred')
+                finally:
+                    loop.town('close',window='Inventory')
+                    loop.town('open',vendor_type=vendor)
+            return True
+        except ValueError as error:
+            loop.record('equipment_review_deferred',detail=str(error),activity='Equipment review deferred; continuing route')
+            return False

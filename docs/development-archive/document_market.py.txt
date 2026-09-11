@@ -1,0 +1,16 @@
+from pathlib import Path
+p=Path('docs/continue-development.md')
+p.write_text(p.read_text(encoding='utf-8')+'''
+
+## 2026-09-10: Phoenix Market route and Meteor packing blocker
+
+Bandit Painkiller refill target is 10 (return threshold remains 6). Existing excess potions are consumed, not discarded.
+
+Memory-only live verification: Phoenix Conductress is model287, UID101359 observed, at (228,255), map1011. From approach (228,249), her Market option costs100silver and arrives at (211,196), map1036. Market return NPC is `Mark.Controller`, model417 at(215,220); `Yeah. Thanks.` returns to Phoenix(193,266) for zero silver. Exact dialogs and identities are saved in `profiles/meteor-banking.json`.
+
+Meteor packing is NOT enabled or complete. The expected MillionaireLee model4297 atMarket(203,196) is named HelpNpc on this server and offers only help links. TreasureBank(model86 at180183) requires VIP. ComposeBank(model86 at179187) opens Compose Warehouse, not a verified Meteor exchange. The user has been asked for the correct packing NPC. Do not identify NPCs solely by model or a trailing stale string in its name buffer. No ten-Meteor batch was withdrawn, no MeteorScroll was created, and Market warehouse storage has not been transaction-qualified. The coordinator in meteor_banking.py is a disabled scaffold, not hooked into normal banking; it needs a qualified exchange, restart reconciliation, capacity handling, and integration before activation.
+
+Phoenix warehouse has12Meteors plus8other valuable/user items, all20slots full. One Meteor UID292938757 was withdrawn by LEFT click in the memory-derived six-column40px warehouse grid, independently seen in inventory and absent from storage, then redeposited by exactUID receipt. It was restored to the bank; do not count that transfer as a ground pickup. Withdrawal receipt validation was fixed to reject unchanged inventory/storage. Wallet reserve restored to200silver; bank silver9,986,737 at verification.
+
+Market discovery validates full name/model/type/UID/tile and fresh scene membership while permitting unrelated player reordering. Service opening closes an existing dialog first, preventing reuse of another NPC's choices. Service travel can stop within12tiles with the live NPC click point on screen. Local bridge requests now construct only HTTP handlers, avoiding Windows certificate-store loading on every loopback memory read.178 targeted tests passed. Keep safe reload, manual Stop and valuable protection rules unchanged. Qualification downtime belongs in all rolling performance windows.
+''',encoding='utf-8')

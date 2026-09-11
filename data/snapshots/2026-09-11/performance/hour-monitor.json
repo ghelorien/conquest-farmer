@@ -1,0 +1,106 @@
+{
+  "start": 1788971400,
+  "end": 1788975000,
+  "target_kills_per_minute": 20,
+  "target_hour_kills": 1200,
+  "checks": [
+    {
+      "observed_at": 1788972518.3247652,
+      "window_start": 1788971400,
+      "window_end": 1788972300,
+      "kills": 129,
+      "kills_per_minute": 8.6,
+      "restocks": 0,
+      "deaths": 0,
+      "diagnosis": "Expanded patrol oscillates along empty northern edge: fallback routing did not advance sweep cursor and always tried alternatives from beginning.",
+      "intervention": "Rotate alternative patrol points forward from current cursor; synchronize cursor to selected reachable patrol destination without changing it for monster chasing.",
+      "tests": "50 passed",
+      "deployment": "Safe reload completed; app1067776 controller1067240 alive with farming On",
+      "verified_at": 1788972608.9098468,
+      "verification": "Moved beyond northern oscillation through row y=357; fresh kill count since reload recorded separately",
+      "kills_since_reload": 0
+    },
+    {
+      "observed_at": 1788973439.4948545,
+      "window_start": 1788972300,
+      "window_end": 1788973200,
+      "kills": 8,
+      "kills_per_minute": 0.5333333333333333,
+      "restock_trips": 1,
+      "deaths": 0,
+      "failures": [
+        "Warehouse opening unverified; controller stopped after shopping"
+      ],
+      "interventions": [
+        "Verified warehouse reopen and deposited 61706 silver; bank107919 wallet200",
+        "Only panel-open timeout receives up to three fresh-memory open attempts; monetary operations never repeated",
+        "Shift Poltergeist boundary to [100,340,165,400] and patrol through central/southern historically productive tiles; all saved points terrain checked"
+      ],
+      "tests": "118 passed",
+      "deployment": "Safe reload completed to app1072308; farming reenabled after banking",
+      "resumed_at": 1788973450.8247242
+    },
+    {
+      "observed_at": 1788974223.5549688,
+      "window_start": 1788973200,
+      "window_end": 1788974100,
+      "kills": 196,
+      "kills_per_minute": 13.066666666666666,
+      "new_restock_trips": 0,
+      "deaths": 0,
+      "live_controller": 1067292,
+      "live_app": 1072308,
+      "live_state": "Farming",
+      "recent_five_minute_kills": 130,
+      "recent_five_minute_rate": 26,
+      "diagnosis": "Full quarter includes recovery of prior warehouse failure, safe reload and return to hunting. Revised patrol now producing 26/min over latest five minutes.",
+      "intervention": "Retain latest tested patrol and bank-opening fix; avoid another reload while the improving run is active. Verify next full quarter.",
+      "bank_last_verified": 107919,
+      "carried_silver": 10329,
+      "potions": 19,
+      "equipped_ammo": "IronArrow"
+    },
+    {
+      "observed_at": 1788975143.2751052,
+      "window_start": 1788974100,
+      "window_end": 1788975000,
+      "kills": 385,
+      "kills_per_minute": 25.666666666666668,
+      "new_restock_trips": 0,
+      "deaths": 0,
+      "live_controller": 1067292,
+      "live_app": 1072308,
+      "live_state": "Patrolling",
+      "recent_five_minute_kills": 125,
+      "recent_five_minute_rate": 25,
+      "intervention": "No new change: revised patrol exceeds target across a full quarter and controller remains healthy.",
+      "potions": 18,
+      "equipped_ammo": "IronArrow"
+    }
+  ],
+  "status": "completed",
+  "final": {
+    "window_start": 1788971400,
+    "window_end": 1788975000,
+    "kills": 718,
+    "kills_per_minute": 11.966666666666667,
+    "target_kills": 1200,
+    "target_met": false,
+    "quarter_kills": [
+      129,
+      8,
+      196,
+      385
+    ],
+    "final_quarter_rate": 25.666666666666668,
+    "final_quarter_target_met": true,
+    "deaths": 0,
+    "restock_trips": 1,
+    "unrecovered_stop_episodes": 1,
+    "stop_recovered": true,
+    "bank_last_verified": 107919,
+    "wallet_at_final_check": 33034,
+    "farming_continues": true,
+    "conclusion": "Full-hour target missed due to early patrol loop, warehouse-open failure and maintenance travel. Final full quarter exceeded target after tested patrol and bank-opening fixes; future all-cycle average remains unproven."
+  }
+}

@@ -1,0 +1,12 @@
+from pathlib import Path
+p=Path('../export-memory-patch.py');s=p.read_text();s=s.replace("paths = [","paths = ['src/conquest/storage_halt.py','src/conquest/storage_overflow.py','tests/test_storage_halt.py','tests/test_storage_overflow.py',",1);p.write_text(s)
+p=Path('docs/continue-development.md');p.write_text(p.read_text(encoding='utf-8')+'''
+
+## 2026-09-10: warehouse overflow and permanent full-storage shutdown
+
+User-authorized rule implemented in storage_overflow.py and banking.stash_valuables: when town storage is full, carried protected items remain, and the local bank plus carried inventory contain fewer than10Meteors, use the saved Phoenix Conductress / Market Controller round trip and deposit carried overflow into Market. Existing stored items are not withdrawn. Transport funds are reserved before departing. The trip journal supports resuming in Market and after verified deposits, without repeating already-stored UIDs; an uncertain outbound fare is not paid again. The normal shopping balance is reread after the extra trip. The >=10Meteor branch remains the unqualified packing blocker documented above.
+
+If Market storage is full (including a last deposit filling it), storage_halt.py persists .runtime/storage-halt.json before stopping controls. The app closes only the verified ImConquer process, checking path and creation time on the actual termination handle, and disables automatic reconnect, automatic route restart, and bridge-enabled farming. The UI explains the stop and Discord sends an immediate prioritized terminal alert. Manual Farming On clears the latch and resumes any unfinished overflow check; Market must have space before farming continues. This deliberately leaves the farmer app open for the status message, while closing the game connection. No memory writes or vision are involved.
+
+profiles/meteor-banking.json overflow_enabled is independent of disabled Meteor packing. The active route has only a verified Phoenix-to-Market round trip; other origins fail with an explicit unmapped-route error. Market warehouse item transfer and the storage-full disconnect have not been triggered on the live character yet: current Phoenix bank has12Meteors.236 targeted tests passed, covering overflow, partly/full Market storage, exact-process identity, persistent stop, resume guards, notifications, banking and reload regressions. Do not invent a live validation receipt or trigger a real full-storage stop merely to test it.
+''',encoding='utf-8')

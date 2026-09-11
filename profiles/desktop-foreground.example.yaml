@@ -1,0 +1,61 @@
+character: Parasite
+observation_mode: memory_only
+player_profile: profiles/classic-1074-player-candidate.yaml
+inventory_profile: profiles/classic-1074-inventory-candidate.yaml
+capture_output: 0
+capture_origin:
+- 0
+- 0
+template: profiles/templates/pheasant-name.png
+client_size:
+- 1536
+- 793
+player_anchor:
+- 768
+- 396
+boundary:
+- 405
+- 442
+- 440
+- 472
+approach_boundary:
+- 430
+- 380
+- 450
+- 472
+approach_route:
+- - 439
+  - 403
+- - 439
+  - 409
+- - 438
+  - 415
+- - 438
+  - 421
+- - 439
+  - 427
+- - 439
+  - 431
+- - 441
+  - 436
+- - 443
+  - 440
+- - 435
+  - 446
+route:
+- - 433
+  - 461
+- - 437
+  - 459
+- - 437
+  - 465
+- - 432
+  - 466
+minimum_health: 0.4
+healing_enabled: true
+heal_below: 0.6
+potion_key: 112
+ammo_key: 113
+loot_allowlist: []
+maximum_actions: 600
+potion_type: 1000020

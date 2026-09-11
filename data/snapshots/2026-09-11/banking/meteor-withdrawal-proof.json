@@ -1,0 +1,103 @@
+{
+  "inventory_meteors": [
+    {
+      "uid": 292938757,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 22,
+      "plus": 0
+    }
+  ],
+  "warehouse_meteors": [
+    {
+      "uid": 292939008,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 5,
+      "plus": 0
+    },
+    {
+      "uid": 292940767,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 7,
+      "plus": 0
+    },
+    {
+      "uid": 292941037,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 8,
+      "plus": 0
+    },
+    {
+      "uid": 292943533,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 9,
+      "plus": 0
+    },
+    {
+      "uid": 292954033,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 11,
+      "plus": 0
+    },
+    {
+      "uid": 292959822,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 13,
+      "plus": 0
+    },
+    {
+      "uid": 292963014,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 14,
+      "plus": 0
+    },
+    {
+      "uid": 292964897,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 15,
+      "plus": 0
+    },
+    {
+      "uid": 292967605,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 16,
+      "plus": 0
+    },
+    {
+      "uid": 292967898,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 17,
+      "plus": 0
+    },
+    {
+      "uid": 292968555,
+      "type_id": 1088001,
+      "amount": 1,
+      "limit": 1,
+      "slot": 18,
+      "plus": 0
+    }
+  ],
+  "warehouse_count": 19
+}

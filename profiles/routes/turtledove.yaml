@@ -1,0 +1,308 @@
+schema_version: 1
+id: turtledove
+name: Turtledove route
+map_id: 1002
+monster_type_ids:
+- 2
+recommended_levels:
+- 7
+- 11
+town_anchor:
+- 430
+- 380
+restock_anchor:
+- 466
+- 333
+hunting_anchor:
+- 736
+- 550
+attack_range_tiles: 16
+hunting_boundary:
+- 704
+- 514
+- 756
+- 586
+patrol_search:
+  idle_seconds: 7.5
+  expansion_tiles: 12
+  maximum_expansions: 4
+  sweep_spacing_tiles: 24
+patrol:
+- - 716
+  - 526
+- - 740
+  - 526
+- - 748
+  - 550
+- - 740
+  - 574
+- - 716
+  - 574
+outbound_waypoints:
+- - 430
+  - 380
+- - 430
+  - 392
+- - 430
+  - 397
+- - 437
+  - 397
+- - 437
+  - 409
+- - 437
+  - 419
+- - 438
+  - 419
+- - 438
+  - 431
+- - 438
+  - 443
+- - 438
+  - 455
+- - 438
+  - 467
+- - 438
+  - 479
+- - 438
+  - 491
+- - 438
+  - 503
+- - 438
+  - 515
+- - 438
+  - 527
+- - 438
+  - 529
+- - 450
+  - 529
+- - 458
+  - 529
+- - 458
+  - 530
+- - 459
+  - 530
+- - 459
+  - 531
+- - 460
+  - 531
+- - 460
+  - 533
+- - 472
+  - 533
+- - 484
+  - 533
+- - 496
+  - 533
+- - 508
+  - 533
+- - 520
+  - 533
+- - 532
+  - 533
+- - 544
+  - 533
+- - 553
+  - 533
+- - 553
+  - 534
+- - 565
+  - 534
+- - 577
+  - 534
+- - 589
+  - 534
+- - 601
+  - 534
+- - 613
+  - 534
+- - 624
+  - 534
+- - 624
+  - 535
+- - 636
+  - 535
+- - 648
+  - 535
+- - 660
+  - 535
+- - 667
+  - 535
+- - 667
+  - 536
+- - 668
+  - 536
+- - 668
+  - 538
+- - 669
+  - 538
+- - 669
+  - 548
+- - 681
+  - 548
+- - 693
+  - 548
+- - 705
+  - 548
+- - 717
+  - 548
+- - 729
+  - 548
+- - 731
+  - 548
+- - 731
+  - 549
+- - 734
+  - 549
+- - 734
+  - 550
+- - 736
+  - 550
+return_waypoints:
+- - 736
+  - 550
+- - 734
+  - 550
+- - 734
+  - 549
+- - 731
+  - 549
+- - 731
+  - 548
+- - 719
+  - 548
+- - 707
+  - 548
+- - 695
+  - 548
+- - 683
+  - 548
+- - 671
+  - 548
+- - 669
+  - 548
+- - 669
+  - 538
+- - 668
+  - 538
+- - 668
+  - 536
+- - 667
+  - 536
+- - 667
+  - 535
+- - 655
+  - 535
+- - 643
+  - 535
+- - 631
+  - 535
+- - 624
+  - 535
+- - 624
+  - 534
+- - 612
+  - 534
+- - 600
+  - 534
+- - 588
+  - 534
+- - 576
+  - 534
+- - 564
+  - 534
+- - 553
+  - 534
+- - 553
+  - 533
+- - 541
+  - 533
+- - 529
+  - 533
+- - 517
+  - 533
+- - 505
+  - 533
+- - 493
+  - 533
+- - 481
+  - 533
+- - 469
+  - 533
+- - 460
+  - 533
+- - 460
+  - 531
+- - 459
+  - 531
+- - 459
+  - 530
+- - 458
+  - 530
+- - 458
+  - 529
+- - 446
+  - 529
+- - 438
+  - 529
+- - 438
+  - 517
+- - 438
+  - 505
+- - 438
+  - 493
+- - 438
+  - 481
+- - 438
+  - 469
+- - 438
+  - 457
+- - 438
+  - 445
+- - 438
+  - 433
+- - 438
+  - 421
+- - 438
+  - 419
+- - 437
+  - 419
+- - 437
+  - 407
+- - 437
+  - 397
+- - 430
+  - 397
+- - 430
+  - 385
+- - 430
+  - 380
+terrain_sha256: cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c
+supplies:
+  arrow_type: 1050000
+  arrows_return_below: 3
+  arrows_restock_to: 2000
+  healing_type: 1000020
+  healing_return_below: 1
+  healing_restock_to: 5
+  minimum_free_slots: 4
+equipment_review_levels:
+- 8
+- 12
+- 15
+- 23
+tasks:
+- travel_to_hunt
+- hunt_and_loot
+- return_to_town
+- restock
+- check_equipment
+- resume_hunt
+qualification: planned
+recover_after_death: true
+movement: jump
+notes: 'Travel paths are planned from installed terrain. Live full-cycle validation,
+  shops, and automatic equipment changes remain pending. User selected a better area
+  at (644,570), map 1002; memory position saved. Widen after 7.5 seconds without attacking.
+  Optimization: previous anchor (644,570) was sparse. Memory observed a Turtledove
+  group at (723-728,529-579) outside the old expanded boundary. Replanned to terrain-walkable
+  (736,550); 20 kills/min target remains unqualified.'

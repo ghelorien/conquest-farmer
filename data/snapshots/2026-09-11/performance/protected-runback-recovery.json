@@ -1,0 +1,63 @@
+{
+  "time": 1789157966.9720812,
+  "phase": "hunting",
+  "control": true,
+  "life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 134217728,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      374,
+      357
+    ],
+    "current_hp": 1148,
+    "max_hp": 1148,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 138923.359,
+    "timestamp": 138923.359,
+    "dead_candidate": false
+  },
+  "bank_phase": "completed",
+  "metrics": {
+    "start": 1789157776.8875618,
+    "end": 1789157966.9720812,
+    "seconds": 190.1,
+    "kills": 24,
+    "kills_per_minute": 7.58,
+    "projected_kills_per_hour": 455,
+    "empty_observations": 26,
+    "observations": 41,
+    "minimum_hp_ratio": 1.0,
+    "events": {
+      "trial_started": 2,
+      "boundary_return_started": 2,
+      "level_observed": 2,
+      "health_observation": 271,
+      "inventory_cleanup_complete": 1,
+      "observation": 41,
+      "movement_attempt": 34,
+      "movement_verified": 31,
+      "paused": 7,
+      "resumed": 7,
+      "trial_stopped": 1,
+      "boundary_return_completed": 1,
+      "farming_area_reached": 1,
+      "attack_attempt": 5,
+      "kill_verified": 6
+    }
+  },
+  "tests_passed": 176,
+  "change": "Movement-only controller failures retain care and retry with walking recovery; manual stop and uncertain transactions remain terminal",
+  "revived_from": [
+    349,
+    354
+  ],
+  "revived_to": [
+    193,
+    266
+  ]
+}

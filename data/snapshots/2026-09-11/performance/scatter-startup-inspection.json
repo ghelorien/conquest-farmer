@@ -1,0 +1,21 @@
+{
+  "scatter": [
+    {
+      "type_id": 8001,
+      "name": "Scatter\u0000",
+      "level": 5,
+      "range": 12,
+      "distance": 20
+    }
+  ],
+  "system_messages": [
+    "Please wait before using another magic attack.",
+    "You received 4 bonus EXP.",
+    "Please wait before using another magic attack.",
+    "You received 4 bonus EXP.",
+    "You received 12 bonus EXP.",
+    "Please wait before using another magic attack.",
+    "You obtained 1 GothicPlate.",
+    "You received 4 bonus EXP."
+  ]
+}

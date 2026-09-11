@@ -1,0 +1,57 @@
+import time,json,sqlite3,collections
+from pathlib import Path
+from conquest.worker import request
+from conquest.discord_notify import read_json,write_json,process_alive
+from conquest.town_trade import stash_candidate
+from conquest.route_optimization import fixed_route_windows
+policy=read_json('profiles/route-optimization.json');target=policy['target_kills_per_minute'];stretch=policy['stretch_kills_per_minute']
+now=time.time();app=read_json('reports/desktop-farming/app-state.json');route=read_json('reports/overnight/status.json');discord=read_json('reports/discord-status.json');halt=read_json('.runtime/storage-halt.json')
+for attempt in range(20):
+ if app.get('worker_info_path'):break
+ time.sleep(.1);app=read_json('reports/desktop-farming/app-state.json')
+health=request(app['worker_info_path'],'health');data=health['embedded_controls'];fresh=data.get('observations_available') and 0<=time.time()-data.get('observed_at',0)<=1
+bag=request(app['worker_info_path'],'town',{'action':'supplies'}) if fresh and data.get('life') and not data['life']['dead_candidate'] else None
+now=time.time()
+experiment_path='reports/performance/bandit-route-experiment.json'
+experiment=read_json(experiment_path)
+adaptation=experiment.get('production_adaptation') or {}
+started_at=adaptation.get('started_at')
+query_from=now-3600
+if started_at is not None and started_at<=now:
+ completed=int((now-started_at)//900)
+ query_from=min(query_from,started_at+max(0,completed-4)*900)
+with sqlite3.connect(Path('reports/desktop-farming/trial.sqlite3').resolve().as_uri()+'?mode=ro',uri=True) as db:
+ rows=[(t,e,json.loads(p)) for t,e,p in db.execute('select time,event,payload from events where time>=? order by time',(query_from,))]
+kills=[(t,p['count']) for t,e,p in rows if e=='kill_verified' and type(p.get('count')) is int and 0<p['count']<=32]
+windows={str(s):{'kills':sum(n for t,n in kills if t>=now-s),'kills_per_minute':sum(n for t,n in kills if t>=now-s)*60/s} for s in (300,900,3600)}
+life=data.get('life') if fresh else None
+record={'at':now,'source':'fresh memory and verified event history','windows':windows,'actual_last_hour_kills':windows['3600']['kills'],'projected_hourly_from_last_15m':windows['900']['kills']*4,'rate_target_met':windows['900']['kills']>=target*15,'target_kills_per_minute':target,'stretch_kills_per_minute':stretch,'full_window_includes_downtime':True,'app_pid':app.get('pid'),'app_alive':process_alive(app.get('pid')),'controller_pid':route.get('pid'),'controller_alive':process_alive(route.get('pid')),'phase':route.get('phase'),'block_reason':route.get('detail') if route.get('phase')=='needs_attention' else None,'last_controller_detail':route.get('detail'),'control_intent':app.get('control_intent'),'control':data['control'],'manual_mouse':data.get('manual_mouse'),'window':health.get('window'),'life':life,'storage_halt_active':bool(halt.get('active')),'discord':discord,'event_counts_15m':dict(collections.Counter(e for t,e,p in rows if t>=now-900)),'intervention':None,'decision':'Read-only monitoring: respect current farming intent and storage latch; inspect current Meteor journal before any route restart.'}
+previous_5m_kills=sum(n for t,n in kills if now-600<=t<now-300)
+record['previous_5m_kills']=previous_5m_kills
+record['sustained_below_target']=windows['900']['kills']<target*15 and windows['300']['kills']<target*5 and previous_5m_kills<target*5
+record['performance_action']=('diagnose_controller_failure' if not record['controller_alive'] and record['phase']=='needs_attention' else 'monitor_restock' if record['controller_alive'] and record['phase']=='restocking' and not record['manual_mouse'] else 'monitor_safe_reload' if record['controller_alive'] and record['phase']=='reloading' and not record['manual_mouse'] else 'defer_manual_control' if record['manual_mouse'] or not record['control']['enabled'] else 'diagnose_and_reassess_route' if record['sustained_below_target'] else 'continue_measured_comparison')
+if started_at is not None and started_at<=now and experiment.get('active_variant')==adaptation.get('route_id'):
+ fixed=fixed_route_windows(kills,started_at=started_at,now=now)
+ validation={'route_id':adaptation['route_id'],'started_at':started_at,'measured_at':now,'completed_windows':fixed,'all_retained_windows_at_target':bool(fixed) and all(w['kills_per_minute']>=target for w in fixed),'qualified_winner':False,'note':'Non-overlapping throughput evidence only; downtime retained. Safety, manual activity and telemetry continuity require separate review.'}
+ record['route_validation']=validation
+ adaptation['ongoing_validation']=validation
+ write_json(experiment_path,experiment)
+ if record['performance_action']=='continue_measured_comparison':record['performance_action']='monitor_production_adaptation'
+repair=experiment.get('repairs',{}).get('camera_scroll_hp_reader',{})
+if (repair.get('status')=='loaded_validating' and app.get('pid')==repair.get('app_pid')
+    and experiment.get('active_variant')=='bandit-wide-circuit'):
+ record['recent_repair']={'kind':repair['kind'],'resume_at':repair['resume_at'],'validation_due_at':repair['validation_due_at']}
+ if now<repair['validation_due_at']:
+  if record['performance_action']=='diagnose_and_reassess_route':record['performance_action']='validate_recent_reader_repair'
+ elif query_from<=repair['resume_at']:
+  count=sum(n for t,n in kills if repair['resume_at']<=t<repair['validation_due_at'])
+  repair['validation']={'start':repair['resume_at'],'end':repair['validation_due_at'],'kills':count,'kills_per_minute':count/15,'includes_return_travel':True,'measured_at':now}
+  repair['status']='validation_recorded'
+  write_json(experiment_path,experiment)
+if (adaptation.get('route_id')==experiment.get('active_variant')
+    and started_at is not None and started_at<=now<adaptation.get('validation_due_at',0)
+    and record['performance_action']=='diagnose_and_reassess_route'):
+ record['performance_action']='validate_current_route_adaptation'
+if bag:record['supplies']={'silver':bag['silver'],'potions':sum(i['amount'] for i in bag['items'] if i['type_id']==1000020),'free_slots':bag['capacity']-len(bag['items']),'arrows':sum(i['amount'] for i in bag['items'] if i['type_id'] in (1050000,1050001,1050002))+(bag.get('equipped_ammo') or {}).get('amount',0),'carried_valuables':[i for i in bag['items'] if stash_candidate(i)]}
+p=Path('reports/performance/bandit-monitor.json');m=read_json(p);m.setdefault('checks',[]).append(record);m.update(last_checked_at=now,rate_target_met=record['rate_target_met'],actual_last_hour_kills=record['actual_last_hour_kills'],projected_hourly_from_last_15m=record['projected_hourly_from_last_15m']);write_json(p,m)
+print(json.dumps(record,indent=2))

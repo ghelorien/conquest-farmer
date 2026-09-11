@@ -1,0 +1,28 @@
+{
+  "kind": "town",
+  "map_id": 1011,
+  "destination": [
+    228,
+    249
+  ],
+  "position": [
+    227,
+    258
+  ],
+  "started_at": 1789164169.5303185,
+  "updated_at": 1789164175.539973,
+  "result": "arrived",
+  "elapsed_seconds": 6.0,
+  "active_seconds": 6.0,
+  "paused_seconds": 0,
+  "tiles_travelled": 34,
+  "tiles_per_second": 5.7,
+  "stalls": 0,
+  "recoveries": 0,
+  "hp_lost": 0,
+  "minimum_hp_percent": 80.4,
+  "deaths": 0,
+  "urgent": false,
+  "paused": false,
+  "source": "read_only_memory"
+}

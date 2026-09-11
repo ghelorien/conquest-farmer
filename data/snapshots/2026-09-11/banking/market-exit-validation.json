@@ -1,0 +1,39 @@
+{
+  "time": 1789040037.2150614,
+  "returned_map": 1011,
+  "arrival": [
+    193,
+    266
+  ],
+  "hp": 695,
+  "max_hp": 872,
+  "transport_leg": {
+    "kind": "town",
+    "map_id": 1011,
+    "destination": [
+      228,
+      249
+    ],
+    "position": [
+      193,
+      266
+    ],
+    "started_at": 1789040037.0849433,
+    "updated_at": 1789040037.0849433,
+    "result": "travelling",
+    "elapsed_seconds": 0,
+    "active_seconds": 0,
+    "paused_seconds": 0,
+    "tiles_travelled": 0,
+    "tiles_per_second": 0.0,
+    "stalls": 0,
+    "recoveries": 0,
+    "hp_lost": 0,
+    "minimum_hp_percent": 79.7,
+    "deaths": 0,
+    "urgent": false,
+    "paused": false,
+    "source": "read_only_memory"
+  },
+  "fix": "Market warehouse exit waypoint194188 with radius2; protected bag checked before transport"
+}

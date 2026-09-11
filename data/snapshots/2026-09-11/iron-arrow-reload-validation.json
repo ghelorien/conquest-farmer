@@ -1,0 +1,33 @@
+{
+  "time": 1788924738.8340065,
+  "receipt": {
+    "equipped": 292710037,
+    "type_id": 1050001,
+    "slot": "arrows",
+    "level": 32,
+    "replaced_uid": 292710034
+  },
+  "before_ammo": {
+    "uid": 292710034,
+    "type_id": 1050001,
+    "amount": 792,
+    "limit": 1000,
+    "slot": null,
+    "plus": 0
+  },
+  "after_ammo": {
+    "uid": 292710037,
+    "type_id": 1050001,
+    "amount": 1000,
+    "limit": 1000,
+    "slot": null,
+    "plus": 0
+  },
+  "silver_unchanged": true,
+  "supplies": {
+    "arrows": 2792,
+    "potions": 15,
+    "free_slots": 23,
+    "silver": 9981
+  }
+}

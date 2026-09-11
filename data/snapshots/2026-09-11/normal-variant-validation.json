@@ -1,0 +1,24 @@
+{
+  "time": 1788925550.1322916,
+  "control": "farming",
+  "enabled": true,
+  "type_ids": [
+    7,
+    66
+  ],
+  "groups": {
+    "66": {
+      "name": "BanditL33",
+      "nearby": 6,
+      "selected": 6
+    },
+    "7": {
+      "name": "Bandit",
+      "nearby": 24,
+      "selected": 24
+    }
+  },
+  "phase": "hunting",
+  "route": "bandit",
+  "observed_at": 1788925569.9643059
+}

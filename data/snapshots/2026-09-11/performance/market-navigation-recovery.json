@@ -1,0 +1,140 @@
+{
+  "updated_at": 1789144309.1170945,
+  "phase": "recovered_after_live_failure",
+  "controller_pid": 703332,
+  "tests_passed": 166,
+  "terrain_checked_hotspots": [
+    [
+      183,
+      190
+    ],
+    [
+      191,
+      186
+    ],
+    [
+      201,
+      215
+    ],
+    [
+      216,
+      193
+    ]
+  ],
+  "live_market_validation": "Pending next legitimate banking trip",
+  "farming_enabled": true,
+  "life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 0,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      427,
+      400
+    ],
+    "current_hp": 1120,
+    "max_hp": 1130,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 120420.25,
+    "timestamp": 120420.25,
+    "dead_candidate": false
+  },
+  "failure_at": 1789143277.215052,
+  "root_causes": [
+    "Crossing recovery consumed the single fallback and bypassed subsequent frontage recovery",
+    "Alternate landings repeated the same direction at different distances"
+  ],
+  "fixes": [
+    "Separate bounded recovery for crossing and frontage",
+    "Western frontage corridor with memory-reachable stopping",
+    "Distinct directions for alternate landings"
+  ],
+  "live_open_position": [
+    176,
+    183
+  ],
+  "deposits": [
+    {
+      "stored": 293332662,
+      "type_id": 113804,
+      "verified_in_warehouse": true
+    },
+    {
+      "stored": 293333845,
+      "type_id": 130534,
+      "verified_in_warehouse": true
+    },
+    {
+      "stored": 293334872,
+      "type_id": 113404,
+      "verified_in_warehouse": true
+    },
+    {
+      "stored": 293337033,
+      "type_id": 114904,
+      "verified_in_warehouse": true
+    },
+    {
+      "stored": 293338521,
+      "type_id": 132503,
+      "verified_in_warehouse": true
+    },
+    {
+      "stored": 293341059,
+      "type_id": 410064,
+      "verified_in_warehouse": true
+    },
+    {
+      "stored": 293341683,
+      "type_id": 720027,
+      "verified_in_warehouse": true
+    }
+  ],
+  "journal_phase": "completed",
+  "latest_life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 134217728,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      467,
+      440
+    ],
+    "current_hp": 1034,
+    "max_hp": 1130,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 125265.187,
+    "timestamp": 125265.187,
+    "dead_candidate": false
+  },
+  "recovery_metrics": {
+    "start": 1789144273.474852,
+    "end": 1789144308.861614,
+    "seconds": 35.4,
+    "kills": 59,
+    "kills_per_minute": 100.04,
+    "projected_kills_per_hour": 6002,
+    "empty_observations": 17,
+    "observations": 43,
+    "minimum_hp_ratio": 0.9150442477876106,
+    "events": {
+      "health_observation": 269,
+      "paused": 6,
+      "resumed": 6,
+      "movement_verified": 22,
+      "observation": 43,
+      "movement_attempt": 24,
+      "boundary_return_completed": 1,
+      "farming_area_reached": 1,
+      "attack_attempt": 17,
+      "kill_verified": 17,
+      "region_rotated": 1
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "time": 1788964597.6565948,
+  "window_start": 1788963697.6565948,
+  "window_seconds": 900,
+  "kills": 379,
+  "counter_span": 379,
+  "counter_increasing": true,
+  "trial_errors": [],
+  "trial_stops": [],
+  "deaths": [],
+  "pickups": 95,
+  "silver_collected": 17079,
+  "controller_pid": 1015760,
+  "controller_alive": true,
+  "phase": "hunting",
+  "farming_enabled": true,
+  "life": {
+    "character": "Parasite",
+    "object_address": 109932992,
+    "status": 512,
+    "appearance": 0,
+    "map_id": 1002,
+    "position": [
+      115,
+      349
+    ],
+    "current_hp": 396,
+    "max_hp": 653,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 154609.437,
+    "timestamp": 154609.437,
+    "dead_candidate": false
+  },
+  "potions": 10,
+  "arrow_type": 1050001,
+  "silver": 19132,
+  "banking": {
+    "time": 1788963432.3525069,
+    "direction": "deposit",
+    "amount": 3000,
+    "silver": 200,
+    "stored_silver": 13523,
+    "verified": true
+  },
+  "tests": "936 passed",
+  "return_scroll": "disabled; optional experiment not deployed"
+}

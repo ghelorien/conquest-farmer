@@ -1,0 +1,22 @@
+import time
+from pathlib import Path
+from conquest.worker import request
+from conquest.discord_notify import read_json,process_alive
+
+app=read_json('reports/desktop-farming/app-state.json');info=app['worker_info_path']
+d=request(info,'health')['embedded_controls'];s=read_json('reports/overnight/status.json')
+assert s['phase']=='hunting' and process_alive(s['pid'])
+assert d['control']['enabled'] and not d['manual_mouse']
+assert d['life'] and not d['life']['dead_candidate'] and d['life']['current_hp']>=d['life']['max_hp']*.9
+assert time.time()-d['observed_at']<2
+assert not Path('.runtime/overnight.stop').exists() and not read_json('.runtime/storage-halt.json').get('active')
+off=request(info,'controls',{'enabled':False});revision=off['revision']
+for _ in range(80):
+    d=request(info,'health')['embedded_controls']
+    assert not d['control']['enabled'] and d['control']['revision']==revision,'Control intent changed'
+    assert not d['manual_mouse'],'Manual takeover'
+    if not d.get('external_execution') and not process_alive(s['pid']):break
+    time.sleep(.1)
+else:raise RuntimeError('Controller did not release input')
+assert not Path('.runtime/overnight.stop').exists() and not read_json('.runtime/storage-halt.json').get('active')
+print(request(info,'controls',{'enabled':True}))

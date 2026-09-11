@@ -1,0 +1,22 @@
+import json,yaml
+from pathlib import Path
+from conquest.discord_notify import read_json
+from conquest.worker import request
+from conquest.memory_health import HealthWorkerSession
+from conquest.memory_entities import MemoryEntityReader,EntityLayout,sample_fields
+s=read_json('reports/desktop-farming/app-state.json');h=request(s['worker_info_path'],'health');m=HealthWorkerSession(s['worker_info_path'],h['expected_sha256']);p=EntityLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-entities-candidate.yaml').read_text()));e=MemoryEntityReader(m,p)
+b,c,t=e._resolve();start,end,cap=sample_fields(m,[(c+x,'u64') for x in (p.begin_offset,p.end_offset,p.capacity_offset)])
+assert start<=end<=cap and (end-start)%p.entry_stride==0 and (cap-start)//p.entry_stride<=p.max_objects
+objs=sample_fields(m,[(i+p.entry_object_offset,'u64') for i in range(start,end,p.entry_stride)])
+vt=sample_fields(m,[(o,'u64') for o in objs]);rows=[]
+for o,v in zip(objs,vt):
+ if v!=b+p.monster_vtable_rva:continue
+ model,species=sample_fields(m,[(o+0x84,'u32'),(o+p.kind_offset,'u32')])
+ if model>10000 or species!=0 or model in (406,1086):continue
+ fields=[(o+p.name_offset,'utf8'),(o+p.position_offset,'xy_u32'),(o+p.id_offset,'u32')]
+ name,pos,uid=sample_fields(m,fields)
+ if sample_fields(m,fields)!=[name,pos,uid]:continue
+ rows.append({'name':name,'position':pos,'model':model,'uid':uid})
+result={'life':h['embedded_controls']['life'],'npcs':rows}
+Path('reports/banking/market-scene.json').write_text(json.dumps(result,indent=2))
+print(json.dumps(result,indent=2))

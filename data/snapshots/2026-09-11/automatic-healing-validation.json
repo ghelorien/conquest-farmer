@@ -1,0 +1,109 @@
+{
+  "control": {
+    "enabled": true,
+    "target_ids": [],
+    "target_type_ids": [
+      1
+    ],
+    "resolved_target_ids": [
+      401247,
+      401253,
+      401254,
+      414891,
+      414912,
+      414918,
+      414919,
+      418578,
+      418581,
+      418588,
+      418595,
+      418599,
+      418601,
+      418613,
+      418617,
+      418622,
+      418624
+    ],
+    "input_mode": "foreground",
+    "revision": 1,
+    "execution_state": "farming",
+    "note": "Hunting"
+  },
+  "life": {
+    "character": "Parasite",
+    "object_address": 109932992,
+    "status": 528,
+    "appearance": 0,
+    "map_id": 1002,
+    "position": [
+      437,
+      465
+    ],
+    "current_hp": 156,
+    "max_hp": 213,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 26641.703,
+    "timestamp": 26641.703,
+    "dead_candidate": false
+  },
+  "healing_events": [
+    {
+      "time": 1788836517.0649812,
+      "event": "healing_attempt",
+      "item_uid": 292340746,
+      "point": null,
+      "health_ratio": 0.6901408450704225
+    },
+    {
+      "time": 1788836517.1456022,
+      "event": "healing_outcome",
+      "outcome": "verified",
+      "item_uid": 292340746,
+      "health_ratio": 0.9906103286384976
+    },
+    {
+      "time": 1788836540.8852818,
+      "event": "healing_attempt",
+      "item_uid": 292340748,
+      "point": null,
+      "health_ratio": 0.6525821596244131
+    },
+    {
+      "time": 1788836540.9557753,
+      "event": "healing_outcome",
+      "outcome": "verified",
+      "item_uid": 292340748,
+      "health_ratio": 0.9812206572769953
+    },
+    {
+      "time": 1788836551.1970677,
+      "event": "healing_attempt",
+      "item_uid": 292340752,
+      "point": null,
+      "health_ratio": 0.6713615023474179
+    },
+    {
+      "time": 1788836551.2625399,
+      "event": "healing_outcome",
+      "outcome": "verified",
+      "item_uid": 292340752,
+      "health_ratio": 0.9859154929577465
+    },
+    {
+      "time": 1788836563.2765684,
+      "event": "healing_attempt",
+      "item_uid": 292340760,
+      "point": null,
+      "health_ratio": 0.6901408450704225
+    },
+    {
+      "time": 1788836563.4093895,
+      "event": "healing_outcome",
+      "outcome": "verified",
+      "item_uid": 292340760,
+      "health_ratio": 1.0
+    }
+  ]
+}

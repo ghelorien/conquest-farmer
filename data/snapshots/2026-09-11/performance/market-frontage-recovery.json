@@ -1,0 +1,112 @@
+{
+  "observed_at": 1789139263.5554004,
+  "cause": "Market warehouse approach and exit waypoint obstruction",
+  "changes": [
+    "Bounded eastern warehouse approach fallback",
+    "Exit stops at verified landing tile 191,186"
+  ],
+  "tests": "55 banking tests passed",
+  "banked_uids": [
+    293319616,
+    293319853,
+    293321369,
+    293321644
+  ],
+  "journal_phase": "completed",
+  "life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 0,
+    "appearance": 0,
+    "map_id": 1011,
+    "position": [
+      444,
+      366
+    ],
+    "current_hp": 1130,
+    "max_hp": 1130,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 120219.75,
+    "timestamp": 120219.75,
+    "dead_candidate": false
+  },
+  "control": {
+    "enabled": true,
+    "target_ids": [],
+    "target_type_ids": [
+      7,
+      66
+    ],
+    "resolved_target_ids": [
+      428415,
+      428419,
+      428432,
+      428455,
+      428462,
+      428467,
+      469343,
+      469386,
+      469392,
+      469395,
+      469403,
+      469411,
+      469436,
+      469444,
+      469495,
+      469496,
+      469501,
+      469511,
+      469592,
+      469659,
+      469676,
+      469680,
+      469689,
+      469724,
+      469738,
+      469739,
+      469757,
+      469763,
+      469766,
+      469782,
+      469794,
+      469832,
+      469842,
+      469877,
+      469895,
+      469930,
+      470021,
+      470036
+    ],
+    "input_mode": "foreground",
+    "revision": 15,
+    "execution_state": "farming",
+    "note": "Hunting"
+  },
+  "recovery_kills": {
+    "start": 1789139221.1575491,
+    "end": 1789139263.3242252,
+    "seconds": 42.2,
+    "kills": 58,
+    "kills_per_minute": 82.53,
+    "projected_kills_per_hour": 4952,
+    "empty_observations": 19,
+    "observations": 42,
+    "minimum_hp_ratio": 1.0,
+    "events": {
+      "movement_attempt": 22,
+      "health_observation": 322,
+      "paused": 11,
+      "resumed": 11,
+      "movement_verified": 20,
+      "observation": 42,
+      "boundary_return_completed": 1,
+      "farming_area_reached": 1,
+      "attack_attempt": 17,
+      "kill_verified": 17,
+      "movement_stuck": 1,
+      "movement_recovery": 1
+    }
+  }
+}

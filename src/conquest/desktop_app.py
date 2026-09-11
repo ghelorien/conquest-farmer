@@ -1,0 +1,1268 @@
+"""Native launcher and supervised foreground farmer."""
+import argparse
+import ctypes
+import json
+import logging
+import os
+from pathlib import Path
+import queue
+import re
+import subprocess
+import threading
+import time
+import tkinter as tk
+from tkinter import ttk, simpledialog
+
+import yaml
+
+from conquest.addressing import PlayerLayout
+from conquest.desktop_runtime import LocalSession, NormalizedFrames, WindowGeometry, physical_coordinates
+from conquest.trial import TrialConfig, run_trial
+from conquest.win32 import WindowsBackend
+from conquest.window_host import EmbeddedWindow, use_unaware_dpi
+from conquest.control import FarmingControl
+from conquest.control_runtime import ControlRuntime
+from conquest.embedded_observer import EmbeddedObserver
+from conquest.memory_health import HealthLayout
+from conquest.memory_entities import EntityLayout
+from conquest.desktop_launch import elevated_start
+from conquest.client_wrapper import ClientCatalog, LaunchWatch, pinned_client
+from conquest.nearby_monsters import NearbyMonsters
+from conquest.farm_telemetry import PickupHistory,pickup_values,activity_text,item_label,pause_message,farm_stats
+from conquest.routes import RouteLibrary
+from conquest.reconnect import Reconnector,login_screen,submit_login
+from conquest.focus_recovery import AutoRefocuser,activate_client
+
+
+class EventQueue(logging.Handler):
+    def __init__(self, messages):
+        super().__init__()
+        self.messages = messages
+
+    def emit(self, record):
+        self.messages.put((record.getMessage(), getattr(record, 'fields', {})))
+
+
+class DesktopApp:
+    def __init__(self, root, profile, *, catalog=None, launch_watch=None, observer_factory=None, output=None, requires_elevation=True):
+        self.root, self.profile = root, Path(profile)
+        self.backend, self.host = WindowsBackend(), EmbeddedWindow(mode='owned')
+        self.messages, self.thread = queue.Queue(), None
+        self.requires_elevation = requires_elevation
+        self.output = Path(output or 'reports/desktop-farming')
+        self.output.mkdir(parents=True, exist_ok=True)
+        self.status_path = self.output / 'app-state.json'
+        self.client = None
+        self.control = FarmingControl(self.output/'controls.json' if output else '.runtime/native-controls.json')
+        self.catalog = catalog or ClientCatalog(self.backend,image_path=r'C:\Program Files\Classic Conquer 2.0\bin\64\ImConquer.exe')
+        launcher = Path(r'C:\Program Files\Classic Conquer 2.0\ImBootstrapper.exe')
+        self.launch_watch = launch_watch or LaunchWatch(self.catalog,[str(launcher)],cwd=launcher.parent)
+        self.observer_factory = observer_factory or self.make_observer
+        self.clients = []
+        self.observer = self.runtime = None
+        self.reconnector=Reconnector(self.reconnect_client,
+            lambda fields:self.messages.put(('reconnect_state',fields)))
+        self.reconnect_pending=False
+        self.refocuser=AutoRefocuser()
+        self.closing = False
+        self.pointer_down = False
+        self.farming_on_key_down=False
+        from conquest.mouse_priority import install
+        self.mouse_priority=install()
+        self.last = {'state':'Off', 'kills':0, 'attempts':0}
+        root.title('Conquest Farmer')
+        root.geometry('540x850')
+        root.minsize(500, 700)
+        root.protocol('WM_DELETE_WINDOW', self.close)
+        style = ttk.Style(root)
+        style.theme_use('clam')
+        style.configure('TButton', padding=5)
+        style.configure('Treeview', rowheight=24)
+        self.sidebar = ttk.Frame(root, padding=12)
+        self.sidebar.pack(side='left', fill='both', expand=True)
+        ttk.Label(self.sidebar, text='Conquest Farmer', font=('Segoe UI',20,'bold')).pack(anchor='w')
+        self.client_text = tk.StringVar(value='Finding Conquer…')
+        self.client_footer = ttk.Frame(self.sidebar)
+        self.route_details_frame = ttk.Frame(self.client_footer, padding=(0,6))
+        self.setup_frame = ttk.Frame(self.client_footer)
+        self.client_frame = ttk.Frame(self.sidebar)
+        client_row = ttk.Frame(self.client_frame)
+        client_row.pack(fill='x',pady=(4,6))
+        self.client_picker = ttk.Combobox(client_row,textvariable=self.client_text,state='readonly')
+        self.client_picker.pack(side='left',fill='x',expand=True)
+        self.client_picker.bind('<<ComboboxSelected>>',self.select_client)
+        ttk.Button(client_row,text='Refresh',command=self.refresh_client).pack(side='left',padx=(6,0))
+        self.state_text = tk.StringVar(value='Off')
+        ttk.Label(self.sidebar, textvariable=self.state_text, font=('Segoe UI',15,'bold'), wraplength=460).pack(anchor='w')
+        self.activity_text = tk.StringVar(value='Farming is off')
+        activity_frame=ttk.Frame(self.sidebar,height=40)
+        activity_frame.pack(fill='x',pady=(3,0))
+        activity_frame.pack_propagate(False)
+        ttk.Label(activity_frame,textvariable=self.activity_text,wraplength=455).pack(anchor='w')
+        self.route_status={}
+        self.telemetry_poll_at=0
+        self.pickup_history=PickupHistory(self.output/'pickups.jsonl')
+        self.stats_text = tk.StringVar(value='Kills 0\nLevel —  ·  Next level Estimating…')
+        ttk.Label(self.sidebar, textvariable=self.stats_text,justify='left').pack(anchor='w', pady=4)
+        row = ttk.Frame(self.sidebar)
+        self.foreground_row = row
+        row.pack(fill='x', pady=6)
+        self.start_button = ttk.Button(row, text='Start farming → Conquer', command=self.start)
+        self.start_button.pack(side='left', fill='x', expand=True)
+        ttk.Button(row, text='Stop', command=self.stop).pack(side='left', padx=(8,0))
+        self.foreground_note = ttk.Label(self.sidebar, text='Temporary foreground mode · Pheasants\nF11 pauses / resumes · F12 stops\nReturns to farming when Conquer regains focus.', wraplength=450)
+        self.foreground_note.pack(anchor='w',pady=8)
+        row = ttk.Frame(self.sidebar)
+        self.tools_row = row
+        row.pack(fill='x', pady=5)
+        ttk.Button(row, text='Show / focus Conquer', command=self.show_game).pack(side='left', padx=8)
+        ttk.Button(row, text='Reload app', command=self.restart).pack(side='left')
+        ttk.Button(row, text='Retry reconnect', command=self.retry_reconnect).pack(side='left')
+        self.client_frame.pack(fill='x',pady=(0,4))
+        row = ttk.Frame(self.client_frame)
+        row.pack(fill='x', pady=4)
+        self.launch_button = ttk.Button(row,text='Launch client',command=self.launch)
+        self.launch_button.pack(side='left')
+        ttk.Button(row, text='Embed client', command=self.embed).pack(side='left', padx=7)
+        ttk.Button(row, text='Release client', command=self.release).pack(side='left')
+        ttk.Button(self.setup_frame, text='Check calibration', command=lambda:self.start(True)).pack(anchor='w')
+        route_frame = ttk.LabelFrame(self.sidebar,text='Saved routes',padding=5)
+        route_frame.pack(fill='x',pady=(6,0))
+        self.route_library = RouteLibrary()
+        self.saved_routes = self.route_library.all()
+        self.route_selection_path = self.output/'selected-route.json'
+        self.selected_route = None
+        self.route_text = tk.StringVar(value='Choose a saved route')
+        route_row = ttk.Frame(route_frame)
+        route_row.pack(fill='x')
+        self.route_picker = ttk.Combobox(route_row,textvariable=self.route_text,state='readonly',
+            values=[r.name for r in self.saved_routes])
+        self.route_picker.pack(side='left',fill='x',expand=True)
+        self.route_picker.bind('<<ComboboxSelected>>',self.select_route)
+        ttk.Button(route_row,text='Save copy',command=self.save_route_copy,padding=3).pack(side='left',padx=(5,0))
+        self.route_note = tk.StringVar(value='Save once, reuse on future runs.\nChoose a route to load its monster group.\nFull travel / hunt / restock cycle is being validated.')
+        ttk.Label(self.route_details_frame,textvariable=self.route_note,wraplength=450).pack(anchor='w')
+        from conquest.session_plan import plan_note
+        self.session_note=tk.StringVar(value=plan_note())
+        session_row=ttk.Frame(self.route_details_frame);session_row.pack(fill='x',pady=(4,0))
+        ttk.Label(session_row,textvariable=self.session_note).pack(side='left')
+        ttk.Button(session_row,text='Resume leveling',command=self.resume_leveling,padding=2).pack(side='right')
+        self.restore_route()
+        self.level_presets=json.loads(Path('profiles/leveling-presets.json').read_text(encoding='utf-8'))
+        self.level_preset_text=tk.StringVar(value='Browse routes by level')
+        self.level_preset_picker=ttk.Combobox(self.route_details_frame,textvariable=self.level_preset_text,state='readonly',
+            values=[p['name']+(' · needs survey' if p['status']=='needs_survey' else '') for p in self.level_presets])
+        self.level_preset_picker.pack(fill='x',pady=(4,0))
+        self.level_preset_picker.bind('<<ComboboxSelected>>',self.select_level_preset)
+        farm_row = ttk.Frame(self.sidebar)
+        farm_row.pack(fill='x',pady=(8,4))
+        ttk.Button(farm_row, text='Farming On · F10', command=lambda:self.update_ids(True)).pack(side='left',fill='x',expand=True)
+        ttk.Button(farm_row, text='Off', command=lambda:self.update_ids(False)).pack(side='left',padx=6)
+        ttk.Label(farm_row,text='F11 pause · F12 stop').pack(side='right')
+
+        self.mouse_note=tk.StringVar(value='Mouse control: automatic · move mouse to take over')
+        ttk.Label(self.sidebar,textvariable=self.mouse_note).pack(anchor='w',pady=(0,4))
+
+        # Reserve the footer first; both live lists share the remaining space.
+        footer = self.client_footer
+        footer.pack(side='bottom',fill='x')
+        self.route_details_button=ttk.Button(footer,text='Show route details',command=self.toggle_route_details)
+        self.route_details_button.pack(anchor='w',pady=(4,0))
+        self.details_button=ttk.Button(footer,text='Show client tools & details',command=self.toggle_details)
+        self.details_button.pack(anchor='w',pady=(4,0))
+        self.setup_frame.pack(in_=footer,fill='x')
+        self.setup_frame.pack_forget()
+        self.ids = tk.StringVar(value='')
+        self.ids_label = ttk.Label(self.setup_frame, text='Matched nearby IDs (automatic)')
+        self.ids_label.pack(anchor='w',pady=(6,3))
+        self.ids_entry = ttk.Entry(self.setup_frame, textvariable=self.ids,state='readonly')
+        self.ids_entry.pack(fill='x')
+        self.memory_text = tk.StringVar(value='Embed a client to see nearby monster IDs')
+        ttk.Label(self.setup_frame, textvariable=self.memory_text, wraplength=450).pack(anchor='w')
+        self.detail_text = tk.StringVar(value='')
+        ttk.Label(self.setup_frame, textvariable=self.detail_text, wraplength=450).pack(anchor='w', pady=4)
+
+        self.activity_panel=ttk.Frame(self.sidebar)
+        self.activity_panel.pack(fill='both',expand=True,pady=(4,0))
+        self.nearby = NearbyMonsters(self.activity_panel,self.toggle_nearby)
+        self.nearby.pack(side='bottom',fill='x',pady=(6,0))
+        pickup_frame=ttk.LabelFrame(self.activity_panel,text='Pickup history · newest first',padding=6)
+        pickup_frame.pack(fill='both',expand=True)
+        pickup_body=ttk.Frame(pickup_frame)
+        pickup_body.pack(fill='both',expand=True)
+        self.pickup_tree=ttk.Treeview(pickup_body,columns=('time','item','amount'),show='headings',height=9)
+        for column,title,width in [('time','Local time',125),('item','Picked up',205),('amount','Amount',65)]:
+            self.pickup_tree.heading(column,text=title)
+            self.pickup_tree.column(column,width=width,minwidth=width,stretch=column=='item')
+        pickup_scroll=ttk.Scrollbar(pickup_body,orient='vertical',command=self.pickup_tree.yview)
+        self.pickup_tree.configure(yscrollcommand=pickup_scroll.set)
+        self.pickup_tree.pack(side='left',fill='both',expand=True)
+        pickup_scroll.pack(side='right',fill='y')
+        for pickup in self.pickup_history.rows:
+            self.pickup_tree.insert('',0,values=pickup_values(pickup))
+        self.pane = tk.Frame(root, background='#101820')
+        self.pane.bind('<Configure>', self.resize)
+        self.refresh_client()
+        self.record(state='Off')
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            self.start_button.configure(text='Start farming (Windows approval)')
+            self.detail_text.set('Conquer requires administrator access. Start requests Windows approval once, then starts this app and returns to Conquer. No approval means no farming.')
+        root.after(200, self.poll)
+        root.after(25, self.poll_pointer_focus)
+        try:
+            from conquest.discord_notify import ensure_monitor
+            ensure_monitor()
+        except OSError:
+            self.detail_text.set('Discord notifier could not start; farming is unaffected')
+
+    def toggle_route_details(self):
+        if self.route_details_frame.winfo_manager():
+            self.route_details_frame.pack_forget()
+            self.route_details_button.configure(text='Show route details')
+        else:
+            self.route_details_frame.pack(fill='x',after=self.route_details_button)
+            self.route_details_button.configure(text='Hide route details')
+
+    def toggle_details(self):
+        if self.setup_frame.winfo_manager():
+            self.setup_frame.pack_forget()
+            self.details_button.configure(text='Show client tools & details')
+        else:
+            self.setup_frame.pack(fill='x',in_=self.details_button.master)
+            self.details_button.configure(text='Hide client tools & details')
+
+    def record(self, **fields):
+        self.last.update(fields)
+        self.last.update(pid=os.getpid(), updated_at=time.time(), ui_revision=5,
+            selected_route=self.selected_route.id if self.selected_route else None,
+            client_tools_revision=2,runback_monitor_revision=1,meteor_loop_revision=1,return_path_revision=2,
+            scatter_projection_revision=3,level_eta_revision=1,empty_restock_revision=1,supply_refill_revision=1,scatter_ammo_minimum_revision=1,market_warehouse_click_revision=1)
+        temporary = self.status_path.with_suffix('.tmp')
+        try:
+            temporary.write_text(json.dumps(self.last, indent=2))
+            temporary.replace(self.status_path)
+        except PermissionError:
+            # Windows readers may briefly deny replacement. The next status
+            # update retries; telemetry must not interrupt the input executor.
+            pass
+
+    def refresh_client(self):
+        if self.host.saved:
+            return
+        self.clients = self.catalog.windows()
+        self.client_picker.configure(values=[c.label for c in self.clients],state='readonly')
+        selected = next((c for c in self.clients if self.client and
+                        (c.identity,c.hwnd)==(self.client[2],self.client[1])),None)
+        if selected is None and len(self.clients)==1:
+            selected = self.clients[0]
+        self.client = None
+        if selected:
+            self.choose_client(selected)
+        else:
+            self.client_text.set('Select a client' if self.clients else 'Launch Conquer to begin')
+
+    def choose_client(self, candidate):
+        self.client = (candidate.identity['pid'],candidate.hwnd,candidate.identity)
+        self.client_text.set(candidate.label)
+
+    def select_client(self, _event=None):
+        index = self.client_picker.current()
+        if not self.host.saved and 0<=index<len(self.clients):
+            self.choose_client(self.clients[index])
+
+    def retry_reconnect(self):
+        from conquest.storage_halt import active
+        if active():return
+        if self.observer is None or not login_screen(self.observer.operations.target.hwnd):
+            return
+        self.reconnector.retry()
+        self.reconnect_pending=True
+        self.record(state='Reconnecting',reconnection={'state':'retry_requested'})
+
+    def reconnect_client(self):
+        from conquest.storage_halt import active
+        if active():raise ValueError('Storage full: automatic reconnect is disabled')
+        if self.observer is None:
+            raise ValueError('Hosted client is unavailable for reconnect')
+        with self.observer.lock:
+            return submit_login(self.observer.operations.target, session=self.observer.adapter)
+
+    def refocus_if_farming(self):
+        import win32gui
+        state=self.control.snapshot()
+        if self.closing or not self.client or not self.host.saved:
+            self.refocuser.step(False,False,lambda:False)
+            return
+        if self.mouse_priority.active():
+            return
+        pid,hwnd,identity=self.client
+        root=win32gui.GetAncestor(hwnd,2)
+        focused=(win32gui.GetForegroundWindow()==root and not win32gui.IsIconic(root))
+        def town_route_active():
+            from conquest.discord_notify import read_json
+            route=read_json('reports/overnight/status.json')
+            return (route.get('phase') in ('starting','restocking')
+                    and 0<=time.time()-route.get('updated_at',0)<12
+                    and not Path('.runtime/overnight.stop').exists()
+                    and not ctypes.windll.user32.GetAsyncKeyState(0x7b)&0x8000)
+        def activate():
+            with self.control.lock:
+                if not self.control.snapshot()['enabled'] and not town_route_active():
+                    return False
+                restored=activate_client(hwnd,identity,api=self.host.api)
+                if restored:
+                    self.focus_game()
+                return restored
+        result=self.refocuser.step(state['enabled'] or town_route_active(),focused,activate)
+        if result is not None:
+            self.last.update(auto_refocus={'restored':result,'attempted_at':time.time()})
+
+    def show_game(self):
+        import win32gui
+        try:
+            if not self.host.saved:
+                self.refresh_client()
+            if self.client is None:
+                raise ValueError('No unique Parasite client is open')
+            hwnd = self.client[1]
+            if self.host.saved:
+                self.root.deiconify()
+                self.root.lift()
+                win32gui.SetForegroundWindow(win32gui.GetAncestor(hwnd,2))
+                self.focus_game()
+            else:
+                if win32gui.IsIconic(hwnd):
+                    win32gui.ShowWindow(hwnd, 9)
+                win32gui.SetForegroundWindow(hwnd)
+                if win32gui.GetForegroundWindow() != hwnd:
+                    raise ValueError('Conquer did not receive foreground focus')
+            return True
+        except Exception as error:
+            self.state_text.set(str(error))
+            return False
+
+    def focus_game(self):
+        focused = self.host.focus()
+        self.record(keyboard_focus_hwnd=focused)
+        return focused
+
+    def poll_pointer_focus(self):
+        """Hand off an actual click in the client, without stealing sidebar focus."""
+        try:
+            on_key=bool(self.host.api.key_state(0x79)&0x8000)
+            if on_key and not self.farming_on_key_down:
+                self.update_ids(True)
+            self.farming_on_key_down=on_key
+            manual=self.mouse_priority.active()
+            self.mouse_note.set('Mouse control: yours · resumes after 2s idle' if manual else 'Mouse control: automatic · move mouse to take over')
+            if self.host.saved and self.host.mode=='owned':
+                self.host.resize(self.pane.winfo_width(),self.pane.winfo_height())
+            down = bool(self.host.api.key_state(1) & 0x8000)
+            pressed = down and not self.pointer_down
+            self.pointer_down = down
+            if pressed and self.host.saved and self.host.api.pointer_in_client(self.host.saved.hwnd):
+                self.focus_game()
+        except Exception as error:
+            self.detail_text.set(f'Client keyboard focus: {error}')
+        self.root.after(25,self.poll_pointer_focus)
+
+    def start(self, calibration=False):
+        if self.thread and self.thread.is_alive():
+            return
+        if self.host.saved:
+            self.state_text.set('Release the embedded client before foreground farming')
+            return
+        try:
+            self.refresh_client()
+            if self.client is None:
+                raise ValueError('No unique Parasite client is open')
+            config = TrialConfig.model_validate(yaml.safe_load(self.profile.read_text()))
+            if config.observation_mode != 'legacy_visual':
+                raise ValueError('Select an explicitly enabled foreground profile')
+            if not ctypes.windll.shell32.IsUserAnAdmin():
+                self.state_text.set('Waiting for Windows approval…')
+                self.record(state='Waiting for Windows approval')
+                self.root.update_idletasks()
+                elevated_start(self.root.winfo_id(),Path(__file__).resolve().parents[2],self.profile,calibration)
+                # No run or embedded client exists here. Do not write a stop
+                # request that would cancel the elevated app's incoming Start.
+                self.root.destroy()
+                return
+            (self.output / 'stop.request').unlink(missing_ok=True)
+            self.record(state='Checking calibration' if calibration else 'Starting', kills=0, attempts=0)
+            self.start_button.state(['disabled'])
+            self.root.iconify()
+            if not self.show_game():
+                raise ValueError('Windows could not bring Conquer forward; farming remains stopped')
+            self.record(foreground_after_start=self.backend.foreground())
+            import win32gui
+            if tuple(win32gui.GetClientRect(self.client[1])[2:]) != config.client_size:
+                # The foreground profile was inspected at the maximized size.
+                # SW_RESTORE alone reverts Conquer to its small default client.
+                win32gui.ShowWindow(self.client[1], 3)
+                if tuple(win32gui.GetClientRect(self.client[1])[2:]) != config.client_size:
+                    raise ValueError('Maximized client does not match this screen profile')
+            self.thread = threading.Thread(target=self.run, args=(config,calibration), daemon=False)
+            self.thread.start()
+        except Exception as error:
+            self.root.deiconify()
+            self.record(state='Stopped', result={'detail':str(error)})
+            self.state_text.set(str(error))
+            self.start_button.state(['!disabled'])
+
+    def run(self, config, calibration):
+        session = None
+        try:
+            import win32gui
+            import cv2
+            from conquest.vision import health_ratio
+            from conquest.memory_health import HealthLayout, MemoryHealthReader
+            with physical_coordinates():
+                pid, hwnd, identity = self.client
+                self.host.api.assert_owner(hwnd, identity)
+                physical_size = tuple(win32gui.GetClientRect(hwnd)[2:])
+                self.messages.put(('window_geometry', {'physical_size':physical_size,
+                    'logical_size':config.client_size}))
+                sx, sy = (actual/logical for actual, logical in zip(physical_size, config.client_size))
+                if abs(sx-sy) > .005 or not .75 <= sx <= 2:
+                    raise ValueError('Client aspect or scale differs from calibration')
+                layout = PlayerLayout.model_validate(yaml.safe_load(Path(config.player_profile).read_text()))
+                session = LocalSession(pid, hwnd, layout.expected_sha256, config.client_size, physical_size)
+                factory = lambda h,s,o,p: NormalizedFrames(h,s,o,p,physical_size=physical_size)
+                camera = factory(hwnd, config.client_size, config.capture_output, config.capture_origin)
+                try:
+                    frame = camera.read()
+                    cv2.imwrite(str(self.output/'calibration.png'), frame.image)
+                    visual_hp = health_ratio(frame.image, config.client_size)
+                    health_layout = HealthLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-health-candidate.yaml').read_text()))
+                    reading = MemoryHealthReader(session, health_layout, config.character).read()
+                    if abs(visual_hp - reading.current_hp/reading.max_hp) > .03:
+                        raise ValueError('Visual HP and the memory candidate disagree')
+                    self.messages.put(('calibration_verified', {'health_ratio':visual_hp,
+                        'hp_candidate':reading.current_hp, 'max_hp_candidate':reading.max_hp,
+                        'physical_size':physical_size, 'logical_size':config.client_size}))
+                finally:
+                    camera.close()
+                if not calibration:
+                    logger = logging.getLogger('desktop-farmer')
+                    logger.handlers = [EventQueue(self.messages)]
+                    logger.setLevel(logging.INFO)
+                    result = run_trial(self.profile, None, self.output, 1800, logger,
+                        session_override=session, camera_factory=factory)
+                    self.messages.put(('finished', result))
+                else:
+                    self.messages.put(('finished', {'reason':'calibration_complete'}))
+        except Exception as error:
+            self.messages.put(('failed', {'detail':str(error)}))
+        finally:
+            if session:
+                session.close()
+
+    def stop(self):
+        if getattr(self,'reload_cancel',None):self.reload_cancel.set()
+        from conquest.safe_reload import RESUME
+        RESUME.unlink(missing_ok=True)
+        self.control.update({'enabled':False})
+        (self.output/'stop.request').write_text('Stop requested from desktop app')
+        self.state_text.set('Stopping…' if self.thread and self.thread.is_alive() else 'Off')
+
+    def restart(self):
+        if getattr(self,'reload_preparing',False):return False
+        if not self.host.saved:return self._restart_now()
+        info=self.last.get('worker_info_path')
+        if not info or not self.selected_route:
+            self.state_text.set('Reload deferred: waiting for memory connection and route')
+            return False
+        from conquest.discord_notify import read_json,process_alive
+        status=read_json('reports/overnight/status.json')
+        self.reload_resume=bool(self.control.snapshot()['enabled'] or
+            (status.get('phase') in ('hunting','restocking','starting') and process_alive(status.get('pid'))))
+        self.reload_cancel=threading.Event();self.reload_preparing=True
+        self.record(reload_preparing=True,current_activity='Moving to a safe spot for app reload')
+        self.state_text.set('Preparing a safe nearby reload')
+        route_id=self.selected_route.id
+        def prepare():
+            try:
+                repo=Path(__file__).resolve().parents[2]
+                # Import checks run while the current farmer still protects the player.
+                checked=subprocess.run([str(repo/'.venv/Scripts/pythonw.exe'),
+                    str(repo/'scripts/start_desktop_app.py'),'--check-imports'],
+                    cwd=repo,capture_output=True,timeout=20)
+                if checked.returncode:raise ValueError('Startup check failed; keeping current app')
+                from conquest.safe_reload import prepare as prepare_reload
+                proof=prepare_reload(info,route_id,self.reload_cancel,
+                    lambda note:self.messages.put(('reload_activity',{'activity':note})))
+                self.messages.put(('reload_ready',proof))
+            except Exception as error:
+                self.messages.put(('reload_failed',{'detail':str(error)}))
+        threading.Thread(target=prepare,daemon=True,name='safe-reload').start()
+        return False
+
+    def _restart_now(self):
+        if self.thread and self.thread.is_alive():
+            self.state_text.set('Stop foreground farming before reloading')
+            return False
+        repo = Path(__file__).resolve().parents[2]
+        # Validate new source while the approved parent and client are intact.
+        try:
+            checked = subprocess.run(
+                [str(repo/'.venv/Scripts/pythonw.exe'),
+                 str(repo/'scripts/start_desktop_app.py'),'--check-imports'],
+                cwd=repo, capture_output=True, timeout=20)
+            if checked.returncode:
+                self.state_text.set('Reload canceled: startup check failed. See reports/desktop-startup-error.txt')
+                return False
+        except (OSError, subprocess.TimeoutExpired):
+            self.state_text.set('Reload canceled: startup check could not finish')
+            return False
+        if self.host.saved:
+            try:
+                from conquest.safe_reload import validate_handoff,save_resume
+                validate_handoff(self.last['worker_info_path'],self.reload_proof)
+                save_resume(self.reload_proof,self.reload_resume)
+            except (ValueError,KeyError,AttributeError,OSError) as error:
+                self.state_text.set(f'Reload deferred: {error}')
+                return False
+        selected = self.host.saved
+        if selected and not self.release():
+            from conquest.safe_reload import RESUME
+            RESUME.unlink(missing_ok=True)
+            return False
+        # A child of the approved app inherits its existing administrator token.
+        # This button does not invoke runas or display another consent request.
+        args = [str(repo/'.venv/Scripts/pythonw.exe'),str(repo/'scripts/start_desktop_app.py'),
+                '--profile',str(self.profile.resolve())]
+        if selected:
+            args += ['--embed-client','--client-pid',str(selected.identity['pid']),
+                     '--client-started',str(selected.identity['creation_time_100ns']),
+                     '--client-hwnd',str(selected.hwnd)]
+        try:
+            subprocess.Popen(args,cwd=repo)
+            self.root.destroy()
+            return True
+        except OSError as error:
+            from conquest.safe_reload import RESUME
+            RESUME.unlink(missing_ok=True)
+            self.state_text.set(f'Could not reload the app: {error}')
+            return False
+
+    def launch(self):
+        try:
+            if self.launch_watch.pending:
+                self.launch_watch.cancel()
+                self.launch_button.configure(text='Launch client')
+                self.state_text.set(self.launch_watch.note)
+                self.record(state='Off')
+                return
+            if self.host.saved or (self.thread and self.thread.is_alive()):
+                raise ValueError('Stop farming and release the current client before launching another')
+            if self.requires_elevation and not ctypes.windll.shell32.IsUserAnAdmin():
+                self.state_text.set('Waiting for Windows approval…')
+                self.root.update_idletasks()
+                elevated_start(self.root.winfo_id(),Path(__file__).resolve().parents[2],self.profile,launch_client=True)
+                self.root.destroy()
+                return
+            self.launch_watch.start()
+            self.launch_button.configure(text='Cancel launch')
+            self.state_text.set(self.launch_watch.note)
+            self.record(state='Launching client')
+        except Exception as error:
+            self.launch_button.configure(text='Launch client')
+            self.state_text.set(str(error))
+
+    def make_observer(self,pid,hwnd):
+        health = HealthLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-health-candidate.yaml').read_text()))
+        entities = EntityLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-entities-candidate.yaml').read_text()))
+        return EmbeddedObserver(pid,hwnd,health,entities,'Parasite')
+
+    def embed(self,candidate=None):
+        if self.thread and self.thread.is_alive():
+            self.state_text.set('Stop farming before embedding the client')
+            return
+        try:
+            if self.host.saved:
+                raise ValueError('Release the current embedded client first')
+            if candidate:
+                self.choose_client(candidate)
+            else:
+                self.refresh_client()
+            if self.client is None:
+                raise ValueError('Select a Conquer client to embed')
+            if self.requires_elevation and not ctypes.windll.shell32.IsUserAnAdmin():
+                self.state_text.set('Waiting for Windows approval…')
+                self.root.update_idletasks()
+                pid,hwnd,identity = self.client
+                elevated_start(self.root.winfo_id(),Path(__file__).resolve().parents[2],self.profile,
+                    embed_client=(pid,identity['creation_time_100ns'],hwnd))
+                self.root.destroy()
+                return
+            self.embedded_layout()
+            self.root.update_idletasks()
+            self.observer = self.observer_factory(self.client[0],self.client[1])
+            self.host.attach(self.client[1], self.client[2], self.pane.winfo_id(),
+                             self.pane.winfo_width(), self.pane.winfo_height())
+            self.observer.focus_client=self.host.focus
+            self.runtime = ControlRuntime(self.control,None,None,None,'Parasite',observer=self.observer)
+            self.runtime.start()
+            if hasattr(self.observer,'start_bridge'):
+                worker_info = Path('.runtime')/f'embedded-worker-{os.getpid()}.json'
+                self.observer.start_bridge(worker_info,self.runtime.snapshot,control_update=self.update_control,
+                    on_reload=lambda:self.messages.put(('reload_requested',{})),
+                    on_native_window=lambda detached:self.messages.put(('native_window_requested',{'detached':detached})))
+                self.observer.bridge.on_reconnect=lambda:self.messages.put(('reconnect_requested',{}))
+                self.observer.bridge.sync_window_mode(self.host)
+                if hasattr(self.observer,'adapter'):
+                    from conquest.navigation import read_terrain
+                    from conquest.route_recovery import RouteRecovery,EmbeddedRecoveryInput
+                    from conquest.route_input import RouteJumpInput
+                    current=self.observer()
+                    terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',current.get('life',{}).get('map_id',1002))
+                    self.observer.bridge.on_route_jump=RouteJumpInput(self.observer,terrain)
+                    self.runtime.recovery=RouteRecovery(self.control,self.observer.session.identity,terrain,
+                        EmbeddedRecoveryInput(self.observer,self.control),'.runtime/death-return.json')
+                    if self.selected_route:
+                        self.runtime.recovery.enabled=self.selected_route.recover_after_death
+                self.record(worker_info_path=str(worker_info.resolve()))
+            self.client_picker.configure(state='disabled')
+            self.state_text.set('Client embedded · farming Off')
+            self.record(state='Embedded', hwnd=self.client[1])
+        except Exception as error:
+            self.state_text.set(str(error))
+            try:
+                self.host.detach()
+                self.stop_observer()
+                self.compact()
+            except Exception as cleanup_error:
+                self.state_text.set(f'{error}; restoration pending: {cleanup_error}')
+            self.record(state='Embed failed', embed_error=self.state_text.get())
+
+    def embedded_layout(self):
+        self.sidebar.pack_configure(expand=False, fill='y')
+        # Dynamic status/count text must not resize the game's rendering
+        # surface. Only resizing the top-level window changes the pane.
+        self.sidebar.configure(width=500)
+        self.sidebar.pack_propagate(False)
+        self.foreground_row.pack_forget()
+        self.foreground_note.pack_forget()
+        self.setup_frame.pack_forget()
+        self.details_button.configure(text='Show client tools & details')
+        self.root.geometry('1500x800')
+        if self.root.state() != 'withdrawn':
+            self.root.state('zoomed')
+        self.pane.pack(side='right', fill='both', expand=True)
+
+    def compact(self):
+        self.pane.pack_forget()
+        if self.root.state() != 'withdrawn':
+            self.root.state('normal')
+        self.sidebar.pack_configure(expand=True, fill='both')
+        self.sidebar.pack_propagate(True)
+        self.root.geometry('540x850')
+        self.client_picker.configure(state='readonly')
+        self.foreground_row.pack(before=self.tools_row,fill='x',pady=6)
+        self.foreground_note.pack(before=self.tools_row,anchor='w',pady=8)
+        self.nearby.refresh([],self.control.snapshot()['target_type_ids'],available=False)
+        self.setup_frame.pack(fill='x',in_=self.details_button.master)
+        self.details_button.configure(text='Hide client tools & details')
+
+    def toggle_nearby(self,type_id):
+        try:
+            types = set(self.control.snapshot()['target_type_ids'])
+            types.symmetric_difference_update({type_id})
+            current = self.control.update({'target_type_ids':sorted(types),'target_ids':[]})
+            if self.selected_route and sorted(types)!=sorted(self.selected_route.monster_type_ids):
+                self.selected_route = None
+                self.route_selection_path.unlink(missing_ok=True)
+                self.route_text.set('Custom monster selection')
+                self.route_note.set('Saved routes are unchanged.\nChoose a route again to restore its monster group.\nFull travel / hunt / restock cycle is being validated.')
+            if self.runtime:
+                data = self.runtime.snapshot()
+                self.nearby.refresh(data['monsters'],current['target_type_ids'],
+                    available=data.get('observations_available',False))
+        except ValueError as error:
+            self.memory_text.set(str(error))
+
+    def resume_leveling(self):
+        from conquest.session_plan import resume_leveling
+        resume_leveling()
+        self.session_note.set('Automatic leveling')
+        self.record(route_hold=None)
+
+    def restore_route(self):
+        if not self.route_selection_path.exists():
+            return
+        try:
+            route=self.route_library.load(json.loads(self.route_selection_path.read_text())['route_id'])
+            control=self.control.snapshot()
+            if not control['target_ids'] and (sorted(control['target_type_ids'])==sorted(route.monster_type_ids)
+                    or control['target_type_ids']==[route.monster_type_ids[0]]):
+                self.control.update({'target_type_ids':list(route.monster_type_ids)})
+                self.display_route(route)
+        except (ValueError,KeyError,OSError):
+            self.route_note.set('Saved selection unavailable; choose a route again.\nRoute definitions remain in profiles/routes.\nFarming is Off after an app restart.')
+
+    def display_route(self,route):
+        self.selected_route=route
+        self.route_text.set(route.name)
+        if getattr(self,'runtime',None) and self.runtime.recovery:
+            self.runtime.recovery.enabled=route.recover_after_death
+        supplies=route.supplies
+        self.route_note.set(f'Levels {route.recommended_levels[0]}–{route.recommended_levels[1]} · Normal monster family selected\n'
+            'Restock below 3 arrows, when potions are empty, or inventory is full')
+
+    def select_level_preset(self,_event=None):
+        index=self.level_preset_picker.current()
+        if index<0:return
+        preset=self.level_presets[index]
+        if not preset['saved_route']:
+            self.route_note.set('Named route plan saved; travel and hunting area still need surveying.\nYour current route remains selected.')
+            return
+        route=self.route_library.load(preset['saved_route'])
+        self.route_picker.current(next(i for i,r in enumerate(self.saved_routes) if r.id==route.id))
+        self.select_route()
+
+    def select_route(self,_event=None):
+        try:
+            index=self.route_picker.current()
+            if index<0:
+                return
+            route=self.saved_routes[index]
+            if self.thread and self.thread.is_alive():
+                raise ValueError('Stop the foreground run before changing routes')
+            self.control.update({'enabled':False,'target_type_ids':list(route.monster_type_ids),'target_ids':[]})
+            temporary=self.route_selection_path.with_suffix('.tmp')
+            temporary.write_text(json.dumps({'route_id':route.id}),encoding='utf-8')
+            temporary.replace(self.route_selection_path)
+            self.display_route(route)
+            self.record()
+        except (ValueError,OSError) as error:
+            self.route_text.set(self.selected_route.name if self.selected_route else 'Choose a saved route')
+            self.route_note.set(str(error))
+
+    def save_route_copy(self):
+        if not self.selected_route:
+            self.route_note.set('Choose a route before saving a copy.')
+            return
+        name=simpledialog.askstring('Save route copy','Name for the reusable route:',parent=self.root)
+        if name is None:
+            return
+        try:
+            name=name.strip()
+            route_id=re.sub(r'[^a-z0-9]+','-',name.lower()).strip('-')[:48]
+            data=self.selected_route.model_dump()
+            data.update(id=route_id,name=name)
+            self.route_library.save(data)
+            self.saved_routes=self.route_library.all()
+            self.route_picker.configure(values=[r.name for r in self.saved_routes])
+            self.route_picker.current(next(i for i,r in enumerate(self.saved_routes) if r.id==route_id))
+            self.select_route()
+        except (ValueError,OSError) as error:
+            self.route_note.set(str(error))
+
+    def update_ids(self, enabled):
+        if enabled:
+            from conquest.storage_halt import clear_by_user
+            clear_by_user()
+            self.record(storage_halt=None)
+        self.record(control_intent={'enabled':enabled,'source':'UI button or F10','time':time.time()})
+        if not enabled:
+            self.record(kills_per_hour=0)
+            # Explicit UI Off must stop a town coordinator too; its internal
+            # combat Off is handled separately by update_control.
+            path=Path('.runtime/overnight.stop');path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_text('Stopped by user: Farming Off',encoding='utf-8')
+        try:
+            if getattr(self,'reload_preparing',False):
+                if enabled:raise ValueError('Reload preparation owns input; Stop cancels it')
+                self.reload_cancel.set()
+            current = self.control.update({'enabled':enabled})
+            if enabled and self.host.saved:
+                self.start_embedded_farm()
+            elif not enabled and self.thread:
+                (self.output/'stop.request').write_text('Farming Off')
+            if enabled and self.runtime is None:
+                self.control.publish(current['revision'],'waiting_for_observation','Embed a client to observe selected monster IDs')
+            self.memory_text.set(self.control.snapshot()['note'])
+        except ValueError as error:
+            self.memory_text.set(str(error))
+
+    def update_control(self, body):
+        from conquest.storage_halt import active
+        if body.get('enabled') and active():raise ValueError('Storage full: press Farming On manually after clearing storage')
+        if body.get('enabled') and getattr(self,'reload_preparing',False):
+            raise ValueError('Reload preparation owns input; Stop cancels it')
+        if 'route_id' in body:
+            if set(body)!={'route_id'} or not isinstance(body['route_id'],str):
+                raise ValueError('Route selection requires only a saved route ID')
+            if self.control.snapshot()['enabled'] or (self.thread and self.thread.is_alive()):
+                raise ValueError('Stop farming before selecting another route')
+            route=self.route_library.load(body['route_id'])
+            current=self.control.update({'enabled':False,'target_type_ids':list(route.monster_type_ids),'target_ids':[]})
+            self.messages.put(('route_selected',{'route_id':route.id}))
+            return {'route_queued':route.id}
+        if 'enabled' in body:
+            self.messages.put(('control_intent',{'enabled':body['enabled'],'source':'authenticated bridge','time':time.time()}))
+        current = self.control.update(body)
+        if body.get('enabled') is True:
+            self.messages.put(('farm_requested',{}))
+        elif body.get('enabled') is False and self.thread:
+            (self.output/'stop.request').write_text('Farming Off')
+        return current
+
+    def start_embedded_farm(self):
+        try:
+            return self._start_embedded_farm()
+        except Exception as error:
+            # Preserve the actual startup error. Otherwise the unused generic
+            # encounter engine replaces it with unrelated capability blockers,
+            # while the town controller keeps reporting that it is hunting.
+            intent=self.control.snapshot()
+            if intent['enabled']:
+                reason='Unable to start farming: '+str(error)
+                self.runtime.external_failure=(intent['revision'],reason)
+                self.control.publish(intent['revision'],'runner_stopped','Farm runner stopped: '+reason)
+                self.record(state='Farming could not start',current_activity=reason,result={'detail':str(error)})
+            return False
+
+    def _start_embedded_farm(self):
+        from conquest.storage_halt import active
+        if active():return
+        from conquest.storage_overflow import pending
+        from conquest import meteor_banking
+        if (pending() or meteor_banking.pending()) and self.selected_route:
+            from conquest.route_controller import ensure_running
+            ensure_running(self.selected_route.id)
+            return
+        if self.thread and self.thread.is_alive():
+            self.show_game()
+            return
+        if not self.host.saved or self.host.mode!='owned':
+            raise ValueError('Open the hosted native client before starting farming')
+        from conquest.navigation import straight_waypoints,path_boundary
+        from conquest.routes import MONSTER_NAMES,route_monster_name,route_monster_names
+        types=self.control.snapshot()['target_type_ids']
+        base_types=[kind for kind in types if kind in MONSTER_NAMES]
+        if len(base_types)!=1:
+            raise ValueError('Choose one supported leveling monster family')
+        route=self.selected_route or self.route_library.load(MONSTER_NAMES[base_types[0]].lower())
+        if sorted(route.monster_type_ids)!=types:
+            raise ValueError('Selected route and monster group differ')
+        monster_name=route_monster_name(route)
+        monster_variants=route_monster_names(route)[1:]
+        if self.selected_route is None:self.display_route(route)
+        self.show_game()  # The runner waits for focus while preserving Farming On.
+        config=TrialConfig.model_validate(yaml.safe_load(self.profile.read_text()))
+        observation=self.observer()
+        if observation.get('connection_state')=='login':
+            self.reconnect_pending=True
+            self.record(state='Reconnecting')
+            return
+        life=observation['life']
+        if life['map_id']!=route.map_id:
+            raise ValueError('Travel to the selected route map before starting combat')
+        from conquest.combat_ranges import read_combat_ranges
+        ranges=read_combat_ranges(self.observer)
+        from conquest.equipment import read_equipment
+        from conquest.arrow_upgrades import current_arrow,NORMAL_ARROWS
+        reserves=[i.type_id for i in self.observer.town_trade.inventory.read().items if i.amount>0]
+        ammo_type=current_arrow(read_equipment(self.observer),route.supplies.arrow_type,reserves)
+        self.record(ammunition={'type_id':ammo_type,'name':NORMAL_ARROWS[ammo_type]})
+        self.record(combat_ranges=ranges)
+        from conquest.navigation import read_terrain
+        terrain=self.runtime.recovery.terrain
+        if terrain.map_id!=route.map_id:
+            terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',route.map_id)
+            self.runtime.recovery.terrain=terrain
+        if terrain.source_sha256!=route.terrain_sha256:
+            raise ValueError('Selected route terrain differs from the installed map')
+        # Recovery returns to this location before the travel loop resumes.
+        episode=self.runtime.recovery.episode
+        departure=(tuple(episode['death_position']) if episode and episode['phase'] not in ('completed','cancelled')
+                   else tuple(life['position']))
+        path=terrain.path(departure,route.hunting_anchor)
+        approach=tuple(straight_waypoints(path,12)[1:])
+        config=config.model_copy(update={'observation_mode':'memory_only','client_size':(1036,793),'player_anchor':(518,396),
+            'monster':monster_name,'monster_variants':monster_variants,'expected_map':route.map_id,'attack_button':'right','adaptive_scatter':True,'single_isolated_targets':True,
+            'single_attack_range_tiles':min(route.attack_range_tiles,ranges['bow']['range']),
+            'kite_when_surrounded':route.kite_when_surrounded,'jump_scatter':route.jump_scatter,
+            'hunting_anchor':route.hunting_anchor,'attack_range_tiles':min(route.attack_range_tiles,ranges['scatter']['range']),'boundary':route.hunting_boundary,'patrol_search':route.patrol_search,'route':route.patrol,'approach_route':approach,
+            'approach_boundary':path_boundary(path,(terrain.width,terrain.height)),'loot_allowlist':(),
+            'maximum_actions':1000})
+        config=config.model_copy(update={'ammo_type':ammo_type,'target_threshold':.84,'interval':.15,'attack_progress_timeout':1.2})
+        # Town Off can arrive while path planning runs. Commit the startup
+        # under the same lock as bridge commands, without switching Off back On.
+        with self.observer.lock:
+            if not self.control.snapshot()['enabled']:
+                return
+            self.native_recovery=self.runtime.recovery
+            self.runtime.recovery=None
+            self.runtime.external_failure=None
+            self.runtime.external_execution=True
+            self.control.update({'input_mode':'foreground'})
+            (self.output/'stop.request').unlink(missing_ok=True)
+            self.record(state='Starting farm',kills=0,attempts=0,kills_per_hour=0)
+            self.thread=threading.Thread(target=self.run_embedded_farm,args=(config,),daemon=False)
+            self.thread.start()
+
+    def run_embedded_farm(self,config):
+        from conquest.native_farm import NativeFarmSupervisor
+        session=None
+        result={'reason':'startup_error'}
+        try:
+            import win32gui
+            with physical_coordinates():
+                pid,hwnd,identity=self.client
+                physical_size=tuple(win32gui.GetClientRect(hwnd)[2:])
+                layout=PlayerLayout.model_validate(yaml.safe_load(Path(config.player_profile).read_text()))
+                session=LocalSession(pid,hwnd,layout.expected_sha256,config.client_size,physical_size)
+                factory=lambda h,s,o,p:WindowGeometry(h,physical_size)
+                supervisor=NativeFarmSupervisor(self.observer,self.control,self.native_recovery,
+                    lambda event,fields:self.messages.put((event,fields)))
+                logger=logging.getLogger('desktop-farmer')
+                logger.handlers=[EventQueue(self.messages)]
+                logger.setLevel(logging.INFO)
+                result={'reason':'requested_stop'}
+                while self.control.snapshot()['enabled']:
+                    result=run_trial(self.profile,None,self.output,1800,logger,session_override=session,
+                        camera_factory=factory,config_override=config,supervisor=supervisor)
+                    if result['reason'] not in ('duration_limit','action_limit'):
+                        break
+                self.messages.put(('finished',result))
+        except Exception as error:
+            self.messages.put(('failed',{'detail':str(error)}))
+        finally:
+            if session:
+                session.close()
+            restart_for_new_intent=False
+            if result.get('reason') in ('requested_stop','emergency_stop','control_changed'):
+                restart_for_new_intent=self.control.finish_session(
+                    getattr(locals().get('supervisor'),'revision',self.control.snapshot()['revision']),result['reason'])
+            else:
+                intent=self.control.snapshot()
+                reason=result.get('reason','Run interrupted')
+                self.runtime.external_failure=(intent['revision'],reason)
+                self.control.publish(intent['revision'],'runner_stopped','Farm runner stopped: '+reason)
+            self.runtime.recovery=self.native_recovery
+            self.runtime.external_execution=False
+            if restart_for_new_intent:
+                self.messages.put(('farm_requested',{}))
+
+    def render_matched_ids(self, data):
+        available = data.get('observations_available', False)
+        self.ids_label.configure(text='Matched nearby IDs (automatic)' if available
+                                 else 'Last observed IDs (refresh pending)')
+        if available:
+            text = ', '.join(map(str, data['control']['resolved_target_ids']))
+            if text != self.ids.get():
+                left = self.ids_entry.index('@0')
+                self.ids.set(text)
+                self.ids_entry.xview(left)
+
+    def stop_observer(self):
+        if self.runtime:
+            self.runtime.close()
+            if self.runtime.thread and self.runtime.thread.is_alive():
+                raise RuntimeError('Waiting for the last memory observation to stop; retry shortly')
+            self.runtime = None
+        if self.observer:
+            self.observer.close()
+            self.observer = None
+
+    def release(self):
+        try:
+            self.launch_watch.cancel()
+            self.launch_button.configure(text='Launch client')
+            self.stop_observer()
+            self.host.detach()
+            self.compact()
+            self.record(state='Off')
+            self.state_text.set('Client released · Off')
+            return True
+        except Exception as error:
+            self.state_text.set(f'Could not restore client: {error}')
+            return False
+
+    def resize(self, event):
+        try:
+            self.host.resize(event.width, event.height)
+        except Exception as error:
+            self.state_text.set(str(error))
+
+    def poll(self):
+        try:
+            from conquest.session_plan import plan_note
+            try:self.session_note.set(plan_note())
+            except Exception:
+                # A display/schema change must not starve control, healing or reload events.
+                self.session_note.set('Session settings updating')
+            keep_open = self._poll()
+        except Exception as error:
+            intent=self.control.snapshot()
+            self.control.publish(intent['revision'],'waiting_for_recovery',str(error))
+            self.record(state='Waiting for recovery',result={'detail':str(error)})
+            self.state_text.set(f'Client check failed: {error}')
+            keep_open = True
+        if keep_open:
+            self.root.after(200,self.poll)
+
+    def _poll(self):
+        from conquest.storage_halt import enforce
+        storage_halted=enforce(self)
+        from conquest.safe_reload import resume_after_embed
+        if not self.closing and not storage_halted:resume_after_embed(self)
+        if not self.closing and not storage_halted:
+            self.refocus_if_farming()
+        if not self.closing and not storage_halted and self.observer is not None and Path('.runtime/account.dpapi').exists():
+            self.reconnector.step(login_screen(self.observer.operations.target.hwnd))
+        if self.host.saved and not self.host.is_alive():
+            self.stop_observer()
+            self.host.detach()
+            self.client = None
+            self.compact()
+            self.refresh_client()
+            self.record(state='Client closed')
+            self.state_text.set('Client closed · farming Off')
+            self.memory_text.set('Launch or select a client to reconnect')
+        if self.runtime:
+            data = self.runtime.snapshot()
+            if (self.reconnect_pending and not login_screen(self.observer.operations.target.hwnd)
+                    and data.get('observations_available') and data.get('life')
+                    and time.time()-data.get('observed_at',0)<1
+                    and not data['life'].get('dead_candidate')):
+                self.reconnect_pending=False
+                if self.control.snapshot()['enabled'] and not (self.thread and self.thread.is_alive()):
+                    self.start_embedded_farm()
+            self.nearby.refresh(data['monsters'],data['control']['target_type_ids'],
+                available=data.get('observations_available',False))
+            self.render_matched_ids(data)
+            self.state_text.set('Farming On · '+data['control']['execution_state'].replace('_',' ')
+                if data['control']['enabled'] else 'Client embedded · farming Off')
+            self.memory_text.set(data['control']['note'] if data.get('observations_available') else
+                data.get('observation_note','Waiting for the client'))
+        while not self.messages.empty():
+            event, fields = self.messages.get_nowait()
+            activity = {'attack_attempt':('Casting Scatter at nearby monsters' if fields.get('button')=='right'
+                                         else 'Using single attacks at nearby monsters'),
+                        'discarding_loot':'Dropping unwanted +0 loot',
+                        'loot_discarded':'Unwanted loot dropped and ignored',
+                        'loot_discard_unverified':'Uncertain discard skipped; continuing farming',
+                        'loot_discard_deferred':'Loot inspection delayed; continuing farming',
+                        'healing_attempt':'Using a healing potion','reload_attempt':'Reloading arrows',
+                        'death_detected':'Dead — preparing to revive',
+                        'revival_verified':'Revived — returning to the hunting area',
+                        'memory_pickup_owned':"Skipping another player's loot",
+                        'memory_pickup_attempt':('Picking up '+item_label(fields)) if event=='memory_pickup_attempt' else ''}
+            if event in activity:
+                self.last.update(activity=activity[event],activity_at=time.time())
+            if event=='control_intent':
+                self.record(control_intent=fields)
+                if not fields['enabled']:self.record(kills_per_hour=0)
+            elif event=='route_selected':
+                route=self.route_library.load(fields['route_id'])
+                self.saved_routes=self.route_library.all()
+                self.route_picker.configure(values=[r.name for r in self.saved_routes])
+                self.route_selection_path.write_text(json.dumps({'route_id':route.id}),encoding='utf-8')
+                self.display_route(route)
+                if self.runtime.recovery:self.runtime.recovery.cancel()
+                self.record()
+            elif event=='reload_requested':
+                if self.restart():
+                    return False
+            elif event=='reload_activity':
+                self.state_text.set(fields['activity'])
+                self.record(activity=fields['activity'])
+            elif event=='reload_ready':
+                self.reload_proof=fields
+                if not self.reload_cancel.is_set() and self._restart_now():return False
+                self.messages.put(('reload_failed',{'detail':'Safe handoff deferred; current app retained'}))
+            elif event=='reload_failed':
+                self.reload_preparing=False
+                self.record(reload_preparing=False,activity='Reload deferred',reload_detail=fields['detail'])
+                if self.reload_resume and not self.reload_cancel.is_set():
+                    Path('.runtime/overnight.stop').unlink(missing_ok=True)
+                    self.update_control({'enabled':True})
+            elif event=='reconnect_requested':
+                self.retry_reconnect()
+            elif event=='reconnect_state':
+                self.reconnect_pending=True
+                self.record(reconnection=fields,state=('Reconnect needs attention' if fields['state']=='reconnect_exhausted' else
+                    'Reconnecting' if fields['state']!='connection_restored' else 'Checking reconnected character'))
+            elif event=='farm_requested':
+                if self.control.snapshot()['enabled']:
+                    self.start_embedded_farm()
+            elif event=='farm_state':
+                self.record(state=fields['note'])
+            elif event=='focus_requested':
+                if self.control.snapshot()['enabled'] and not self.mouse_priority.active():
+                    self.show_game()
+            elif event=='native_window_requested':
+                if self.control.snapshot()['enabled']:
+                    self.state_text.set('Stop farming before changing window mode')
+                elif fields['detached']:
+                    self.host.detach()
+                    self.record(state='Native client input check')
+                elif self.client and not self.host.saved:
+                    self.host.attach(self.client[1],self.client[2],self.pane.winfo_id(),
+                                     self.pane.winfo_width(),self.pane.winfo_height())
+                    self.record(state='Embedded',hwnd=self.client[1])
+                if self.observer:
+                    self.observer.bridge.sync_window_mode(self.host)
+            elif event == 'memory_loot_retry':
+                self.record(loot_reader_note=fields['detail'])
+            elif event == 'memory_loot_ready':
+                self.record(loot_reader_note=None)
+            elif event == 'memory_loot_observed':
+                self.record(loot_observation=fields)
+            elif event == 'memory_pickup_verified':
+                try:
+                    pickup=self.pickup_history.add(fields)
+                    if pickup is None:continue
+                    self.pickup_tree.insert('',0,values=pickup_values(pickup))
+                    for row in self.pickup_tree.get_children()[200:]:
+                        self.pickup_tree.delete(row)
+                except OSError as error:
+                    self.detail_text.set(f'Could not save pickup history: {error}')
+                self.record(pickups=fields['total'],last_pickup=fields,loot_reader_note=None)
+            elif event in ('memory_pickup_attempt','memory_pickup_unverified','memory_pickup_owned','memory_pickup_approach'):
+                self.record(pickup_status=event,pickup_detail=fields)
+            elif event == 'patrol_expanded':
+                self.record(patrol_search=fields)
+            elif event == 'region_rotated':
+                self.record(region_rotation=fields,activity=fields['activity'],activity_at=time.time())
+            elif event == 'kill_verified':
+                self.record(kills=fields['total'],kills_per_hour=fields.get('kills_per_hour') if self.control.snapshot()['enabled'] else 0)
+            elif event == 'experience_sample':
+                self.record(experience=fields,experience_observed_at=time.time())
+            elif event in ('runback_progress','runback_finished'):
+                self.record(runback=fields)
+            elif event in ('attack_strategy_changed','attack_strategy_recheck'):
+                self.record(attack_strategy=fields,activity=fields['activity'],activity_at=time.time())
+            elif event=='xp_skill_state':
+                self.record(xp_skill=fields)
+            elif event in ('xp_fly_attempt','xp_fly_verified'):
+                self.record(xp_fly={'event':event,**fields},activity=fields['activity'],activity_at=time.time())
+            elif event == 'attack_attempt':
+                self.record(attempts=fields['number'], state='Farming')
+            elif event == 'health_observation':
+                self.record(health_ratio=fields['health_ratio'], ammo=fields['ammo'], position=fields['position'])
+            elif event == 'boundary_return_started':
+                self.record(navigation_blocked=False,state='Returning to hunting spot',boundary_return=fields)
+            elif event == 'boundary_return_completed':
+                self.record(state='Patrolling',boundary_return=None)
+            elif event == 'movement_attempt':
+                self.record(navigation_blocked=False)
+                self.record(state='Travelling to hunting area' if fields.get('approaching') else 'Patrolling')
+            elif event == 'navigation_wait':
+                self.record(navigation_blocked=True,state=pause_message(fields.get('reason')))
+            elif event == 'movement_recovery':
+                self.record(navigation_blocked=True,state='Taking another path',
+                            activity=fields.get('activity'),activity_at=time.time())
+            elif event == 'navigation_resumed':
+                self.record(navigation_blocked=False,state='Patrolling')
+            elif event in ('paused','resumed'):
+                self.record(state=pause_message(fields.get('reason')) if event == 'paused' else 'Running')
+            elif event == 'calibration_verified':
+                self.record(calibration=fields)
+            elif event == 'window_geometry':
+                self.record(window_geometry=fields)
+            elif event in ('failed','finished'):
+                self.record(state='Stopped', result=fields)
+                self.detail_text.set(fields.get('detail') or fields.get('reason', 'Stopped'))
+                if event == 'failed':
+                    self.root.deiconify()
+            self.state_text.set(self.last['state'])
+            self.stats_text.set(farm_stats(self.last,self.control.snapshot()['enabled']))
+        if not self.closing and time.monotonic()-self.telemetry_poll_at>=.5:
+            self.telemetry_poll_at=time.monotonic()
+            try:
+                self.route_status=json.loads(Path('reports/overnight/status.json').read_text(encoding='utf-8'))
+            except (OSError,ValueError):
+                pass
+            control=self.control.snapshot()
+            self.stats_text.set(farm_stats(self.last,control['enabled']))
+            if (control['enabled'] and self.runtime and self.host.saved and self.selected_route
+                    and time.monotonic()>=getattr(self,'controller_check_at',0)):
+                self.controller_check_at=time.monotonic()+2
+                from conquest.route_controller import ensure_running
+                try:
+                    if ensure_running(self.selected_route.id):
+                        self.record(route_controller='Restarting automatic route management')
+                except (OSError,ValueError) as error:
+                    self.record(route_controller_error=str(error))
+            life=self.runtime.snapshot().get('life') if self.runtime else None
+            self.activity_text.set(activity_text(self.route_status,self.last,control,life))
+            if self.last.get('current_activity') != self.activity_text.get():
+                self.record(current_activity=self.activity_text.get())
+        if self.thread and not self.thread.is_alive():
+            self.thread = None
+            self.start_button.state(['!disabled'])
+        if self.launch_watch.pending:
+            candidate = self.launch_watch.poll()
+            if not self.launch_watch.pending:
+                self.launch_button.configure(text='Launch client')
+            if candidate:
+                self.embed(candidate)
+            elif not self.launch_watch.pending:
+                self.refresh_client()
+                self.state_text.set(self.launch_watch.note)
+                self.record(state=self.launch_watch.note)
+        if self.closing and self.thread is None:
+            try:
+                self.stop_observer()
+                self.host.detach()
+                self.record(state='Closed')
+                self.root.destroy()
+                return False
+            except Exception as error:
+                self.closing = False
+                self.state_text.set(f'Keep this app open: client restoration failed: {error}')
+        if storage_halted:enforce(self)
+        return True
+
+    def close(self):
+        self.launch_watch.cancel()
+        self.stop()
+        self.closing = True
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--profile', default='profiles/desktop-foreground.local.yaml')
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument('--start',action='store_true')
+    action.add_argument('--calibrate',action='store_true')
+    action.add_argument('--launch-client',action='store_true')
+    action.add_argument('--embed-client',action='store_true')
+    parser.add_argument('--client-pid',type=int)
+    parser.add_argument('--client-started',type=int)
+    parser.add_argument('--client-hwnd',type=int)
+    args = parser.parse_args()
+    selected = (args.client_pid,args.client_started,args.client_hwnd)
+    if args.embed_client and any(value is None or value<=0 for value in selected):
+        parser.error('--embed-client needs the selected process ID, creation time and HWND')
+    if not args.embed_client and any(value is not None for value in selected):
+        parser.error('Client identity arguments require --embed-client')
+    use_unaware_dpi()
+    root = tk.Tk()
+    app = DesktopApp(root, args.profile)
+    if args.start or args.calibrate or args.launch_client or args.embed_client:
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            def continue_action():
+                if args.embed_client:
+                    try:
+                        app.embed(pinned_client(app.catalog,selected))
+                    except ValueError as error:
+                        app.state_text.set(str(error))
+                elif args.launch_client:
+                    app.launch()
+                else:
+                    app.start(args.calibrate)
+            root.after(800,continue_action)
+        else:
+            # An unsuccessful relaunch must not create a consent loop.
+            app.state_text.set('Windows did not grant administrator access; farming is stopped')
+    root.mainloop()
+
+
+if __name__ == '__main__':
+    main()

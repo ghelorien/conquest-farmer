@@ -1,0 +1,50 @@
+{
+  "life": {
+    "character": "Parasite",
+    "object_address": 124894384,
+    "status": 0,
+    "appearance": 0,
+    "map_id": 1036,
+    "position": [
+      242,
+      240
+    ],
+    "current_hp": 695,
+    "max_hp": 872,
+    "ghost_candidate": false,
+    "revive_gate_value": 0,
+    "revive_ready_candidate": false,
+    "started_at": 18166.406,
+    "timestamp": 18166.406,
+    "dead_candidate": false
+  },
+  "npcs": [
+    {
+      "name": "Mark.Controller",
+      "position": [
+        215,
+        220
+      ],
+      "model": 417,
+      "uid": 101389
+    },
+    {
+      "name": "MillionaireLee",
+      "position": [
+        242,
+        242
+      ],
+      "model": 4294,
+      "uid": 101390
+    },
+    {
+      "name": "Shelby",
+      "position": [
+        240,
+        249
+      ],
+      "model": 7624,
+      "uid": 101392
+    }
+  ]
+}

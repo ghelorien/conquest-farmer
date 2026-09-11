@@ -1,0 +1,38 @@
+{
+  "connections": [
+    {
+      "source_map": 1002,
+      "portal_id": 7,
+      "portal_position": [
+        963,
+        557
+      ],
+      "destination_map": 1011,
+      "arrival_position": [
+        11,
+        376
+      ],
+      "source_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
+      "destination_terrain_sha256": "433b3163a38d068e978fa6609c2d8e32f48bd27b188e15cddc3b3583ca9e9921",
+      "verified": true,
+      "observed_at": 1788921464.733514
+    },
+    {
+      "source_map": 1011,
+      "portal_id": 0,
+      "portal_position": [
+        5,
+        376
+      ],
+      "destination_map": 1002,
+      "arrival_position": [
+        958,
+        555
+      ],
+      "source_terrain_sha256": "433b3163a38d068e978fa6609c2d8e32f48bd27b188e15cddc3b3583ca9e9921",
+      "destination_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
+      "verified": true,
+      "observed_at": 1788921513.8036478
+    }
+  ]
+}

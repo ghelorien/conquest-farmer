@@ -53,7 +53,33 @@ and refers to a process that exists only on the originating PC.
 
 ## Observe before enabling actions
 
+For memory calibration, add `--read-only` to the worker command. This disables
+all click, key and drag endpoints before their guards are read. The worker's
+health response reports `read_only: true`; observations and shutdown remain
+available. `scripts/start_memory_worker.py` discovers the current client, checks
+its fingerprint and read access, and starts this mode for one hour using
+`.runtime/memory-worker.json`. Run it with the repository's virtual-environment
+Python from an administrator PowerShell if the ordinary read check is denied.
+The launcher never reuses a stored PID or window handle and does not enable
+farming or qualify any candidate field.
+
+The worker also supports bounded `read-block` diagnostics (1 to 65,536 bytes,
+base64 response, process identity checked before and after reading). Candidate
+scans accept `max_mib` from 1 to 4096 and `max_candidates` from 1 to 10,000,
+with a fixed 20-second limit. Defaults remain 512 MiB and 2,000 candidates.
+Always inspect scan coverage and truncation; a successful scan need not cover
+all eligible regions. Keep captured client bytes under ignored `reports/`.
+
 In another PowerShell window at the repository root:
+
+For the current HP candidate (read-only worker, no farming authorization):
+
+```powershell
+.\.venv\Scripts\python.exe -m conquest sample-health --worker-info .runtime/memory-worker.json --profile profiles/classic-1074-health-candidate.yaml --character Parasite --output reports/health-candidate.json
+```
+
+The result remains unqualified even when it matches a full-health display.
+Damage, healing, death and actual client restart checks are still required.
 
 ```powershell
 .\.venv\Scripts\python.exe -m conquest sample-player --worker-info .runtime/worker-live.json --profile profiles/classic-1074-player-candidate.yaml --output reports/player.json

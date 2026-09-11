@@ -1,0 +1,18 @@
+map_id: 1002
+npc_type: 0
+npc_model: 80
+npc_name: Warehouseman
+npc_position: [409, 351]
+arrival_position: [413, 352]
+qualification: meteor_deposit_live_verified
+protected_type_ids: [1088000, 1088001]
+window_name: Warehouse
+window_position: [51, 99]
+window_size: [312, 460]
+grid_name: Warehouse/ScrollingRegion_03B91C0E
+grid_position: [71, 195]
+grid_size: [272, 326]
+
+# 2026-09-08: UID 292575188 / Meteor 1088001 deposited by normal drag.
+# Verified absent from bag and present in the warehouse deque; capacity 20.
+# Other warehouse locations and withdrawals remain unqualified.

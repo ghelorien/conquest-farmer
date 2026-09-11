@@ -1,0 +1,13 @@
+{
+  "item": {
+    "uid": 292951848,
+    "type_id": 530013,
+    "amount": 1599,
+    "limit": 1599,
+    "slot": 6,
+    "plus": 2
+  },
+  "verification_time": 1789007234.9065938,
+  "source": "Fresh read-only inventory plus user report of missed pickup",
+  "original_pickup_time": null
+}

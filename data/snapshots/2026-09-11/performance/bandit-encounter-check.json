@@ -1,0 +1,35 @@
+[
+  {
+    "start": 1789066566.0157585,
+    "end": 1789066866.0157585,
+    "observations": 310,
+    "empty_fraction": 0.4,
+    "kills": 222,
+    "attacks": 110,
+    "pauses": {
+      "Player moved before projection": 10,
+      "Selected monster moved before input": 10,
+      "Player projection changed during observation": 1,
+      "Life state changed during observation": 17,
+      "Player draw position is unavailable or changed": 4,
+      "Player moved before movement input; reobserving": 2
+    }
+  },
+  {
+    "start": 1789066866.0157585,
+    "end": 1789067166.0157585,
+    "observations": 312,
+    "empty_fraction": 0.494,
+    "kills": 153,
+    "attacks": 94,
+    "pauses": {
+      "Player moved before projection": 6,
+      "Selected monster moved before input": 18,
+      "Player moved before movement input; reobserving": 6,
+      "Life state changed during observation": 15,
+      "Player draw position is unavailable or changed": 7,
+      "Mouse control is yours; farming resumes after 2 seconds idle": 1,
+      "Action expired or foreground changed; reobserving": 1
+    }
+  }
+]

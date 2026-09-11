@@ -1,0 +1,30 @@
+{
+  "app_pid": 1304464,
+  "deployed_at": 1789015195.1713216,
+  "validated_reads": [
+    "supplies",
+    "ground-items"
+  ],
+  "changes": [
+    "dense diagonal jump-scatter",
+    "immediate valuable loot and approach",
+    "pickup metadata and every-drop Discord",
+    "kills/hour reset on Stop",
+    "reconnect continues transient retries with capped backoff; explicit retry button",
+    "Inventory UID gain tracking and pickup dedup; recovered StonePoleaxe +2 history",
+    "Travel healing no-key focus failures recover without halting",
+    "Phoenix Warehouseman model210 at227246 qualified in memory",
+    "75% travel healing and6/10potion supply policy",
+    "Main farmer handles revived return with healing and defense",
+    "Automatic verified deposits of carried valuables",
+    "Cast after hunting jumps before sparse-group reposition;20% shorter confirmed landing wait; jump intent retained across failed input",
+    "Scatter landing density excludes out-of-boundary targets to prevent edge oscillation",
+    "Town movement watchdog returns after1s without progress; immediate short-run recovery instead of repeated5s waits",
+    "Dedicated safe-reload UI status and Discord start/resume notices; reload_status_v5 notifier",
+    "Bandit refill target10; verified Phoenix Conductress Market round trip saved; Meteor packing pending NPC identification",
+    "Exact warehouse withdrawal receipt rejects unchanged state; one Meteor withdrawal and redeposit verified",
+    "Service NPCs checked by full identity and fresh scene membership; reachable service travel stops early",
+    "Loopback HTTP memory bridge avoids repeated HTTPS certificate-store loading",
+    "Market overflow for full local storage with fewer than10Meteors; persistent full-Market stop and identity-verified client disconnect; manual restart only"
+  ]
+}

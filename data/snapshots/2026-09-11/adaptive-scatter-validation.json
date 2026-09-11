@@ -1,0 +1,146 @@
+{
+  "decision": {
+    "monster": "Poltergeist",
+    "button": "left",
+    "entity_id": 449347,
+    "remaining_hp": 96,
+    "activity": "Using single attacks: Poltergeist survived three Scatters"
+  },
+  "attacks": [
+    {
+      "time": 1788919990.3365092,
+      "number": 4,
+      "point": [
+        710,
+        460
+      ],
+      "button": "right",
+      "ability": "Scatter",
+      "entity_id": 449347,
+      "object_address": 560686496,
+      "world_position": [
+        103,
+        342
+      ],
+      "target_hp": 548,
+      "distance_tiles": 5,
+      "confidence": 1.0,
+      "outcome": "awaiting_observation"
+    },
+    {
+      "time": 1788919991.2173922,
+      "number": 5,
+      "point": [
+        710,
+        460
+      ],
+      "button": "right",
+      "ability": "Scatter",
+      "entity_id": 449347,
+      "object_address": 560686496,
+      "world_position": [
+        103,
+        342
+      ],
+      "target_hp": 388,
+      "distance_tiles": 5,
+      "confidence": 1.0,
+      "outcome": "awaiting_observation"
+    },
+    {
+      "time": 1788919992.1336792,
+      "number": 6,
+      "point": [
+        710,
+        460
+      ],
+      "button": "right",
+      "ability": "Scatter",
+      "entity_id": 449347,
+      "object_address": 560686496,
+      "world_position": [
+        103,
+        342
+      ],
+      "target_hp": 388,
+      "distance_tiles": 5,
+      "confidence": 1.0,
+      "outcome": "awaiting_observation"
+    },
+    {
+      "time": 1788919992.9695396,
+      "number": 7,
+      "point": [
+        710,
+        460
+      ],
+      "button": "right",
+      "ability": "Scatter",
+      "entity_id": 449347,
+      "object_address": 560686496,
+      "world_position": [
+        103,
+        342
+      ],
+      "target_hp": 237,
+      "distance_tiles": 5,
+      "confidence": 1.0,
+      "outcome": "awaiting_observation"
+    },
+    {
+      "time": 1788919993.8172376,
+      "number": 8,
+      "point": [
+        646,
+        460
+      ],
+      "button": "right",
+      "ability": "Scatter",
+      "entity_id": 449347,
+      "object_address": 560686496,
+      "world_position": [
+        102,
+        343
+      ],
+      "target_hp": 237,
+      "distance_tiles": 4,
+      "confidence": 1.0,
+      "outcome": "awaiting_observation"
+    },
+    {
+      "time": 1788919994.7013156,
+      "number": 9,
+      "point": [
+        646,
+        460
+      ],
+      "button": "left",
+      "ability": "Single attack",
+      "entity_id": 449347,
+      "object_address": 560686496,
+      "world_position": [
+        102,
+        343
+      ],
+      "target_hp": 96,
+      "distance_tiles": 4,
+      "confidence": 1.0,
+      "outcome": "awaiting_observation"
+    }
+  ],
+  "latest_state": {
+    "state": "Farming",
+    "kills": 6,
+    "attempts": 19,
+    "position": [
+      101,
+      345
+    ],
+    "xp_skill": {
+      "charge": 76,
+      "ready": false,
+      "flying": false,
+      "source": "read_only_memory"
+    }
+  }
+}

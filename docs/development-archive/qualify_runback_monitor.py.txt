@@ -1,0 +1,25 @@
+import json,time
+from conquest.worker import request
+from conquest.discord_notify import read_json,write_json
+from conquest.overnight import OvernightLoop,OvernightStopped
+from conquest.route_controller import controller_guard
+from conquest.navigation import read_terrain
+from conquest.town_trade import stash_candidate
+started=time.time();s=read_json('reports/desktop-farming/app-state.json');info=s['worker_info_path'];h=request(info,'health');d=h['embedded_controls'];life=d['life']
+assert not d['control']['enabled'] and life['map_id']==1036 and life['position']==[186,188] and not life['dead_candidate']
+assert life['current_hp']>=life['max_hp']*.75 and not d['monsters']
+assert not any(stash_candidate(i) for i in request(info,'town',{'action':'supplies'})['items'])
+with controller_guard() as acquired:
+ assert acquired
+ loop=OvernightLoop('bandit');loop.refresh();loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',1036);loop.phase='visiting_town'
+ original=loop.check_stop
+ def check():
+  original();intent=read_json('reports/desktop-farming/app-state.json').get('control_intent',{})
+  if intent.get('source')=='UI button or F10' and intent.get('time',0)>started and not intent.get('enabled'):raise OvernightStopped('User stopped monitor validation')
+ loop.check_stop=check
+ try:
+  loop.travel((194,188),activity='Checking runback monitor on a short safe Market trip')
+  result=read_json('reports/runbacks/town.json');write_json('reports/runbacks/live-validation.json',result)
+  print(json.dumps(result,indent=2))
+ finally:
+  loop.phase='stopped';loop.record('runback_validation_complete',activity='Runback monitor loaded; farming remains Off in Market')

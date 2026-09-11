@@ -1,0 +1,19 @@
+from conquest.overnight import OvernightLoop
+from pathlib import Path
+import time
+loop=OvernightLoop()
+loop.phase='restocking'
+loop.record('warehouse_trip',activity='Heading to Warehouseman to store Meteor')
+try:
+    loop.refresh()
+    loop.travel((413,352))
+    loop.town('warehouse-open')
+    loop.record('warehouse_ready',activity='Storing Meteor in warehouse')
+    while not Path('.runtime/warehouse-hold.stop').exists():
+        loop.health()
+        time.sleep(.5)
+    loop.phase='warehouse_finished'
+    loop.record('warehouse_finished',activity='Warehouse operation finished')
+except Exception as error:
+    loop.phase='needs_attention'
+    loop.record('failed',detail=str(error))

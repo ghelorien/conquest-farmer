@@ -1,0 +1,13 @@
+from conquest.overnight import OvernightLoop
+loop=OvernightLoop()
+loop.phase='restocking'
+loop.record('warehouse_return',activity='Returning from warehouse to Turtledoves')
+try:
+    loop.refresh()
+    loop.stop_farm()
+    loop.travel(tuple(loop.route.hunting_anchor))
+except Exception as error:
+    loop.phase='needs_attention'
+    loop.record('return_failed',detail=str(error))
+    raise
+loop.run()

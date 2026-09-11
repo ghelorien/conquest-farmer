@@ -1,0 +1,97 @@
+{
+  "observed_at": 1788921836.5514507,
+  "source": "read_only_memory",
+  "map_connections": {
+    "connections": [
+      {
+        "source_map": 1002,
+        "portal_id": 7,
+        "portal_position": [
+          963,
+          557
+        ],
+        "destination_map": 1011,
+        "arrival_position": [
+          11,
+          376
+        ],
+        "source_terrain_sha256": "[REDACTED_64HEX]",
+        "destination_terrain_sha256": "[REDACTED_64HEX]",
+        "verified": true,
+        "observed_at": 1788921464.733514
+      },
+      {
+        "source_map": 1011,
+        "portal_id": 0,
+        "portal_position": [
+          5,
+          376
+        ],
+        "destination_map": 1002,
+        "arrival_position": [
+          958,
+          555
+        ],
+        "source_terrain_sha256": "[REDACTED_64HEX]",
+        "destination_terrain_sha256": "[REDACTED_64HEX]",
+        "verified": true,
+        "observed_at": 1788921513.8036478
+      }
+    ]
+  },
+  "route": {
+    "pid": 755964,
+    "route": "wingedsnake",
+    "cycles": 0,
+    "started_at": 1788921658.5533864,
+    "ends_at": null,
+    "phase": "hunting",
+    "updated_at": 1788921835.066683,
+    "event": "heartbeat",
+    "supplies": {
+      "arrows": 687,
+      "potions": 9,
+      "free_slots": 27,
+      "silver": 29108
+    },
+    "activity": "Heading back to the hunting area",
+    "position": [
+      309,
+      118
+    ],
+    "kills": 8,
+    "pickups": null,
+    "experience": {
+      "level": 29,
+      "experience_candidate": 80442,
+      "percent_candidate": 46.381374109181486,
+      "xp_per_hour_candidate": 1109494.0939175917,
+      "validated": false
+    }
+  },
+  "app": {
+    "selected_route": "wingedsnake",
+    "position": [
+      312,
+      118
+    ],
+    "kills": 8,
+    "attempts": 19,
+    "experience": {
+      "level": 29,
+      "experience_candidate": 83126,
+      "percent_candidate": 47.92891902488526,
+      "xp_per_hour_candidate": 1125761.5451789657,
+      "validated": false
+    },
+    "attack_strategy": {
+      "monster": "WingedSnake",
+      "button": "left",
+      "entity_id": 438762,
+      "remaining_hp": 404,
+      "activity": "Using single attacks: WingedSnake survived three Scatters"
+    },
+    "health_ratio": 0.6717850287907869,
+    "state": "Farming"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "transport_reserve": 200,
+  "withdraw_essentials": true,
+  "deposit_after_shopping": true,
+  "qualification": "Twin City deposit and withdrawal each verified for 100 silver through memory"
+}

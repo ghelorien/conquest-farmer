@@ -1,0 +1,85 @@
+{
+  "dialog": {
+    "records": [
+      {
+        "kind": 0,
+        "option": 0,
+        "text": "Where are you heading? I can teleport you for a price of 100 silver."
+      },
+      {
+        "kind": 1,
+        "option": 0,
+        "text": "Twin City"
+      },
+      {
+        "kind": 1,
+        "option": 1,
+        "text": "Market"
+      },
+      {
+        "kind": 1,
+        "option": 2,
+        "text": "Just passing by."
+      },
+      {
+        "kind": 3,
+        "option": 255,
+        "text": ""
+      },
+      {
+        "kind": 4,
+        "option": 255,
+        "text": ""
+      }
+    ],
+    "window": {
+      "address": 70527968,
+      "name": "Dialog",
+      "position": [
+        378.0,
+        20.0
+      ],
+      "size": [
+        260.0,
+        162.0
+      ],
+      "scroll": [
+        0.0,
+        0.0
+      ]
+    },
+    "table": [
+      398.0,
+      130.0,
+      618.0,
+      44.0
+    ]
+  },
+  "service": {
+    "identity": {
+      "map_id": 1011,
+      "type_id": 0,
+      "name": "Conductress",
+      "model": 287,
+      "position": [
+        228,
+        255
+      ]
+    },
+    "npc": {
+      "object_address": 895356768,
+      "entity_id": 101359,
+      "type_id": 0,
+      "name": "Conductress",
+      "map_id": 1011,
+      "position": [
+        228,
+        255
+      ],
+      "draw_position": [
+        326,
+        492
+      ]
+    }
+  }
+}

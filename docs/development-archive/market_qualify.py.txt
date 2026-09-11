@@ -1,0 +1,70 @@
+import json,time,threading,queue,sys
+from conquest.worker import request
+from conquest.discord_notify import read_json,process_alive
+from conquest.overnight import OvernightLoop,OvernightStopped
+from conquest.route_controller import controller_guard
+from conquest.travel_care import TravelStateChanged
+from conquest.banking import open_warehouse,close_warehouse,after_shopping
+from conquest.navigation import read_terrain
+
+started=time.time();a=read_json('reports/desktop-farming/app-state.json');info=a['worker_info_path']
+request(info,'controls',{'enabled':False})
+for _ in range(100):
+ h=request(info,'health')['embedded_controls'];r=read_json('reports/overnight/status.json')
+ if not h.get('external_execution') and not process_alive(r.get('pid')):break
+ time.sleep(.15)
+else:raise RuntimeError('Route has not released input')
+commands=queue.Queue()
+def reader():
+ for line in sys.stdin:
+  try:commands.put(json.loads(line))
+  except ValueError:pass
+threading.Thread(target=reader,daemon=True).start()
+with controller_guard() as acquired:
+ if not acquired:raise RuntimeError('Controller busy')
+ loop=OvernightLoop('bandit');loop.refresh();loop.phase='restocking'
+ original=loop.check_stop
+ def check_stop():
+  original();intent=read_json('reports/desktop-farming/app-state.json').get('control_intent',{})
+  if intent.get('source')=='UI button or F10' and intent.get('time',0)>started and not intent.get('enabled'):
+   raise OvernightStopped('User stopped qualification')
+ loop.check_stop=check_stop
+ loop.record('market_qualification',activity='Checking the reusable Meteor banking route through memory')
+ print('READY',flush=True)
+ while True:
+  try:
+   health=loop.living();loop.care.check(health)
+   command=commands.get(timeout=.2)
+   op=command.pop('op')
+   if op=='travel':
+    loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',health['embedded_controls']['life']['map_id'])
+    loop.travel(tuple(command['destination']),activity=command.get('activity','Checking Meteor banking route'),service_name=command.get('service_name'))
+    result=loop.living()['embedded_controls']['life']
+   elif op=='town':
+    if command['action'] in ('service-dialog','service-locate'):
+     result=request(info,'town',command)
+    else:result=loop.town(**command)
+   elif op=='trip':
+    from conquest.meteor_banking import trip,POLICY
+    trip(loop,read_json(POLICY)['origins']['1011'][command['direction']])
+    result=loop.living()['embedded_controls']['life']
+   elif op=='finish':
+    loop.phase='needs_attention';loop.record('market_qualification_stopped',activity=command.get('reason','Market qualification complete; farming remains off'))
+    sys.exit(0)
+   elif op=='bank':result={'money':open_warehouse(loop),'items':loop.town('warehouse-items')}
+   elif op=='close_bank':close_warehouse(loop);result={'closed':True}
+   elif op=='bank_all':after_shopping(loop);result={'stored':True}
+   elif op=='service':
+    import importlib,qualification_service
+    result=importlib.reload(qualification_service).service(loop,command)
+   elif op=='resume':
+    loop.phase='stopped';loop.record('qualification_complete',activity='Meteor route checks complete; resuming farm')
+    break
+   else:raise ValueError('Unknown qualification command')
+   from pathlib import Path
+   Path('reports/banking/qualification-last.json').write_text(json.dumps({'op':op,'command':command,'result':result},indent=2))
+   print(json.dumps({'result':result}),flush=True)
+  except (queue.Empty,TravelStateChanged):continue
+  except OvernightStopped:raise
+  except Exception as e:print(json.dumps({'error':str(e)}),flush=True)
+print(request(info,'controls',{'enabled':True}),flush=True)
