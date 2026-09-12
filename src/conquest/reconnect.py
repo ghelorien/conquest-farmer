@@ -161,6 +161,10 @@ def submit_login(target,credential_path=Path('.runtime/account.dpapi'), *, sessi
         raise CaptureUnavailable('Client is not at its qualified login screen')
     if session is None:
         raise ValueError('Memory session is required to check login dialogs')
+    from conquest.focus_recovery import activate_client
+    session.assert_identity()
+    if not activate_client(target.hwnd,session.identity):
+        raise CaptureUnavailable('Login client did not receive verified focus; no credentials entered')
     dismiss_login_error(target, session)
     from conquest.memory_shop import MemoryGui
     from conquest.viewport import size_for

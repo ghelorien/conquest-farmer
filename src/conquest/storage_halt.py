@@ -12,6 +12,9 @@ REASON='Town and Market warehouses are full; farming stopped and automatic recon
 def active():return bool(read_json(HALT).get('active'))
 
 
+def reason():return read_json(HALT).get('reason',REASON)
+
+
 def clear_by_user():
     HALT.unlink(missing_ok=True)
     from conquest.storage_overflow import JOURNAL
@@ -24,18 +27,18 @@ def clear_by_user():
         state['phase']='storing_scroll';write_json(meteor_banking.JOURNAL,state)
 
 
-def request_stop(loop,stored,pending):
+def request_stop(loop,stored,pending,*,reason=REASON):
     from conquest.worker import request
     from conquest.overnight import OvernightStopped
     health=loop.health()
-    write_json(HALT,{'active':True,'time':time.time(),'reason':REASON,
+    write_json(HALT,{'active':True,'time':time.time(),'reason':reason,
         'target':health['target'],'market_capacity':stored['capacity'],
         'market_count':len(stored['items']),'pending_uids':[i['uid'] for i in pending],
         'disconnected':False})
     loop.phase='stopped'
-    loop.record('storage_full_stop',detail=REASON,activity=REASON)
+    loop.record('storage_full_stop',detail=reason,activity=reason)
     request(loop.info,'controls',{'enabled':False})
-    raise OvernightStopped(REASON)
+    raise OvernightStopped(reason)
 
 
 def disconnect_exact_client(identity):

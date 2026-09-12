@@ -3,15 +3,30 @@ import struct
 import time
 from conquest.capture import CaptureUnavailable
 from conquest.memory_life import read_life
-from conquest.navigation import read_terrain,travel_waypoint,clear_segment
+from conquest.navigation import read_terrain,clear_segment
+
+
+def transit_waypoint(terrain,path,anchor,viewport):
+    """Choose a checked landing inside the current camera's visible scene."""
+    width,height=viewport;source=path[0]
+    for target in reversed(path[1:25]):
+        dx,dy=target[0]-source[0],target[1]-source[1]
+        if max(abs(dx),abs(dy))>12:continue
+        point=(anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16)
+        if (80<point[0]<width-80 and 170<point[1]<height-160
+                and clear_segment(terrain,source,target)):
+            return target
+    raise ValueError('No visible checked Market route landing')
 
 
 class ReturnDriver:
-    def __init__(self, driver):
+    def __init__(self, driver, *, travel_only=False):
         self.driver,self.observer=driver,driver.observer
         self.terrains={}
+        self.travel_only=travel_only
 
     def read(self):
+        if self.travel_only:return self.driver.memory.read_travel()
         return self.driver.memory.read(recovery=True)
 
     def qualify_movement(self):
@@ -51,7 +66,12 @@ class ReturnDriver:
         if any(fresh[k]!=snapshot[k] for k in ('identity','position','map_id')):
             raise CaptureUnavailable('Merchant moved before route planning')
         path=terrain.travel_path(tuple(fresh['position']),destination)
-        target=travel_waypoint(terrain,path)
+        from conquest.scene_input import memory_player_anchor
+        life=read_life(o.adapter,o.health_layout,o.character)
+        if life.map_id!=fresh['map_id'] or list(life.position)!=fresh['position']:
+            raise CaptureUnavailable('Merchant moved before waypoint selection')
+        target=transit_waypoint(terrain,path,memory_player_anchor(o,life),
+                                self.driver.memory.gui.viewport_size())
         def point_now():
             life=read_life(o.adapter,o.health_layout,o.character)
             if life.map_id!=snapshot['map_id'] or list(life.position)!=snapshot['position'] or life.dead_candidate:

@@ -30,6 +30,8 @@ class Journal:
                     event TEXT NOT NULL, payload TEXT NOT NULL, timestamp REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS scan_requests(character TEXT, request_id TEXT, state TEXT NOT NULL,
                     PRIMARY KEY(character,request_id));
+                CREATE TABLE IF NOT EXISTS delivery_reservations(character TEXT, request_id TEXT, state TEXT NOT NULL,
+                    PRIMARY KEY(character,request_id));
                 CREATE TABLE IF NOT EXISTS sales_baseline(character TEXT PRIMARY KEY, snapshot TEXT NOT NULL,
                     started_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS sales(id INTEGER PRIMARY KEY, character TEXT NOT NULL,

@@ -3,6 +3,13 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def isolate_live_session_plan(tmp_path,monkeypatch):
+    from conquest.merchants import delivery_route
+    monkeypatch.setattr(delivery_route,'POLICY',tmp_path/'merchant-deliveries.json')
+    monkeypatch.setattr(delivery_route,'STATE',tmp_path/'merchant-route.json')
+    from conquest.merchants import delivery_journey
+    monkeypatch.setattr(delivery_journey,'JOURNAL',tmp_path/'merchant-journey.json')
+    from conquest.merchants import coordination
+    monkeypatch.setattr(coordination,'INPUT_LOCK',tmp_path/'merchant-input.lock')
     # Tests must neither inherit nor clear the user's running overnight plan.
     from conquest import session_plan
     monkeypatch.setattr(session_plan,'PLAN',tmp_path/'session-plan.json')

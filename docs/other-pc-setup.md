@@ -8,7 +8,44 @@ This is a Windows Python application. GitHub stores the source and profiles;
 the game, worker and dashboard run locally on each PC. It does not host a running
 game session or synchronize the two desktops.
 
-## Install
+## Install the current native app
+
+The unified native app is on branch `codex/merchant-automation`. With Git and
+64-bit Python 3.12 or newer installed, run in PowerShell:
+
+```powershell
+git clone --branch codex/merchant-automation https://github.com/ghelorien/conquest-farmer.git
+cd conquest-farmer
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e '.[dev,market]'
+.\.venv\Scripts\python.exe -m playwright install chromium
+.\.venv\Scripts\python.exe -m pytest -q
+Copy-Item profiles/desktop-foreground.example.yaml profiles/desktop-foreground.local.yaml
+.\.venv\Scripts\pythonw.exe scripts/start_desktop_app.py
+```
+
+Install Classic Conquer separately; the current launcher expects it under
+`C:\Program Files\Classic Conquer 2.0`. In the Farmer tab, expand client tools
+to select and embed an existing client or launch a new one. Keep Farming Off
+until this PC's identity, memory observations, geometry and controls are verified.
+Windows may request administrator approval for an elevated game.
+The example profile names Parasite; edit the ignored local copy for the intended
+farmer. Create it once on a new checkout; preserve it during later updates.
+
+Save automatic-login credentials and Discord webhooks again through the app.
+Their encrypted files are local to the Windows user and machine. Never copy
+`.runtime`, bridge tokens or live input qualification files between PCs.
+Merchant deliveries remain disabled until local trade, route, capacity and
+recovery checks pass. See [merchant identity validation](merchant-identity-validation.md).
+
+For an existing checkout, close the app and update this branch with
+`git pull --ff-only origin codex/merchant-automation`, then repeat dependency
+installation and tests before launching. Preserve any local source edits.
+
+The instructions below describe the lower-level diagnostic workflow and its
+historical candidate dashboard, rather than the current native app.
+
+## Diagnostic environment
 
 Install 64-bit Python 3.12 or newer and Git. Clone the private repository once
 its URL is available, then open PowerShell in the cloned directory:

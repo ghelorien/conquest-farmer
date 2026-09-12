@@ -232,6 +232,70 @@ def test_restock_still_rejects_insufficient_arrows_when_space_cannot_be_recovere
     assert loop.cycles==0
 
 
+@pytest.mark.parametrize('stored',[True,False])
+def test_full_protected_bag_reaches_storage_before_final_restock_check(monkeypatch,stored):
+    from conquest import banking,equipment
+    loop=OvernightLoop.__new__(OvernightLoop)
+    loop.route=RouteLibrary().load('turtledove');loop.cycles=0
+    bag={'items':[{'type_id':1050000,'amount':1525},{'type_id':1000020,'amount':15},
+                  {'uid':12,'type_id':1088001,'amount':1,'plus':0,'slot':2}],
+         'equipped_ammo':None,'silver':9782,'capacity':4}
+    def review(vendor):
+        # An upgrade can leave the displaced protected item in the last slot.
+        if len(bag['items'])==3:
+            bag['items'].append({'uid':13,'type_id':500009,'amount':1,'plus':2,'slot':3})
+    monkeypatch.setattr(equipment,'EquipmentReview',lambda loop:SimpleNamespace(visit=review))
+    calls=[]
+    def town(action,**fields):
+        if action=='supplies':return bag
+        assert action!='buy'
+        return {'ok':True}
+    def bank(current):
+        calls.append('storage')
+        if stored:bag['items'].pop()
+        return True
+    monkeypatch.setattr(banking,'after_shopping',bank)
+    loop.town=town;loop.travel=lambda target:None;loop.sell_junk=lambda vendor:None
+    loop.record=lambda *args,**fields:None
+    if stored:
+        loop.restock()
+        assert loop.cycles==1
+    else:
+        with pytest.raises(ValueError,match='after restocking and storage'):loop.restock()
+        assert loop.cycles==0
+    assert calls==['storage']
+
+
+@pytest.mark.parametrize('space_freed',[True,False])
+def test_full_bag_is_stored_before_essential_shop_input(monkeypatch,space_freed):
+    from conquest import banking
+    calls=[];bag={'items':[{'uid':12,'type_id':1088001}],'capacity':1}
+    loop=OvernightLoop.__new__(OvernightLoop)
+    loop.town=lambda action,**fields:bag if action=='supplies' else calls.append((action,fields))
+    loop.travel=lambda target:calls.append(('travel',target));loop.record=lambda *a,**kw:None
+    monkeypatch.setattr(banking,'open_warehouse',lambda current:calls.append('warehouse'))
+    monkeypatch.setattr(banking,'close_warehouse',lambda current:calls.append('closed'))
+    def store(current):
+        calls.append('stored')
+        if space_freed:bag['items']=[]
+    monkeypatch.setattr(banking,'stash_valuables',store)
+    if space_freed:
+        assert loop.shopping_space(5,(100,200))
+        assert calls[-2:]==[('travel',(100,200)),('open',{'vendor_type':5})]
+    else:
+        with pytest.raises(ValueError,match='no purchase issued'):loop.shopping_space(5,(100,200))
+        assert calls[-1]=='closed'
+        assert not any(isinstance(c,tuple) and c[0]=='open' for c in calls)
+    assert calls.index('warehouse')<calls.index('stored')<calls.index('closed')
+
+
+def test_available_bag_space_never_triggers_extra_storage_trip():
+    loop=OvernightLoop.__new__(OvernightLoop)
+    loop.town=lambda action,**kw:{'items':[],'capacity':40}
+    loop.record=lambda *a,**kw:pytest.fail('No extra trip when there is room')
+    assert not loop.shopping_space(5,(100,200))
+
+
 @pytest.mark.parametrize('change', [None,'silver','arrows','shortage'])
 def test_unconfirmed_topup_only_defers_when_supplies_and_money_stay_unchanged(monkeypatch,change):
     from conquest import overnight
@@ -397,7 +461,8 @@ def test_optional_equipment_shop_failure_does_not_block_supplied_route(monkeypat
     loop.restock()
     assert loop.cycles==1 and 'equipment_review_deferred' in events
     assert events[-1]=='restock_complete'
-    assert calls[-2:]==[('close',{'window':'Shop'}),('close',{'window':'Inventory'})]
+    input_calls=[call for call in calls if call[0]!='supplies']
+    assert input_calls[-2:]==[('close',{'window':'Shop'}),('close',{'window':'Inventory'})]
 
 
 def test_temporary_obstruction_of_only_town_corridor_retries_with_running_steps(monkeypatch):

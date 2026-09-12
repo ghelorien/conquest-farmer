@@ -5,7 +5,7 @@ with eligible inventory in descending order of the freshly computed total listin
 price. Unknown/unreliable prices remain deferred; never guess value to fill a
 slot. Keep excess inventory queued in the same value order. This applies to
 one-time listing, new deliveries and recurring scans.
-Check each merchant's booth capacity every five minutes in the native
+Check each merchant's booth capacity every fifteen minutes in the native
 script. Fill free slots from inventory using saved comparable price history,
 without another undercut or requiring a fresh website scan. Preserve socket/plus
 matching, highest-value-first order, owned-shop matching, explicit refill pause/Global Stop and

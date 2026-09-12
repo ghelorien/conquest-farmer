@@ -18,7 +18,7 @@ combat and loot policy are preserved from the updated farmer baseline. Automated
 tests do not qualify the remaining live gameplay scenarios below.
 
 Both merchants have completed foreground listing/repricing batches on the
-installed client. The app contains native 12-hour pricing, five-minute refill,
+installed client. The app contains native 12-hour pricing, fifteen-minute refill,
 four-hour Discord sales reporting, current booth value and net sales totals.
 Saved operation pauses, refill pauses and Global Stop remain authoritative;
 installing this update does not start farming or enable merchant operations.
@@ -210,9 +210,9 @@ table. Stale status is labelled without making the game inaccessible. Resizing
 preserves calibration evidence on disk while marking the UI check pending;
 the driver independently rejects changed native or GUI dimensions before input.
 
-### Five-minute inventory refill
+### Fifteen-minute inventory refill
 
-Each merchant has a durable five-minute capacity timer in the native
+Each merchant has a durable fifteen-minute capacity timer in the native
 runtime, enabled by default and independent of the operations toggle and website
 scan schedule. Pausing trades/repricing does not stop this timer. Separate Pause
 refill / Resume refill controls affect only inventory filling; Global Stop stops
@@ -394,12 +394,12 @@ operations on completion. Both merchants share the app's background collector.
 Paused batches show **Resume shop update**; repeated clicks do not create duplicate work.
 The status panel distinguishes downloading, waiting for input, progress, completion
 and interrupted transactions, with the blocking reason and a suggested next step.
-Five-minute refill remains independently enabled. Uncertain transactions require
+Fifteen-minute refill remains independently enabled. Uncertain transactions require
 reconciliation before a batch can resume; the UI never clears them to force a retry.
 
 The main merchant controls separate **Auto-manage** (incoming trades, new-stock
 listing, scheduled repricing and reconnect recovery) from **Auto-refill** (fill
-empty booth slots every five minutes using saved prices). Each has one button
+empty booth slots every fifteen minutes using saved prices). Each has one button
 that reflects its current state. A one-time update shows **Pause shop update**
 while active. **Stop all (including farmer)** stops both plus farming.
 **Waiting items** replaces the Deferred tab and shows each item's reason; the

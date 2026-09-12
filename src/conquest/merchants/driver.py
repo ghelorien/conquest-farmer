@@ -174,6 +174,8 @@ class MerchantDriver:
         raise ValueError('Transaction result not verified; reconcile before retrying')
 
     def list_item(self, snapshot, item, price, check):
+        from conquest.valuables import require_marketable
+        require_marketable(item)
         # Reject before removing an existing listing or opening any dialog.
         validate_booth_price(price)
         from conquest.desktop_runtime import physical_coordinates
@@ -189,6 +191,8 @@ class MerchantDriver:
 
     def prepare_listing(self, snapshot, item, check):
         """Resolve focus and read-only layout failures before recording intent."""
+        from conquest.valuables import require_marketable
+        require_marketable(item)
         from conquest.desktop_runtime import physical_coordinates
         from conquest.focus_recovery import activate_client
         with physical_coordinates():

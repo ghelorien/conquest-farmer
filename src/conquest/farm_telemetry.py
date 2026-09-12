@@ -7,6 +7,8 @@ import time
 
 ITEM_NAMES = {1000020:'Painkiller',1050000:'LuckyArrow',1000000:'Stancher',1000010:'Resolutive',
               1001000:'Agrypnotic',1088000:'DragonBall',1088001:'Meteor'}
+from conquest.valuables import DRAGONBALL_NAMES
+ITEM_NAMES.update(DRAGONBALL_NAMES)
 # Local client definitions supply display names; live memory supplies identity.
 try:
     definitions=json.loads(Path(r'C:\Program Files\Classic Conquer 2.0\ini\itemtype.json').read_text(encoding='utf-8'))
@@ -68,7 +70,7 @@ def pickup_values(row):
 def activity_text(route,app,control,life,*,now=None):
     now=time.time() if now is None else now
     if life and life.get('dead_candidate'):
-        return 'Dead â€” reviving, then returning to the farm route'
+        return 'Dead — reviving, then returning to the farm route'
     if app.get('state')=='Reconnect needs attention':
         return 'Reconnect needs attention; use Retry reconnect after resolving the login error'
     if app.get('state')=='Reconnecting':
@@ -79,6 +81,8 @@ def activity_text(route,app,control,life,*,now=None):
     fresh=0<=now-route.get('updated_at',0)<12
     if app.get('reload_preparing') or (phase=='reloading' and fresh):
         return 'Moving to a safe spot for app reload'
+    if phase=='merchant_handoff' and fresh:
+        return route.get('activity','Safe merchant refill · up to 15 seconds')
     if phase=='needs_attention' and not control.get('enabled'):
         return 'Route stopped: '+route.get('detail','Needs attention')
     if phase in ('restocking','changing_route','recovering_route','visiting_town'):

@@ -1,3 +1,6 @@
+from conquest import world_travel as w
+import json
+from pathlib import Path
 from dataclasses import dataclass
 from types import SimpleNamespace
 import numpy as np
@@ -101,3 +104,36 @@ def test_twin_city_return_never_falls_back_to_walking_without_verified_conductre
     monkeypatch.setattr(w,'cross_portal',lambda *args:pytest.fail('No walking substitute'))
     with pytest.raises(ValueError,match='Conductress'):w.travel_to_map(loop,1002)
     assert calls==[1002]
+
+
+def test_market_start_uses_saved_return_before_city_visit(tmp_path,monkeypatch):
+    from types import SimpleNamespace as NS
+    from conquest import meteor_banking,city_travel
+    from conquest.discord_notify import read_json
+    monkeypatch.chdir(tmp_path)
+    plan={'verified':True,'source_map':1036,'destination_map':1011}
+    policy=tmp_path/'policy.json';policy.write_text(json.dumps({'origins':{'1011':{'return':plan}}}))
+    monkeypatch.setattr(meteor_banking,'POLICY',policy)
+    calls=[]
+    loop=NS(route=NS(restock_map_id=1011),town=lambda *a:{'items':[]},
+        living=lambda:{'target':{'pid':1}},record=lambda *a,**k:None)
+    monkeypatch.setattr(meteor_banking,'trip',lambda l,p,**kw:(kw['before_submit'](),calls.append(('trip',p))))
+    monkeypatch.setattr(city_travel,'ensure_city_visit',lambda l,**k:calls.append(('city',k)))
+    w.return_from_market(loop,1011)
+    assert calls==[('trip',plan),('city',{'new_arrival':True})]
+    assert read_json('.runtime/market-route-departure.json')['phase']=='complete'
+
+
+def test_market_departure_keeps_valuables_and_uncertain_transfer_safe(tmp_path,monkeypatch):
+    from types import SimpleNamespace as NS
+    from conquest import meteor_banking
+    monkeypatch.chdir(tmp_path)
+    policy=tmp_path/'policy.json';policy.write_text(json.dumps({'origins':{'1011':{'return':{
+        'verified':True,'source_map':1036,'destination_map':1011}}}}))
+    monkeypatch.setattr(meteor_banking,'POLICY',policy)
+    monkeypatch.setattr(meteor_banking,'trip',lambda *a:pytest.fail('Unsafe departure'))
+    bag=[{'uid':1,'type_id':1088000,'slot':0,'plus':0}]
+    loop=NS(route=NS(restock_map_id=1011),town=lambda *a:{'items':bag})
+    with pytest.raises(ValueError,match='store protected'):w.return_from_market(loop,1011)
+    bag.clear();Path('.runtime').mkdir();Path('.runtime/market-route-departure.json').write_text('{"phase":"submitted"}')
+    with pytest.raises(ValueError,match='uncertain'):w.return_from_market(loop,1011)

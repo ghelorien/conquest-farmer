@@ -1,14 +1,15 @@
-"""App-owned five-minute booth capacity checks using durable price history."""
+"""App-owned fifteen-minute booth capacity checks using durable price history."""
 import time
 from conquest.merchants.market import MarketSnapshot
 from conquest.merchants.controller import MerchantController
 from conquest.capture import CaptureUnavailable
 
-INTERVAL = 300
+INTERVAL = 900
 
 
 class RefillController(MerchantController):
     """Listing-only permission; never grants trading or repricing permission."""
+    listing_purpose='refill'
     def active(self):
         return self.journal.get(self.character,'refill_enabled',True) and not self.coordinator.stopped
 
@@ -49,7 +50,14 @@ class RefillSchedule:
     def state(self):
         state = self.journal.get(self.character,'refill')
         if state is None:
-            state = {'next_check':self.clock()+INTERVAL,'last_checked':None,'pending':False,'status':'waiting'}
+            state = {'next_check':self.clock()+INTERVAL,'last_checked':None,'pending':False,'status':'waiting','interval_seconds':INTERVAL}
+            self.journal.set(self.character,'refill',state)
+        elif state.get('interval_seconds') != INTERVAL:
+            # Migrate the old cadence once; reconcile transactions separately.
+            base=state.get('last_checked')
+            if base is None:base=state.get('next_check',self.clock()+300)-300
+            state.update(interval_seconds=INTERVAL,next_check=base+INTERVAL,
+                         pending=False,status='waiting')
             self.journal.set(self.character,'refill',state)
         return state
 
@@ -65,8 +73,7 @@ class RefillSchedule:
     def complete(self, status, *, listed=0, deferred=0):
         state = self.state()
         now = self.clock()
-        due = state['next_check']
         state.update(pending=False,status=status,last_checked=now,listed=listed,deferred=deferred,
-                     next_check=due+(int(max(0,now-due)//INTERVAL)+1)*INTERVAL)
+                     next_check=now+INTERVAL,interval_seconds=INTERVAL)
         self.journal.set(self.character,'refill',state)
         self.journal.event(self.character,'refill_checked',status=status,listed=listed,deferred=deferred)

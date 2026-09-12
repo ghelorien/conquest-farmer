@@ -78,8 +78,10 @@ class DesktopApp:
         style.theme_use('clam')
         style.configure('TButton', padding=5)
         style.configure('Treeview', rowheight=24)
-        self.sidebar = ttk.Frame(root, padding=12)
-        self.sidebar.pack(side='left', fill='both', expand=True)
+        from conquest.sidebar import ScrollableSidebar
+        self.sidebar_host=ScrollableSidebar(root)
+        self.sidebar=self.sidebar_host.content
+        self.sidebar_host.pack(side='left', fill='both', expand=True)
         ttk.Label(self.sidebar, text='Conquest Farmer', font=('Segoe UI',20,'bold')).pack(anchor='w')
         self.client_text = tk.StringVar(value='Finding Conquer…')
         self.client_footer = ttk.Frame(self.sidebar)
@@ -202,6 +204,7 @@ class DesktopApp:
             self.pickup_tree.insert('',0,values=pickup_values(pickup))
         self.pane = tk.Frame(root, background='#101820')
         self.pane.bind('<Configure>', self.resize)
+        self.sidebar_host.bind_children()
         self.refresh_client()
         self.record(state='Off')
         if not ctypes.windll.shell32.IsUserAnAdmin():
@@ -329,6 +332,9 @@ class DesktopApp:
                 raise ValueError('No unique Parasite client is open')
             hwnd = self.client[1]
             if self.host.saved:
+                if getattr(self,'unified',None):
+                    self.unified.notebook.select(self.unified.frames['Farmer'])
+                    self.root.update_idletasks()
                 self.root.deiconify()
                 self.root.lift()
                 win32gui.SetForegroundWindow(win32gui.GetAncestor(hwnd,2))
@@ -477,6 +483,9 @@ class DesktopApp:
 
     def restart(self):
         if getattr(self,'reload_preparing',False):return False
+        if getattr(getattr(getattr(self,'unified',None),'runtime',None),'connecting',None):
+            self.state_text.set('Wait for the merchant connection to finish before reloading')
+            return False
         # A diagnostic detach retains the observer and exact client identity.
         # Restore hosting before the usual safe-spot/pinned-client handoff.
         if self.observer and not self.host.saved:
@@ -693,11 +702,11 @@ class DesktopApp:
             return False
 
     def embedded_layout(self):
-        self.sidebar.pack_configure(expand=False, fill='y')
+        if getattr(self,'unified',None):
+            self.unified.notebook.select(self.unified.frames['Farmer'])
+        self.sidebar_host.embedded()
         # Dynamic status/count text must not resize the game's rendering
         # surface. Only resizing the top-level window changes the pane.
-        self.sidebar.configure(width=500)
-        self.sidebar.pack_propagate(False)
         self.foreground_row.pack_forget()
         self.foreground_note.pack_forget()
         self.setup_frame.pack_forget()
@@ -711,8 +720,7 @@ class DesktopApp:
         self.pane.pack_forget()
         if self.root.state() != 'withdrawn':
             self.root.state('normal')
-        self.sidebar.pack_configure(expand=True, fill='both')
-        self.sidebar.pack_propagate(True)
+        self.sidebar_host.compact()
         self.root.geometry('540x850')
         self.client_picker.configure(state='readonly')
         self.foreground_row.pack(before=self.tools_row,fill='x',pady=6)
@@ -1113,7 +1121,7 @@ class DesktopApp:
                         'discarding_loot':'Dropping unwanted +0 loot',
                         'loot_discarded':'Unwanted loot dropped and ignored',
                         'loot_discard_unverified':'Uncertain discard skipped; continuing farming',
-                        'loot_discard_deferred':'Loot inspection delayed; continuing farming',
+                        'loot_discard_deferred':'Optional inventory cleanup deferred; continuing farming',
                         'healing_attempt':'Using a healing potion','reload_attempt':'Reloading arrows',
                         'death_detected':'Dead — preparing to revive',
                         'revival_verified':'Revived — returning to the hunting area',
@@ -1166,6 +1174,8 @@ class DesktopApp:
                 self.change_native_window(fields['detached'])
             elif event == 'memory_loot_retry':
                 self.record(loot_reader_note=fields['detail'])
+            elif event in ('loot_discarded','loot_discard_deferred','loot_discard_unverified'):
+                self.record(inventory_cleanup={'event':event,**fields,'timestamp':time.time()})
             elif event == 'memory_loot_ready':
                 self.record(loot_reader_note=None)
             elif event == 'memory_loot_observed':

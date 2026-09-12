@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "client_sha256": "c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396",
+  "source": "live_read_only_item_definition_hash_table",
+  "manager_rva": "0x699860",
+  "qualified_at": 1789228866.21239,
+  "definitions": [
+    {
+      "type_id": 1088000,
+      "name": "DragonBall",
+      "storage_only": false
+    },
+    {
+      "type_id": 720028,
+      "name": "DBScroll",
+      "storage_only": false
+    },
+    {
+      "type_id": 2000031,
+      "name": "1-StarDragonBall",
+      "storage_only": true
+    },
+    {
+      "type_id": 2000032,
+      "name": "2-StarDragonBall",
+      "storage_only": true
+    },
+    {
+      "type_id": 2000033,
+      "name": "3-StarDragonBall",
+      "storage_only": true
+    },
+    {
+      "type_id": 2000034,
+      "name": "4-StarDragonBall",
+      "storage_only": true
+    },
+    {
+      "type_id": 2000035,
+      "name": "5-StarDragonBall",
+      "storage_only": true
+    },
+    {
+      "type_id": 2000036,
+      "name": "6-StarDragonBall",
+      "storage_only": true
+    },
+    {
+      "type_id": 2000037,
+      "name": "7-StarDragonBall",
+      "storage_only": true
+    },
+    {
+      "type_id": 2000038,
+      "name": "EpicDragonBall",
+      "storage_only": true
+    }
+  ],
+  "catalog_sha256": "04098f223b1749518a79b1fb2accbd6e20c9b2b6ce9cc6e13e476e749696641f"
+}

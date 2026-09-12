@@ -7,6 +7,7 @@ import time
 from conquest.capture import CaptureUnavailable
 from conquest.memory_life import read_life
 from conquest.viewport import size_for,clear_scene
+from conquest.valuables import SPECIAL_LOOT_TYPES
 
 
 @contextmanager
@@ -299,6 +300,10 @@ class NativeFarmSupervisor:
                 except (ValueError,OSError):
                     self.targets_observation_available=False
                     continue
+                # Retain the qualified HP used for this target decision. Region
+                # occupancy must not see the original scene record's unknown
+                # HP and mistake offscreen but living targets for an empty area.
+                monster=replace(monster,current_hp=monster_hp)
                 escape.append(monster)
                 from conquest.routes import boss_name
                 if boss_name(monster.name) or not (selected or close) or self.excluded_targets.get(key,0)>time.monotonic():
@@ -340,6 +345,18 @@ class NativeFarmSupervisor:
             return True
         # Finish confirming the pickup before removing that inventory UID.
         if self.pending_loot or self.defending:
+            return False
+        # Optional housekeeping must not displace a live combat opportunity.
+        # Unknown or stale scene memory is not evidence that opening the bag
+        # is safe. Closing an already-open bag above remains unconditional.
+        now=time.monotonic()
+        if (not getattr(self,'targets_observation_available',False)
+                or not 0<=now-getattr(self,'scene_timestamp',0)<=.5
+                or getattr(self,'position',None) is None):
+            return False
+        if any(monster.alive is not False and monster.current_hp!=0
+               and max(abs(a-b) for a,b in zip(monster.position,self.position))<=16
+               for monster in self.scene_monsters):
             return False
         if not any(discard_candidate(i) for i in inventory.items):
             return False
@@ -451,7 +468,7 @@ class NativeFarmSupervisor:
             viewport=size_for(self.observer)
             if anchor is None:anchor=self.player_anchor(position)
             point=(anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16)
-            rank=(drop.type_id not in (1088000,1088001),not bool(drop.plus),dx*dx+dy*dy)
+            rank=(drop.type_id not in SPECIAL_LOOT_TYPES,not bool(drop.plus),dx*dx+dy*dy)
             if distance>max_distance or not clear_scene(point,viewport):
                 approaches.append((rank,drop))
                 continue

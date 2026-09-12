@@ -65,7 +65,7 @@ def open_saved_service(loop,name,step):
     raise ValueError('Service dialog did not open; no transaction issued')
 
 
-def trip(loop,plan):
+def trip(loop,plan,*,before_submit=None):
     from conquest.navigation import read_terrain
     life=loop.living()['embedded_controls']['life']
     if life['map_id']!=plan['source_map']:raise ValueError('Meteor route source map changed')
@@ -106,6 +106,7 @@ def trip(loop,plan):
     if life['map_id']==1036 and plan['destination_map']!=1036:
         if any(stash_candidate(item) for item in before['items']):
             raise ValueError('Stay in Market: valuables appeared before departure')
+    if before_submit:before_submit()
     for step in plan['dialogs']:select_saved_dialog(loop,plan['npc'],step)
     deadline=time.monotonic()+8
     while time.monotonic()<deadline:
@@ -184,11 +185,13 @@ def approach_market_warehouse(loop,activity):
 def market_bank(loop,state):
     from conquest.banking import open_warehouse,close_warehouse
     from conquest.storage_halt import request_stop
+    from conquest.merchants.delivery_route import market_storage,receipt_for,warehouse_exhausted
+    market_storage(loop)
     approach_market_warehouse(loop,'Storing valuables in Market before returning to Phoenix')
     open_warehouse(loop)
     while True:
         stored=loop.town('warehouse-items');items=carried(loop)
-        if len(stored['items'])>=stored['capacity']:
+        if warehouse_exhausted(loop,stored,items):
             save(state,'market_full');request_stop(loop,stored,items)
         if not items:break
         item=items[0]
@@ -200,7 +203,8 @@ def market_bank(loop,state):
     consumed=state.get('user_confirmed_scroll_consumption',{})
     manually_used=(consumed.get('uid')==scroll and consumed.get('confirmed') is True
                    and consumed.get('source')=='explicit user confirmation')
-    if scroll and not manually_used and not any(i['uid']==scroll and i['type_id']==SCROLL for i in stored['items']):
+    delivered=receipt_for(scroll,SCROLL) if scroll else None
+    if scroll and not manually_used and not delivered and not any(i['uid']==scroll and i['type_id']==SCROLL for i in stored['items']):
         raise ValueError('Expected MeteorScroll is not in Market storage; no return issued')
     save(state,'stored_in_market',market_verified_at=time.time())
     close_warehouse(loop)

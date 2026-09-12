@@ -21,6 +21,20 @@ def unpack(session, address, fmt):
     return struct.unpack(fmt, session.read_block(checked_address(address), struct.calcsize(fmt)))
 
 
+def character_uid(session, base, actor):
+    # Both pinned call sites resolve the self actor using RVA 0x181b30,
+    # then compare actor+0x68 with a received/other actor identity.
+    # actor+0x3258 instead belongs to the owned booth and can be zero.
+    for rva,encoded in ((0x8dc8,'e8638d17008b486841394f10'),
+                        (0x97bc,'e86f8317008b4868394e687520')):
+        expected=bytes.fromhex(encoded)
+        if session.read_block(base+rva,len(expected))!=expected:
+            raise ValueError('Character identity accessor needs qualification for this client')
+    uid=unpack(session,actor+0x68,'<I')[0]
+    if not uid:raise ValueError('Character UID is unavailable')
+    return uid
+
+
 def string(session, address, maximum=128):
     raw = session.read_block(address, 32)
     length, capacity = struct.unpack_from('<QQ', raw, 16)
@@ -274,7 +288,37 @@ class MerchantMemory:
             raise ValueError('Booth item identity changed before checking its control')
         return pointers[slot]
 
-    def read(self, *, max_seconds=3, recovery=False):
+    def read_travel(self, *, max_seconds=3):
+        """Transit evidence only; never a stock, capacity or trade snapshot."""
+        started=time.monotonic();s=self.s
+        server=s.read_block(self.base+0x697860,64)
+        if server.split(b'\0')[0]!=b'Classic_US':
+            raise ValueError('Merchant is not on the verified America server')
+        life=read_life(s,self.observer.health_layout,self.observer.character)
+        if life.dead_candidate or life.current_hp<=0 or life.map_id not in (1002,1036):
+            raise ValueError('Market travel requires a living merchant in a supported town')
+        wrapper=resolve_player(s,self.player)
+        silver_address=wrapper['object']+self.inventory.layout.silver
+        silver=unpack(s,silver_address,'<I')[0]
+        models=[self.gui.model(14,0x5cb328),self.gui.model(15,0x5c4f30)]
+        flags=[unpack(s,p+12,'<B')[0] for p in models]
+        windows=self.gui.windows()
+        fresh=read_life(s,self.observer.health_layout,self.observer.character)
+        if (fresh.object_address!=life.object_address or fresh.map_id!=life.map_id
+                or fresh.position!=life.position or fresh.dead_candidate or fresh.current_hp<=0
+                or resolve_player(s,self.player)!=wrapper
+                or unpack(s,silver_address,'<I')[0]!=silver
+                or [unpack(s,p+12,'<B')[0] for p in models]!=flags
+                or s.read_block(self.base+0x697860,64)!=server):
+            raise ValueError('Merchant transit observation changed')
+        s.assert_identity()
+        if time.monotonic()-started>max_seconds:raise ValueError('Merchant transit observation expired')
+        return {'character':self.observer.character,'identity':s.identity,'timestamp':time.time(),
+                'observation':'travel_only','map_id':fresh.map_id,'position':list(fresh.position),
+                'hp':fresh.current_hp,'silver':silver,'trade':bool(flags[0]),
+                'request':bool(flags[1]),'windows':windows}
+
+    def read(self, *, max_seconds=3, recovery=False, farmer_preflight=False):
         started = time.monotonic()
         s = self.s
         server_raw = s.read_block(self.base+0x697860,64)
@@ -282,6 +326,10 @@ class MerchantMemory:
             raise ValueError('Merchant is not on the verified America server')
         life = read_life(s,self.observer.health_layout,self.observer.character)
         allowed_maps = (1002,1036) if recovery else (1036,)
+        if farmer_preflight:
+            if self.observer.character!='Parasite':
+                raise ValueError('Town delivery preflight is restricted to the farmer')
+            allowed_maps=(1002,1011,1036)
         if life.dead_candidate or life.current_hp <= 0 or life.map_id not in allowed_maps:
             raise ValueError('Merchant must be alive on the Market map')
         actor = life.object_address
@@ -294,10 +342,11 @@ class MerchantMemory:
         booth_ptrs,booth_header = deque_items(s,actor+0x3468,32)
         booth = [self.item(p,i,True) for i,p in enumerate(booth_ptrs)]
         model = self.gui.model(25,0x5c27f8)
-        own_uid = unpack(s,actor+0x3258,'<I')[0]
+        own_uid = character_uid(s,self.base,actor)
+        own_booth_uid = unpack(s,actor+0x3258,'<I')[0]
         model_raw = s.read_block(model,0x58)
         booth_open = bool(model_raw[12])
-        if booth_open and struct.unpack_from('<I',model_raw,0x4c)[0] != own_uid:
+        if booth_open and (not own_booth_uid or struct.unpack_from('<I',model_raw,0x4c)[0] != own_booth_uid):
             raise ValueError('Displayed booth is not this merchant’s booth')
         trade_model = self.gui.model(14,0x5cb328)
         trade_raw = s.read_block(trade_model,0x9a)
@@ -344,7 +393,11 @@ class MerchantMemory:
         s.assert_identity()
         if time.monotonic()-started > max_seconds:
             raise ValueError('Merchant observation expired during GUI sampling')
-        return {'character':self.observer.character,'identity':s.identity,'timestamp':time.time(),'server':'America',
+        if character_uid(s,self.base,actor)!=own_uid:
+            raise ValueError('Character UID changed during observation')
+        if unpack(s,actor+0x3258,'<I')[0]!=own_booth_uid or s.read_block(model,0x58)!=model_raw:
+            raise ValueError('Booth ownership changed during observation')
+        return {'character':self.observer.character,'character_uid':own_uid,'identity':s.identity,'timestamp':time.time(),'server':'America',
             'map_id':life.map_id,'position':list(fresh.position),'hp':fresh.current_hp,'capacity':inv.capacity,'silver':inv.silver,
             'inventory':[asdict(i) for i in stock],'booth':[asdict(i) for i in booth],
             'booth_open':booth_open,'trade':trade,'request':request,'windows':windows}

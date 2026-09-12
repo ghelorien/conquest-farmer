@@ -83,20 +83,24 @@ class DiscardLoot:
         self.attempted={row['uid'] for row in self.records}
         self.cleanup_pending=False
         self.next_attempt_at=0
+        self.deferred_attempts=0
 
     def discard(self,uid):
         if uid in self.attempted:
             raise ValueError('Item was already attempted for discard')
         try:
             result=self._discard(uid)
+            self.deferred_attempts=0
         except (ValueError,OSError,CaptureUnavailable) as error:
             row=next((r for r in self.records if r['uid']==uid),None)
             if row is None:
                 # Optional cleanup must not end combat when the scene changes
                 # before a drag. Retry observation later, with a global backoff
                 # so multiple carried items cannot monopolize the combat loop.
-                self.next_attempt_at=time.monotonic()+10
-                result={'uid':uid,'state':'deferred','detail':str(error),'retry_after':10}
+                self.deferred_attempts=min(getattr(self,'deferred_attempts',0)+1,6)
+                delay=min(300,10*2**(self.deferred_attempts-1))
+                self.next_attempt_at=time.monotonic()+delay
+                result={'uid':uid,'state':'deferred','detail':str(error),'retry_after':delay}
             else:
                 # The drag may have succeeded. Quarantine this UID and preserve
                 # uncertainty without terminating combat or sending another drag.

@@ -48,7 +48,7 @@ def setup(tmp_path):
     runtime.disconnected=lambda c:False
     now=[1000]
     refill=RefillSchedule('Dutch',j,clock=lambda:now[0]);runtime.refills['Dutch']=refill
-    j.set('Dutch','refill',{'next_check':1000,'last_checked':None,'pending':False,'status':'waiting'})
+    j.set('Dutch','refill',{'next_check':1000,'last_checked':None,'pending':False,'status':'waiting','interval_seconds':900})
     j.set('Dutch','enabled',True)
     def mark():
         j.set('Dutch','stock_marker',{'inventory':[i['uid'] for i in state['inventory']],
@@ -64,7 +64,7 @@ def test_free_slot_fills_highest_value_from_old_history_without_web_scan(setup):
     assert x.calls==[(2,900000)]
     assert len(x.state['booth'])==32
     assert x.j.get('Dutch','inventory_queue')==[1]
-    assert x.refill.state()['next_check']==1300 and x.refill.state()['listed']==1
+    assert x.refill.state()['next_check']==1900 and x.refill.state()['listed']==1
     assert not x.runtime.market_path.exists()
     assert all(q['observed_at']==100 for q in x.history.quotes().values())
     x.runtime.step('Dutch')
@@ -76,9 +76,9 @@ def test_full_booth_keeps_checking_while_operations_are_paused_without_input(set
     x.guard.on_acquire=lambda c:pytest.fail('No input needed for a full booth')
     x.runtime.step('Dutch')
     assert x.refill.state()['status']=='booth_full'
-    x.j.set('Dutch','enabled',False);x.now[0]=1400
+    x.j.set('Dutch','enabled',False);x.now[0]=2000
     x.runtime.step('Dutch')
-    assert x.refill.state()['next_check']==1600 and not x.calls
+    assert x.refill.state()['next_check']==2900 and not x.calls
 
 
 def test_refill_posts_while_operations_remain_paused(setup):
@@ -187,9 +187,112 @@ def test_refill_does_not_consume_pending_reprice_request(setup):
     assert x.calls==[(2,900000),(1,130000)]
 
 
+def test_delivery_remainder_only_refills_and_preserves_one_time_scan(setup):
+    x=setup;x.runtime.refill_window='delivery'
+    x.runtime.recoveries['Dutch'].verified()
+    x.j.request_once('Dutch','one-time')
+    x.runtime.step('Dutch')
+    assert x.calls==[(2,900000),(1,130000)]
+    assert x.j.get('Dutch','scan')['pending']
+
+
+def test_delivery_refill_window_cannot_reconnect_or_accept_trade(setup):
+    x=setup;x.runtime.refill_window='delivery'
+    x.runtime.recoveries['Dutch'].verified()
+    x.state['request']={'participant':'Parasite'}
+    x.runtime.step('Dutch')
+    assert not x.calls
+    x.runtime.disconnected=lambda c:True
+    x.runtime.recover=lambda *a,**kw:pytest.fail('Refill may not reconnect')
+    x.runtime.step('Dutch')
+    assert not x.calls
+
+
+@pytest.mark.parametrize('window',['delivery_window','refill_window'])
+def test_preplanned_listing_cannot_take_focus_during_dedicated_window(setup,monkeypatch,window):
+    from conquest.merchants import delivery_reservation
+    x=setup
+    plan={'price':130000,'old_price':None}
+    # The ordinary listing was planned before the protected window began.
+    setattr(x.runtime,window,'reserved-delivery')
+    monkeypatch.setattr(delivery_reservation,'active',
+                        lambda *a:{'request_id':'reserved-delivery'})
+    focus=[]
+    x.guard.on_acquire=lambda c:focus.append(c)
+    x.guard.on_release=lambda c:focus.append('restore')
+    with pytest.raises(CaptureUnavailable,match='paused'):
+        x.runtime.controllers['Dutch'].apply_price(plan)
+    assert not focus and not x.calls and not x.j.pending('Dutch')
+    assert x.guard.owner is x.guard.purpose is None
+
+
+@pytest.mark.parametrize('purpose',[None,'listing','refill','trade'])
+def test_delivery_permission_is_only_for_reserved_trade(setup,monkeypatch,purpose):
+    from conquest.merchants import delivery_reservation
+    x=setup;x.runtime.delivery_window='reserved-delivery'
+    monkeypatch.setattr(delivery_reservation,'active',
+                        lambda *a:{'request_id':'reserved-delivery'})
+    if purpose=='trade':
+        with x.guard.lease('Dutch',purpose=purpose):
+            x.guard.check()
+    else:
+        with pytest.raises(CaptureUnavailable,match='paused'):
+            with x.guard.lease('Dutch',purpose=purpose):
+                pytest.fail('Non-trade work acquired delivery input')
+
+
+def test_refill_permission_cannot_be_borrowed_by_another_thread(setup):
+    x=setup;x.runtime.enable('Dutch',False)
+    observed=[]
+    def acquire(character):
+        assert x.guard.purpose=='refill'
+        assert x.runtime.input_allowed(character)
+        thread=threading.Thread(target=lambda:observed.append(x.runtime.input_allowed(character)))
+        thread.start();thread.join(timeout=2)
+        assert not thread.is_alive()
+    x.guard.on_acquire=acquire
+    x.runtime.step('Dutch')
+    assert x.calls==[(2,900000),(1,130000)]
+    assert observed==[False,False]
+    assert not x.runtime.refill_threads and not x.runtime.refilling
+
+
 def test_new_stock_can_use_history_when_market_file_is_missing(setup):
     x=setup;x.j.set('Dutch','new_stock',True)
     x.j.set('Dutch','refill',{**x.refill.state(),'next_check':1300})
     x.runtime.step('Dutch')
     assert x.calls==[(2,900000),(1,130000)]
     assert x.refill.state()['last_checked'] is None
+
+
+def test_old_timer_migrates_once_and_completion_has_no_catchup(tmp_path):
+    j=Journal(tmp_path/'journal.sqlite3');now=[1100]
+    j.set('Dutch','refill',dict(next_check=1200,last_checked=900,pending=True,status='checking'))
+    timer=RefillSchedule('Dutch',j,clock=lambda:now[0])
+    assert timer.state()['next_check']==1800
+    assert not timer.due()
+    now[0]=10000
+    assert timer.due()
+    timer.complete('no_stock')
+    assert timer.state()['next_check']==10900
+    restarted=RefillSchedule('Dutch',j,clock=lambda:10001)
+    assert not restarted.due()
+    assert restarted.state()['next_check']==10900
+
+
+def test_refill_at_town_resets_full_interval(tmp_path):
+    j=Journal(tmp_path/'journal.sqlite3');now=[1000]
+    timer=RefillSchedule('Dutch',j,clock=lambda:now[0])
+    assert timer.state()['next_check']==1900
+    now[0]=1100;timer.start();timer.complete('town_visit',listed=1)
+    assert timer.state()['next_check']==2000
+
+
+@pytest.mark.parametrize('kind',[2000031,2000032,2000033,2000034,2000035,2000036,2000037,2000038])
+def test_rare_dragonball_never_refills_or_reprices(setup,kind):
+    from conquest.valuables import DRAGONBALL_NAMES
+    x=setup;x.state['inventory']=[{**stock(1,kind),'name':DRAGONBALL_NAMES[kind],'plus':0}]
+    x.mark();x.runtime.step('Dutch')
+    assert not x.calls
+    deferred=x.j.get('Dutch','deferred')
+    assert deferred[0]['price'] is None and 'storage-only' in deferred[0]['reason']

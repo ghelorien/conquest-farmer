@@ -65,7 +65,9 @@ def merchant_text(state, *, now, waiting_items=None, global_stopped=False):
     if global_stopped:
         mode='STOP ALL is active: farming, merchant actions and auto-refill are stopped.'
         timer='Enable only the controls you want to restart.'
-    return '\n'.join(line for line in (title+' · '+stock,batch,action,mode,timer) if line)
+    login=('Reconnect setup needed: More / help → Set up automatic login'
+           if state.get('credentials_saved') is False else '')
+    return '\n'.join(line for line in (title+' · '+stock,batch,action,mode,timer,login) if line)
 
 
 def countdown(due, now):

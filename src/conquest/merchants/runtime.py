@@ -48,9 +48,23 @@ class MerchantRuntime:
         from conquest.merchants.refill import RefillSchedule
         self.refills = {c:RefillSchedule(c,self.journal) for c in CHARACTERS}
         self.refilling,self.refill_revisions = {},{}
+        self.refill_threads = {}
+        self.connecting,self.connect_checks,self.connect_cancel={},{},{}
         for refill in self.refills.values():refill.state()
         self.threads = []
         self.handoff = None
+        self.work_deadline = None
+
+    def can_start_work(self):
+        return self.work_deadline is None or time.time() < self.work_deadline
+
+    def finish_handoff(self):
+        # Submitted actions reconcile independently before any later input.
+        # End the capacity round even if its priced queue did not fit the budget.
+        for refill in self.refills.values():
+            if refill.state().get('pending'):
+                refill.complete('work_budget_finished')
+        self.work_deadline = None
 
     def start(self):
         if self.threads:
@@ -77,8 +91,24 @@ class MerchantRuntime:
         self.journal.event(character,'refill_resumed' if enabled else 'refill_paused')
 
     def input_allowed(self, character):
+        delivery_window=getattr(self,'delivery_window',None)
+        purpose=getattr(self.coordinator,'purpose',None)
+        if character in self.connecting:
+            return (not delivery_window and not getattr(self,'refill_window',None)
+                    and purpose in ('connect','connect_launch')
+                    and self.connecting[character]==threading.get_ident()
+                    and self.connect_checks.get(character,lambda:False)())
+        if delivery_window:
+            from conquest.merchants.delivery_reservation import active
+            reserved=active(self.journal,character)
+            return (purpose=='trade' and character not in self.refilling and self.enabled(character)
+                    and bool(reserved and reserved.get('request_id')==delivery_window))
+        if getattr(self,'refill_window',None) and (purpose!='refill' or character not in self.refilling):
+            return False
         if character in self.refilling:
             return (self.refill_enabled(character)
+                    and purpose=='refill'
+                    and self.refill_threads.get(character)==threading.get_ident()
                     and self.refilling[character]==self.refill_revisions.get(character,0))
         return self.enabled(character)
 
@@ -90,8 +120,11 @@ class MerchantRuntime:
         from conquest.merchants.refill import RefillController
         runner=RefillController(character,self.journal,controller.driver,self.coordinator,clock=controller.clock)
         self.refilling[character]=self.refill_revisions.get(character,0)
+        self.refill_threads[character]=threading.get_ident()
         try:return runner.apply_price(plan)
-        finally:self.refilling.pop(character,None)
+        finally:
+            self.refilling.pop(character,None)
+            self.refill_threads.pop(character,None)
 
     def enable(self, character, enabled):
         character = character_name(character)
@@ -99,6 +132,7 @@ class MerchantRuntime:
             raise ValueError('enabled must be boolean')
         self.journal.set(character,'enabled',enabled)
         if enabled:
+            self.journal.set(character,'connect_hold',False)
             self.journal.set(character,'new_stock',True)
             if (self.journal.get(character,'attention') or {}).get('kind')=='unexpected':
                 self.journal.set(character,'attention',None)
@@ -106,6 +140,7 @@ class MerchantRuntime:
 
     def global_stop(self):
         self.coordinator.stop()
+        for cancel in self.connect_cancel.values():cancel.set()
         self.handoff = None
         for character in CHARACTERS:
             self.enable(character,False)
@@ -203,6 +238,8 @@ class MerchantRuntime:
                 credential_path(character),session=driver.observer.adapter))
 
     def step(self, character):
+        if character in self.connecting:return
+        refill_only=bool(getattr(self,'refill_window',None))
         observer = self.observers.get(character)
         if observer:
             try:
@@ -218,6 +255,7 @@ class MerchantRuntime:
                 self.journal.set(character,'crashed',True)
                 observer = None
         if observer is None:
+            if refill_only:return
             try:
                 self.attach(character)
             except ValueError:
@@ -229,6 +267,7 @@ class MerchantRuntime:
             self.returns[character].begin()
             with self.lock:
                 self.latest.pop(character,None)
+            if refill_only:return
             self.recover(character)
             return
         controller = self.controllers[character]
@@ -241,6 +280,28 @@ class MerchantRuntime:
         from conquest.merchants.sales import observe
         observe(self.journal,snapshot)
         controller.reconcile(snapshot)
+        if self.journal.get(character,'connect_hold',False):return
+        if not self.can_start_work():
+            return
+        from conquest.merchants.delivery_reservation import active as reserved_delivery
+        reservation=reserved_delivery(self.journal,character)
+        if reservation:
+            # Never list new arrivals before the farmer has verified its own
+            # inventory. Partial offers must not be accepted as full batches.
+            if refill_only or not self.enabled(character):
+                return
+            if snapshot.get('request'):
+                controller.accept_request(snapshot)
+            elif snapshot.get('trade'):
+                controller.accept_delivery()
+            return
+        if getattr(self,'delivery_window',None):
+            # The farmer reserves its exact batch after the safe grant. Do
+            # not race that reservation by listing or moving merchant stock.
+            return
+        if refill_only and (returning or snapshot.get('trade') or snapshot.get('request')
+                            or self.recoveries[character].state()['state']!='connected'):
+            return
         self.returns[character].remember(snapshot)
         if returning:
             if not self.coordinator.safe_to_yield() and self.enabled(character):
@@ -253,7 +314,7 @@ class MerchantRuntime:
                 raise ValueError('Open and verify the merchant booth before resuming recovery')
             self.recoveries[character].verified()
             self.journal.set(character,'crashed',False)
-        operations_enabled = self.enabled(character)
+        operations_enabled = self.enabled(character) and not refill_only
         refill = self.refills[character]
         refill_due = self.refill_enabled(character) and refill.due()
         if not operations_enabled and not refill_due:
@@ -292,7 +353,7 @@ class MerchantRuntime:
         history = PriceHistory(self.market_path.with_name('price-history.sqlite3'))
         if refill_due:
             if not snapshot['booth_open']:
-                raise ValueError('Five-minute refill needs the verified own booth open')
+                raise ValueError('Fifteen-minute refill needs the verified own booth open')
             refill.start()
             from conquest.merchants.refill import HistoricalComparisons
             market = HistoricalComparisons(history.catalog())
@@ -328,6 +389,8 @@ class MerchantRuntime:
             with self.lock:
                 if self.handoff is None:self.handoff=f'merchant-refill:{character}:{int(time.time()*1000)}'
         for plan in plans:
+            if not self.can_start_work():
+                break
             if plan['price'] is not None and plan['price'] != plan.get('old_price'):
                 if plan.get('old_price') is None and booth_count>=32:
                     continue
@@ -422,9 +485,11 @@ class MerchantRuntime:
                     'ready':fresh and self.enabled(character) and not returning and not error and snapshot['capacity']>len(snapshot['inventory'])
                         and qualification['trade_request'] and qualification['trade'] and not self.journal.pending(character),
                     'qualification':qualification,
+                    'credentials_saved':credential_path(character).exists(),
                     'needs_attention':self.journal.get(character,'attention'),
                     'pending':self.journal.pending(character),'recovery':self.recoveries[character].state(),
                     'shop_return':self.returns[character].state()}
+                result[character]['connect_market']=self.journal.get(character,'connect_market')
                 result[character]['refill'] = {**self.refills[character].state(),'enabled':self.refill_enabled(character)}
                 result[character]['market_refresh']=self.market_worker.state(character)
                 result[character]['batch_progress']=self.journal.get(character,'batch_progress',{})

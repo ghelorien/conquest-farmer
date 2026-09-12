@@ -95,6 +95,9 @@ def travel_to_map(loop,destination):
         if life['map_id']==destination:
             loop.terrain=read_terrain(CLIENT_ROOT,destination)
             return
+        if life['map_id']==1036:
+            return_from_market(loop,destination)
+            continue
         edge=connection_path(life['map_id'],destination)[0]
         terrain=read_terrain(CLIENT_ROOT,life['map_id'])
         target=read_terrain(CLIENT_ROOT,edge['destination_map'])
@@ -115,3 +118,30 @@ def travel_to_map(loop,destination):
         cross_portal(loop,edge['portal_id'],edge['destination_map'])
         ensure_city_visit(loop,new_arrival=True)
     raise ValueError('Map travel exceeded the connection limit')
+
+
+def return_from_market(loop,destination):
+    """Resume hunting from Market using a qualified service, never a portal guess."""
+    from conquest.discord_notify import read_json,write_json
+    from conquest.meteor_banking import POLICY,trip
+    from conquest.town_trade import stash_candidate
+    from conquest.city_travel import ensure_city_visit
+    policy=read_json(POLICY)
+    origin=getattr(loop.route,'restock_map_id',destination)
+    plan=policy.get('origins',{}).get(str(origin),{}).get('return')
+    if not plan or not plan.get('verified') or plan.get('source_map')!=1036 or plan.get('destination_map')!=origin:
+        raise ValueError('Market departure needs a verified return itinerary')
+    if any(stash_candidate(item) for item in loop.town('supplies')['items']):
+        raise ValueError('Stay in Market: store protected valuables before returning to the route')
+    journal=Path('.runtime/market-route-departure.json')
+    old=read_json(journal)
+    if old.get('phase')=='submitted':
+        raise ValueError('Market departure is uncertain; reconcile arrival before retrying')
+    before=loop.living()
+    state={'phase':'prepared','identity':before['target'],'origin':1036,
+           'destination':origin,'started_at':time.time()}
+    write_json(journal,state)
+    trip(loop,plan,before_submit=lambda:write_json(journal,{**state,'phase':'submitted'}))
+    write_json(journal,{**state,'phase':'complete','completed_at':time.time()})
+    loop.record('market_route_returned',activity='Returned from Market; resuming the saved farming route')
+    ensure_city_visit(loop,new_arrival=True)

@@ -67,6 +67,20 @@ def test_banked_scroll_resumes_return_without_reexchange(route):
     assert not any(e[0] in ('choice','warehouse-withdraw-meteor','warehouse-deposit') for e in events)
 
 
+def test_merchant_delivered_scroll_allows_verified_return(route,monkeypatch):
+    from conquest.merchants import delivery_route
+    loop,state,bag,local,market,events=route;state['map']=1036
+    bag.append(item(99,m.SCROLL))
+    write_json(m.JOURNAL,{'phase':'storing_scroll','origin':1011,'scroll_uid':99})
+    def deliver(loop):
+        value=bag.pop()
+        write_json(delivery_route.STATE,{'receipts':[{'request_id':'verified-trade','items':[value]}]})
+    monkeypatch.setattr(delivery_route,'market_storage',deliver)
+    assert m.resume(loop) and state['map']==1011
+    assert not market and not bag
+    assert not any(e[0]=='warehouse-deposit' for e in events)
+
+
 def test_missing_banked_scroll_blocks_departure(route):
     loop,state,bag,local,market,events=route;state['map']=1036
     write_json(m.JOURNAL,{'phase':'stored_in_market','origin':1011,'scroll_uid':99})
@@ -283,7 +297,8 @@ def test_market_start_resumes_before_city_and_hunt(monkeypatch):
         events.append('hunt');raise overnight.OvernightStopped('test finished')
     loop=NS(check_stop=lambda:None,refresh=lambda:None,record=lambda *a,**kw:None,
         stop_farm=lambda:events.append('pause'),prepare_supplies=lambda:events.append('supplies'),
-        select_level_route=lambda:None,hunt=hunt,info=None)
+        select_level_route=lambda:None,hunt=hunt,info=None,route=NS(map_id=1011),
+        living=lambda:{'embedded_controls':{'life':{'map_id':1011}}})
     loop._run_route=lambda:overnight.OvernightLoop._run_route(loop)
     overnight.OvernightLoop.run(loop)
     assert events==['pause','return Phoenix','close bank','town check','supplies','hunt']

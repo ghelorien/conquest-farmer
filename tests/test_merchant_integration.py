@@ -107,11 +107,23 @@ def test_native_tabs_bridge_authentication_handoff_and_global_stop(tmp_path,monk
         mouse_priority=SimpleNamespace(active=lambda:False),catalog=object(),thread=None,
         control=SimpleNamespace(snapshot=lambda:dict(control)),state_text=tk.StringVar(value='Off'),
         stats_text=tk.StringVar(value=''),stop=stop)
+    route_picker = ttk.Combobox(app.sidebar,values=['Bandit'],state='readonly')
+    route_picker.pack(fill='x')
     unified = UnifiedUI(app)
     try:
         assert [unified.notebook.tab(t,'text') for t in unified.notebook.tabs()]==['Overview','Farmer','Spiritual','Dutch']
         assert app.sidebar.pack_info()['in']==unified.frames['Farmer']
         root.deiconify()
+        root.attributes('-topmost',True)  # Isolate hit tests from other open apps.
+        root.lift()
+        for tab in ('Farmer','Overview','Farmer'):
+            unified.notebook.select(unified.frames[tab])
+            root.update()
+            if tab=='Farmer':
+                # A mapped widget can still be covered by its geometry host.
+                x=route_picker.winfo_rootx()+route_picker.winfo_width()//2
+                y=route_picker.winfo_rooty()+route_picker.winfo_height()//2
+                assert root.winfo_containing(x,y)==route_picker
         unified.notebook.select(unified.frames['Dutch'])
         unified.detail_tabs['Dutch'].select(0)
         root.geometry('1000x760');root.update()
@@ -207,6 +219,24 @@ def test_manual_character_pause_revokes_an_active_lease(tmp_path):
             guard.check()
 
 
+def test_denied_lease_never_changes_focus_and_releases_ownership(tmp_path):
+    guard=InputCoordinator(lambda:True,path=tmp_path/'input.lock')
+    calls=[]
+    guard.on_acquire=lambda c:calls.append(('focus',c))
+    guard.on_release=lambda c:calls.append(('restore',c))
+    guard.owner_allowed=lambda c:False
+    with pytest.raises(CaptureUnavailable,match='paused'):
+        with guard.lease('Dutch',purpose='listing'):
+            pytest.fail('Denied work entered its input scope')
+    assert calls==[]
+    assert guard.owner is guard.thread is guard.purpose is None
+    guard.owner_allowed=lambda c:True
+    with guard.lease('Dutch',purpose='trade'):
+        assert guard.purpose=='trade'
+    assert calls==[('focus','Dutch'),('restore','Dutch')]
+    assert guard.owner is guard.thread is guard.purpose is None
+
+
 def test_gui_reader_accepts_live_frames_that_advance_between_rpcs():
     memory = Memory()
     context,array,window,name = 0x11000,0x15000,0x16000,0x17000
@@ -245,3 +275,22 @@ def test_one_time_batch_never_accepts_incoming_trades(tmp_path):
         runtime.step('Dutch')
     assert not calls
     assert journal.get('Dutch','scan')['pending']
+
+
+def test_delivery_window_holds_unreserved_stock_but_allows_reserved_request(tmp_path,monkeypatch):
+    from conquest.merchants.runtime import MerchantRuntime
+    from conquest.merchants import delivery_reservation
+    runtime=MerchantRuntime(object(),InputCoordinator(lambda:True),journal=Journal(tmp_path/'journal.sqlite3'))
+    runtime.journal.set('Dutch','enabled',True)
+    runtime.delivery_window='delivery-window'
+    snapshot={'character':'Dutch','timestamp':time.time(),'request':{'participant':'Parasite'},'trade':None}
+    runtime.observers['Dutch']=SimpleNamespace(adapter=SimpleNamespace(assert_identity=lambda:None),lock=threading.RLock())
+    calls=[]
+    runtime.controllers['Dutch']=SimpleNamespace(driver=SimpleNamespace(read=lambda:snapshot),
+        reconcile=lambda s:calls.append('reconcile'),accept_request=lambda s:calls.append('accept'))
+    runtime.disconnected=lambda character:False
+    runtime.step('Dutch')
+    assert calls==['reconcile']
+    monkeypatch.setattr(delivery_reservation,'active',lambda *args:True)
+    runtime.step('Dutch')
+    assert calls==['reconcile','reconcile','accept']

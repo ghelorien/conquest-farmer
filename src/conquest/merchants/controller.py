@@ -1,4 +1,5 @@
 """Merchant decisions and durable, verified transactions, independent of Windows."""
+from conquest.valuables import require_marketable, storage_only
 from dataclasses import asdict
 import hashlib
 import json
@@ -49,8 +50,10 @@ def validate_trade(snapshot):
         raise ValueError('Insufficient merchant inventory space')
     if any(item.get('bound') for item in trade['items']):
         raise ValueError('Delivery contains a bound item')
-    if type(trade['other_silver']) is not int or trade['other_silver'] < 0:
-        raise ValueError('Invalid incoming silver')
+    if any(storage_only(item) for item in trade['items']):
+        raise ValueError('Rare Dragonballs must use storage, not merchant refill')
+    if type(trade['other_silver']) is not int or trade['other_silver'] != 0:
+        raise ValueError('Delivery silver must be zero on both sides')
     return trade
 
 
@@ -59,7 +62,7 @@ def received(before, after):
     if after['character'] != before['character'] or after.get('trade'):
         return False
     old, new, offered = identities(before['inventory']), identities(after['inventory']), identities(trade['items'])
-    return (all(new.get(uid)==details for uid,details in {**old,**offered}.items())
+    return (new == {**old,**offered}
         and after['silver'] == before['silver']+trade['other_silver'])
 
 
@@ -70,6 +73,7 @@ def listing_received(before, after):
 
 
 class MerchantController:
+    listing_purpose='listing'
     def __init__(self, character, journal, driver, coordinator, *, clock=time.time):
         self.character,self.journal,self.driver,self.coordinator,self.clock = character,journal,driver,coordinator,clock
 
@@ -80,6 +84,12 @@ class MerchantController:
         if not self.active():
             raise CaptureUnavailable('Merchant is paused')
         self.coordinator.check()
+
+    def check_listing(self):
+        self.check()
+        from conquest.merchants.delivery_reservation import active
+        if active(self.journal,self.character):
+            raise CaptureUnavailable('Reserved farmer delivery holds merchant listings until both inventories reconcile')
 
     def reconcile(self, snapshot):
         pending = self.journal.pending(self.character)
@@ -100,10 +110,12 @@ class MerchantController:
 
     def accept_delivery(self):
         self.driver.require_qualified('trade')
-        with self.coordinator.lease(self.character):
+        with self.coordinator.lease(self.character,purpose='trade'):
             self.check()
             before = self.driver.read()
             trade = validate_trade(before)
+            from conquest.merchants.delivery_reservation import validate_receiver
+            validate_receiver(self.journal,before,now=self.clock())
             accepted_request = self.journal.get(self.character,'accepted_request')
             if (not accepted_request or accepted_request.get('identity') != before['identity']
                     or accepted_request.get('participant_uid') != trade['participant_uid']
@@ -117,6 +129,7 @@ class MerchantController:
             fresh = self.driver.read()
             if fresh['identity'] != before['identity'] or offer_fingerprint(validate_trade(fresh)) != fingerprint or identities(fresh['inventory']) != identities(before['inventory']) or fresh['silver'] != before['silver']:
                 raise ValueError('Trade changed before confirmation')
+            validate_receiver(self.journal,fresh,now=self.clock())
             self.journal.begin(key,self.character,'delivery',before)
             try:
                 self.check()
@@ -133,13 +146,15 @@ class MerchantController:
 
     def accept_request(self, snapshot):
         self.driver.require_qualified('trade_request')
-        with self.coordinator.lease(self.character):
+        with self.coordinator.lease(self.character,purpose='trade'):
             self.check()
             fresh = self.driver.read()
             if fresh['identity'] != snapshot['identity'] or fresh.get('request') != snapshot.get('request') or not fresh.get('request') or fresh['request']['participant'] != 'Parasite':
                 raise ValueError('Unverified or changed trade request')
             if len(fresh['inventory']) >= fresh['capacity']:
                 raise ValueError('Inventory full; delivery deferred')
+            from conquest.merchants.delivery_reservation import validate_receiver
+            validate_receiver(self.journal,fresh,now=self.clock())
             self.driver.accept_request(fresh)
             opened = self.driver.wait_for(lambda s:bool(s.get('trade')) and
                 s['trade']['participant']=='Parasite',self.check)
@@ -167,6 +182,7 @@ class MerchantController:
         plans = []
         for item in ([] if inventory_only else snapshot['booth'])+snapshot['inventory']:
             try:
+                require_marketable(item)
                 if item['bound']:
                     raise ValueError('Bound item')
                 key = market.key_for(item)
@@ -186,8 +202,8 @@ class MerchantController:
         if plan['price'] is None or plan['price']==plan.get('old_price'):
             return
         validate_booth_price(plan['price'])
-        with self.coordinator.lease(self.character):
-            self.check()
+        with self.coordinator.lease(self.character,purpose=self.listing_purpose):
+            self.check_listing()
             try:
                 self.driver.require_qualified('booth_input')
             except ValueError:
@@ -197,7 +213,7 @@ class MerchantController:
                 if any(w['name']=='Add Item to Booth' for w in current.get('windows',[])):
                     raise ValueError('Existing price dialog needs reconciliation before automatic verification')
                 with self.driver.observer.lock,physical_coordinates():
-                    verify_booth_controls(self.driver,self.journal,self.check)
+                    verify_booth_controls(self.driver,self.journal,self.check_listing)
                 self.driver.require_qualified('booth_input')
             before = self.driver.read()
             self.reconcile(before)
@@ -210,6 +226,7 @@ class MerchantController:
             if len(found)!=1 or found[0]['bound']:
                 raise ValueError('Stock changed before pricing')
             item = found[0]
+            require_marketable(item)
             if (not 0 <= self.clock()-plan.get('observed_at',0) <= 900
                     or list(identities([item])[uid]) != plan.get('attributes')):
                 raise ValueError('Comparison expired or item changed; scan again')
@@ -219,13 +236,13 @@ class MerchantController:
                 return
             if item.get('price') is not None and len(before['inventory'])>=before['capacity']:
                 raise ValueError('Need one inventory slot to reprice this item')
-            self.driver.prepare_listing(before,item,self.check)
+            self.driver.prepare_listing(before,item,self.check_listing)
             key = f'listing:{self.character}:{uuid.uuid4().hex}'
             self.journal.begin(key,self.character,'listing',{'uid':uid,'price':target,'item':item,'snapshot':before})
             try:
-                self.driver.list_item(before,item,target,self.check)
+                self.driver.list_item(before,item,target,self.check_listing)
                 self.journal.transition(key,'submitted')
-                after = self.driver.wait_for(lambda s:listing_received({'uid':uid,'price':target,'item':item},s),self.check)
+                after = self.driver.wait_for(lambda s:listing_received({'uid':uid,'price':target,'item':item},s),self.check_listing)
                 self.journal.transition(key,'verified',{'uid':uid,'name':item['name'],'old_price':item.get('price'),'price':target})
                 return after
             except Exception as error:

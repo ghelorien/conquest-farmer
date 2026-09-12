@@ -8,6 +8,7 @@ import secrets
 import threading
 import time
 from conquest.discord_notify import write_json
+from conquest.capture import CaptureUnavailable
 
 
 class MerchantBridge:
@@ -35,6 +36,13 @@ class MerchantBridge:
             def do_POST(self):
                 self.close_connection = True
                 if not hmac.compare_digest(self.headers.get('X-Conquest-Token',''),bridge.token):
+                    # Drain a bounded body without parsing or dispatching it.
+                    # Closing with unread request bytes can reset the Windows
+                    # socket before the client receives the rejection status.
+                    try:
+                        size=int(self.headers.get('Content-Length','0'))
+                        if 0<size<=65536:self.rfile.read(size)
+                    except (ValueError,OSError):pass
                     self.send_error(403);return
                 try:
                     if self.path != '/merchants':
@@ -46,7 +54,7 @@ class MerchantBridge:
                     if not isinstance(body,dict):
                         raise ValueError('Expected an object')
                     result,status = bridge.dispatch(body),200
-                except (ValueError,TypeError,KeyError,OSError) as error:
+                except (ValueError,TypeError,KeyError,OSError,CaptureUnavailable) as error:
                     result,status = {'error':str(error)},400
                 payload = json.dumps(result).encode()
                 self.send_response(status)

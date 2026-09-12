@@ -109,6 +109,9 @@ def test_native_discard_uses_logical_coordinates_and_serialized_dispatch(monkeyp
     monkeypatch.setattr(native_farm,'logical_coordinates',logical)
     supervisor=native_farm.NativeFarmSupervisor.__new__(native_farm.NativeFarmSupervisor)
     supervisor.pending_loot=None;supervisor.defending=False
+    supervisor.targets_observation_available=True
+    supervisor.scene_timestamp=__import__('time').monotonic()
+    supervisor.position=(100,100);supervisor.scene_monsters=()
     def discard(uid):
         assert inside
         calls.append(uid)
@@ -234,3 +237,31 @@ def test_ground_failure_does_not_open_inventory():
     with pytest.raises(ValueError,match='Ground scene'):
         d._discard(1)
     assert seen==['Shop','Warehouse'] and not d.cleanup_pending
+
+
+@pytest.mark.parametrize('scene,available,age',[
+    ([NS(position=(112,100),alive=True,current_hp=10)],True,0),
+    ([NS(position=(101,100),alive=None,current_hp=None)],True,0),
+    ([],False,0),([],True,2),([],True,-2)])
+def test_optional_cleanup_never_opens_bag_in_combat_or_unknown_scene(scene,available,age):
+    import time
+    from conquest.native_farm import NativeFarmSupervisor
+    s=NativeFarmSupervisor.__new__(NativeFarmSupervisor)
+    s.pending_loot=None;s.defending=False;s.discarder=None
+    s.targets_observation_available=available;s.scene_timestamp=time.monotonic()-age
+    s.position=(100,100);s.scene_monsters=scene
+    s.dispatch=lambda callback:pytest.fail('Optional cleanup interrupted combat')
+    assert not s.discard_step(NS(items=(Item(1,480003,1,1,0,0),)))
+
+
+def test_repeated_cleanup_failures_back_off_globally_and_success_resets():
+    from conquest.discard_loot import DiscardLoot
+    d=DiscardLoot.__new__(DiscardLoot)
+    d.records=[];d.attempted=set();d.cleanup_pending=False
+    def fail(uid):raise ValueError('Geometry is not qualified')
+    d._discard=fail
+    assert [d.discard(uid)['retry_after'] for uid in range(8)]==[10,20,40,80,160,300,300,300]
+    d._discard=lambda uid:{'uid':uid,'state':'verified'}
+    assert d.discard(8)['state']=='verified'
+    d._discard=fail
+    assert d.discard(9)['retry_after']==10

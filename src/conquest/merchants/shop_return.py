@@ -102,6 +102,8 @@ class ShopReturn:
         self.save(state,'restoring_listings')
         wanted=sorted(before['booth'],key=lambda i:(-i['price'],i['uid']))
         for item in wanted:
+            from conquest.valuables import storage_only
+            if storage_only(item):continue
             actual=next(i for i in snapshot['booth']+snapshot['inventory'] if i['uid']==item['uid'])
             if actual.get('price')==item['price']:continue
             if actual.get('price') is None and len(snapshot['booth'])>=32:

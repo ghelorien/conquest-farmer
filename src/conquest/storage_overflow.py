@@ -63,12 +63,14 @@ def resume(loop):
         trip(loop,outbound);world=1036
     if world==1036:
         state['phase']='market';write_json(JOURNAL,state)
+        from conquest.merchants.delivery_route import market_storage,warehouse_exhausted
+        market_storage(loop)
         from conquest.meteor_banking import approach_market_warehouse
         approach_market_warehouse(loop,'Heading to Market Warehouseman to store overflow valuables')
         open_warehouse(loop)
         while True:
             stored=loop.town('warehouse-items');carried=extras(loop)
-            if len(stored['items'])>=stored['capacity']:
+            if warehouse_exhausted(loop,stored,carried):
                 state['phase']='full';write_json(JOURNAL,state)
                 request_stop(loop,stored,carried)
             if not carried:break

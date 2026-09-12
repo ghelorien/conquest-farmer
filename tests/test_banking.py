@@ -6,7 +6,18 @@ from conquest import banking as b
 @pytest.fixture
 def enabled(monkeypatch):
     monkeypatch.setattr(b,'policy',lambda:{'enabled':True,'transport_reserve':200,'withdraw_essentials':True})
-    monkeypatch.setattr(b,'stash_valuables',lambda loop:None)
+    monkeypatch.setattr(b,'stash_valuables',lambda loop,**kwargs:None)
+
+
+def test_pending_merchant_trade_prevents_cleanup_input_after_storage_error(enabled,monkeypatch):
+    from conquest.merchants import delivery_route
+    from conquest.discord_notify import write_json
+    write_json(delivery_route.STATE,{'active':{'request_id':'uncertain'}})
+    monkeypatch.setattr(b,'open_warehouse',lambda loop:{})
+    def fail(*a,**kw):raise ValueError('uncertain trade')
+    monkeypatch.setattr(b,'stash_valuables',fail)
+    monkeypatch.setattr(b,'close_warehouse',lambda loop:pytest.fail('No panel input during uncertain trade'))
+    with pytest.raises(ValueError,match='uncertain trade'):b.after_shopping(NS())
 
 
 @pytest.mark.parametrize('wallet,stored,expected',[(14221,0,('deposit',14021)),(200,500,None),(50,1000,('withdraw',150)),(50,60,('withdraw',60))])

@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 import time
 from conquest.discord_notify import read_json,write_json
+from conquest.valuables import DRAGONBALL_TYPES
 
 CONFIG=Path('profiles/banking.json')
 STATUS=Path('reports/banking/status.json')
@@ -16,7 +17,7 @@ def urgent_valuables(items):
     for item in items:
         get=item.get if isinstance(item,dict) else lambda k,d=None:getattr(item,k,d)
         kind,plus=get('type_id'),get('plus')
-        if get('slot') is not None and (kind==1088000 or
+        if get('slot') is not None and (kind in DRAGONBALL_TYPES or
                 (type(kind) is int and 100000<=kind<600000
                  and type(plus) is int and 2<=plus<=12)):
             result.append(item)
@@ -154,7 +155,7 @@ def after_shopping(loop):
     if not policy().get('enabled') or not policy().get('deposit_after_shopping',True):return
     bank=open_warehouse(loop)
     try:
-        stash_valuables(loop)
+        stash_valuables(loop,deliver=True)
         if getattr(loop,'overflow_bank_changed',False):
             bank=loop.town('warehouse-money')
             loop.overflow_bank_changed=False
@@ -164,11 +165,13 @@ def after_shopping(loop):
             transfer(loop,'withdraw',min(-excess,bank['stored_silver']))
     finally:
         from conquest.storage_halt import active
-        if not active():close_warehouse(loop)
+        from conquest.merchants.delivery_journey import pending as journey_pending
+        from conquest.merchants.delivery_route import pending as trade_pending
+        if not active() and not journey_pending() and not trade_pending():close_warehouse(loop)
     return True
 
 
-def stash_valuables(loop):
+def stash_valuables(loop,*,deliver=False):
     from conquest.town_trade import stash_candidate
     from conquest.meteor_banking import consolidate,POLICY as METEOR_POLICY
     settings=read_json(METEOR_POLICY)
@@ -177,6 +180,9 @@ def stash_valuables(loop):
         # supply ten Meteors. Re-read both inventories after each round trip.
         while consolidate(loop,loop.town('warehouse-items')):
             loop.overflow_bank_changed=True
+    if deliver:
+        from conquest.merchants.delivery_journey import start
+        start(loop)
     for item in loop.town('supplies')['items']:
         if not stash_candidate(item):continue
         from conquest.storage_overflow import handle,POLICY

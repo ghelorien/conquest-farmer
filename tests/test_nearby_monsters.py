@@ -80,7 +80,7 @@ def test_live_labels_and_ids_cannot_change_embedded_sidebar_width(tk_root, tmp_p
             app.render_matched_ids({'observations_available':True,'control':{'resolved_target_ids':list(range(count))}})
             app.nearby.refresh([{'name':'Pheasant','entity_id':i,'type_id':1} for i in range(count)],[1])
             tk_root.update_idletasks()
-            assert app.sidebar.winfo_reqwidth()==500
+            assert app.sidebar_host.winfo_reqwidth()==500
         writes = []
         app.ids.trace_add('write',lambda *args:writes.append(True))
         app.render_matched_ids({'observations_available':True,'control':{'resolved_target_ids':[0]}})
@@ -88,7 +88,7 @@ def test_live_labels_and_ids_cannot_change_embedded_sidebar_width(tk_root, tmp_p
         assert not writes and app.ids.get()=='0'
         assert 'refresh pending' in app.ids_label.cget('text')
         app.compact()
-        assert app.sidebar.pack_propagate()
+        assert app.sidebar_host.pack_propagate()
     finally:
-        app.sidebar.destroy()
+        app.sidebar_host.destroy()
         app.pane.destroy()

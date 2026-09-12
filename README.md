@@ -6,7 +6,7 @@ and a small local dashboard.
 
 The native app now includes Overview, Farmer, Spiritual and Dutch tabs around
 the existing farmer controls. Farmer routes, combat, loot policy and saved
-configuration are preserved. Merchant listings/repricing, five-minute inventory
+configuration are preserved. Merchant listings/repricing, fifteen-minute inventory
 refill, sales totals and four-hour Discord reporting run in native scripts.
 Foreground actions share one input coordinator; the experimental background
 backend is disabled after a failed interruption test. See

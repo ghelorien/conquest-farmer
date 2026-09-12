@@ -6,15 +6,17 @@ import time
 from functools import wraps
 from conquest.capture import CaptureUnavailable
 
+INPUT_LOCK = Path('.runtime/merchant-input.lock')
 
 class InputCoordinator:
-    def __init__(self, safe_to_yield=lambda: False, manual_active=lambda: False, path='.runtime/merchant-input.lock'):
+    def __init__(self, safe_to_yield=lambda: False, manual_active=lambda: False, path=None):
         self.safe_to_yield = safe_to_yield
         self.manual_active = manual_active
-        self.path = Path(path)
+        self.path = INPUT_LOCK if path is None else Path(path)
         self.lock = threading.RLock()
         self.owner = None
         self.thread = None
+        self.purpose = None
         self.stopped = False
         self.handoff_until = 0
         self.owner_allowed = lambda character:True
@@ -39,11 +41,12 @@ class InputCoordinator:
             raise CaptureUnavailable('Farmer handoff was revoked or expired')
 
     @contextmanager
-    def lease(self, character):
+    def lease(self, character, *, purpose=None):
         if not self.lock.acquire(blocking=False):
             raise CaptureUnavailable('Waiting for input owner')
         file = None
         owned = False
+        prepared = False
         try:
             self.check()
             if self.owner is not None or not self.safe_to_yield():
@@ -60,17 +63,21 @@ class InputCoordinator:
             except OSError as error:
                 raise CaptureUnavailable('Another app owns merchant input') from error
             self.owner, self.thread = character, threading.get_ident()
+            self.purpose = purpose
             owned = True
+            self.check()  # Denied work must not focus or restore a merchant surface.
+            prepared = True
             self.on_acquire(character)
             self.check()
             yield self
         finally:
             if owned:
                 self.owner = self.thread = None
+                self.purpose = None
             if file:
                 file.close()
             self.lock.release()
-            if owned:
+            if prepared:
                 self.on_release(character)
 
 
@@ -89,7 +96,7 @@ def check_input():
         if _coordinator.owner:
             return
     # Route controllers may run in another process. They honor the same lease.
-    path = _coordinator.path if _coordinator else Path('.runtime/merchant-input.lock')
+    path = _coordinator.path if _coordinator else INPUT_LOCK
     if path.exists() and not getattr(_scope,'active',False):
         import msvcrt
         with path.open('r+b') as file:
@@ -114,7 +121,7 @@ def input_scope():
     file = None
     owned = False
     try:
-        path = coordinator.path if coordinator else Path('.runtime/merchant-input.lock')
+        path = coordinator.path if coordinator else INPUT_LOCK
         path.parent.mkdir(parents=True,exist_ok=True)
         file = path.open('a+b')
         file.seek(0,2)

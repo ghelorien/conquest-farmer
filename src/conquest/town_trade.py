@@ -19,7 +19,8 @@ from conquest.reconnect import login_screen
 # Explicitly identified low-value consumables, inferior to this route's Painkiller
 # or unnecessary mana supplies for the archer. Never blanket-sell special IDs.
 JUNK_CONSUMABLES = frozenset((1000000,1000010,1001000,1001010,1001020))
-PROTECTED_VALUABLES = frozenset((1088000,1088001,720027))
+from conquest.valuables import SPECIAL_LOOT_TYPES,storage_only
+PROTECTED_VALUABLES = SPECIAL_LOOT_TYPES
 
 
 def stash_candidate(item):
@@ -38,6 +39,7 @@ def junk_type(type_id):
 def sale_candidate(item):
     get=item.get if isinstance(item,dict) else lambda key,default=None:getattr(item,key,default)
     kind=get('type_id')
+    if kind in PROTECTED_VALUABLES or storage_only(item):return False
     if junk_type(kind):
         return True
     # User authorized sales after inspecting the client formatter's + field.

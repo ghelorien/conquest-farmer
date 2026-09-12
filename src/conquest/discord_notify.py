@@ -242,9 +242,11 @@ def major_status(app, route, now, alive=process_alive):
     return None, 0
 
 def notable_drop(row):
+    from conquest.valuables import SPECIAL_LOOT_TYPES
+    from conquest.valuables import SPECIAL_LOOT_TYPES
     kind=row.get('type_id',0)
     # Type quality is observable; never infer a per-instance + value from it.
-    return (kind in (1088000,1088001) or 700000<=kind<=700099
+    return (kind in SPECIAL_LOOT_TYPES or 700000<=kind<=700099
             or (100000<=kind<600000 and kind%10>=7)
             or (isinstance(row.get('plus'),int) and row['plus']>0))
 

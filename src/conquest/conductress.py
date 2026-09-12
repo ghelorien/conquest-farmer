@@ -65,6 +65,8 @@ def read_dialog(observer):
     actor=life.object_address
     header=s.read_block(actor+0x1060,32)
     table,capacity,first,count=struct.unpack('<4Q',header)
+    if count==0 and (capacity==0 or (capacity<=128 and not capacity&(capacity-1))):
+        raise ValueError('NPC dialog is absent')
     if not 1<=count<=32 or not count<=capacity<=128 or capacity&(capacity-1):
         raise ValueError('NPC dialog deque is invalid')
     pointers=s.read_block(checked_address(table),capacity*8)

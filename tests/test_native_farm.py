@@ -1,5 +1,5 @@
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass,replace
 from types import SimpleNamespace
 import threading
 
@@ -46,6 +46,20 @@ def test_loot_click_uses_memory_camera_anchor_in_resized_viewport(monkeypatch):
     monkeypatch.setattr('conquest.scene_input.memory_player_anchor',lambda *args:(950,600))
     meteor=GroundItem(1,1000,1088001,(11,10))
     supervisor.ground_items=lambda:(meteor,)
+    clicks=[]
+    supervisor.loot_step(SimpleNamespace(silver=0,items=(),capacity=40),(10,10),
+                         lambda point,**kw:clicks.append(point))
+    assert clicks==[(982,616)]
+
+
+@pytest.mark.parametrize('kind',sorted(__import__('conquest.valuables',fromlist=['DRAGONBALL_TYPES']).DRAGONBALL_TYPES))
+def test_every_dragonball_has_priority_over_closer_super_gear(monkeypatch,kind):
+    from conquest.memory_ground import GroundItem
+    supervisor,_,life,_=setup(monkeypatch)
+    life.dead_candidate=False
+    supervisor.observer.adapter=SimpleNamespace(viewport_size=lambda:(1420,1009))
+    monkeypatch.setattr('conquest.scene_input.memory_player_anchor',lambda *args:(950,600))
+    supervisor.ground_items=lambda:(GroundItem(1,1000,130009,(10,10)),GroundItem(2,2000,kind,(11,10)))
     clicks=[]
     supervisor.loot_step(SimpleNamespace(silver=0,items=(),capacity=40),(10,10),
                          lambda point,**kw:clicks.append(point))
@@ -294,7 +308,7 @@ def test_chase_uses_health_checked_monsters_including_offscreen_not_corpse_recor
     monkeypatch.setattr(monster_health,'read_monster_health',hp)
     supervisor.observer.entities=SimpleNamespace(layout=None,read=lambda:SimpleNamespace(monsters=(dead,living,unknown)))
     assert supervisor.memory_targets()==[]  # Living target is not yet clickable.
-    assert supervisor.chase_monsters==(living,)
+    assert supervisor.chase_monsters==(replace(living,current_hp=81),)
     destinations=[]
     def path(source,destination,**kwargs):
         destinations.append(destination)
@@ -586,7 +600,7 @@ def test_unselected_distant_attacker_is_available_for_escape_not_attack(monkeypa
     threat=MonsterObservation(1000,25,'HeavyGhostL23',(18,10),(774,524),1096,23,type_id=64)
     supervisor.observer.entities=SimpleNamespace(layout=None,read=lambda:SimpleNamespace(monsters=[threat]))
     assert supervisor.memory_targets()==[]
-    assert list(supervisor.escape_monsters)==[threat]
+    assert list(supervisor.escape_monsters)==[replace(threat,current_hp=81)]
     assert not supervisor.chase_monsters
 
 def test_unreachable_sweep_point_advances_to_forward_alternative(monkeypatch):

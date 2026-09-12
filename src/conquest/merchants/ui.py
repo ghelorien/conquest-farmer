@@ -88,7 +88,8 @@ class UnifiedUI:
         self.background_thread = None
         self.background_after = None
         self.background_after_job = None
-        app.sidebar.pack_forget()
+        sidebar_host=getattr(app,'sidebar_host',app.sidebar)
+        sidebar_host.pack_forget()
         self.header = ttk.Frame(self.root, padding=(12,6))
         self.header.pack(fill='x')
         self.timer_text = tk.StringVar(value='Loading shop timers…')
@@ -110,13 +111,19 @@ class UnifiedUI:
         for name,frame in self.frames.items():
             self.notebook.add(frame,text=name)
         app.content_parent = self.frames['Farmer']
-        app.sidebar.pack(in_=app.content_parent,side='left',fill='both',expand=True)
+        sidebar_host.pack(in_=app.content_parent,side='left',fill='both',expand=True)
+        # pack(in_=...) changes geometry ownership, not the native parent.
+        # These existing root children must sit above the newer notebook.
+        sidebar_host.lift()
+        app.pane.lift()
         self.coordinator = InputCoordinator(self.safe_to_yield,app.mouse_priority.active)
         self.runtime = MerchantRuntime(app.catalog,self.coordinator)
+        self.connect_threads={}
         from conquest.merchants.presentation import MerchantPresentation
         self.presentation = MerchantPresentation(self.runtime)
         self.coordinator.owner_allowed = lambda character:character=='Farmer' or self.runtime.input_allowed(character) or (
-            character in self.calibrating and not self.calibration_cancel[character].is_set())
+            not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
+            and character in self.calibrating and not self.calibration_cancel[character].is_set())
         self.coordinator.on_acquire = self.prepare_input
         self.coordinator.on_release = self.release_input
         # Get the process lock before installing any input hook or starting
@@ -162,6 +169,101 @@ class UnifiedUI:
 
     def dispatch(self, body):
         action = body.get('action')
+        if action=='start-readonly-diagnostics' and set(body)=={'action'}:
+            import subprocess,sys
+            from conquest.worker import request as worker_request
+            paths=[Path('.runtime')/f'merchant-diagnostic-{c.lower()}.json' for c in CHARACTERS]
+            if any(p.exists() for p in paths):
+                results=[worker_request(p,'health') for p in paths]
+                if not all(r.get('read_only') for r in results):
+                    raise ValueError('Existing diagnostic workers are not read-only')
+                return {'existing':True,'read_only':True}
+            process=getattr(self,'readonly_diagnostics',None)
+            if process is not None and process.poll() is None:
+                return {'pid':process.pid,'starting':True,'read_only':True}
+            for c in CHARACTERS:
+                if c not in self.runtime.observers:raise ValueError('Both merchants must be attached')
+                self.runtime.controllers[c].driver.memory.read()
+            self.readonly_diagnostics=subprocess.Popen([sys.executable,'scripts/start_merchant_diagnostics.py'],
+                cwd=Path.cwd(),creationflags=subprocess.CREATE_NO_WINDOW,
+                stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            return {'pid':self.readonly_diagnostics.pid,'read_only':True}
+        if action=='peer-identity-evidence' and set(body)=={'action','character','peer'}:
+            character=character_name(body['character']);peer=character_name(body['peer'])
+            if character==peer:raise ValueError('Choose two different merchant clients')
+            from conquest.merchants.identity_evidence import peer_evidence
+            source=self.runtime.observers.get(character);other=self.runtime.observers.get(peer)
+            if source is None or other is None:raise ValueError('Both merchants must be attached')
+            # Fixed order avoids opposite-direction diagnostic lock inversion.
+            first,second=sorted((source,other),key=lambda o:o.character)
+            with first.lock,second.lock:
+                before=self.runtime.controllers[peer].driver.memory.read()
+                evidence=peer_evidence(source,before)
+                after=self.runtime.controllers[peer].driver.memory.read()
+                if any(before[k]!=after[k] for k in ('identity','character_uid','position','map_id')):
+                    raise ValueError('Peer identity changed across client observations')
+                return evidence
+        if action=='connect-market' and set(body) in ({'action','character'},{'action','character','client_pid'}):
+            from conquest.merchants.connect_market import start
+            return start(self,body['character'],client_pid=body.get('client_pid'))
+        if action=='delivery-window' and set(body)=={'action','request_id'}:
+            key=body['request_id']
+            if not isinstance(key,str) or not 1<=len(key)<=100:
+                raise ValueError('Invalid delivery window ID')
+            # Reserve the work mode before a grant can let a refill worker
+            # start listing. The receiver's reserved trade remains permitted.
+            if not self.coordinator.lock.acquire(blocking=False):
+                raise ValueError('Wait for current merchant input to release')
+            try:
+                if self.coordinator.owner or self.coordinator.stopped:
+                    raise ValueError('Merchant delivery window is unavailable')
+                current=getattr(self.runtime,'delivery_window',None) or getattr(self.runtime,'refill_window',None)
+                if current:
+                    if current!=key or self.runtime.handoff!=key:
+                        raise ValueError('Another merchant delivery window is active')
+                    return {'requested':key}  # A retry cannot restart timers or revert refill to trade.
+                if getattr(self,'grant',None):
+                    raise ValueError('Release the current farmer grant before delivery')
+                self.runtime.delivery_window=key
+                self.runtime.refill_window=None
+                # Publish the release key before fallible journal writes. If a
+                # timer write fails, the caller can revoke this exact window;
+                # no grant has yet authorized merchant input.
+                self.runtime.handoff=key
+                for character in CHARACTERS:
+                    if self.runtime.refill_enabled(character):
+                        self.runtime.refills[character].start()
+            finally:self.coordinator.lock.release()
+            return {'requested':key}
+        if action=='delivery-refill' and set(body)=={'action','request_id'}:
+            key=body['request_id']
+            if (getattr(self.runtime,'delivery_window',None)!=key or self.runtime.handoff!=key
+                    or not self.grant or self.grant['request_id']!=key or not self.safe_to_yield()):
+                raise ValueError('Delivery refill requires the original unexpired safe window')
+            from conquest.merchants import delivery_operation as operation
+            receipt=operation.status(operation.Journal(operation.JOURNAL),key)
+            worker=getattr(self,'delivery_workers',{}).get(key)
+            if (not receipt or receipt['phase']!='verified' or worker and worker.is_alive()
+                    or getattr(self,'delivery_errors',{}).get(key)):
+                raise ValueError('Both delivery participants must reconcile before refill')
+            held=self.runtime.journal.get(receipt['character'],'delivery_reservation',{})
+            if held.get('request_id')!=key or held.get('phase')!='verified':
+                raise ValueError('Merchant stock hold has not been reconciled')
+            if not self.coordinator.lock.acquire(blocking=False):
+                raise ValueError('Wait for merchant input to release before refill')
+            try:
+                self.coordinator.check()
+                if self.coordinator.owner:raise ValueError('Merchant still owns delivery input')
+                self.runtime.refill_window=key
+                self.runtime.delivery_window=None
+            finally:self.coordinator.lock.release()
+            return {'refill':True,'expires_at':self.grant['expires_at']}
+        if action in ('delivery-start','delivery-status','delivery-readiness'):
+            from conquest.merchants.delivery_operation import dispatch
+            return dispatch(self,body)
+        if action in ('delivery-pair','delivery-reserve','delivery-ready','delivery-finish','delivery-source'):
+            from conquest.merchants.delivery_bridge import dispatch
+            return dispatch(self,body)
         if action=='status' and set(body)=={'action'}:
             return {'characters':self.runtime.status(),'input_owner':self.coordinator.owner,
                 'handoff_requested':self.runtime.handoff,'handoff_granted':bool(self.grant and self.safe_to_yield()),
@@ -246,6 +348,14 @@ class UnifiedUI:
             if type(after) is not int or after<0:
                 raise ValueError('Invalid receipt cursor')
             return {'events':self.runtime.journal.events(after)}
+        if action=='refill-check' and set(body)=={'action','request_id'}:
+            if not isinstance(body['request_id'],str) or not 1<=len(body['request_id'])<=100:
+                raise ValueError('Invalid request ID')
+            for character in CHARACTERS:
+                if self.runtime.refill_enabled(character):
+                    self.runtime.refills[character].start()
+            self.runtime.handoff=body['request_id']
+            return {'requested':body['request_id']}
         if action=='handoff-request' and set(body)=={'action','request_id'}:
             if not isinstance(body['request_id'],str) or not 1 <= len(body['request_id']) <=100:
                 raise ValueError('Invalid request ID')
@@ -255,9 +365,10 @@ class UnifiedUI:
             if (body['request_id'] != self.runtime.handoff or body['safe'] is not True
                     or body['revision'] != self.app.control.snapshot()['revision']
                     or type(body['expires_at']) not in (int,float)
-                    or not 0 < body['expires_at']-time.time() <= 30):
-                raise ValueError('Farmer must explicitly grant a current safe handoff (maximum 30 seconds)')
+                    or not 0 < body['expires_at']-time.time() <= 15):
+                raise ValueError('Farmer must explicitly grant a current safe handoff (maximum 15 seconds)')
             self.grant = dict(body)
+            self.runtime.work_deadline = body['expires_at']
             return {'granted':True}
         if action=='handoff-release' and set(body)=={'action','request_id'}:
             if body['request_id'] != self.runtime.handoff:
@@ -267,6 +378,9 @@ class UnifiedUI:
             if self.coordinator.owner:
                 return {'released':False,'waiting_for_input_release':True}
             self.runtime.handoff = None
+            self.runtime.delivery_window = None
+            self.runtime.refill_window = None
+            self.runtime.finish_handoff()
             return {'released':True}
         raise ValueError('Unsupported merchant command or arguments')
 
@@ -379,7 +493,7 @@ class UnifiedUI:
             'Use Update shop now when you want those prices applied.\n\n'
             'Auto-manage\nEnables incoming trades, new-stock listing, scheduled price updates and reconnect recovery. '
             'Pausing it also pauses an active shop update.\n\n'
-            'Auto-refill\nEvery five minutes, checks for empty shop slots and fills them from inventory using saved prices, '
+            'Auto-refill\nEvery fifteen minutes, checks for empty shop slots and fills them from inventory using saved prices, '
             'highest value first. Works independently of auto-manage. It does not reprice existing listings.\n\n'
             'Waiting items\nItems that need a safe price, free shop space or safe input. '
             'Each item has a reason in the Waiting items tab. Unknown prices are never guessed.\n\n'
@@ -394,6 +508,8 @@ class UnifiedUI:
         else:self.resume_refill(character)
 
     def pause(self, character):
+        connecting=self.runtime.connect_cancel.get(character)
+        if connecting:connecting.set()
         if self.background_probe.get('character')==character:
             self.background_cancel.set()
         cancel = self.calibration_cancel.get(character)
@@ -547,8 +663,18 @@ class UnifiedUI:
         self.resize_merchant(character,automatic=True)
 
     def prepare_input(self, character):
-        if character=='Farmer':
+        if character=='Farmer' or self.coordinator.purpose=='connect_launch':
             return
+        if self.coordinator.purpose=='connect':
+            observer=self.runtime.observers.get(character)
+            from conquest.reconnect import login_screen
+            if observer and login_screen(observer.operations.target.hwnd):
+                # Keep the native login shell until authentication completes;
+                # its activation handler must not compete with an owned host.
+                from conquest.focus_recovery import activate_client
+                if not activate_client(observer.operations.target.hwnd,observer.adapter.identity):
+                    raise ValueError('Activate the selected login client before continuing')
+                return
         done,result = threading.Event(),{}
         self.ui_requests.put((lambda:self.show_merchant(character),done,result))
         if not done.wait(5):

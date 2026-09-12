@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import struct
 import time
 
+from conquest.valuables import SPECIAL_LOOT_TYPES
 from conquest.addressing import checked_address
 from conquest.memory_entities import sample_fields
 
@@ -26,7 +27,7 @@ class GroundItem:
 def wanted_drop(drop):
     """User's ground allowlist; unknown enhancement never authorizes pickup."""
     gear = 100000 <= drop.type_id < 600000
-    return (drop.type_id in (1088000,1088001)
+    return (drop.type_id in SPECIAL_LOOT_TYPES
             or (gear and (drop.type_id % 10 == 9
                           or (type(drop.plus) is int and 1 <= drop.plus <= 12))))
 

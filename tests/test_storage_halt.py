@@ -17,6 +17,25 @@ def test_stop_is_persisted_before_disabling_controls(monkeypatch):
     assert read_json(h.HALT)['pending_uids']==[8]
 
 
+def test_storage_stop_preserves_specific_unavailable_destination_reason(monkeypatch):
+    from conquest.overnight import OvernightLoop,OvernightStopped
+    monkeypatch.setattr('conquest.worker.request',lambda *a:None)
+    loop=NS(info='worker',health=lambda:{'target':{'pid':42}},record=lambda *a,**kw:None)
+    note='Market warehouse full; merchant destination unavailable'
+    with pytest.raises(OvernightStopped,match=note):
+        h.request_stop(loop,{'capacity':1,'items':[{}]},[{'uid':8}],reason=note)
+    assert h.reason()==note
+    with pytest.raises(OvernightStopped,match=note):OvernightLoop.check_stop(loop)
+
+
+def test_reload_route_supports_cached_storage_module_without_new_helper(monkeypatch):
+    from conquest.overnight import OvernightLoop,OvernightStopped
+    monkeypatch.delattr(h,'reason')
+    write_json(h.HALT,{'active':True,'reason':'Stored halt reason'})
+    with pytest.raises(OvernightStopped,match='Stored halt reason'):
+        OvernightLoop.check_stop(NS())
+
+
 def test_halt_survives_polling_and_requires_manual_resume(tmp_path,monkeypatch):
     monkeypatch.chdir(tmp_path);(tmp_path/'.runtime').mkdir()
     write_json(h.HALT,{'active':True,'target':{'pid':42},'disconnected':False})

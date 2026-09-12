@@ -109,8 +109,10 @@ class OvernightLoop:
             out.write(json.dumps({'time':time.time(),'event':event,'phase':self.phase,**fields})+'\n')
 
     def check_stop(self):
-        from conquest.storage_halt import active,REASON
-        if active():raise OvernightStopped(REASON)
+        from conquest.storage_halt import active,HALT,REASON
+        if active():
+            from conquest.discord_notify import read_json
+            raise OvernightStopped(read_json(HALT).get('reason',REASON))
         if self.stop_path.exists() or ctypes.windll.user32.GetAsyncKeyState(0x7b)&0x8000:
             raise OvernightStopped('Stopped by user')
         if self.deadline is not None and time.monotonic() >= self.deadline:
@@ -430,6 +432,29 @@ class OvernightLoop:
             self.record('sale',receipt=self.town('sell',vendor_type=vendor_type,uid=junk['uid']))
         raise ValueError('Unexpected inventory turnover while selling')
 
+    def shopping_space(self,vendor_type,position):
+        """Free a completely full bag before a shop can reject an essential buy."""
+        bag=self.town('supplies')
+        if len(bag['items'])<bag['capacity']:
+            return False
+        from conquest.banking import open_warehouse,close_warehouse,stash_valuables
+        self.record('shopping_storage_required',activity='Freeing inventory space in the warehouse before shopping')
+        self.town('close',window='Shop');self.town('close',window='Inventory')
+        open_warehouse(self)
+        try:
+            # This emergency space recovery uses verified storage only. Routine
+            # merchant delivery remains after shopping, with transport cash held.
+            stash_valuables(self)
+            after=self.town('supplies')
+            if len(after['items'])>=after['capacity']:
+                raise ValueError('Inventory remains full after verified storage; no purchase issued')
+        finally:
+            from conquest.storage_halt import active
+            if not active():close_warehouse(self)
+        self.travel(tuple(position))
+        self.town('open',vendor_type=vendor_type)
+        return True
+
     def recycle_small_arrows(self):
         for _ in range(40):
             snapshot=self.town('supplies')
@@ -519,6 +544,7 @@ class OvernightLoop:
             self.travel(self.route.restock_anchor)
             self.town('open',vendor_type=3)
             self.sell_junk(3)
+            self.shopping_space(3,self.route.restock_anchor)
             for _ in range(30):
                 counts = supply_counts(self.town('supplies'),self.route)
                 if counts['potions'] >= self.route.supplies.healing_restock_to:
@@ -535,6 +561,7 @@ class OvernightLoop:
         self.town('open',vendor_type=5)
         self.sell_junk(5)
         self.recycle_small_arrows()
+        self.shopping_space(5,services['blacksmith'])
         from conquest.equipment import EquipmentReview
         review=EquipmentReview(self)
         review.visit(5)
@@ -564,16 +591,20 @@ class OvernightLoop:
                 self.town('close',window='Inventory')
         from conquest.session_plan import upgrade_circuit
         toured=upgrade_circuit(self) if review_both_cities else False
-        counts = supply_counts(self.town('supplies'),self.route)
+        self.town('close',window='Shop')
+        self.town('close',window='Inventory')
+        from conquest.banking import after_shopping
+        after_shopping(self)
+        # A bag full of protected loot is the reason for this visit. Storage
+        # must get its turn before the final free-space check can reject it.
+        counts=supply_counts(self.town('supplies'),self.route)
         if needs_town(counts,self.route):
             if toured:
                 self.restock(review_both_cities=False)
                 return
-            raise ValueError('Supplies or inventory room remain insufficient after restocking')
-        self.town('close',window='Shop')
-        self.town('close',window='Inventory')
-        from conquest.banking import after_shopping
-        if after_shopping(self):counts=supply_counts(self.town('supplies'),self.route)
+            raise ValueError('Supplies or inventory room remain insufficient after restocking and storage')
+        from conquest.merchants.handoff import service_window
+        service_window(self,town=True)
         self.cycles += 1
         self.record('restock_complete',supplies=counts)
 
@@ -668,6 +699,8 @@ class OvernightLoop:
             if not data.get('external_execution'):
                 # Preserve On through transient memory/reconnect interruptions.
                 request(self.info,'controls',{'enabled':True})
+            from conquest.merchants.handoff import service_window
+            service_window(self)
             time.sleep(1)
 
     def select_level_route(self,health=None):
@@ -742,6 +775,7 @@ class OvernightLoop:
 
     def return_to_route_map(self):
         from conquest.world_travel import travel_to_map
+        self.stop_farm()
         self.phase='recovering_route'
         self.record('returning_to_route_map',activity=f'Returning to {self.route.name} after map change')
         travel_to_map(self,self.route.map_id)
@@ -781,6 +815,12 @@ class OvernightLoop:
             self.record('supplies_ready',supplies=counts)
 
     def _run_route(self):
+        from conquest.merchants import delivery_journey
+        if delivery_journey.pending():
+            self.stop_farm()
+            delivery_journey.resume(self)
+            from conquest.banking import after_shopping
+            after_shopping(self)
         from conquest import meteor_banking
         if meteor_banking.pending():
             self.stop_farm()
@@ -793,6 +833,8 @@ class OvernightLoop:
             resume(self)
             from conquest.banking import close_warehouse
             close_warehouse(self)
+        if self.living()['embedded_controls']['life']['map_id']!=self.route.map_id:
+            self.return_to_route_map()
         from conquest.city_travel import ensure_city_visit
         ensure_city_visit(self)
         self.prepare_supplies()

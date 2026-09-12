@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "enabled": false,
+  "hunting_handoffs_enabled": false,
+  "parity_verified": false,
+  "refill_interval_seconds": 900,
+  "work_budget_seconds": 15,
+  "qualification_required": true,
+  "warehouse_fallback": true,
+  "note": "Enable only after farming parity and two-sided live delivery/reconnect qualification."
+}

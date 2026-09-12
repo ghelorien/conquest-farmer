@@ -51,11 +51,11 @@ def nearby_escape(terrain,position,monsters,*,anchor=None,avoid=(),viewport=(103
     return best[3]
 
 
-def park(loop,cancelled,notify):
+def park(loop,cancelled,notify,*,seconds=120,allow_town_retreat=True):
     """Keep travel healing/revival active until three quiet seconds are verified."""
     from conquest.travel_care import TravelStateChanged
     from conquest.navigation import read_terrain
-    stable_since=None;previous=None;started=time.monotonic();deadline=started+120;avoided=set()
+    stable_since=None;previous=None;started=time.monotonic();deadline=started+seconds;avoided=set()
     retreat=None;retreat_map=None
     while time.monotonic()<deadline:
         if cancelled.is_set():raise ValueError('Reload canceled by user')
@@ -83,7 +83,7 @@ def park(loop,cancelled,notify):
             try:
                 anchor=memory_player_anchor(SimpleNamespace(adapter=loop.care.session),SimpleNamespace(**life))
                 viewport=tuple(health.get('window',{}).get('client_size',(1036,793)))
-                if retreat is None and time.monotonic()-started>=15:
+                if allow_town_retreat and retreat is None and time.monotonic()-started>=15:
                     route=getattr(loop,'route',None)
                     if route:
                         candidate=(route.restock_anchor if route.restock_map_id==life['map_id'] else
@@ -122,6 +122,8 @@ def park(loop,cancelled,notify):
 
 
 def prepare(info,route_id,cancelled,notify):
+    from conquest.merchants.delivery_operation import guard_reload
+    guard_reload()
     from conquest.worker import request
     from conquest.overnight import OvernightLoop
     from conquest.route_controller import controller_guard
