@@ -79,6 +79,7 @@ def test_native_looter_ignores_discarded_record_but_accepts_a_new_drop():
     newer=replace(drop,uid=43,object_address=124,spawn_tick=101,plus=1)
     supervisor=NativeFarmSupervisor.__new__(NativeFarmSupervisor)
     supervisor.observer=NS(lock=nullcontext())
+    supervisor.player_anchor=lambda position:(518,396)
     supervisor.ownership_guard=lambda:None
     supervisor.pending_loot=None;supervisor.loot_wait_until=0
     supervisor.loot_cooldowns={};supervisor.last_loot_error=None

@@ -1,4 +1,5 @@
 """Bounded ordinary vendor input with fresh memory checks and trade receipts."""
+from conquest.viewport import size_for
 from dataclasses import asdict
 from pathlib import Path
 import time
@@ -97,8 +98,9 @@ class TownTrade:
 
     def click(self, point, button='left'):
         self.life(any_map=True)
+        from conquest.viewport import size_for
         try:
-            return foreground_click(self.observer.operations.target,*point,(1036,793),
+            return foreground_click(self.observer.operations.target,*point,size_for(self.observer),
                 button=button,require_foreground=True)
         except CaptureUnavailable as error:
             if 'no input sent' in str(error) or 'no button pressed' in str(error):
@@ -163,6 +165,7 @@ class TownTrade:
             self.input_attempted=True
             self.click((npc.draw_position[0],npc.draw_position[1]-32))
             self.conductress_npc=npc
+            self.service_npc=npc  # The shared geometry reader can scroll this dialogue.
             return {'interacted':True,'npc_id':npc.entity_id}
         if set(body)=={'action','destination'} and body['action']=='conductress-travel':
             from conquest.conductress import read_conductress,destination_point
@@ -245,7 +248,8 @@ class TownTrade:
                     ticks=2 if y<shop.grid.position[1]+8 else -2
                     self.life()
                     foreground_scroll(self.observer.operations.target,
-                        (round(shop.grid.position[0]+120),round(shop.grid.position[1]+160)),ticks)
+                        (round(shop.grid.position[0]+120),round(shop.grid.position[1]+160)),ticks,
+                        expected_size=size_for(self.observer))
                     continue
                 if self.shop.read(npc.entity_id)!=shop or self.vendor(body['vendor_type'])!=npc:
                     raise ValueError('Shop or vendor changed before buying')
@@ -337,7 +341,7 @@ class TownTrade:
                            round(target.position[1]+target.size[1]/2))
             self.life(any_map=True)
             self.input_attempted = True
-            foreground_drag(self.observer.operations.target,point,destination,(1036,793))
+            foreground_drag(self.observer.operations.target,point,destination,size_for(self.observer))
             self.verified_read(lambda:(self.inventory.read(),reader.read()),
                 lambda pair:deposit_received(item,before,stored,*pair),
                 'Warehouse deposit was not verified; no repeat input issued',timeout=5)
@@ -473,7 +477,7 @@ class TownTrade:
                            round(shop.window.position[1]+shop.window.size[1]-31))
             self.life()
             self.input_attempted = True
-            foreground_drag(self.observer.operations.target,point,destination,(1036,793))
+            foreground_drag(self.observer.operations.target,point,destination,size_for(self.observer))
             after = self.verified_read(self.inventory.read,
                 lambda after:item.uid not in {i.uid for i in after.items} and after.silver > before.silver,
                 'Sale was not verified; no further sale issued')

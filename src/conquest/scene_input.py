@@ -207,7 +207,9 @@ def memory_player_anchor(observer,life):
     raw=observer.adapter.read_block(address,24)
     position=struct.unpack_from('<2I',raw)
     anchor=struct.unpack_from('<2i',raw,16)
-    if position!=tuple(life.position) or not (0<anchor[0]<1036 and 0<anchor[1]<793):
+    from conquest.viewport import size_for
+    width,height=size_for(observer)
+    if position!=tuple(life.position) or not (0<anchor[0]<width and 0<anchor[1]<height):
         raise ValueError('Player draw position is unavailable or changed')
     if observer.adapter.read_block(address,24)!=raw:
         raise ValueError('Player projection changed during observation')
@@ -216,8 +218,11 @@ def memory_player_anchor(observer,life):
 
 def clear_route_point(point,bounds=(80,140,956,667)):
     """Exclude HUD/chat at the actual camera anchor, not the default center."""
+    from conquest.viewport import clear_scene
     x,y=point;left,top,right,bottom=bounds
-    return left<x<right and top<y<bottom and not (x<615 and (y>550 or y<170))
+    # Bounds come from scene_bounds; share its popup exclusions as well as
+    # its outside edges. Otherwise shortening can re-accept a blocked point.
+    return left<x<right and top<y<bottom and clear_scene(point,(right+80,bottom+126))
 
 
 def visible_route_delta(delta,anchor,bounds=(80,140,956,667)):

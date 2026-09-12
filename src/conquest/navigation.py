@@ -143,12 +143,12 @@ def clear_segment(terrain,start,end,*,avoid=()):
     return True
 
 
-def travel_waypoint(terrain,path,maximum_step=12,*,avoid=()):
+def travel_waypoint(terrain,path,maximum_step=12,*,avoid=(),viewport=(1036,793)):
     """Take the farthest visible checked landing; short segments remain runs."""
     source=path[0]
     for point in reversed(path[1:maximum_step*2+1]):
         if max(abs(a-b) for a,b in zip(source,point))>maximum_step:continue
-        dx,dy=native_movement_delta(point[0]-source[0],point[1]-source[1])
+        dx,dy=native_movement_delta(point[0]-source[0],point[1]-source[1],viewport=viewport)
         target=(source[0]+dx,source[1]+dy)
         if target!=tuple(source) and clear_segment(terrain,source,target,avoid=avoid):return target
     raise ValueError('No visible route landing point')
@@ -177,18 +177,19 @@ def straight_waypoints(path, maximum_step=4):
     return result
 
 
-def native_movement_delta(dx,dy):
+def native_movement_delta(dx,dy,*,viewport=(1036,793)):
     """Use the longest visible landing point outside HUD and chat controls."""
     length=max(abs(dx),abs(dy))
     for distance in range(min(12,round(length)),0,-1):
         x,y=round(dx*distance/length),round(dy*distance/length)
-        px,py=518+(x-y)*32,396+(x+y)*16
-        if 80<px<956 and 140<py<667 and not (px<615 and (py>550 or py<170)):
+        from conquest.viewport import clear_scene
+        px,py=viewport[0]//2+(x-y)*32,viewport[1]//2+(x+y)*16
+        if clear_scene((px,py),viewport):
             return x,y
     return 0,0
 
 
-def native_waypoint(path, maximum_step=12):
+def native_waypoint(path, maximum_step=12,*,viewport=(1036,793)):
     target=straight_waypoints(path,maximum_step)[1]
     source=path[0]
     if max(abs(target[0]-source[0]),abs(target[1]-source[1]))<3:
@@ -196,13 +197,13 @@ def native_waypoint(path, maximum_step=12):
         # Run to a nearby checked point using the client's walking pathfinder;
         # keep it below jump distance so this never jumps across a corner.
         target=tuple(path[min(4,len(path)-1)])
-    dx,dy=native_movement_delta(target[0]-source[0],target[1]-source[1])
+    dx,dy=native_movement_delta(target[0]-source[0],target[1]-source[1],viewport=viewport)
     if dx==dy==0:
         raise ValueError('No visible route landing point')
     return source[0]+dx,source[1]+dy
 
 
-def visible_cardinal_step(terrain,source,goal,anchor,*,avoid=(),allow_detour=False):
+def visible_cardinal_step(terrain,source,goal,anchor,*,avoid=(),allow_detour=False,bounds=(80,140,956,667)):
     """Find a clear straight detour when the shortest path is behind the HUD."""
     from conquest.scene_input import clear_route_point
     remaining=lambda p:abs(p[0]-goal[0])+abs(p[1]-goal[1])
@@ -213,7 +214,7 @@ def visible_cardinal_step(terrain,source,goal,anchor,*,avoid=(),allow_detour=Fal
             if point in avoid or not terrain.walkable(point):break
             px=anchor[0]+(dx-dy)*distance*32
             py=anchor[1]+(dx+dy)*distance*16
-            if clear_route_point((px,py)) and (allow_detour or remaining(point)<remaining(source)):
+            if clear_route_point((px,py),bounds) and (allow_detour or remaining(point)<remaining(source)):
                 candidates.append(point)
     return min(candidates,key=remaining) if candidates else None
 

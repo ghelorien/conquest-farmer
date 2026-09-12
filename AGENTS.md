@@ -50,11 +50,12 @@ there is no identified junk to sell and no required return scroll to replenish.
 
 # Supply refill quantities
 
-Latest user preference: refill to five selected healing potions and ten arrow
-packs maximum, counting every physical pack including partial and equipped
-ammunition across arrow tiers. Never buy arrows while carrying ten or more
-packs; preserve existing excess for use. Quantity targets (10,000 IronArrows
-or 2,000 LuckyArrows) never override this physical-pack cap.
+Latest user preference: refill to five selected healing potions and two arrow
+packs maximum: one equipped and one spare, counting partial packs across tiers.
+Prefer SpeedArrows from level 73 (5,000 per pack; 10,000 total), then IronArrows
+from level 32, then LuckyArrows. Never buy while carrying two or more packs;
+preserve existing excess for use. Use memory-qualified owned upgrades before
+buying, and fund the best eligible normal tier on required town visits.
 Keep existing excess potions to use normally; do not discard them to reach five.
 Keep warehouse funding, available inventory space, verified purchases and the
 empty-supplies/full-inventory town trigger. Do not restore old 1,600-arrow or

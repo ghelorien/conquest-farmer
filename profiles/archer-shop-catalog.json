@@ -2303,11 +2303,11 @@
   "cities": {
     "1011": {
       "5": {
-        "observed_at": 1789164084.2401009,
+        "observed_at": 1789224414.0788372,
         "products": [
           {
             "index": 0,
-            "address": 802298608,
+            "address": 487250896,
             "type_id": 1050000,
             "name": "LuckyArrow",
             "price": 200,
@@ -2325,7 +2325,7 @@
           },
           {
             "index": 1,
-            "address": 802294512,
+            "address": 487249104,
             "type_id": 1050001,
             "name": "IronArrow",
             "price": 4800,
@@ -2343,7 +2343,7 @@
           },
           {
             "index": 2,
-            "address": 802295024,
+            "address": 487246032,
             "type_id": 1050002,
             "name": "SpeedArrow",
             "price": 34000,
@@ -2361,7 +2361,7 @@
           },
           {
             "index": 3,
-            "address": 802289904,
+            "address": 487245264,
             "type_id": 1050020,
             "name": "DeftArrow",
             "price": 255,
@@ -2379,7 +2379,7 @@
           },
           {
             "index": 4,
-            "address": 802305520,
+            "address": 487257296,
             "type_id": 1050021,
             "name": "ThunderArrow",
             "price": 500,
@@ -2397,7 +2397,7 @@
           },
           {
             "index": 5,
-            "address": 802297072,
+            "address": 487251408,
             "type_id": 1050022,
             "name": "BombArrow",
             "price": 700,
@@ -2415,7 +2415,7 @@
           },
           {
             "index": 6,
-            "address": 802303984,
+            "address": 487252688,
             "type_id": 1050023,
             "name": "MineArrow",
             "price": 1050,
@@ -2433,7 +2433,7 @@
           },
           {
             "index": 7,
-            "address": 802304496,
+            "address": 487243216,
             "type_id": 1050030,
             "name": "FireArrow",
             "price": 215,
@@ -2451,7 +2451,7 @@
           },
           {
             "index": 8,
-            "address": 802290160,
+            "address": 487243472,
             "type_id": 1050031,
             "name": "BlazeArrow",
             "price": 480,
@@ -2469,7 +2469,7 @@
           },
           {
             "index": 9,
-            "address": 802294256,
+            "address": 487249872,
             "type_id": 1050032,
             "name": "RocketArrow",
             "price": 795,
@@ -2487,7 +2487,7 @@
           },
           {
             "index": 10,
-            "address": 802290416,
+            "address": 487245520,
             "type_id": 1050033,
             "name": "PowderArrow",
             "price": 1450,
@@ -2505,7 +2505,7 @@
           },
           {
             "index": 11,
-            "address": 802291952,
+            "address": 487243728,
             "type_id": 1050040,
             "name": "PoisonousArrow",
             "price": 300,
@@ -2523,7 +2523,7 @@
           },
           {
             "index": 12,
-            "address": 802291184,
+            "address": 487246288,
             "type_id": 1050041,
             "name": "CruelArrow",
             "price": 400,
@@ -2541,7 +2541,7 @@
           },
           {
             "index": 13,
-            "address": 802292208,
+            "address": 487250128,
             "type_id": 1050042,
             "name": "TracingArrow",
             "price": 500,
@@ -2559,7 +2559,7 @@
           },
           {
             "index": 14,
-            "address": 802292464,
+            "address": 487256016,
             "type_id": 1050043,
             "name": "FatalArrow",
             "price": 600,
@@ -2577,7 +2577,7 @@
           },
           {
             "index": 15,
-            "address": 802304240,
+            "address": 487248592,
             "type_id": 561003,
             "name": "WoodWand",
             "price": 102,
@@ -2595,7 +2595,7 @@
           },
           {
             "index": 16,
-            "address": 802295536,
+            "address": 487255504,
             "type_id": 561013,
             "name": "SlantWand",
             "price": 362,
@@ -2613,7 +2613,7 @@
           },
           {
             "index": 17,
-            "address": 802291440,
+            "address": 487257552,
             "type_id": 561025,
             "name": "IronwoodWand",
             "price": 550,
@@ -2631,7 +2631,7 @@
           },
           {
             "index": 18,
-            "address": 802298096,
+            "address": 487244752,
             "type_id": 561035,
             "name": "ContendWand",
             "price": 950,
@@ -2649,7 +2649,7 @@
           },
           {
             "index": 19,
-            "address": 802291696,
+            "address": 487257040,
             "type_id": 561045,
             "name": "TyrantWand",
             "price": 1500,
@@ -2667,7 +2667,7 @@
           },
           {
             "index": 20,
-            "address": 802292720,
+            "address": 487246544,
             "type_id": 561055,
             "name": "MonkWand",
             "price": 2300,
@@ -2685,7 +2685,7 @@
           },
           {
             "index": 21,
-            "address": 802293232,
+            "address": 487252176,
             "type_id": 561065,
             "name": "UnitWand",
             "price": 3295,
@@ -2703,7 +2703,7 @@
           },
           {
             "index": 22,
-            "address": 802302448,
+            "address": 487255760,
             "type_id": 561075,
             "name": "TigerWand",
             "price": 3900,
@@ -2721,7 +2721,7 @@
           },
           {
             "index": 23,
-            "address": 802297840,
+            "address": 487256272,
             "type_id": 561085,
             "name": "TimeWand",
             "price": 4900,
@@ -2739,7 +2739,7 @@
           },
           {
             "index": 24,
-            "address": 802293744,
+            "address": 487253200,
             "type_id": 561095,
             "name": "ShaolinWand",
             "price": 5920,
@@ -2757,7 +2757,7 @@
           },
           {
             "index": 25,
-            "address": 802301424,
+            "address": 487256528,
             "type_id": 561105,
             "name": "SpringWand",
             "price": 7300,
@@ -2775,7 +2775,7 @@
           },
           {
             "index": 26,
-            "address": 802294000,
+            "address": 487243984,
             "type_id": 561115,
             "name": "ContendWand",
             "price": 9990,
@@ -2793,7 +2793,7 @@
           },
           {
             "index": 27,
-            "address": 802294768,
+            "address": 487249360,
             "type_id": 561125,
             "name": "PeaceWand",
             "price": 12868,
@@ -2811,7 +2811,7 @@
           },
           {
             "index": 28,
-            "address": 802299376,
+            "address": 487251664,
             "type_id": 561135,
             "name": "IronWand",
             "price": 15128,
@@ -2829,7 +2829,7 @@
           },
           {
             "index": 29,
-            "address": 802300144,
+            "address": 487248080,
             "type_id": 561143,
             "name": "BrassWand",
             "price": 17188,
@@ -2847,7 +2847,7 @@
           },
           {
             "index": 30,
-            "address": 802303216,
+            "address": 487244240,
             "type_id": 561153,
             "name": "MountWand",
             "price": 22600,
@@ -2865,7 +2865,7 @@
           },
           {
             "index": 31,
-            "address": 802299632,
+            "address": 487241936,
             "type_id": 561163,
             "name": "HoundWand",
             "price": 28100,
@@ -2883,7 +2883,7 @@
           },
           {
             "index": 32,
-            "address": 802303472,
+            "address": 487245008,
             "type_id": 561173,
             "name": "ExorcisingWand",
             "price": 35000,
@@ -2901,7 +2901,7 @@
           },
           {
             "index": 33,
-            "address": 802300656,
+            "address": 487248336,
             "type_id": 510003,
             "name": "WoodGlaive",
             "price": 102,
@@ -2919,7 +2919,7 @@
           },
           {
             "index": 34,
-            "address": 802305008,
+            "address": 487251920,
             "type_id": 510013,
             "name": "LongGlaive",
             "price": 362,
@@ -2937,7 +2937,7 @@
           },
           {
             "index": 35,
-            "address": 802296048,
+            "address": 487246800,
             "type_id": 510025,
             "name": "StrangeGlaive",
             "price": 550,
@@ -2955,7 +2955,7 @@
           },
           {
             "index": 36,
-            "address": 802304752,
+            "address": 487250384,
             "type_id": 510035,
             "name": "PlainGlaive",
             "price": 950,
@@ -2973,7 +2973,7 @@
           },
           {
             "index": 37,
-            "address": 802296304,
+            "address": 487250640,
             "type_id": 510045,
             "name": "ScullGlaive",
             "price": 1500,
@@ -2991,7 +2991,7 @@
           },
           {
             "index": 38,
-            "address": 802296560,
+            "address": 487247312,
             "type_id": 510055,
             "name": "FlowerGlaive",
             "price": 2300,
@@ -3009,7 +3009,7 @@
           },
           {
             "index": 39,
-            "address": 802297328,
+            "address": 487247824,
             "type_id": 510065,
             "name": "FlakeGlaive",
             "price": 3295,
@@ -3027,7 +3027,7 @@
           },
           {
             "index": 40,
-            "address": 802303728,
+            "address": 487254480,
             "type_id": 510075,
             "name": "MoonGlaive",
             "price": 3900,
@@ -3045,7 +3045,7 @@
           },
           {
             "index": 41,
-            "address": 802297584,
+            "address": 487253456,
             "type_id": 510085,
             "name": "RockGlaive",
             "price": 4900,
@@ -3063,7 +3063,7 @@
           },
           {
             "index": 42,
-            "address": 802298352,
+            "address": 487248848,
             "type_id": 510095,
             "name": "UnionGlaive",
             "price": 5920,
@@ -3081,7 +3081,7 @@
           },
           {
             "index": 43,
-            "address": 802298864,
+            "address": 487253712,
             "type_id": 510105,
             "name": "SharpGlaive",
             "price": 7300,
@@ -3099,7 +3099,7 @@
           },
           {
             "index": 44,
-            "address": 802299888,
+            "address": 487253968,
             "type_id": 510115,
             "name": "AgeGlaive",
             "price": 9990,
@@ -3117,7 +3117,7 @@
           },
           {
             "index": 45,
-            "address": 802300400,
+            "address": 487254736,
             "type_id": 510125,
             "name": "HeavyGlaive",
             "price": 12868,
@@ -3135,7 +3135,7 @@
           },
           {
             "index": 46,
-            "address": 802300912,
+            "address": 487254992,
             "type_id": 510135,
             "name": "RingGlaive",
             "price": 15128,
@@ -3153,7 +3153,7 @@
           },
           {
             "index": 47,
-            "address": 802301680,
+            "address": 808852880,
             "type_id": 510143,
             "name": "WarGlaive",
             "price": 17188,
@@ -3171,7 +3171,7 @@
           },
           {
             "index": 48,
-            "address": 802280688,
+            "address": 808852368,
             "type_id": 510153,
             "name": "IronGlaive",
             "price": 22600,
@@ -3189,7 +3189,7 @@
           },
           {
             "index": 49,
-            "address": 802273776,
+            "address": 808845456,
             "type_id": 510163,
             "name": "TwinGlaive",
             "price": 28100,
@@ -3207,7 +3207,7 @@
           },
           {
             "index": 50,
-            "address": 802281200,
+            "address": 808853904,
             "type_id": 510173,
             "name": "MountGlaive",
             "price": 35000,
@@ -3226,11 +3226,11 @@
         ]
       },
       "4": {
-        "observed_at": 1789164087.115959,
+        "observed_at": 1789224419.3409407,
         "products": [
           {
             "index": 0,
-            "address": 802292720,
+            "address": 808856976,
             "type_id": 111335,
             "name": "ShiningHelmet",
             "price": 1000,
@@ -3248,7 +3248,7 @@
           },
           {
             "index": 1,
-            "address": 802303728,
+            "address": 808850576,
             "type_id": 111435,
             "name": "ShiningHelmet",
             "price": 1000,
@@ -3266,7 +3266,7 @@
           },
           {
             "index": 2,
-            "address": 802294512,
+            "address": 808857232,
             "type_id": 111345,
             "name": "SyeniticHelmet",
             "price": 1300,
@@ -3284,7 +3284,7 @@
           },
           {
             "index": 3,
-            "address": 802290160,
+            "address": 808844688,
             "type_id": 111445,
             "name": "SyeniticHelmet",
             "price": 1300,
@@ -3302,7 +3302,7 @@
           },
           {
             "index": 4,
-            "address": 802293232,
+            "address": 808844432,
             "type_id": 111355,
             "name": "PearlHelmet",
             "price": 2000,
@@ -3320,7 +3320,7 @@
           },
           {
             "index": 5,
-            "address": 802291184,
+            "address": 808841616,
             "type_id": 111455,
             "name": "PearlHelmet",
             "price": 2000,
@@ -3338,7 +3338,7 @@
           },
           {
             "index": 6,
-            "address": 802290416,
+            "address": 808852624,
             "type_id": 111363,
             "name": "GoldHelmet",
             "price": 6465,
@@ -3356,7 +3356,7 @@
           },
           {
             "index": 7,
-            "address": 802301680,
+            "address": 808848528,
             "type_id": 111463,
             "name": "GoldHelmet",
             "price": 6465,
@@ -3374,7 +3374,7 @@
           },
           {
             "index": 8,
-            "address": 802295536,
+            "address": 808841360,
             "type_id": 111373,
             "name": "DragonHelmet",
             "price": 11770,
@@ -3392,7 +3392,7 @@
           },
           {
             "index": 9,
-            "address": 802289904,
+            "address": 808854160,
             "type_id": 111473,
             "name": "DragonHelmet",
             "price": 11770,
@@ -3410,7 +3410,7 @@
           },
           {
             "index": 10,
-            "address": 802304496,
+            "address": 808845712,
             "type_id": 113305,
             "name": "BadgerHat",
             "price": 300,
@@ -3428,7 +3428,7 @@
           },
           {
             "index": 11,
-            "address": 802299888,
+            "address": 808844944,
             "type_id": 113405,
             "name": "BadgerHat",
             "price": 300,
@@ -3446,7 +3446,7 @@
           },
           {
             "index": 12,
-            "address": 802302448,
+            "address": 808842640,
             "type_id": 113315,
             "name": "CatHat",
             "price": 400,
@@ -3464,7 +3464,7 @@
           },
           {
             "index": 13,
-            "address": 802294000,
+            "address": 808849808,
             "type_id": 113415,
             "name": "CatHat",
             "price": 400,
@@ -3482,7 +3482,7 @@
           },
           {
             "index": 14,
-            "address": 802291440,
+            "address": 808846736,
             "type_id": 113325,
             "name": "JackalHat",
             "price": 1000,
@@ -3500,7 +3500,7 @@
           },
           {
             "index": 15,
-            "address": 802303216,
+            "address": 808847248,
             "type_id": 113425,
             "name": "JackalHat",
             "price": 1000,
@@ -3518,7 +3518,7 @@
           },
           {
             "index": 16,
-            "address": 802296048,
+            "address": 808848784,
             "type_id": 113335,
             "name": "LeopardHat",
             "price": 2000,
@@ -3536,7 +3536,7 @@
           },
           {
             "index": 17,
-            "address": 802303472,
+            "address": 808843408,
             "type_id": 113435,
             "name": "LeopardHat",
             "price": 2000,
@@ -3554,7 +3554,7 @@
           },
           {
             "index": 18,
-            "address": 802294768,
+            "address": 808851088,
             "type_id": 113343,
             "name": "ApeHat",
             "price": 2600,
@@ -3572,7 +3572,7 @@
           },
           {
             "index": 19,
-            "address": 802297072,
+            "address": 808853392,
             "type_id": 113443,
             "name": "ApeHat",
             "price": 2600,
@@ -3590,7 +3590,7 @@
           },
           {
             "index": 20,
-            "address": 802301424,
+            "address": 808856208,
             "type_id": 900315,
             "name": "RattanShield",
             "price": 4380,
@@ -3608,7 +3608,7 @@
           },
           {
             "index": 21,
-            "address": 802303984,
+            "address": 808841872,
             "type_id": 900415,
             "name": "RattanShield",
             "price": 4380,
@@ -3626,7 +3626,7 @@
           },
           {
             "index": 22,
-            "address": 802294256,
+            "address": 808848016,
             "type_id": 900335,
             "name": "SteelShield",
             "price": 8618,
@@ -3644,7 +3644,7 @@
           },
           {
             "index": 23,
-            "address": 802292208,
+            "address": 808846992,
             "type_id": 900435,
             "name": "SteelShield",
             "price": 8618,
@@ -3662,7 +3662,7 @@
           },
           {
             "index": 24,
-            "address": 802291696,
+            "address": 808853648,
             "type_id": 900353,
             "name": "LionShield",
             "price": 17000,
@@ -3680,7 +3680,7 @@
           },
           {
             "index": 25,
-            "address": 802305520,
+            "address": 808855696,
             "type_id": 900453,
             "name": "LionShield",
             "price": 17000,
@@ -3698,7 +3698,7 @@
           },
           {
             "index": 26,
-            "address": 802304240,
+            "address": 808849296,
             "type_id": 900373,
             "name": "SolidShield",
             "price": 30960,
@@ -3716,7 +3716,7 @@
           },
           {
             "index": 27,
-            "address": 802291952,
+            "address": 808845456,
             "type_id": 900473,
             "name": "SolidShield",
             "price": 30960,
@@ -3734,7 +3734,7 @@
           },
           {
             "index": 28,
-            "address": 802298096,
+            "address": 808843152,
             "type_id": 114335,
             "name": "StoneCap",
             "price": 1000,
@@ -3752,7 +3752,7 @@
           },
           {
             "index": 29,
-            "address": 802296304,
+            "address": 808852880,
             "type_id": 114435,
             "name": "StoneCap",
             "price": 1000,
@@ -3770,7 +3770,7 @@
           },
           {
             "index": 30,
-            "address": 802292464,
+            "address": 808847504,
             "type_id": 114345,
             "name": "CloudCap",
             "price": 1300,
@@ -3788,7 +3788,7 @@
           },
           {
             "index": 31,
-            "address": 802297584,
+            "address": 808851856,
             "type_id": 114445,
             "name": "CloudCap",
             "price": 1300,
@@ -3806,7 +3806,7 @@
           },
           {
             "index": 32,
-            "address": 802293744,
+            "address": 808842896,
             "type_id": 114355,
             "name": "LotusCap",
             "price": 2000,
@@ -3824,7 +3824,7 @@
           },
           {
             "index": 33,
-            "address": 802300400,
+            "address": 808845968,
             "type_id": 114455,
             "name": "LotusCap",
             "price": 2000,
@@ -3842,7 +3842,7 @@
           },
           {
             "index": 34,
-            "address": 802299376,
+            "address": 808843664,
             "type_id": 114363,
             "name": "SharkCap",
             "price": 6465,
@@ -3860,7 +3860,7 @@
           },
           {
             "index": 35,
-            "address": 802295024,
+            "address": 808853904,
             "type_id": 114463,
             "name": "SharkCap",
             "price": 6465,
@@ -3878,7 +3878,7 @@
           },
           {
             "index": 36,
-            "address": 802305008,
+            "address": 808844176,
             "type_id": 114373,
             "name": "DragonCap",
             "price": 11770,
@@ -3896,7 +3896,7 @@
           },
           {
             "index": 37,
-            "address": 802296560,
+            "address": 808856464,
             "type_id": 114473,
             "name": "DragonCap",
             "price": 11770,
@@ -3914,7 +3914,7 @@
           },
           {
             "index": 38,
-            "address": 802298352,
+            "address": 808849040,
             "type_id": 118335,
             "name": "SteelCoronet",
             "price": 1000,
@@ -3932,7 +3932,7 @@
           },
           {
             "index": 39,
-            "address": 802299632,
+            "address": 808854416,
             "type_id": 118345,
             "name": "JadeCoronet",
             "price": 1300,
@@ -3950,7 +3950,7 @@
           },
           {
             "index": 40,
-            "address": 802297328,
+            "address": 808846224,
             "type_id": 118355,
             "name": "GoldCoronet",
             "price": 2000,
@@ -3968,7 +3968,7 @@
           },
           {
             "index": 41,
-            "address": 802298608,
+            "address": 808842128,
             "type_id": 118363,
             "name": "WarCoronet",
             "price": 6465,
@@ -3986,7 +3986,7 @@
           },
           {
             "index": 42,
-            "address": 802297840,
+            "address": 808842384,
             "type_id": 118373,
             "name": "HerculesCoronet",
             "price": 11770,

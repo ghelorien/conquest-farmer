@@ -154,6 +154,21 @@ def test_window_input_mode_tracks_applied_host_state(bridge,saved,mode,expected)
     assert service.native_probe_mode is True  # Owned reattachment keeps travel input.
 
 
+def test_reattach_accepts_on_intent_and_reports_applied_state(bridge):
+    service,info,calls,control=bridge
+    queued=[];service.on_native_window=queued.append
+    service.sync_window_mode(SimpleNamespace(saved=None,mode='owned'))
+    control['enabled']=True
+    assert request(info,'native-window-mode',{'detached':False})=={'window_change_queued':True}
+    assert queued==[False]
+    assert request(info,'health')['window_mode']=='detached'
+    service.sync_window_mode(SimpleNamespace(saved=object(),mode='owned'))
+    assert request(info,'health')['window_mode']=='owned'
+    with pytest.raises(ValueError,match='Stop farming'):
+        request(info,'native-window-mode',{'detached':True})
+    assert queued==[False] and control['enabled']
+
+
 def test_ground_diagnostic_is_read_only_while_farming(bridge):
     service,info,calls,control=bridge
     service.on_town=lambda body:{'drops':[],'source':'read_only_memory'}

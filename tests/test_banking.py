@@ -44,13 +44,13 @@ def test_restock_withdrawal_budget_is_essential_supplies_and_fares(enabled,monke
     route=route.model_copy(update={'supplies':route.supplies.model_copy(update={'arrows_restock_to':1600,'healing_restock_to':10})})
     bag={'silver':200,'items':[{'type_id':1000020,'amount':2,'limit':1}],
          'equipped_ammo':{'type_id':1050000,'amount':100,'limit':200},'capacity':40}
-    assert b.shopping_budget(route,bag)==2280  # Eight cheap packs + eight potions + fares.
+    assert b.shopping_budget(route,bag)==880  # One spare pack + eight potions + fares.
     calls=[];loop=NS(route=route,town=lambda action:bag)
     monkeypatch.setattr(b,'open_warehouse',lambda loop:{'silver':200,'stored_silver':10000})
     monkeypatch.setattr(b,'transfer',lambda loop,direction,amount:calls.append((direction,amount)))
     monkeypatch.setattr(b,'close_warehouse',lambda loop:None)
     assert b.fund_restock(loop)
-    assert calls==[('withdraw',2080)]
+    assert calls==[('withdraw',680)]
 
 @pytest.mark.parametrize('reachable',[True,False])
 def test_warehouse_approach_uses_live_reachability(reachable):
@@ -120,7 +120,7 @@ def test_unverified_valuable_deposit_is_not_repeated():
     assert calls==['warehouse-deposit']
 
 
-def test_bandit_ten_pack_refill_withdraws_full_shopping_budget(enabled,monkeypatch):
+def test_bandit_two_pack_refill_withdraws_full_shopping_budget(enabled,monkeypatch):
     from conquest.routes import RouteLibrary
     route=RouteLibrary().load('bandit')
     bag={'silver':200,'items':[],
@@ -130,8 +130,40 @@ def test_bandit_ten_pack_refill_withdraws_full_shopping_budget(enabled,monkeypat
     monkeypatch.setattr(b,'transfer',lambda loop,direction,amount:calls.append((direction,amount)))
     monkeypatch.setattr(b,'close_warehouse',lambda loop:None)
     assert b.fund_restock(loop)
-    # Ten 4,800-silver packs, five 60-silver potions, 3,000 spending reserve.
-    assert calls==[('withdraw',51300)]
+    # Two 4,800-silver packs, five 60-silver potions, 3,000 spending reserve.
+    assert calls==[('withdraw',12900)]
+
+
+def test_level_73_budget_funds_speed_upgrade_only_when_pack_room_exists(monkeypatch):
+    from conquest.routes import RouteLibrary
+    route=RouteLibrary().load('bandit')
+    route=route.model_copy(update={'supplies':route.supplies.model_copy(update={
+        'arrow_type':1050001,'arrows_restock_to':2000,'healing_restock_to':5})})
+    original=b.read_json
+    catalog={'cities':{str(route.restock_map_id):{'5':{'products':[
+        {'type_id':1050001,'level':32,'price':4800},
+        {'type_id':1050002,'level':73,'price':34000}]}}}}
+    monkeypatch.setattr(b,'read_json',lambda path,*a,**kw:catalog if str(path).endswith('archer-shop-catalog.json') else original(path,*a,**kw))
+    monkeypatch.setattr(b,'transport_reserve',lambda:200)
+    bag={'items':[{'uid':1,'type_id':1050001,'amount':1000,'limit':1000},
+                  {'uid':2,'type_id':1000020,'amount':5,'limit':1}],
+         'equipped_ammo':None,'capacity':40,'silver':200}
+    assert b.shopping_budget(route,bag,level=72)==8000
+    assert b.shopping_budget(route,bag,level=73)==37200
+    bag['items'].append({'uid':3,'type_id':1050001,'amount':1000,'limit':1000})
+    assert b.shopping_budget(route,bag,level=73)==200
+
+
+def test_two_speed_packs_require_no_refill_funds_when_equipped_is_partial(monkeypatch):
+    from conquest.routes import RouteLibrary
+    route=RouteLibrary().load('bandit')
+    route=route.model_copy(update={'supplies':route.supplies.model_copy(update={
+        'arrow_type':1050002,'arrows_restock_to':10000,'healing_restock_to':5})})
+    monkeypatch.setattr(b,'transport_reserve',lambda:200)
+    bag={'items':[{'uid':1,'type_id':1050002,'amount':5000,'limit':5000},
+                  {'uid':2,'type_id':1000020,'amount':5,'limit':1}],
+         'equipped_ammo':{'uid':3,'type_id':1050002,'amount':4,'limit':5000},'capacity':40,'silver':200}
+    assert b.shopping_budget(route,bag,level=73)==200
 
 def test_market_open_uses_one_lower_click_then_verifies(monkeypatch):
     monkeypatch.setattr(b.time,'sleep',lambda _:None)

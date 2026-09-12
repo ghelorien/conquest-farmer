@@ -1,6 +1,14 @@
 """Normal archer ammunition selection from live equipment and shop records."""
 NORMAL_ARROWS={1050000:'LuckyArrow',1050001:'IronArrow',1050002:'SpeedArrow'}
-MAX_ARROW_PACKS=10
+ARROW_LEVELS={1050000:1,1050001:32,1050002:73}
+# Latest preference: one equipped pack and one spare, across all normal tiers.
+MAX_ARROW_PACKS=2
+ARROW_REFILL_AMOUNTS={1050000:400,1050001:2000,1050002:10000}
+
+
+def preferred_arrow(level):
+    return max((kind for kind,required in ARROW_LEVELS.items() if required<=level),
+               key=ARROW_LEVELS.get,default=1050000)
 
 
 def arrow_pack_count(snapshot):
@@ -17,7 +25,7 @@ def arrow_pack_count(snapshot):
 
 def require_arrow_purchase_room(snapshot):
     if arrow_pack_count(snapshot)>=MAX_ARROW_PACKS:
-        raise ValueError('Arrow purchase blocked: already carrying ten or more packs')
+        raise ValueError('Arrow purchase blocked: already carrying two or more packs')
 
 
 def eligible_arrow(product,state):
@@ -28,29 +36,30 @@ def eligible_arrow(product,state):
 
 def current_arrow(state,default=1050000,reserves=()):
     item=state['equipment'].get('arrows')
-    if item and eligible_arrow(item,state):return item['type_id']
-    levels={1050000:1,1050001:32,1050002:73}
-    usable=[kind for kind in reserves if kind in levels and levels[kind]<=state['level']]
-    return max(usable,key=levels.get) if usable else default
+    usable=[kind for kind in reserves if kind in ARROW_LEVELS and ARROW_LEVELS[kind]<=state['level']]
+    if item and eligible_arrow(item,state):usable.append(item['type_id'])
+    return max(usable,key=ARROW_LEVELS.get) if usable else default
 
 
-def choose_arrow_upgrade(products,state,silver,reserve=3000):
+def choose_arrow_upgrade(products,state,silver,reserve=3000,*,carried=()):
     old=state['equipment'].get('arrows',{})
-    candidates=[p for p in products if eligible_arrow(p,state) and 0<p['price']<=silver-reserve
+    candidates=[p for p in products if eligible_arrow(p,state)
+        and (p['type_id'] in carried or 0<p['price']<=silver-reserve)
         and p['attack_min']>=old.get('attack_min',0) and p['attack_max']>=old.get('attack_max',0)
         and p['attack_min']+p['attack_max']>old.get('attack_min',0)+old.get('attack_max',0)]
     return max(candidates,key=lambda p:(p['attack_min']+p['attack_max'],-p['price']),default=None)
 
 
 def review_arrows(loop,products,state,silver):
-    product=choose_arrow_upgrade(products,state,silver)
+    bag=loop.town('supplies')
+    owned={i['type_id'] for i in bag['items'] if i['amount']>=3}
+    product=choose_arrow_upgrade(products,state,silver,carried=owned)
     if product:
-        bag=loop.town('supplies')
-        carried=[i for i in bag['items'] if i['type_id']==product['type_id'] and i['amount']>0]
+        carried=[i for i in bag['items'] if i['type_id']==product['type_id'] and i['amount']>=3]
         if carried:uid=max(carried,key=lambda i:i['amount'])['uid']
         else:
             if arrow_pack_count(bag)>=MAX_ARROW_PACKS:
-                loop.record('arrow_upgrade_deferred',activity='Using existing ammunition; ten-pack purchase cap reached')
+                loop.record('arrow_upgrade_deferred',activity='Using existing ammunition; two-pack purchase cap reached')
                 if hasattr(loop,'adopt_ammunition'):loop.adopt_ammunition(state)
                 return state
             loop.record('arrow_upgrade_buying',activity=f"Buying {product['name']} ammunition")

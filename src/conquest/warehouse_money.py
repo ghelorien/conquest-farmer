@@ -44,9 +44,12 @@ def type_amount(target,amount):
     from conquest.capture import CaptureUnavailable
     if type(amount) is not int or not 1<=amount<=999999999:raise ValueError('Invalid money amount')
     require_idle()
+    from conquest.viewport import validate_size
+    expected_size=validate_size(target.snapshot()['client_size'])
     def focus():
         view=target.snapshot()
-        if view['minimized'] or view['client_size']!=[1036,793] or target.backend.foreground()!=target.hwnd:
+        if (view['minimized'] or tuple(view['client_size'])!=expected_size
+                or target.backend.foreground()!=view.get('root_hwnd',target.hwnd)):
             raise CaptureUnavailable('Warehouse input lost focus')
     focus()
     keys=bind(target.backend.user,'GetAsyncKeyState',[c.c_int],c.c_short)

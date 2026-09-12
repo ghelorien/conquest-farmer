@@ -112,6 +112,20 @@ def test_changed_dialog_button_is_rejected(monkeypatch):
         reader.read()
 
 
+def test_reconnect_error_follows_live_width_and_wrapped_text_height(monkeypatch):
+    import struct,pytest
+    reader,blocks=error_reader_fixture(monkeypatch)
+    window=reader.gui.read('##ErrorModal')
+    window.position=(800.,500.);window.size=(500.,120.)
+    dc=bytearray(blocks[0x20e0])
+    struct.pack_into('<2f',dc,8,1292.,594.)
+    struct.pack_into('<f',dc,16,808.)
+    blocks[0x20e0]=bytes(dc)
+    assert reader.read()==(1050,603)
+    window.size=(500.,110.)
+    with pytest.raises(ValueError,match='layout changed'):reader.read()
+
+
 def test_exhausted_reconnect_reports_attention_once():
     now=[0.];events=[]
     def blocked():raise ValueError('Unrecognized login error')
@@ -144,3 +158,26 @@ def test_explicit_retry_clears_exhausted_state_and_waits_for_stable_login():
     assert len(calls)==3
     now[0]+=1;r.step(True)
     assert len(calls)==4 and r.failures==1
+
+
+def test_login_fields_and_button_follow_memory_form_origin(monkeypatch):
+    import hashlib,struct,pytest
+    from conquest import memory_shop
+    from conquest.reconnect import login_form_points
+    monkeypatch.setattr(memory_shop,'MemoryGui',lambda session:SimpleNamespace(base=0))
+    digests={b'fields':'2eeddcb3c87af4385b8b65fa1c77f8ebfa9c6da5bd18d6688e110eef6e192006',
+             b'button':'a414f6338c9dd8a7c33d0f7f64befc0d1484414dbca291b80f6efce3a676c298'}
+    original=hashlib.sha256
+    monkeypatch.setattr(hashlib,'sha256',lambda data:SimpleNamespace(hexdigest=lambda:digests[data]) if data in digests else original(data))
+    blocks={0xe67f0:b'fields',0xe6b8a:b'button'}
+    session=SimpleNamespace(read_block=lambda address,size:blocks[address])
+    for x,y in [(606.,562.),(414.,397.)]:
+        window=SimpleNamespace(address=0x2000,position=(x,y),size=(208.,186.),scroll=(0.,0.))
+        dc=[x+8,y+182,x+125,y+166,x+8,y+8,x+200,y+178,x+8,y+8,0,0,0,12]
+        blocks[0x20e0]=struct.pack('<14f',*dc)
+        assert login_form_points(session,window)==((int(x+104),int(y+33)),(int(x+104),int(y+71)),(int(x+104),int(y+153)))
+    dc[13]=16
+    blocks[0x20e0]=struct.pack('<14f',*dc)
+    with pytest.raises(ValueError,match='layout changed'):login_form_points(session,window)
+    blocks[0xe67f0]=b'changed'
+    with pytest.raises(ValueError,match='renderer changed'):login_form_points(session,window)

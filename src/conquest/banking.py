@@ -32,7 +32,7 @@ def transport_reserve():
     return max(policy().get('transport_reserve',200),2*max(fares,default=100))
 
 
-def shopping_budget(route,bag):
+def shopping_budget(route,bag,level=None):
     from conquest.overnight import supply_counts
     counts=supply_counts(bag,route)
     # These pack sizes/prices were independently verified in live purchases.
@@ -44,7 +44,9 @@ def shopping_budget(route,bag):
     ammo=bag.get('equipped_ammo')
     limits=[i['limit'] for i in bag['items'] if i['type_id']==kind]
     if ammo and ammo['type_id']==kind:limits.append(ammo['limit'])
-    pack=max(limits,default={1050000:200,1050001:1000}.get(kind,0))
+    # SpeedArrow capacity was supplied by the user; actual inventory limits
+    # take precedence and the shop price is still read before any purchase.
+    pack=max(limits,default={1050000:200,1050001:1000,1050002:5000}.get(kind,0))
     if not price or not pack:raise ValueError('Arrow refill budget is not qualified')
     from conquest.arrow_upgrades import MAX_ARROW_PACKS,arrow_pack_count
     packs=min(math.ceil(max(0,route.supplies.arrows_restock_to-counts['arrows'])/pack),
@@ -54,7 +56,15 @@ def shopping_budget(route,bag):
     from conquest.return_scroll import POLICY,TYPE
     scrolls=(max(0,2-sum(i['amount'] for i in bag['items'] if i['type_id']==TYPE))*200
              if route.restock_map_id==1002 and read_json(POLICY).get('enabled') else 0)
-    return transport_reserve()+arrows+healing+scrolls+(3000 if route.supplies.arrow_type!=1050000 and arrows else 0)
+    budget=transport_reserve()+arrows+healing+scrolls+(3000 if route.supplies.arrow_type!=1050000 and arrows else 0)
+    if level is not None and arrow_pack_count(bag)<MAX_ARROW_PACKS:
+        from conquest.arrow_upgrades import preferred_arrow,ARROW_LEVELS
+        best=preferred_arrow(level)
+        upgrade=next((p for p in products if p['type_id']==best and 0<p['price']
+                      and 1<=p.get('level',0)<=level),None)
+        if upgrade and ARROW_LEVELS[best]>ARROW_LEVELS.get(kind,0):
+            budget=max(budget,transport_reserve()+healing+scrolls+upgrade['price']+3000)
+    return budget
 
 
 def open_warehouse(loop):
@@ -115,11 +125,13 @@ def fund_restock(loop):
     bag=loop.town('supplies')
     from conquest.savings import configure_route
     loop.route=configure_route(loop.route,bag['silver']+read_json(STATUS).get('stored_silver',0))
-    if bag['silver']>=shopping_budget(loop.route,bag):return
+    from conquest.savings import savings_plan
+    level=None if savings_plan() else loop.town('gear').get('level')
+    if bag['silver']>=shopping_budget(loop.route,bag,level):return
     bank=open_warehouse(loop)
     try:
         loop.route=configure_route(loop.route,bank['silver']+bank['stored_silver'])
-        required=shopping_budget(loop.route,bag)
+        required=shopping_budget(loop.route,bag,level)
         amount=min(bank['stored_silver'],max(0,required-bank['silver']))
         if amount:transfer(loop,'withdraw',amount)
     finally:close_warehouse(loop)

@@ -24,6 +24,8 @@ class EmbeddedObserver:
                 read=self.session.read, read_block=self.session.read,
                 assert_identity=self.session.assert_identity,
                 request=lambda operation, body=None: self.operations.dispatch(operation,body or {}))
+            from conquest.viewport import logical_client_size
+            adapter.viewport_size=lambda:logical_client_size(hwnd)
             self.health = MemoryHealthReader(adapter, health_layout, character)
             self.entities = MemoryEntityReader(adapter, entity_layout)
             self.adapter,self.health_layout,self.character=adapter,health_layout,character

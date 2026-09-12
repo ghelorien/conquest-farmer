@@ -26,6 +26,7 @@ def setup(monkeypatch):
     life=Life()
     monkeypatch.setattr(native_farm,'logical_coordinates',nullcontext)
     monkeypatch.setattr(native_farm,'read_life',lambda *args:life)
+    monkeypatch.setattr('conquest.scene_input.memory_player_anchor',lambda *args:(518,396))
     observer=SimpleNamespace(lock=threading.RLock(),adapter=None,health_layout=None,character='Parasite',
         operations=SimpleNamespace(target=SimpleNamespace(snapshot=lambda:{'foreground':1,'root_hwnd':1,'minimized':False})))
     control=FarmingControl()
@@ -35,6 +36,20 @@ def setup(monkeypatch):
     supervisor=native_farm.NativeFarmSupervisor(observer,control,recovery,lambda *args:notifications.append(args))
     supervisor.ownership_guard=lambda:None
     return supervisor,control,life,notifications
+
+
+def test_loot_click_uses_memory_camera_anchor_in_resized_viewport(monkeypatch):
+    from conquest.memory_ground import GroundItem
+    supervisor,_,life,_=setup(monkeypatch)
+    life.dead_candidate=False
+    supervisor.observer.adapter=SimpleNamespace(viewport_size=lambda:(1420,1009))
+    monkeypatch.setattr('conquest.scene_input.memory_player_anchor',lambda *args:(950,600))
+    meteor=GroundItem(1,1000,1088001,(11,10))
+    supervisor.ground_items=lambda:(meteor,)
+    clicks=[]
+    supervisor.loot_step(SimpleNamespace(silver=0,items=(),capacity=40),(10,10),
+                         lambda point,**kw:clicks.append(point))
+    assert clicks==[(982,616)]
 
 
 def test_positive_hp_death_blocks_combat_before_ghost_animation(monkeypatch):
@@ -340,7 +355,7 @@ def test_successful_detour_restores_jumps_without_forgetting_failed_tiles(monkey
     supervisor.movement_failed((10,10),(22,10));avoided=dict(supervisor.movement_obstructions)
     supervisor.movement_succeeded((10,10),(10,11),arrived=False)
     assert supervisor.movement_run_until>0
-    supervisor.movement_succeeded((10,10),(10,14),arrived=True)
+    supervisor.movement_succeeded((10,10),(10,14),arrived=False)
     assert supervisor.movement_run_until==0 and supervisor.movement_obstructions==avoided
 
 

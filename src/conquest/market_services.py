@@ -1,11 +1,10 @@
 """Memory-qualified Market services and their ordinary dialog input."""
 from dataclasses import asdict
-import math
 import time
 from conquest.memory_npcs import VendorIdentity,NpcObservation
 from conquest.memory_entities import sample_fields
 from conquest.addressing import checked_address
-from conquest.conductress import read_dialog
+from conquest.conductress import read_dialog,dialog_option_point
 
 # Models from the installed npc.json, checked again in the live actor scene.
 MODELS={'Conductress':{280,287},'MillionaireLee':{4290,4294,4297},
@@ -66,26 +65,17 @@ def discover(entities,map_id,name):
 
 
 def dialog_snapshot(observer):
+    from conquest.viewport import size_for
     d=read_dialog(observer)
-    return {'records':d['records'],'window':asdict(d['window']),'table':d['table']}
+    return {'records':d['records'],'window':asdict(d['window']),'table':d['table'],
+            'viewport':size_for(observer)}
 
 
 def dialog_point(observer,option,expected_records):
     d=read_dialog(observer)
     if d['records']!=expected_records:raise ValueError('Service dialog changed before selection')
-    options=[r for r in d['records'] if r['kind']==1]
-    matches=[i for i,r in enumerate(options) if r['text']==option]
-    if len(matches)!=1 or any(r['kind']==2 for r in d['records']):
-        raise ValueError('Service choice is absent or ambiguous')
-    left,top,right,height=d['table'];window=d['window'];x,y=window.position
-    # Shared NPC dialog renderer: two columns of 22px rows, read from its DC.
-    if (window.scroll[0]!=0 or not math.isfinite(window.scroll[1]) or window.scroll[1]<0
-            or right-left!=220 or left!=x+20
-            or height!=math.ceil(len(options)/2)*22
-            or not y+20<=top<top+height<=y+window.size[1]):
-        raise ValueError('Service dialog layout is not qualified')
-    i=matches[0]
-    return round(left+(i%2+.5)*110),round(top+(i//2+.5)*22)
+    from conquest.viewport import size_for
+    return dialog_option_point(d,option,size_for(observer))
 
 
 def execute(trade,body):
@@ -114,7 +104,7 @@ def execute(trade,body):
     if action=='service-dialog' and set(body)=={'action'}:
         return dialog_snapshot(trade.observer)
     if action not in ('service-locate','service-open','service-select','service-scroll-dialog'):return None
-    expected={'action','name'}|({'option','records'} if action=='service-select' else {'records'} if action=='service-scroll-dialog' else set())
+    expected={'action','name'}|({'option','records'} if action in ('service-select','service-scroll-dialog') else set())
     if set(body)!=expected:raise ValueError('Unsupported service arguments')
     life=trade.life(any_map=True)
     identity,npc=discover(trade.observer.entities,life.map_id,body['name'])
@@ -128,13 +118,18 @@ def execute(trade,body):
         else:execute(trade,{'action':'service-close-panel','window':'Dialog'})
         point=(npc.draw_position[0],npc.draw_position[1]-32)
     elif action=='service-scroll-dialog':
+        from conquest.dialog_geometry import scroll_direction
+        from conquest.foreground import foreground_scroll
+        from conquest.viewport import size_for
         if npc!=getattr(trade,'service_npc',None):raise ValueError('Open this service before scrolling its dialog')
         data=read_dialog(trade.observer);w=data['window'];x,y=w.position
-        if (data['records']!=body['records'] or w.scroll[0]!=0
-                or data['table'][1]+data['table'][3]<=y+w.size[1]):
+        viewport=size_for(trade.observer)
+        direction=scroll_direction(data,body['option'],viewport)
+        if data['records']!=body['records'] or not direction:
             raise ValueError('Dialog does not require scrolling or its records changed')
-        point=(round(x+w.size[0]-7),round(y+w.size[1]-8))
-        if not(0<point[0]<1036 and 0<point[1]<793):raise ValueError('Scrollbar is outside the client')
+        point=(round(x+w.size[0]/2),round((y+24+min(y+w.size[1]-4,viewport[1]-4))/2))
+        if not(0<point[0]<viewport[0] and y+20<point[1]<min(y+w.size[1],viewport[1])):
+            raise ValueError('Dialog scroll target is outside the client')
         if read_dialog(trade.observer)!=data:raise ValueError('Dialog changed before scrolling')
     else:
         if npc!=getattr(trade,'service_npc',None):raise ValueError('Open this service before selecting its dialog')
@@ -144,6 +139,8 @@ def execute(trade,body):
     if action=='service-select' and dialog_point(trade.observer,body['option'],body['records'])!=point:
         raise ValueError('Service dialog moved before input')
     trade.input_attempted=True
-    trade.click(point)
+    if action=='service-scroll-dialog':
+        foreground_scroll(trade.observer.operations.target,point,direction,viewport)
+    else:trade.click(point)
     trade.service_npc=npc
     return {'interacted':True,'npc_id':npc.entity_id,'option':body.get('option')}

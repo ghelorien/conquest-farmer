@@ -1,5 +1,6 @@
 """Choose a long, terrain-checked jump into a fresh selected monster group."""
 import time
+from conquest.viewport import clear_scene,size_for
 
 
 def clear_jump(terrain,source,destination):
@@ -39,6 +40,7 @@ def wounded_group_in_range(supervisor,targets,position,radius):
 
 def scatter_landing(supervisor, targets, position, boundary, radius,minimum_count=1,*,anchor=(518,396)):
     terrain=supervisor.recovery.terrain
+    viewport=size_for(getattr(supervisor,'observer',None))
     observed=getattr(supervisor,'scatter_scene_targets',()) or targets
     x,y=position;left,top,right,bottom=boundary
     # Use the same hunt bounds as choose_target. Otherwise a dense group just
@@ -60,7 +62,7 @@ def scatter_landing(supervisor, targets, position, boundary, radius,minimum_coun
             if not(left<=point[0]<=right and top<=point[1]<=bottom):continue
             if point in live:continue  # Ctrl-clicking an actor can attack instead of jumping.
             px,py=anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16
-            if not(80<px<956 and 140<py<667) or (px<615 and (py>550 or py<170)):continue
+            if not clear_scene((px,py),viewport):continue
             if any(abs(px-t.x)<=24 and -40<=py-t.y<=10 for t in observed
                    if hasattr(t,'x') and hasattr(t,'y')):continue
             steps=max(abs(dx),abs(dy))*4

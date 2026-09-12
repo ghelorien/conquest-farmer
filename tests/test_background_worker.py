@@ -58,6 +58,7 @@ def test_changed_fingerprint_prevents_probe(probe_setup):
 
 def test_revive_has_separate_ghost_guard_and_fixed_point(probe_setup,monkeypatch):
     operations,_,_,body=probe_setup
+    operations.target=SimpleNamespace(snapshot=lambda:{'client_size':[1036,793]})
     life=SimpleNamespace(revive_ready_candidate=True,position=(435,453),map_id=1002)
     monkeypatch.setattr('conquest.memory_life.read_life',lambda *args:life)
     calls=[]
