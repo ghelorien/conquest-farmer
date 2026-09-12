@@ -8,6 +8,8 @@ from conquest.character_profiles import SETTING_TYPES, write_json, context_for
 
 def manage_profiles(registry,selected=None):
     from conquest.profile_bootstrap import offline_edit_ready
+    from conquest.window_host import use_unaware_dpi
+    use_unaware_dpi()  # Must precede the very first Tk HWND in this process.
     root=tk.Tk();root.title('Conquest — characters on this PC');root.geometry('900x670');root.minsize(640,480)
     from conquest.sidebar import ScrollableSidebar
     scroll=ScrollableSidebar(root);scroll.pack(fill='both',expand=True);frame=scroll.content
@@ -79,10 +81,40 @@ def manage_profiles(registry,selected=None):
         p=chosen()
         if not p.local_enabled:raise ValueError('Choose an enabled profile')
         result[0]=p.id;root.destroy()
+    def save_template():
+        p=chosen()
+        if not offline_edit_ready(registry.root):raise ValueError('Reconcile unfinished transactions first')
+        title=simpledialog.askstring('Settings template','Template name:',parent=root)
+        if not title:return
+        key=registry.save_template(title,json.loads(settings.get('1.0','end')))
+        registry.update(p.id,{'template':key,'overrides':{}},stopped=True,pending=False)
+        refresh(p.id)
+    def login():
+        p=chosen()
+        username=simpledialog.askstring('Local account','Account login (stored encrypted on this PC):',parent=root)
+        if username is None:return
+        password=simpledialog.askstring('Local account','Password:',show='*',parent=root)
+        if password is None:return
+        from conquest.profile_secrets import save_login
+        save_login(context_for(p.id,registry.root),username,password)
+        note.set('Login saved encrypted for the selected profile. It is never exported.')
+    def notification():
+        p=chosen()
+        value=simpledialog.askstring('Discord destination','Webhook URL (merchants share the shops channel on this PC):',show='*',parent=root)
+        if value:
+            from conquest.profile_secrets import save_notification_webhook
+            save_notification_webhook(context_for(p.id,registry.root),value)
+            note.set('Notification destination saved encrypted on this PC.')
     tree.bind('<<TreeviewSelect>>',load)
     row=ttk.Frame(frame);row.pack(fill='x')
-    for text,action in [('Add character',add),('Save changes',save),('Export settings',export),('Import settings',import_settings),('Game installation',installation)]:
-        ttk.Button(row,text=text,command=lambda f=action:guarded(f)).pack(side='left',padx=2)
+    for index,(text,action) in enumerate([('Add character',add),('Save changes',save),('Export settings',export),('Import settings',import_settings),('Game installation',installation),('Save as template',save_template),('Account login',login),('Discord destination',notification)]):
+        ttk.Button(row,text=text,command=lambda f=action:guarded(f)).grid(row=index//3,column=index%3,sticky='ew',padx=2,pady=2)
+        row.columnconfigure(index%3,weight=1)
+    def wrap(event):
+        width=max(240,event.width-24)
+        for widget in frame.winfo_children():
+            if isinstance(widget,ttk.Label) and int(widget.cget('wraplength') or 0)!=width:widget.configure(wraplength=width)
+    frame.bind('<Configure>',wrap,add='+')
     ttk.Button(frame,text='Open Conquest with selected profile',command=lambda:guarded(start)).pack(fill='x',pady=12)
     refresh(selected);scroll.bind_children();root.mainloop()
     return result[0]

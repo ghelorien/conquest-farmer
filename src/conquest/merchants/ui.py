@@ -653,6 +653,11 @@ class UnifiedUI:
         except (OSError,ValueError) as error:
             self.calibration_results[character] = {'verified':False,'note':str(error)}
 
+            status=getattr(self.runtime,'attachments',{}).get(character)
+            if status:
+                status.fail(error)
+                self.runtime.journal.set(character,'attachment',status.snapshot())
+
     def embed_merchant(self, character, *, automatic=False):
         if probe_busy(self):
             raise ValueError('Background diagnostic owns the client; wait for restoration')
@@ -671,6 +676,8 @@ class UnifiedUI:
         self.root.update_idletasks()
         pane = self.client_panes[character]
         from conquest.character_context import registry
+        status=getattr(self.runtime,'attachments',{}).get(character)
+        if status:status.enter('attachment',pane_size=[pane.winfo_width(),pane.winfo_height()])
         if registry():
             from conquest.client_attachment import require_viewport
             require_viewport(pane.winfo_width(),pane.winfo_height())
@@ -679,6 +686,9 @@ class UnifiedUI:
                         pane.winfo_width(),pane.winfo_height())
         self.resize_merchant(character,automatic=automatic)
         self.coordinator.surface_blocks[character]=False
+        if status:
+            status.attached=True;status.enter('behavior')
+            self.runtime.journal.set(character,'attachment',status.snapshot())
         return observer
 
     def show_merchant(self, character):

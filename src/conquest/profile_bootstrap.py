@@ -33,6 +33,21 @@ def initialize(repo,argv):
     args,_=parser.parse_known_args(argv)
     if args.data_root:os.environ['CONQUEST_DATA_ROOT']=str(Path(args.data_root).resolve())
     destination=data_root()
+    if not destination.exists() and not args.migrate_from and (Path(repo)/'reports/merchants/journal.sqlite3').exists():
+        # Explain and perform migration before the destination or any engine
+        # default paths are created. Cancel leaves the legacy setup intact.
+        import tkinter as tk
+        from tkinter import messagebox
+        from conquest.window_host import use_unaware_dpi
+        use_unaware_dpi();dialog=tk.Tk();dialog.withdraw()
+        try:
+            migrate=messagebox.askyesnocancel('Import existing Conquest setup',
+                'Import the existing farmer and merchant records into local character profiles?\n'
+                'Close the previous Conquest app first. Its files remain unchanged for rollback.\n'
+                'Choose No to create fresh paused profiles.',parent=dialog)
+        finally:dialog.destroy()
+        if migrate is None:raise SystemExit(0)
+        if migrate:args.migrate_from=str(Path(repo).resolve())
     if args.migrate_from:
         from conquest.profile_migration import migrate_legacy
         migrate_legacy(args.migrate_from,destination)
@@ -73,6 +88,10 @@ def select_profile(repo,args,destination):
 def offline_edit_ready(root):
     """Unfinished receipts must not be orphaned by changing roles or trust."""
     import sqlite3
+    terminal={'complete','completed','verified','aborted','cancelled','idle','skipped'}
+    for path in (Path(root)/'characters').glob('*/reports/banking/*.json'):
+        value=json.loads(path.read_text(encoding='utf-8'))
+        if value.get('phase') and value['phase'] not in terminal:return False
     path=Path(root)/'machine-state/reports/merchants/journal.sqlite3'
     if not path.exists():return True
     with closing(sqlite3.connect(f'file:{path.as_posix()}?mode=ro',uri=True)) as db:

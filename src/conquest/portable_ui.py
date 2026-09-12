@@ -13,6 +13,10 @@ def normalize_command(body):
     if profile_id is not None:
         p=r.resolve(profile_id)
         if p.id!=profile_id:raise ValueError('profile_id must be a stable profile ID')
+        if body.get('action')=='attach-farmer-client':
+            ctx=current()
+            if not ctx or p.id!=ctx.profile.id or p.role!='Farmer':raise ValueError('Select this farmer profile before attaching its client')
+            return body
         if 'character' in body and r.resolve(body['character']).id!=p.id:
             raise ValueError('Profile ID and character disagree')
         from conquest.character_context import resolve_merchant
@@ -54,6 +58,12 @@ def install(ui):
     ctx=current()
     if ctx and ctx.profile.role=='Farmer':
         ui.notebook.tab(ui.frames['Farmer'],text=(ctx.profile.label or ctx.profile.name)+' · Farmer')
+        def toggle_controls():
+            host=ui.app.sidebar_host
+            if host.winfo_manager():host.pack_forget()
+            else:host.pack(in_=ui.frames['Farmer'],side='left',fill='y');host.lift()
+            ui.root.update_idletasks()
+        ttk.Button(ui.header,text='Show / hide farmer controls',command=toggle_controls).pack(anchor='e')
     else:ui.notebook.hide(ui.frames['Farmer'])
     for p in r.profiles():
         from conquest.character_context import resolve_merchant
@@ -92,9 +102,10 @@ def diagnostics(ui,character):
     ctx=merchant_context(character);observer=ui.runtime.observers.get(character);host=ui.hosts.get(character)
     # Explicit allowlist. Neither bridge tokens nor arbitrary exception strings
     # or credentials are copied into support diagnostics.
+    status=getattr(ui.runtime,'attachments',{}).get(character)
     return {'profile_id':ctx.profile.id if ctx else None,'character':str(character),
         'attached':bool(host and host.saved),'memory_connected':observer is not None,
-        'stage':'attachment' if observer else 'discovery_or_identity',
+        'attachment':status.snapshot() if status else None,
         'geometry':ui.layout_status.get(character,{}),
         'automation_ready':bool(ui.runtime.status().get(character,{}).get('ready'))}
 

@@ -4,8 +4,9 @@ Windows Python diagnostics and a supervised Archer farming prototype using
 read-only process memory, normal input, YAML configuration, SQLite statistics,
 and a small local dashboard.
 
-The native app now includes Overview, Farmer, Spiritual and Dutch tabs around
-the existing farmer controls. Farmer routes, combat, loot policy and saved
+The portable UI review branch includes Overview and configurable character tabs
+around the existing farmer controls. See [portable profiles and hosting](docs/portable-character-profiles.md)
+for migration, local setup and the live validation gate. Farmer routes, combat, loot policy and saved
 configuration are preserved. Merchant listings/repricing, fifteen-minute inventory
 refill, sales totals and four-hour Discord reporting run in native scripts.
 Foreground actions share one input coordinator; the experimental background

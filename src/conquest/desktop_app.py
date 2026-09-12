@@ -88,7 +88,8 @@ class DesktopApp:
         self.sidebar_host=ScrollableSidebar(root)
         self.sidebar=self.sidebar_host.content
         self.sidebar_host.pack(side='left', fill='both', expand=True)
-        ttk.Label(self.sidebar, text='Conquest Farmer', font=('Segoe UI',20,'bold')).pack(anchor='w')
+        heading=(self.character_context.profile.label or self.character_context.profile.name) if self.character_context else 'Conquest Farmer'
+        ttk.Label(self.sidebar, text=heading, font=('Segoe UI',20,'bold')).pack(anchor='w')
         self.client_text = tk.StringVar(value='Finding Conquer…')
         self.client_footer = ttk.Frame(self.sidebar)
         self.route_details_frame = ttk.Frame(self.client_footer, padding=(0,6))
@@ -218,9 +219,7 @@ class DesktopApp:
         self.sidebar_host.bind_children()
         self.refresh_client()
         self.record(state='Off')
-        if not ctypes.windll.shell32.IsUserAnAdmin():
-            self.start_button.configure(text='Start farming (Windows approval)')
-            self.detail_text.set('Conquer requires administrator access. Start requests Windows approval once, then starts this app and returns to Conquer. No approval means no farming.')
+        self.detail_text.set('Embedding checks actual memory access. Administrator access is only relevant if Windows denies that read.')
         root.after(200, self.poll)
         root.after(25, self.poll_pointer_focus)
         try:
@@ -599,12 +598,12 @@ class DesktopApp:
                 return
             if self.host.saved or (self.thread and self.thread.is_alive()):
                 raise ValueError('Stop farming and release the current client before launching another')
-            if self.requires_elevation and not ctypes.windll.shell32.IsUserAnAdmin():
-                self.state_text.set('Waiting for Windows approval…')
-                self.root.update_idletasks()
-                elevated_start(self.root.winfo_id(),Path(__file__).resolve().parents[2],self.profile,launch_client=True)
-                self.root.destroy()
-                return
+            if self.character_context:
+                from conquest.character_context import current
+                context=current()
+                if not context.installation:raise ValueError('Configure this character’s game installation on this PC first')
+                launcher=context.installation/'ImBootstrapper.exe'
+                self.launch_watch=LaunchWatch(self.catalog,[str(launcher)],cwd=launcher.parent)
             self.launch_watch.start()
             self.launch_button.configure(text='Cancel launch')
             self.state_text.set(self.launch_watch.note)
@@ -709,6 +708,8 @@ class DesktopApp:
                     self.runtime.recovery.enabled=(self.character_context.settings.get('recover_after_death',self.selected_route.recover_after_death) if self.character_context else self.selected_route.recover_after_death)
             self.record(worker_info_path=str(worker_info.resolve()))
         self.attachment.ready=True
+        self.attachment.attached=bool(self.host.saved)
+        if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=False
         self.attachment_text.set('Client attached · automation ready · farming Off')
 
     def retry_behavior_setup(self):
@@ -742,6 +743,9 @@ class DesktopApp:
                         raise ValueError('Stop farming before detaching the client')
                     self.host.detach()
                 elif not self.host.saved:
+                    if getattr(self,'character_context',None):
+                        from conquest.client_attachment import require_viewport
+                        require_viewport(self.pane.winfo_width(),self.pane.winfo_height())
                     # The same lock serializes bridge input and window changes.
                     # On may already be queued; it must not veto reattachment.
                     self.host.attach(self.client[1],self.client[2],self.pane.winfo_id(),

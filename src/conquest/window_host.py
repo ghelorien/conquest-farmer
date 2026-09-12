@@ -202,7 +202,10 @@ class HostApi:
 
     def restore(self, state):
         self.assert_owner(state.hwnd, state.identity)
-        self.gui.SetParent(state.hwnd, 0)
+        # Owned top-level hosting never reparents the game. Avoid a needless
+        # cross-process SetParent call and its possible DPI-context reset.
+        if self.gui.GetWindowLong(state.hwnd,-16)&WS_CHILD:
+            self.gui.SetParent(state.hwnd, 0)
         self.gui.SetWindowLong(state.hwnd, -16, ctypes.c_int32(state.style).value)
         self.gui.SetWindowLong(state.hwnd, -20, ctypes.c_int32(state.exstyle).value)
         self.gui.SetWindowLong(state.hwnd, -8, state.owner)

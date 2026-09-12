@@ -51,6 +51,8 @@ class MerchantRuntime:
         from conquest.merchants.market_refresh import MarketRefreshWorker
         self.market_worker=MarketRefreshWorker(self.journal,self.stop_event,self.market_path)
         self.observers,self.controllers,self.latest,self.errors = {},{},{},{}
+        from conquest.client_attachment import AttachmentStatus
+        self.attachments={c:AttachmentStatus() for c in CHARACTERS}
         self.launches,self.launch_owner = {},None
         self.return_drivers = {}
         self.recoveries = {c:Recovery(c,self.journal) for c in CHARACTERS}
@@ -166,6 +168,7 @@ class MerchantRuntime:
 
     def attach(self, character):
         from conquest.memory_life import read_life
+        status=self.attachments[character];status.enter('discovery')
         # Never identify an account by title, list order, PID alone, or a stale
         # name from a disconnected process. Check the memory identity first.
         with self.discovery_lock:
@@ -179,10 +182,14 @@ class MerchantRuntime:
                     from conquest.reconnect import login_screen
                     if login_screen(client.hwnd):
                         continue
+                    status.enter('access',pid=client.identity['pid'],hwnd=client.hwnd,
+                                 process_created=client.identity.get('creation_time_100ns'))
                     observer = self.observer_factory(client,character)
+                    status.enter('identity')
                     read_life(observer.adapter,observer.health_layout,character)
                     matches.append(observer)
                 except Exception as error:
+                    status.fail(error)
                     access_failed |= isinstance(error,OSError)
                     if observer:
                         observer.close()
@@ -191,13 +198,19 @@ class MerchantRuntime:
                     observer.close()
                 raise ValueError('Run the app as administrator to read elevated clients' if access_failed else
                     f'{character}: expected one verified logged-in client, found {len(matches)}')
-            self.bind(character,matches[0])
+            try:self.bind(character,matches[0])
+            except Exception as error:
+                matches[0].close()
+                status.fail(error)
+                self.journal.set(character,'attachment',status.snapshot())
+                raise
             if read_life(matches[0].adapter,matches[0].health_layout,character).map_id==1002:
                 self.returns[character].begin()
 
     def bind(self, character, observer):
         from conquest.character_context import merchant_context, merchant_directory
         context=merchant_context(character)
+        status=getattr(self,'attachments',{}).get(character)
         if context:
             from conquest.client_attachment import verify_observer, remember_installation
             # Login candidates may not yet expose a character. They remain
@@ -217,6 +230,9 @@ class MerchantRuntime:
             from conquest.merchants.return_driver import ReturnDriver
             self.return_drivers[character] = ReturnDriver(driver)
         self.journal.set(character,'last_identity',observer.adapter.identity)
+        if status:
+            status.enter('memory',pid=observer.adapter.identity['pid'])
+            self.journal.set(character,'attachment',status.snapshot())
 
     def disconnected(self, character):
         from conquest.reconnect import login_screen
@@ -514,6 +530,7 @@ class MerchantRuntime:
                     'shop_return':self.returns[character].state()}
                 result[character]['connect_market']=self.journal.get(character,'connect_market')
                 result[character]['profile_id']=getattr(character,'profile_id',None)
+                result[character]['attachment']=self.attachments[character].snapshot()
                 result[character]['refill'] = {**self.refills[character].state(),'enabled':self.refill_enabled(character)}
                 result[character]['market_refresh']=self.market_worker.state(character)
                 result[character]['batch_progress']=self.journal.get(character,'batch_progress',{})

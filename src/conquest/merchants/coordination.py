@@ -140,6 +140,7 @@ def input_scope():
         if coordinator:
             coordinator.owner,coordinator.thread = 'Farmer',threading.get_ident()
         _scope.active = owned = True
+        if coordinator:coordinator.check()
         yield
     finally:
         if owned:

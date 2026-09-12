@@ -169,3 +169,58 @@ def test_app_lock_excludes_second_farmer_environment(tmp_path):
         with pytest.raises(ValueError):
             with app_owner(tmp_path,timeout=0):pass
     with app_owner(tmp_path,timeout=0):pass
+
+
+def test_route_copies_are_saved_to_selected_character(tmp_path,monkeypatch):
+    r=ProfileRegistry(tmp_path);a=r.add('A');b=r.add('B');activate(monkeypatch,r,a)
+    from conquest.routes import RouteLibrary
+    library=RouteLibrary();route=library.all()[0].model_dump()
+    route.update(id='private-route',name='A private route')
+    path=library.save(route)
+    assert path.is_relative_to(context_for(a.id,tmp_path).state_dir)
+    activate(monkeypatch,r,b)
+    with pytest.raises(ValueError):RouteLibrary().load('private-route')
+
+
+def test_surface_block_prevents_farmer_input_and_releases_lease(tmp_path):
+    from conquest.merchants.coordination import InputCoordinator, install, input_scope
+    from conquest.capture import CaptureUnavailable
+    guard=InputCoordinator(lambda:True,path=tmp_path/'input.lock');guard.surface_blocks['Farmer']=True
+    install(guard)
+    try:
+        with pytest.raises(CaptureUnavailable):
+            with input_scope():pytest.fail('Invalid surface must not receive input')
+        assert guard.owner is None and guard.thread is None
+    finally:install(None)
+
+
+def test_range_override_cannot_exceed_engine_capability(tmp_path,monkeypatch):
+    import yaml
+    from conquest.trial import TrialConfig
+    from conquest.character_context import apply_overrides
+    r=ProfileRegistry(tmp_path);p=r.add('Fresh',overrides={'attack_range_tiles':20})
+    activate(monkeypatch,r,p)
+    config=TrialConfig.model_validate(yaml.safe_load(Path('profiles/desktop-foreground.example.yaml').read_text()))
+    config=config.model_copy(update={'attack_range_tiles':5})
+    actual=apply_overrides(config)
+    assert actual.attack_range_tiles==5 and actual.character=='Fresh'
+
+
+def test_account_storage_is_encrypted_and_compatible(tmp_path):
+    from conquest.profile_secrets import save_login
+    from conquest.reconnect import load_credentials
+    r=ProfileRegistry(tmp_path);p=r.add('A');other=r.add('B');ctx=context_for(p.id,tmp_path)
+    save_login(ctx,'test-account','test-password')
+    assert b'test-password' not in ctx.credentials.read_bytes()
+    assert load_credentials(ctx.credentials)=={'username':'test-account','password':'test-password'}
+    assert not context_for(other.id,tmp_path).credentials.exists()
+
+
+def test_role_change_blocks_unfinished_farmer_delivery(tmp_path):
+    from conquest.profile_bootstrap import offline_edit_ready
+    r=ProfileRegistry(tmp_path);p=r.add('A')
+    path=context_for(p.id,tmp_path).state_dir/'reports/banking/merchant-journey.json'
+    write_json(path,{'phase':'return_pending'})
+    assert not offline_edit_ready(tmp_path)
+    write_json(path,{'phase':'completed'})
+    assert offline_edit_ready(tmp_path)
