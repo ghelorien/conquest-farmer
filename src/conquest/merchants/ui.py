@@ -182,6 +182,19 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action=='reconcile-stall-inspection' and set(body)=={'action','character'}:
+            character=character_name(body['character'])
+            from conquest.merchants.stall_probe import reconcile_interrupted_probe
+            observer=self.runtime.observers.get(character)
+            if observer is None:raise ValueError('Merchant is not attached')
+            with observer.lock:
+                return reconcile_interrupted_probe(self.runtime.controllers[character].driver,self.runtime.journal)
+        if action=='inspect-market-stall' and set(body)=={'action','character'}:
+            from conquest.merchants.connect_market import start
+            return start(self,body['character'],stall_inspection=True)
+        if action=='qualify-market-movement' and set(body)=={'action','character'}:
+            from conquest.merchants.connect_market import start
+            return start(self,body['character'],market_trial=True)
         if action=='start-readonly-diagnostics' and set(body)=={'action'}:
             import subprocess,sys
             from conquest.worker import request as worker_request
@@ -341,6 +354,17 @@ class UnifiedUI:
             if body['enabled']:self.resume_refill(character)
             else:self.runtime.set_refill_enabled(character,False)
             return {'character':character,'enabled':self.runtime.refill_enabled(character)}
+        if action=='attach-farmer-client' and set(body)=={'action','client_pid','client_started'}:
+            from conquest.merchants.farmer_connection import attach
+            queued_at=time.monotonic()
+            done,result=threading.Event(),{}
+            self.ui_requests.put((lambda:result.update(attach(self,body['client_pid'],body['client_started'],
+                                                             queued_at=queued_at)),done,result))
+            if not done.wait(3):
+                result['expired']=True
+                raise ValueError('Farmer attachment pending; inspect current state before retrying')
+            if result.get('error'):raise ValueError(result['error'])
+            return result
         if action=='embed-client' and set(body)=={'action','character'}:
             character = character_name(body['character'])
             queued_at = time.monotonic()

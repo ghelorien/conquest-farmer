@@ -51,6 +51,12 @@ def test_manual_stop_cancels_connection(setup):
     assert cancel.is_set() and x.guard.stopped
 
 
+def test_movement_trial_cannot_launch_a_missing_client(setup):
+    with pytest.raises(ValueError,match='attached merchant'):
+        connect.start(setup.ui,'Dutch',market_trial=True)
+    assert not setup.ui.connect_threads
+
+
 @pytest.mark.parametrize('owner',['unassigned','farmer','other_merchant','missing','ambiguous'])
 def test_existing_client_selection_never_steals_assigned_account(setup,owner):
     x=setup;candidate=NS(identity={'pid':20},hwnd=30)
@@ -95,6 +101,21 @@ def test_arriving_in_market_keeps_ordinary_work_held(setup,monkeypatch):
     assert x.runtime.journal.get('Dutch','connect_market')['phase']=='market'
     assert x.runtime.journal.get('Dutch','connect_hold') is True
     assert not x.runtime.enabled('Dutch') and not x.runtime.connecting
+
+
+@pytest.mark.parametrize('logged_in',[False,True])
+def test_market_movement_trial_never_logs_in_or_leaves_town(setup,monkeypatch,logged_in):
+    x=setup;observer=NS(adapter=NS(identity={'pid':2}),health_layout=None)
+    driver=NS(target=NS(hwnd=10),observer=observer)
+    x.runtime.observers['Dutch']=observer;x.runtime.controllers['Dutch']=NS(driver=driver)
+    monkeypatch.setattr('conquest.reconnect.login_screen',lambda hwnd:not logged_in)
+    monkeypatch.setattr('conquest.reconnect.submit_login',lambda *a,**kw:pytest.fail('No trial login'))
+    monkeypatch.setattr('conquest.memory_life.read_life',lambda *a:NS(character='Dutch',map_id=1002,dead_candidate=False))
+    monkeypatch.setattr('ctypes.windll.user32.GetAsyncKeyState',lambda key:0)
+    connect.run(x.ui,'Dutch',threading.Event(),0,market_trial=True)
+    result=x.runtime.journal.get('Dutch','connect_market')
+    assert result['phase']=='failed'
+    assert 'Movement qualification' in result['note']
 
 
 def test_login_focus_failure_precedes_loading_credentials(monkeypatch):

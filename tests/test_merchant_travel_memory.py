@@ -50,6 +50,14 @@ def test_transit_waypoint_uses_camera_anchor_and_current_viewport(monkeypatch):
         route.transit_waypoint(None,path,(90,300),(1400,900))
 
 
+def test_stall_approach_does_not_target_the_assumed_booth_standing_tile():
+    from conquest.merchants.return_driver import stall_approach
+    from conquest.navigation import line_tiles
+    terrain=NS(travel_path=lambda start,end:line_tiles(start,end))
+    distance,target=stall_approach(terrain,(223,185),{'position':[230,185]})
+    assert target==(228,185) and distance==6
+
+
 @pytest.mark.parametrize('variant',['valid','missing_uid','changed_accessor'])
 def test_character_identity_uses_pinned_self_field_not_booth_field(variant):
     base=0x1000000;actor=0x2000000
@@ -62,3 +70,22 @@ def test_character_identity_uses_pinned_self_field_not_booth_field(variant):
     if variant=='valid':assert memory.character_uid(session,base,actor)==123456
     else:
         with pytest.raises(ValueError):memory.character_uid(session,base,actor)
+
+
+@pytest.mark.parametrize('transient',[False,True])
+def test_travel_retries_only_torn_observations_without_sending_input(monkeypatch,transient):
+    from conquest.merchants import return_driver as route
+    calls=[]
+    def read():
+        calls.append('read')
+        if len(calls)==1:
+            if transient:raise memory.TransitObservationChanged('position changed')
+            raise ValueError('wrong character')
+        return {'position':[223,185]}
+    monkeypatch.setattr(route.time,'sleep',lambda _:None)
+    driver=route.ReturnDriver(NS(observer=object(),memory=NS(read_travel=read)),travel_only=True)
+    if transient:
+        assert driver.read()=={'position':[223,185]} and calls==['read','read']
+    else:
+        with pytest.raises(ValueError,match='wrong character'):driver.read()
+        assert calls==['read']

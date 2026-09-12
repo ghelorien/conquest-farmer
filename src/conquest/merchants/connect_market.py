@@ -85,7 +85,7 @@ def select_client(ui,character,pid):
     return candidate
 
 
-def run(ui,character,cancel,revision,selected=None):
+def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_inspection=False):
     runtime=ui.runtime;guard=ui.coordinator
     runtime.connecting[character]=threading.get_ident()
     started=time.monotonic()
@@ -116,6 +116,7 @@ def run(ui,character,cancel,revision,selected=None):
         if character not in runtime.observers:
             try:runtime.attach(character)
             except ValueError:
+                if market_trial or stall_inspection:raise ValueError('Market qualification requires an already connected merchant')
                 from conquest.client_wrapper import LaunchWatch
                 from conquest.character_context import merchant_installation
                 launcher=merchant_installation(character)/'ImBootstrapper.exe'
@@ -136,6 +137,7 @@ def run(ui,character,cancel,revision,selected=None):
         driver=runtime.controllers[character].driver
         from conquest.reconnect import login_screen,submit_login
         submitted=login_screen(driver.target.hwnd)
+        if (market_trial or stall_inspection) and submitted:raise ValueError('Movement qualification cannot submit a login')
         if submitted:
             with guard.lease(character,purpose='connect'):
                 # Surface activation can deliver delayed pointer events. Wait
@@ -169,6 +171,8 @@ def run(ui,character,cancel,revision,selected=None):
             except ValueError:
                 if time.monotonic()>=until:raise
                 time.sleep(.2)
+        if (market_trial or stall_inspection) and (life.map_id!=1036 or life.dead_candidate):
+            raise ValueError('Movement qualification is restricted to a living merchant in Market')
         if submitted:
             record_capability(driver,'login',{'verified_at':time.time(),'identity':driver.observer.adapter.identity,
                 'character':life.character,'map_id':life.map_id,'source':'memory-verified character after saved login'})
@@ -180,6 +184,46 @@ def run(ui,character,cancel,revision,selected=None):
             # Qualified recovery memory is permitted in both supported towns.
             before=travel.read()
             if before['map_id']==1036:
+                if stall_inspection:
+                    from conquest.merchants.stall_probe import inspect_flag
+                    with guard.lease(character,purpose='connect'):
+                        # A stationary NPC-control trial needs fresh projection,
+                        # not a detour solely to qualify unrelated movement.
+                        dimensions=geometry(driver)
+                        original=travel.qualify_movement
+                        def stationary_geometry():
+                            check()
+                            if geometry(driver)!=dimensions:raise ValueError('Stall inspection viewport changed')
+                            return dimensions
+                        travel.qualify_movement=stationary_geometry
+                        try:inspect_flag(driver,travel,runtime.journal,check)
+                        finally:travel.qualify_movement=original
+                        before=travel.read()
+                if market_trial:
+                    from conquest.merchants.stalls import scene_flags
+                    from conquest.merchants.qualification import stock
+                    from conquest.navigation import read_terrain
+                    initial=driver.memory.read()
+                    if initial['booth_open'] or initial.get('trade') or initial.get('request'):
+                        raise ValueError('Movement qualification requires a closed booth and no trade')
+                    from conquest.character_context import merchant_installation
+                    terrain=read_terrain(merchant_installation(character),1036)
+                    candidates=[]
+                    for flag in scene_flags(driver.observer):
+                        from conquest.merchants.return_driver import stall_approach
+                        try:distance,destination=stall_approach(terrain,before['position'],flag)
+                        except ValueError:continue
+                        if distance>1:candidates.append((distance,flag['uid'],destination))
+                    if not candidates:raise ValueError('No checked Market approach is available')
+                    _,flag_uid,destination=min(candidates)
+                    with guard.lease(character,purpose='connect'):
+                        check();before=travel.read()
+                        save(runtime,character,'movement_trial',position=before['position'],flag_uid=flag_uid)
+                        try:before=qualify_move(driver,travel,before,destination,check)
+                        finally:save(runtime,character,'movement_trial',movement_evidence=getattr(travel,'last_move',{}))
+                        final=driver.memory.read()
+                        if stock(final)!=stock(initial):
+                            raise ValueError('Stock changed during Market movement qualification')
                 runtime.journal.set(character,'connect_hold',True)
                 save(runtime,character,'market',position=before['position'],verified_at=time.time())
                 runtime.journal.event(character,'connect_market_verified',position=before['position'])
@@ -226,13 +270,15 @@ def run(ui,character,cancel,revision,selected=None):
         runtime.connecting.pop(character,None);runtime.connect_checks.pop(character,None)
 
 
-def start(ui,character,*,client_pid=None):
+def start(ui,character,*,client_pid=None,market_trial=False,stall_inspection=False):
     character=character_name(character);runtime=ui.runtime
     if not credential_path(character).exists():raise ValueError('Save this merchant login through the app first')
     if runtime.connecting:raise ValueError('Finish the current merchant connection first')
     if not ui.safe_to_yield() or ui.coordinator.owner or ui.coordinator.stopped:
         raise ValueError('Stop the farmer at a safe location before connecting merchants')
     if runtime.journal.pending(character):raise ValueError('Reconcile pending merchant transactions first')
+    if (market_trial or stall_inspection) and character not in runtime.observers:
+        raise ValueError('Movement qualification requires an attached merchant')
     previous=runtime.journal.get(character,'connect_market',{})
     if previous.get('phase')=='transfer_pending' or previous.get('fare_pending'):
         raise ValueError('Previous Market fare needs reconciliation')
@@ -243,7 +289,7 @@ def start(ui,character,*,client_pid=None):
     runtime.connecting[character]=None
     runtime.journal.set(character,'connect_hold',True)
     save(runtime,character,'requested',note=None)
-    thread=threading.Thread(target=run,args=(ui,character,cancel,ui.app.control.snapshot()['revision'],selected),
+    thread=threading.Thread(target=run,args=(ui,character,cancel,ui.app.control.snapshot()['revision'],selected,market_trial,stall_inspection),
                             daemon=True,name='connect-market-'+character)
     ui.connect_threads[character]=thread;thread.start()
     return {'requested':character,'trading_enabled':False}
