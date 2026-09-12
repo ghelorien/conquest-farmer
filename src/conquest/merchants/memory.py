@@ -397,9 +397,6 @@ class MerchantMemory:
         if (s.read_block(wrapper+0xb88,32) != inv_header or s.read_block(actor+0x3468,32) != booth_header
                 or final_inventory.items != inv.items or final_inventory.silver != inv.silver):
             raise ValueError('Merchant inventory changed during observation')
-        fresh = read_life(s,self.observer.health_layout,self.observer.character)
-        if fresh.object_address != actor or fresh.map_id != life.map_id or fresh.dead_candidate or s.read_block(self.base+0x697860,64)!=server_raw or time.monotonic()-started > max_seconds:
-            raise ValueError('Merchant observation expired or identity changed')
         uids = [i.uid for i in stock+booth]
         if len(set(uids)) != len(uids):
             raise ValueError('Item appears in both booth and inventory')
@@ -410,6 +407,16 @@ class MerchantMemory:
         if character_uid(s,self.base,actor)!=own_uid:
             raise ValueError('Character UID changed during observation')
         assert_booth_stable(s,actor,model,own_booth_uid,model_raw)
+        # Input guards must not combine stock/GUI sampled at one position with
+        # a later position reached while the snapshot was being assembled.
+        fresh = read_life(s,self.observer.health_layout,self.observer.character)
+        if (fresh.object_address != actor or fresh.map_id != life.map_id
+                or fresh.dead_candidate or fresh.current_hp <= 0
+                or s.read_block(self.base+0x697860,64)!=server_raw
+                or time.monotonic()-started > max_seconds):
+            raise ValueError('Merchant observation expired or identity changed')
+        if fresh.position != life.position:
+            raise TransitObservationChanged('Merchant position changed during observation')
         return {'character':self.observer.character,'character_uid':own_uid,'identity':s.identity,'timestamp':time.time(),'server':'America',
             'map_id':life.map_id,'position':list(fresh.position),'hp':fresh.current_hp,'capacity':inv.capacity,'silver':inv.silver,
             'inventory':[asdict(i) for i in stock],'booth':[asdict(i) for i in booth],

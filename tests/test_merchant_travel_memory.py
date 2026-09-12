@@ -5,6 +5,47 @@ import pytest
 from conquest.merchants import memory
 
 
+@pytest.mark.parametrize('change',[None,'position_inventory','position_gui',
+                                  'death_gui','zero_hp_gui','map_gui','actor_gui'])
+def test_full_stock_snapshot_rechecks_life_after_gui_sampling(monkeypatch,change):
+    reader=memory.MerchantMemory.__new__(memory.MerchantMemory)
+    reader.base=0x100000;reader.player=object()
+    reader.observer=NS(character='Dutch',health_layout=object())
+    live=dict(object_address=0x500000,map_id=1036,current_hp=100,
+              position=(100,100),dead_candidate=False)
+    inv=NS(items=[],silver=100,capacity=40)
+    inventory_reads=[]
+    def inventory():
+        inventory_reads.append(1)
+        if change=='position_inventory' and len(inventory_reads)>1:
+            live['position']=(101,100)
+        return inv
+    reader.inventory=NS(read=inventory)
+    def windows():
+        if change=='position_gui':live['position']=(101,100)
+        if change=='death_gui':live['dead_candidate']=True
+        if change=='zero_hp_gui':live['current_hp']=0
+        if change=='map_gui':live['map_id']=1002
+        if change=='actor_gui':live['object_address']=0x600000
+        return []
+    reader.gui=NS(model=lambda key,vtable:0x300000+key*0x100,windows=windows)
+    reader.s=NS(identity={'pid':7},assert_identity=lambda:None,
+                read_block=lambda address,size:
+                    b'Classic_US'.ljust(64,b'\0') if address==reader.base+0x697860
+                    else bytes(size))
+    monkeypatch.setattr(memory,'read_life',lambda *args:NS(**live))
+    monkeypatch.setattr(memory,'resolve_player',lambda *args:{'object':0x200000})
+    monkeypatch.setattr(memory,'deque_items',lambda *args:([],bytes(32)))
+    monkeypatch.setattr(memory,'character_uid',lambda *args:123456)
+    if change:
+        error=memory.TransitObservationChanged if change.startswith('position') else ValueError
+        with pytest.raises(error,match='changed'):reader.read()
+    else:
+        result=reader.read()
+        assert result['position']==[100,100] and result['hp']==100
+        assert result['inventory']==[] and result['silver']==100
+
+
 @pytest.mark.parametrize('change',[None,'position','death','server','silver','dialog'])
 def test_travel_snapshot_is_scoped_and_rechecks_mutable_state(monkeypatch,change):
     reader=memory.MerchantMemory.__new__(memory.MerchantMemory)
