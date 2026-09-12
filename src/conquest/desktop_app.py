@@ -32,6 +32,7 @@ from conquest.client_wrapper import ClientCatalog, LaunchWatch, pinned_client
 from conquest.nearby_monsters import NearbyMonsters
 from conquest.farm_telemetry import PickupHistory,pickup_values,activity_text,item_label,pause_message,farm_stats
 from conquest.routes import RouteLibrary
+from conquest.route_choices import saved_route_choices, route_label
 from conquest.reconnect import Reconnector,login_screen,submit_login
 from conquest.focus_recovery import AutoRefocuser,activate_client
 
@@ -143,14 +144,14 @@ class DesktopApp:
         route_frame = ttk.LabelFrame(self.sidebar,text='Saved routes',padding=5)
         route_frame.pack(fill='x',pady=(6,0))
         self.route_library = RouteLibrary()
-        self.saved_routes = self.route_library.all()
+        self.saved_routes = saved_route_choices(self.route_library.all())
         self.route_selection_path = self.output/'selected-route.json'
         self.selected_route = None
         self.route_text = tk.StringVar(value='Choose a saved route')
         route_row = ttk.Frame(route_frame)
         route_row.pack(fill='x')
         self.route_picker = ttk.Combobox(route_row,textvariable=self.route_text,state='readonly',
-            values=[r.name for r in self.saved_routes])
+            values=[route_label(r) for r in self.saved_routes])
         self.route_picker.pack(side='left',fill='x',expand=True)
         self.route_picker.bind('<<ComboboxSelected>>',self.select_route)
         ttk.Button(route_row,text='Save copy',command=self.save_route_copy,padding=3).pack(side='left',padx=(5,0))
@@ -867,7 +868,7 @@ class DesktopApp:
 
     def display_route(self,route):
         self.selected_route=route
-        self.route_text.set(route.name)
+        self.route_text.set(route_label(route))
         if getattr(self,'runtime',None) and self.runtime.recovery:
             self.runtime.recovery.enabled=route.recover_after_death
         supplies=route.supplies
@@ -900,7 +901,7 @@ class DesktopApp:
             self.display_route(route)
             self.record()
         except (ValueError,OSError) as error:
-            self.route_text.set(self.selected_route.name if self.selected_route else 'Choose a saved route')
+            self.route_text.set(route_label(self.selected_route) if self.selected_route else 'Choose a saved route')
             self.route_note.set(str(error))
 
     def save_route_copy(self):
@@ -916,8 +917,8 @@ class DesktopApp:
             data=self.selected_route.model_dump()
             data.update(id=route_id,name=name)
             self.route_library.save(data)
-            self.saved_routes=self.route_library.all()
-            self.route_picker.configure(values=[r.name for r in self.saved_routes])
+            self.saved_routes=saved_route_choices(self.route_library.all())
+            self.route_picker.configure(values=[route_label(r) for r in self.saved_routes])
             self.route_picker.current(next(i for i,r in enumerate(self.saved_routes) if r.id==route_id))
             self.select_route()
         except (ValueError,OSError) as error:
@@ -1261,8 +1262,8 @@ class DesktopApp:
                 if not fields['enabled']:self.record(kills_per_hour=0)
             elif event=='route_selected':
                 route=self.route_library.load(fields['route_id'])
-                self.saved_routes=self.route_library.all()
-                self.route_picker.configure(values=[r.name for r in self.saved_routes])
+                self.saved_routes=saved_route_choices(self.route_library.all())
+                self.route_picker.configure(values=[route_label(r) for r in self.saved_routes])
                 self.route_selection_path.write_text(json.dumps({'route_id':route.id}),encoding='utf-8')
                 self.display_route(route)
                 if self.runtime.recovery:self.runtime.recovery.cancel()
