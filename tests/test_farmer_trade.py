@@ -87,6 +87,8 @@ def test_receiver_memory_requires_one_stable_matching_uid_and_target_mode(monkey
     values={collection:begin,collection+8:begin+len(entries),collection+16:begin+len(entries)}
     values.update({p:base+0x400 for p in objects})
     monkeypatch.setattr(module,'sample_fields',lambda session,fields:[values[a] for a,t in fields])
+    monkeypatch.setattr(module,'targeting_state',lambda session:
+        {'rva':0x600,'value':7,'targeting_trade':struct.unpack('<I',session.read_block(base+0x600,4))[0]==7})
     observer=NS(adapter=NS(read_block=read,assert_identity=lambda:None),entities=NS(
         _resolve=lambda:(base,collection,[]),
         layout=NS(begin_offset=0,end_offset=8,capacity_offset=16,max_objects=4096)))

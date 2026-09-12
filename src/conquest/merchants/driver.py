@@ -68,12 +68,22 @@ class MerchantDriver:
         x,y,width,height = window['geometry']
         if [width,height] != spec['size']:
             raise ValueError(f'{control}: unqualified window dimensions')
-        dx,dy = spec['offset']
-        if slot is not None:
-            columns = spec['columns']
-            dx += slot % columns * spec['stride'][0]
-            dy += slot // columns * spec['stride'][1]
-        px,py = x+dx-window['scroll'][0],y+dy-window['scroll'][1]
+        if spec.get('mode')=='native_items_trade':
+            label={'start_trade':'Trade','open_inventory':'Items'}.get(control)
+            if spec['window']!='##Control' or slot is not None or not label or spec.get('label')!=label:
+                raise ValueError('Unqualified native HUD control')
+            from conquest.memory_shop import MemoryGui
+            from conquest.discard_loot import inventory_button
+            from conquest.merchants.trade_controls import trade_button
+            gui=MemoryGui(self.observer.adapter)
+            px,py=(trade_button if spec['label']=='Trade' else inventory_button)(gui)
+        else:
+            dx,dy = spec['offset']
+            if slot is not None:
+                columns = spec['columns']
+                dx += slot % columns * spec['stride'][0]
+                dy += slot // columns * spec['stride'][1]
+            px,py = x+dx-window['scroll'][0],y+dy-window['scroll'][1]
         if slot is not None and spec.get('table'):
             table = self.memory.gui.table(window,spec['table'])
             columns = table['columns']

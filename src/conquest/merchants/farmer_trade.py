@@ -15,6 +15,7 @@ from conquest.memory_entities import sample_fields
 from conquest.merchants.delivery import exact_items,prepare,validate_offers
 from conquest.merchants.delivery_bridge import pair
 from conquest.merchants.driver import MerchantDriver,wait_hover_validation
+from conquest.merchants.trade_controls import targeting_state
 
 PROFILE=Path('.runtime/merchants/farmer-delivery-qualified.json')
 
@@ -80,7 +81,10 @@ def recipient_record(observer,profile,merchant,*,targeting=False):
     if len(matches)!=1:raise ValueError('Receiver UID is absent or ambiguous in the farmer scene')
     if targeting:
         mode=profile['target_mode']
-        if struct.unpack('<I',s.read_block(base+mode['rva'],4))[0]!=mode['value']:
+        native=targeting_state(s)
+        if mode.get('rva')!=native['rva'] or mode.get('value')!=native['value']:
+            raise ValueError('Trade targeting profile differs from the pinned accessor')
+        if not native['targeting_trade']:
             raise ValueError('Client is not in the qualified trade targeting mode')
     if (sample_fields(s,headers)!=header or (end>begin and s.read_block(begin,end-begin)!=entries)
             or sample_fields(s,[(a,'u64') for a,_ in trace])!=[v for _,v in trace]):

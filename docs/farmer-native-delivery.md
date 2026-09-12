@@ -32,6 +32,22 @@ sizes, capability `farmer_delivery`, and evidence), plus:
 If the pinned client uses a different representation, extend and qualify the
 reader before enabling it. The file is deliberately absent until evidence exists.
 
+The native Trade HUD and targeting field now have a read-only implementation in
+`merchants/trade_controls.py`. The pinned Trade button handler writes mode 19 at
+RVA `0x699290`; the reader verifies the handler and controller-getter instructions
+before interpreting this field. These instructions and idle mode 16 were checked
+in all three live clients on September 12. This is code/observation evidence,
+not a verified click-to-trade transition.
+
+For `start_trade` and `open_inventory`, a future live-qualified control may use
+`mode: native_items_trade`, `window: ##Control`, its verified window `size`, and
+`label: Trade` or `label: Items`. Position follows the current six-column HUD
+table rather than a saved window offset. Trade is the lower button in Items'
+verified two-row, 40-pixel column. Existing viewport, window bounds and hover-ID
+checks remain mandatory. The observed Trade positions were derived successfully
+for Spiritual, Dutch and Parasite without clicking or changing focus. No input
+capability or rollout flag was enabled by this observation.
+
 The authenticated bridge accepts `delivery-start` with character, a stable
 request ID and 1–20 carried UIDs. It returns immediately; `delivery-status`
 reports the native worker and durable source receipt. Source transactions live
