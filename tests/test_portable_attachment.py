@@ -71,3 +71,44 @@ def test_hosting_failure_restores_native_window():
     host=EmbeddedWindow(api,mode='owned')
     with pytest.raises(OSError):host.attach(1,{'pid':2},3,1200,900)
     assert events==['restore'] and host.saved is None
+
+
+def layout_app(size):
+    from conquest.desktop_app import DesktopApp
+    app=DesktopApp.__new__(DesktopApp)
+    app.observer=object();app.closing=False;app.embed_layout_pending=True
+    app.attachment=AttachmentStatus();app.attachment.enter('attachment')
+    callbacks=[];finished=[];errors=[]
+    app.root=SimpleNamespace(after=lambda delay,callback:callbacks.append(callback))
+    app.pane=SimpleNamespace(winfo_width=lambda:size[0],winfo_height=lambda:size[1],winfo_ismapped=lambda:True)
+    app.finish_embed=lambda:finished.append(True)
+    app.embed_failed=errors.append
+    return app,callbacks,finished,errors
+
+
+def test_embed_waits_for_native_maximize_and_stable_pane(monkeypatch):
+    monkeypatch.setattr('conquest.desktop_app.time.monotonic',lambda:10)
+    size=[999,650];app,callbacks,finished,errors=layout_app(size)
+    app.wait_for_embed_layout(app.observer,12)
+    assert not finished and not errors and len(callbacks)==1
+    size[:]=[1700,1100]
+    callbacks.pop(0)()
+    assert not finished and len(callbacks)==1
+    callbacks.pop(0)()
+    assert finished==[True] and not errors and not app.embed_layout_pending
+    assert app.attachment.evidence['pane_size']==size
+
+
+def test_small_monitor_stops_at_deadline_with_measured_error(monkeypatch):
+    monkeypatch.setattr('conquest.desktop_app.time.monotonic',lambda:13)
+    app,callbacks,finished,errors=layout_app([800,600])
+    app.wait_for_embed_layout(app.observer,12)
+    assert not callbacks and not finished
+    assert isinstance(errors[0],ViewportTooSmall) and '800×600' in str(errors[0])
+
+
+def test_released_observer_cannot_attach_from_queued_resize():
+    app,callbacks,finished,errors=layout_app([1700,1100])
+    old=app.observer;app.observer=None
+    app.wait_for_embed_layout(old,12)
+    assert not callbacks and not finished and not errors and not app.embed_layout_pending

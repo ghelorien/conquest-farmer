@@ -13,7 +13,7 @@ class ViewportTooSmall(ValueError):
 
 def require_viewport(width,height,minimum=(1036,793)):
     if width<minimum[0] or height<minimum[1]:
-        raise ViewportTooSmall('This pane cannot fit the full supported game viewport. Enlarge the app, collapse controls, or use a separate game window.')
+        raise ViewportTooSmall(f'Game pane is {int(width)}×{int(height)}; the supported viewport needs {minimum[0]}×{minimum[1]}. Enlarge the app, hide farmer controls, or use a separate game window.')
     return int(width),int(height)
 
 

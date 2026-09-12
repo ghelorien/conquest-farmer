@@ -37,6 +37,9 @@ def attach(ui,pid,started,*,queued_at):
     finally:probe.close()
     require_idle()
     app.embed(candidate)
+    if getattr(app,'embed_layout_pending',False):
+        return {'attached':False,'pending':True,'pid':pid,
+                'farming_enabled':app.control.snapshot()['enabled']}
     if app.observer is None or app.observer.adapter.identity!=candidate.identity:
         raise ValueError('Farmer attachment did not complete')
     return {'attached':True,'pid':pid,'farming_enabled':app.control.snapshot()['enabled']}

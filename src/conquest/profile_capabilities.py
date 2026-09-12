@@ -22,7 +22,7 @@ class CapabilityView:
                     from conquest.equipment import read_equipment
                     result['equipment']=read_equipment(observer)
                     from conquest.combat_ranges import read_combat_ranges
-                    try:result['combat']=read_combat_ranges(observer)
+                    try:result['combat']=read_combat_ranges(observer,require_scatter=False)
                     except ValueError:result['combat_unavailable']='Learned Scatter / bow range unavailable through the existing engine'
                 finally:observer.lock.release()
             except (OSError,ValueError,AttributeError):result={'unavailable':True}

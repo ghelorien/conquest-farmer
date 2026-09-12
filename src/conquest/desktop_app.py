@@ -618,6 +618,8 @@ class DesktopApp:
         return EmbeddedObserver(pid,hwnd,health,entities,farmer_name(),context=self.character_context)
 
     def embed(self,candidate=None):
+        if getattr(self,'embed_layout_pending',False):
+            return
         if self.observer:
             if candidate and candidate!=self.client:
                 self.state_text.set('Release the current client before selecting another')
@@ -649,9 +651,40 @@ class DesktopApp:
             self.embedded_layout()
             self.root.update_idletasks()
             if self.character_context:
-                from conquest.client_attachment import require_viewport
-                require_viewport(self.pane.winfo_width(),self.pane.winfo_height())
-                self.attachment.evidence['pane_size']=[self.pane.winfo_width(),self.pane.winfo_height()]
+                # Windows applies maximization asynchronously. Idle geometry
+                # tasks alone do not deliver its native Configure events.
+                self.embed_layout_pending=True
+                self.attachment_text.set('Preparing full game viewport…')
+                observer=self.observer
+                self.root.after(100,lambda:self.wait_for_embed_layout(observer,time.monotonic()+2))
+                return
+            self.finish_embed()
+        except Exception as error:
+            self.embed_failed(error)
+
+    def wait_for_embed_layout(self,observer,deadline,previous=None):
+        if self.observer is not observer or getattr(self,'closing',False):
+            self.embed_layout_pending=False
+            return
+        try:
+            from conquest.client_attachment import require_viewport, ViewportTooSmall
+            size=(self.pane.winfo_width(),self.pane.winfo_height())
+            self.attachment.evidence['pane_size']=list(size)
+            self.attachment.evidence['required_pane_size']=[1036,793]
+            fits=size[0]>=1036 and size[1]>=793 and self.pane.winfo_ismapped()
+            if time.monotonic()<deadline and (not fits or size!=previous):
+                self.root.after(100,lambda:self.wait_for_embed_layout(observer,deadline,size))
+                return
+            require_viewport(*size)
+            if not self.pane.winfo_ismapped():
+                raise ViewportTooSmall('Select the farmer tab and retry Embed; the game pane is not visible.')
+            self.embed_layout_pending=False
+            self.finish_embed()
+        except Exception as error:
+            self.embed_failed(error)
+
+    def finish_embed(self):
+        try:
             self.host.attach(self.client[1], self.client[2], self.pane.winfo_id(),
                              self.pane.winfo_width(), self.pane.winfo_height())
             self.attachment.attached=True
@@ -663,23 +696,27 @@ class DesktopApp:
             self.attachment.ready=True
             self.attachment_text.set('Client attached · automation ready · farming Off')
             self.state_text.set('Client embedded · farming Off')
-            self.record(state='Embedded', hwnd=self.client[1])
+            self.record(state='Embedded', hwnd=self.client[1],attachment=self.attachment.snapshot())
         except Exception as error:
-            note=self.attachment.fail(error)
-            self.state_text.set(note)
-            self.attachment_text.set(f'{self.attachment.stage}: {note}')
-            if self.attachment.stage not in ('memory','behavior') or not self.host.saved:
-                try:
-                    self.host.detach()
-                    self.stop_observer()
-                    self.attachment.attached=False
-                    self.compact()
-                except Exception as cleanup_error:
-                    self.attachment.evidence['restoration_error']=type(cleanup_error).__name__
-            # Hosting succeeded: retain the window and memory session. A failed
-            # terrain/recovery initializer must not silently eject the client.
-            self.record(state='Client attached; automation blocked' if self.attachment.attached else 'Embed failed',
-                        attachment=self.attachment.snapshot())
+            self.embed_failed(error)
+
+    def embed_failed(self,error):
+        self.embed_layout_pending=False
+        note=self.attachment.fail(error)
+        self.state_text.set(note)
+        self.attachment_text.set(f'{self.attachment.stage}: {note}')
+        if self.attachment.stage not in ('memory','behavior') or not self.host.saved:
+            try:
+                self.host.detach()
+                self.stop_observer()
+                self.attachment.attached=False
+                self.compact()
+            except Exception as cleanup_error:
+                self.attachment.evidence['restoration_error']=type(cleanup_error).__name__
+        # Hosting succeeded: retain the window and memory session. A failed
+        # terrain/recovery initializer must not silently eject the client.
+        self.record(state='Client attached; automation blocked' if self.attachment.attached else 'Embed failed',
+                    attachment=self.attachment.snapshot())
 
     def initialize_attached_behavior(self):
         self.runtime = ControlRuntime(self.control,None,None,None,farmer_name(),observer=self.observer)
@@ -1005,8 +1042,8 @@ class DesktopApp:
         life=observation['life']
         if life['map_id']!=route.map_id:
             raise ValueError('Travel to the selected route map before starting combat')
-        from conquest.combat_ranges import read_combat_ranges
-        ranges=read_combat_ranges(self.observer)
+        from conquest.combat_ranges import read_combat_ranges,route_combat_settings
+        ranges=read_combat_ranges(self.observer,require_scatter=False)
         from conquest.equipment import read_equipment
         from conquest.arrow_upgrades import current_arrow,NORMAL_ARROWS
         reserves=[i.type_id for i in self.observer.town_trade.inventory.read().items if i.amount>=3]
@@ -1029,10 +1066,10 @@ class DesktopApp:
         from conquest.viewport import size_for
         viewport=size_for(self.observer)
         config=config.model_copy(update={'observation_mode':'memory_only','client_size':viewport,'player_anchor':(viewport[0]//2,viewport[1]//2),
-            'monster':monster_name,'monster_variants':monster_variants,'expected_map':route.map_id,'attack_button':'right','adaptive_scatter':True,'single_isolated_targets':True,
-            'single_attack_range_tiles':min(route.attack_range_tiles,ranges['bow']['range']),
-            'kite_when_surrounded':route.kite_when_surrounded,'jump_scatter':route.jump_scatter,
-            'hunting_anchor':route.hunting_anchor,'attack_range_tiles':min(route.attack_range_tiles,ranges['scatter']['range']),'boundary':route.hunting_boundary,'patrol_search':route.patrol_search,'route':route.patrol,'approach_route':approach,
+            'monster':monster_name,'monster_variants':monster_variants,'expected_map':route.map_id,
+            **route_combat_settings(route,ranges),
+            'kite_when_surrounded':route.kite_when_surrounded,
+            'hunting_anchor':route.hunting_anchor,'boundary':route.hunting_boundary,'patrol_search':route.patrol_search,'route':route.patrol,'approach_route':approach,
             'approach_boundary':path_boundary(path,(terrain.width,terrain.height)),'loot_allowlist':(),
             'maximum_actions':1000})
         config=config.model_copy(update={'ammo_type':ammo_type,'target_threshold':.84,'interval':.15,'attack_progress_timeout':1.2})
@@ -1040,6 +1077,9 @@ class DesktopApp:
         # under the same lock as bridge commands, without switching Off back On.
         from conquest.character_context import apply_overrides
         config=apply_overrides(config)
+        if ranges['scatter'] is None:
+            # Preferences cannot enable a skill absent from this character.
+            config=config.model_copy(update={'attack_button':'left','adaptive_scatter':False,'jump_scatter':False})
         with self.observer.lock:
             if not self.control.snapshot()['enabled']:
                 return
