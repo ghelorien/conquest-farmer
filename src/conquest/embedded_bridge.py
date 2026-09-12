@@ -98,8 +98,8 @@ class EmbeddedBridge:
                         elif operation=='native-window-mode':
                             if set(body)!={'detached'} or type(body['detached']) is not bool or bridge.on_native_window is None:
                                 raise ValueError('Native window mode is unavailable or invalid')
-                            if bridge.snapshot()['control']['enabled']:
-                                raise ValueError('Stop farming before changing window mode')
+                            if body['detached'] and bridge.snapshot()['control']['enabled']:
+                                raise ValueError('Stop farming before detaching the client')
                             bridge.on_native_window(body['detached'])
                             result={'window_change_queued':True}
                         elif operation=='reconnect-retry':
@@ -119,6 +119,7 @@ class EmbeddedBridge:
                         if operation=='health':
                             result['embedded_controls'] = bridge.snapshot()
                             result['embedded_controls']['manual_mouse'] = active()
+                            result['window_mode'] = getattr(bridge,'window_mode','unknown')
                     status = 200
                 except (ValueError,OSError,KeyError,TypeError) as error:
                     result,status = {'error':str(error)},400
@@ -150,6 +151,7 @@ class EmbeddedBridge:
         # the UI applied the change, not from the requested detached boolean.
         with self.lock:
             self.native_probe_mode=not host.saved or host.mode=='owned'
+            self.window_mode=host.mode if host.saved else 'detached'
 
     def run(self):
         try:

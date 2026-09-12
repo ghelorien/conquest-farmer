@@ -7,6 +7,19 @@ import pytest
 from conquest.discord_notify import Notifications,DeliveryError,deliver,notable_drop,status_text,webhook_url
 
 
+def test_notification_targets_follow_changed_route_policy(tmp_path,monkeypatch):
+    from conquest import discord_notify as module
+    policy=tmp_path/'policy.json'
+    monkeypatch.setattr(module,'KILL_RATE_POLICY',policy)
+    assert module.kill_rate_targets()==(40,50)
+    policy.write_text(json.dumps({'target_kills_per_minute':60,'stretch_kills_per_minute':80}))
+    assert module.kill_rate_targets()==(60,80)
+    policy.write_text(json.dumps({'target_kills_per_minute':60,'stretch_kills_per_minute':50}))
+    assert module.kill_rate_targets()==(60,60)
+    policy.write_text(json.dumps({'target_kills_per_minute':False,'stretch_kills_per_minute':-1}))
+    assert module.kill_rate_targets()==(40,50)
+
+
 def test_full_storage_alert_is_immediate_prioritized_and_not_repeated(tmp_path):
     events=tmp_path/'events.jsonl';events.write_text('')
     n=Notifications({'next_update_at':9999})
@@ -299,9 +312,9 @@ def test_quarter_hour_summary_is_immediate_then_persistent_and_coalesced(tmp_pat
     content=n.state['queue'][0]['content']
     assert 'level 17' in content and 'HP 317/329' in content and '1,679 arrows' in content
     assert '42 verified kills in the last 15 minutes' in content
-    assert '1,400 verified kills in the last hour (target: 1,800)' in content
+    assert '1,400 verified kills in the last hour (minimum: 2,400, stretch: 3,000)' in content
     assert '15-minute pace: 168/hour, including downtime' in content
-    assert 'last minute: 20 kills (target: 30)' in content
+    assert 'last minute: 20 kills (minimum: 40, stretch: 50)' in content
     assert n.state['next_update_at']==1000
     n=Notifications(json.loads(json.dumps(n.state)))
     n.updates(app,route,path,999,lambda pid:True)

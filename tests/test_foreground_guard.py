@@ -25,3 +25,16 @@ def test_geometry_changes_pause_before_input(monkeypatch,size,minimized):
         foreground.foreground_click(target,50,50,(100,100),require_foreground=True)
     with pytest.raises(CaptureUnavailable,match='no input sent'):
         foreground.foreground_key(target,112,(100,100),require_foreground=True)
+
+
+def test_escape_uses_the_same_focus_guard_and_other_keys_remain_restricted(monkeypatch):
+    from types import SimpleNamespace
+    from conquest import foreground
+    from conquest.capture import CaptureUnavailable
+    monkeypatch.setattr(foreground,'require_idle',lambda:None)
+    target=SimpleNamespace(hwnd=7,snapshot=lambda:{'foreground':8,'client_size':[1420,1009],'minimized':False})
+    with pytest.raises(CaptureUnavailable,match='lost focus'):
+        foreground.foreground_key(target,0x1B,(1420,1009),require_foreground=True)
+    for vk in (0x7B,0x41,True):
+        with pytest.raises(ValueError,match='supports'):
+            foreground.foreground_key(target,vk,(1420,1009))

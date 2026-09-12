@@ -6,6 +6,7 @@ import time
 
 from conquest.capture import CaptureUnavailable
 from conquest.memory_life import read_life
+from conquest.viewport import size_for,clear_scene
 
 
 @contextmanager
@@ -148,6 +149,14 @@ class NativeFarmSupervisor:
         if not hasattr(self,'_xp_skill'):self._xp_skill=XpSkill(self.observer,self.notify)
         with self.observer.lock:
             return self._xp_skill.step(dispatch)
+
+    def scatter_selection_step(self,dispatch):
+        from conquest.scatter_selection import ScatterSelection
+        if not hasattr(self,'_scatter_selection'):
+            self._scatter_selection=ScatterSelection(self.observer,self.notify)
+        with self.observer.lock:
+            try:return self._scatter_selection.step(dispatch)
+            except ValueError as error:raise CaptureUnavailable(str(error)) from error
 
     def read_life(self):
         from conquest.reconnect import login_screen
@@ -299,7 +308,7 @@ class NativeFarmSupervisor:
                 scatter_scene.append(Target(monster.name,x,y,1.0,monster.entity_id,monster.object_address,tuple(monster.position),monster_hp))
                 if not (80<x<size[0]-80 and 140<y<size[1]-126):
                     continue
-                if x<615 and (y>550 or y<170):
+                if not clear_scene((x,y),size):
                     continue
                 accepted.append(Target(monster.name,x,y,1.0,monster.entity_id,monster.object_address,tuple(monster.position),monster_hp))
             self.chase_monsters=tuple(chase)
@@ -419,7 +428,7 @@ class NativeFarmSupervisor:
                 self.loot_cooldowns[(drop.uid,drop.object_address)]=now+60
                 self.pending_loot=None
         self.loot_cooldowns={k:v for k,v in self.loot_cooldowns.items() if v>now}
-        candidates=[];approaches=[]
+        candidates=[];approaches=[];anchor=None
         from conquest.discard_loot import ignored_drop, JOURNAL
         from conquest.discord_notify import read_json
         discarder=getattr(self,'discarder',None)
@@ -439,9 +448,11 @@ class NativeFarmSupervisor:
             distance=max(abs(dx),abs(dy))
             if distance>40:
                 continue
-            point=(518+(dx-dy)*32,396+(dx+dy)*16)
+            viewport=size_for(self.observer)
+            if anchor is None:anchor=self.player_anchor(position)
+            point=(anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16)
             rank=(drop.type_id not in (1088000,1088001),not bool(drop.plus),dx*dx+dy*dy)
-            if distance>max_distance or not(80<point[0]<956 and 140<point[1]<667) or (point[0]<615 and (point[1]>550 or point[1]<170)):
+            if distance>max_distance or not clear_scene(point,viewport):
                 approaches.append((rank,drop))
                 continue
             candidates.append((rank,drop,point))
@@ -494,9 +505,16 @@ class NativeFarmSupervisor:
             path=terrain.path(position,drop.position)
             if len(path)<2 or len(path)>100:return False
             if any(not(boundary[0]<=x<=boundary[2] and boundary[1]<=y<=boundary[3]) for x,y in path):return False
-            destination=native_waypoint(path)
+            destination=native_waypoint(path,viewport=size_for(self.observer))
             dx,dy=destination[0]-position[0],destination[1]-position[1]
-            point=(518+(dx-dy)*32,396+(dx+dy)*16)
+            viewport=size_for(self.observer)
+            anchor=self.player_anchor(position)
+            from conquest.scene_input import visible_route_delta
+            from conquest.viewport import scene_bounds
+            delta=visible_route_delta((dx,dy),anchor,scene_bounds(viewport))
+            if delta is None:return False
+            dx,dy=delta;destination=(position[0]+dx,position[1]+dy)
+            point=(anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16)
             # Planning never authorizes a stale identity or stale player tile.
             with self.observer.lock:
                 if drop not in self.ground_items():return False
@@ -528,7 +546,7 @@ class NativeFarmSupervisor:
     def movement_succeeded(self,source,destination,*,arrived):
         # One verified detour clears slow walking mode; keep the failed tiles
         # excluded so returning to long jumps cannot replay the blocked edge.
-        if arrived and max(abs(a-b) for a,b in zip(source,destination))>=3:
+        if max(abs(a-b) for a,b in zip(source,destination))>=3:
             self.movement_run_until=0
 
     def patrol_step(self,position,fallback,boundary,*,chase=True,alternatives=()):
@@ -608,16 +626,15 @@ class NativeFarmSupervisor:
                             dx,dy=p[0]-position[0],p[1]-position[1]
                             px=monster.draw_position[0]-(dx-dy)*32
                             py=monster.draw_position[1]-(dx+dy)*16
-                            return (80<px<956 and 140<py<667
-                                    and not (px<615 and (py>550 or py<170)))
+                            return clear_scene((px,py),size_for(self.observer))
                         stop=next((i for i,p in enumerate(path) if i>0 and
                             max(abs(a-b) for a,b in zip(p,destination))<=stand_off
                             and aim_visible(p)),len(path)-1)
                         path=path[:stop+1]
                 if not chase and hasattr(terrain,'travel_path'):
                     from conquest.navigation import travel_waypoint
-                    step=travel_waypoint(terrain,path,4 if now<self.movement_run_until else 12,avoid=avoid)
-                else:step=native_waypoint(path,4 if now<self.movement_run_until else 12)
+                    step=travel_waypoint(terrain,path,4 if now<self.movement_run_until else 12,avoid=avoid,viewport=size_for(self.observer))
+                else:step=native_waypoint(path,4 if now<self.movement_run_until else 12,viewport=size_for(self.observer))
                 if destination not in candidates:
                     self.patrol_destination=destination
                 return step
@@ -644,7 +661,7 @@ class NativeFarmSupervisor:
         candidates=[]
         for length in (12,10,8):
             for dx,dy in ((length,0),(-length,0),(0,length),(0,-length)):
-                dx,dy=native_movement_delta(dx,dy)
+                dx,dy=native_movement_delta(dx,dy,viewport=size_for(self.observer))
                 distance=max(abs(dx),abs(dy))
                 if distance<8:continue
                 point=(x+dx,y+dy)
@@ -695,8 +712,7 @@ class NativeFarmSupervisor:
                     target=matched[0]
                     if (not isinstance(attack_range,(int,float)) or not 0<attack_range<=20
                             or max(abs(a-b) for a,b in zip(life.position,target.world_position))>attack_range
-                            or not(80<target.x<956 and 140<target.y<667)
-                            or (target.x<615 and (target.y>550 or target.y<170))):
+                            or not clear_scene((target.x,target.y),size_for(self.observer))):
                         raise CaptureUnavailable('Refreshed monster aim is outside attack range or clear scene')
                     retarget(target)
             if drop is not None:

@@ -271,6 +271,9 @@ class OvernightLoop:
             deadline+=max(0,time.monotonic()-waiting-.5)
             life = h['embedded_controls']['life']
             source = tuple(life['position'])
+            from conquest.viewport import scene_bounds,clear_scene
+            viewport=tuple(h.get('window',{}).get('client_size',(1036,793)))
+            bounds=scene_bounds(viewport)
             if getattr(self,'walk_after_obstruction',False):
                 blocked_jump_origin=source
                 self.walk_after_obstruction=False
@@ -297,7 +300,7 @@ class OvernightLoop:
                     service=None
                 if service and max(abs(a-b) for a,b in zip(source,service['position']))<=12:
                     x,y=service['draw_position']
-                    if 80<x<956 and 140<y-32<667:return
+                    if clear_scene((x,y-32),viewport):return
             # Stop as soon as the live vendor can be interacted with, including
             # Phoenix aliases and armor shops; a service anchor is only a fallback.
             if vendor_type is not None:
@@ -328,15 +331,15 @@ class OvernightLoop:
                     self.record('town_path_retry',activity='Retrying the town corridor with running steps')
                 from conquest.navigation import travel_waypoint
                 step_limit=4 if blocked_jump_origin is not None or time.monotonic()<recovery_run_until else 12
-                target = (travel_waypoint(self.terrain,path,step_limit,avoid=avoided)
-                          if hasattr(self.terrain,'travel_path') else native_waypoint(path,step_limit))
+                target = (travel_waypoint(self.terrain,path,step_limit,avoid=avoided,viewport=viewport)
+                          if hasattr(self.terrain,'travel_path') else native_waypoint(path,step_limit,viewport=viewport))
                 from types import SimpleNamespace
                 from conquest.scene_input import memory_player_anchor,visible_route_delta,clear_route_point
                 anchor=memory_player_anchor(SimpleNamespace(adapter=self.care.session),SimpleNamespace(**life))
                 if self.terrain.map_id in (1036,1011) and market_failures>=2 and len(market_landings)<3:
                     from conquest.market_navigation import recovery_landing
                     alternate=recovery_landing(self.terrain,source,tuple(destination),anchor,
-                                               failed=market_failed,used=market_landings)
+                                               failed=market_failed,used=market_landings,viewport=viewport)
                     if alternate is not None:
                         target=alternate;market_landings.add(alternate)
                         # These were guesses about the first path edge, not
@@ -350,23 +353,23 @@ class OvernightLoop:
                 if getattr(self,'runback_watch',None) and self.runback_watch.urgent:
                     from conquest.runback_monitor import escape_step
                     escape=escape_step(self.terrain,source,tuple(destination),anchor,
-                                       h['embedded_controls'].get('monsters',[]),avoid=avoided)
+                                       h['embedded_controls'].get('monsters',[]),avoid=avoided,viewport=viewport)
                     if escape is not None:
                         target=escape;self.runback_watch.recovery()
                         self.record('runback_evading',activity='Under attack during runback; healing and moving away')
                 dx,dy=target[0]-source[0],target[1]-source[1]
                 px,py=anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16
-                if not clear_route_point((px,py)):
-                    shorter=visible_route_delta((dx,dy),anchor)
+                if not clear_route_point((px,py),bounds):
+                    shorter=visible_route_delta((dx,dy),anchor,bounds)
                     if shorter is None:
                         # At a clamped camera edge, a corner's endpoint can be
                         # hidden even though an earlier walking tile is clear.
                         visible=[p for p in path[1:5]
                             if clear_route_point((anchor[0]+(p[0]-source[0]-p[1]+source[1])*32,
-                                                  anchor[1]+(p[0]-source[0]+p[1]-source[1])*16))]
+                                                  anchor[1]+(p[0]-source[0]+p[1]-source[1])*16),bounds)]
                         if not visible:
                             from conquest.navigation import visible_cardinal_step
-                            target=visible_cardinal_step(self.terrain,source,tuple(destination),anchor,avoid=avoided,allow_detour=True)
+                            target=visible_cardinal_step(self.terrain,source,tuple(destination),anchor,avoid=avoided,allow_detour=True,bounds=bounds)
                             if target is None:
                                 avoided.add(tuple(path[1]))
                                 continue
@@ -453,7 +456,7 @@ class OvernightLoop:
         from conquest.arrow_upgrades import NORMAL_ARROWS,MAX_ARROW_PACKS,arrow_pack_count
         if type_id in NORMAL_ARROWS and arrow_pack_count(snapshot)>=MAX_ARROW_PACKS:
             self.record('arrow_purchase_deferred',arrow_packs=arrow_pack_count(snapshot),
-                        activity='Keeping existing arrow packs; ten-pack limit reached')
+                        activity='Keeping existing arrow packs; one equipped and one spare is enough')
             return False
         from conquest.savings import savings_plan,affordable_supply
         if savings_plan():
@@ -747,13 +750,12 @@ class OvernightLoop:
         time.sleep(.2)
 
     def adopt_ammunition(self,state=None):
-        from conquest.arrow_upgrades import current_arrow,NORMAL_ARROWS
+        from conquest.arrow_upgrades import current_arrow,NORMAL_ARROWS,ARROW_REFILL_AMOUNTS
         state=state or self.town('gear')
-        reserves=[i['type_id'] for i in self.town('supplies')['items'] if i['amount']>0]
+        reserves=[i['type_id'] for i in self.town('supplies')['items'] if i['amount']>=3]
         kind=current_arrow(state,self.route.supplies.arrow_type,reserves)
-        if kind!=self.route.supplies.arrow_type:
-            # Preserve ten packs when upgrading from 200-arrow LuckyArrow packs.
-            target={1050000:2000,1050001:10000}.get(kind,self.route.supplies.arrows_restock_to)
+        target=ARROW_REFILL_AMOUNTS[kind]
+        if kind!=self.route.supplies.arrow_type or target!=self.route.supplies.arrows_restock_to:
             supplies=self.route.supplies.model_copy(update={'arrow_type':kind,'arrows_restock_to':target})
             self.route=self.route.model_copy(update={'supplies':supplies})
             self.record('ammunition_selected',arrow_type=kind,activity=f'Using {NORMAL_ARROWS[kind]} for combat and restocking')

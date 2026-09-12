@@ -56,9 +56,9 @@ def press_scan_sequence(send, scans, sleep=time.sleep):
 
 @coordinated_input
 def foreground_key(target, vk, expected_size, control=False, require_foreground=False):
-    """One explicit F1-F11 baseline; F12 is reserved for emergency stop."""
-    if type(vk) is not int or not 0x70 <= vk <= 0x7A:
-        raise ValueError("Key diagnostic supports F1 through F11 only")
+    """One F1-F11 or Escape input; F12 remains reserved for emergency stop."""
+    if type(vk) is not int or not (0x70 <= vk <= 0x7A or vk == 0x1B):
+        raise ValueError("Key diagnostic supports F1 through F11 and Escape only")
     if type(control) is not bool:
         raise ValueError("control must be a boolean")
     require_idle()

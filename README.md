@@ -15,18 +15,21 @@ backend is disabled after a failed interruption test. See
 [background-input findings](docs/background-input-proof.md) for qualification
 limits. Credentials, webhook secrets and local state are excluded from Git.
 
-**Snapshot: September 11, 2026.** The Windows client wrapper and foreground
+**Snapshot: September 12, 2026.** The Windows client wrapper and foreground
 farmer use read-only memory for gameplay decisions. The current implementation
 includes saved leveling routes, jump/Scatter combat, healing and revival,
 restocking and equipment checks, verified loot, Discord notifications, warehouse
 banking and the Market Meteor route. Background/minimized input remains
 unqualified. Client-specific memory layouts still need validation on another PC.
 
-Recent fixes keep healing and revival active during recoverable movement stalls,
-improve Phoenix/Market path recovery, accept all encoded Scatter ranks while
-retaining skill/range validation, and surface the actual farming startup error.
+Recent fixes restore embedded-client hosting before combat resumes, adapt NPC
+dialogues and reconnect controls to the current viewport, and keep native life
+recovery active while waiting for fresh memory. Ammunition prefers SpeedArrows
+from level 73 with one equipped pack and one spare. Scatter selection, Fly
+recovery, safe reload and travel also include additional regression coverage.
 This is still an evolving prototype: safe travel and the 40–50 verified kills/minute
-target are not guaranteed. See the [current handoff](docs/snapshot-2026-09-11.md).
+target are not guaranteed. See the [latest update](docs/snapshot-2026-09-12.md) and
+[original handoff](docs/snapshot-2026-09-11.md).
 
 ## Install and test
 

@@ -82,7 +82,7 @@ def ammunition_per_attack(config):
 def ammunition_reload_needed(inventory, config, *, proactive=False):
     ammo=inventory.equipped_ammo
     # Do not leave 23–25 arrows behind in every pack when patrolling.
-    return ammo is None or ammo.amount < ammunition_per_attack(config)
+    return ammo is None or ammo.type_id != config.ammo_type or ammo.amount < ammunition_per_attack(config)
 
 
 def supply_stop_reason(inventory, config, now):
@@ -93,8 +93,7 @@ def supply_stop_reason(inventory, config, now):
     ammo = inventory.equipped_ammo
     if ammo is None or ammo.type_id != config.ammo_type or ammo.amount < ammunition_per_attack(config):
         if not (getattr(config, "ammo_key", None) is not None
-                and any(i.type_id==config.ammo_type and i.amount>=ammunition_per_attack(config) for i in inventory.items)
-                and (ammo is None or ammo.type_id == config.ammo_type)):
+                and any(i.type_id==config.ammo_type and i.amount>=ammunition_per_attack(config) for i in inventory.items)):
             return "ammo_unavailable"
     if inventory.count(config.potion_type) <= 0:
         return "potions_exhausted"
@@ -354,20 +353,33 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                       character_level=fields["level"][0], position=[x, y],
                       ammo=inventory.equipped_ammo.amount if inventory.equipped_ammo else 0,
                       potions=inventory.count(config.potion_type))
-                if time.monotonic() - inventory.started_at > .85:
+                if not 0<=time.monotonic() - inventory.started_at<=.85:
                     stale_observations += 1
                     event("state_retry", reason="observation_expired", failures=stale_observations)
-                    if stale_observations >= 3:
+                    if stale_observations >= 3 and supervisor is None:
                         reason = "persistently_stale_state"
                         break
+                    # The hosted observer checks life/revival at the top of
+                    # every iteration. A slow read must not shut that owner
+                    # down and leave the character unattended. No combat,
+                    # movement or healing input uses this expired snapshot.
+                    if supervisor and stale_observations==3:
+                        event('state_recovery_wait',reason='observation_expired',
+                              activity='Waiting for fresh memory; life recovery remains active')
+                    time.sleep(.03)
                     continue
+                if stale_observations>=3 and supervisor:
+                    event('state_recovery_resumed',failures=stale_observations)
                 stale_observations = 0
                 if hp <= 0 and not config.recovery.enabled:
                     reason = "death"
                     break
                 absolute_health = hp * fields["max_hp"][0]
 
-                def dispatch(point, button="left", control=False, target=None, drop=None):
+                def dispatch(point, button="left", control=False, target=None, drop=None, *, ui=False):
+                    if supervisor and not ui:
+                        from conquest.viewport import require_world_point
+                        require_world_point(point,config.client_size)
                     if (camera.geometry() != frame.origin or time.monotonic() - frame.timestamp > .35
                             or time.monotonic() - inventory.started_at > 1
                             or win32api.GetAsyncKeyState(0x7B) & 0x8000):
@@ -536,7 +548,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         continue
                     issued = time.monotonic()
                     if config.potion_key is None:
-                        dispatch(point, "right")
+                        dispatch(point, "right",ui=True)
                     else:
                         if time.monotonic()-frame.timestamp > .35 or camera.geometry()!=frame.origin:
                             raise ValueError("Healing observation expired")
@@ -603,8 +615,14 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                                               reserve, issued)
                     event("reload_attempt", reserve_stacks=len(reserve))
                     continue
+                if (supervisor and config.attack_button=='right' and not observe_only
+                        and hasattr(supervisor,'scatter_selection_step')
+                        and supervisor.scatter_selection_step(lambda point:dispatch(point,ui=True))):
+                    pending_attack=moving=None
+                    last_action=0
+                    continue
                 if (supervisor and hasattr(supervisor,'xp_step') and not observe_only
-                        and time.monotonic()>=escape_settle_until and supervisor.xp_step(dispatch)):
+                        and time.monotonic()>=escape_settle_until and supervisor.xp_step(lambda point:dispatch(point,ui=True))):
                     pending_attack=moving=None
                     last_action=0
                     continue
@@ -865,17 +883,18 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         if movement_failures == 2 and not supervisor: dx-=1; dy+=1
                         if supervisor:
                             from conquest.navigation import native_movement_delta
-                            dx,dy=native_movement_delta(dx,dy)
+                            dx,dy=native_movement_delta(dx,dy,viewport=config.client_size)
                         else:
                             dx,dy=visible_movement_delta(dx,dy)
                         if not (l <= x+dx <= r and t <= y+dy <= b):
                             reason="reposition_outside_boundary"
                             break
                         point=(round(config.player_anchor[0]+(dx-dy)*32), round(config.player_anchor[1]+(dx+dy)*16))
-                        if not (80<point[0]<(956 if supervisor else 1100) and 140<point[1]<(667 if supervisor else 550)):
+                        from conquest.viewport import clear_scene,scene_bounds
+                        if not (clear_scene(point,config.client_size) if supervisor else (80<point[0]<1100 and 140<point[1]<550)):
                             if supervisor:
                                 from conquest.scene_input import visible_route_delta
-                                shorter=visible_route_delta((dx,dy),config.player_anchor)
+                                shorter=visible_route_delta((dx,dy),config.player_anchor,scene_bounds(config.client_size))
                                 if shorter is None:
                                     supervisor.movement_failed((x,y),(x+dx,y+dy))
                                     time.sleep(.08)

@@ -75,7 +75,7 @@ def test_tiny_iron_reserves_can_be_recycled_without_selling_last_ammo():
     assert not expendable_arrow(small,InventorySnapshot(0,0,(small,),None,9000,40))
 
 
-@pytest.mark.parametrize('count',[10,21,22])
+@pytest.mark.parametrize('count',[2,10,21,22])
 def test_purchase_cap_counts_partial_packs_and_prevents_topups(count):
     from conquest.arrow_upgrades import arrow_pack_count,require_arrow_purchase_room
     loop=OvernightLoop.__new__(OvernightLoop);loop.route=RouteLibrary().load('bandit');loop.record=lambda *a,**kw:None
@@ -84,7 +84,7 @@ def test_purchase_cap_counts_partial_packs_and_prevents_topups(count):
     loop.town=lambda action,**kw:bag if action=='supplies' else pytest.fail('No shop input at pack cap')
     assert arrow_pack_count(bag)==count
     assert not loop.buy_supply(5,1050001)
-    with pytest.raises(ValueError,match='ten or more'):require_arrow_purchase_room(bag)
+    with pytest.raises(ValueError,match='two or more'):require_arrow_purchase_room(bag)
 
 
 def test_arrow_upgrade_does_not_bypass_pack_cap():
@@ -116,3 +116,27 @@ def test_spent_scatter_remnants_are_retired_before_refill_even_with_free_slots()
         assert action=='sell_partial_arrow';calls.append(kw['uid']);bag['items']=[];return {'sold':kw['uid']}
     loop.town=town;loop.recycle_small_arrows()
     assert calls==[1]
+
+
+def test_level_73_prefers_owned_speed_over_equipped_iron_without_downgrading():
+    from conquest.arrow_upgrades import preferred_arrow
+    assert preferred_arrow(72)==1050001
+    assert preferred_arrow(73)==1050002
+    assert current_arrow(state(73,1050001,50),reserves=[1050002])==1050002
+    assert current_arrow(state(72,1050001,50),reserves=[1050002])==1050001
+    assert current_arrow(state(73,1050002,100),reserves=[1050001])==1050002
+
+
+def test_owned_speed_upgrade_does_not_require_purchase_money():
+    speed=product(1050002,73,100,34000)
+    assert choose_arrow_upgrade([speed],state(73,1050001,50),200) is None
+    assert choose_arrow_upgrade([speed],state(73,1050001,50),200,carried={1050002})==speed
+
+
+def test_two_speed_packs_block_buy_even_when_equipped_pack_is_partial():
+    from conquest.arrow_upgrades import require_arrow_purchase_room
+    bag={'items':[{'uid':2,'type_id':1050002,'amount':5000,'limit':5000}],
+         'equipped_ammo':{'uid':1,'type_id':1050002,'amount':4,'limit':5000}}
+    with pytest.raises(ValueError,match='two or more'):require_arrow_purchase_room(bag)
+    bag['items']=[]
+    require_arrow_purchase_room(bag)

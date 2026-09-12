@@ -79,6 +79,32 @@ def test_cancel_never_starts_safe_spot_movement():
     with pytest.raises(ValueError,match='canceled'):s.park(loop,cancelled,lambda note:None)
 
 
+def test_dense_local_search_falls_back_to_fixed_town_route_with_care(monkeypatch):
+    import numpy as np
+    from conquest.navigation import TerrainMap
+    now=[0.];moves=[];checks=[];notes=[];h=health();life=h['embedded_controls']['life'];life['position']=[50,50]
+    h['window']={'client_size':[1420,1009]}
+    monkeypatch.setattr(s.time,'monotonic',lambda:now[0])
+    monkeypatch.setattr(s.time,'sleep',lambda delay:now.__setitem__(0,now[0]+delay))
+    monkeypatch.setattr(s,'nearby_escape',lambda *a,**kw:None)
+    monkeypatch.setattr('conquest.scene_input.memory_player_anchor',lambda *a:(710,504))
+    def living():
+        x,y=life['position']
+        h['embedded_controls']['monsters']=[] if (x,y)==(10,10) else [{'position':[x+1,y],'alive':True}]
+        return h
+    def step(target,**kw):
+        moves.append((tuple(life['position']),target));life['position']=list(target)
+        return {'reached':True}
+    loop=NS(living=living,care=NS(check=lambda h:checks.append(now[0]),session=None),
+            terrain=TerrainMap(1002,100,100,np.zeros((100,100),dtype=bool),'',(),()),
+            route=NS(restock_map_id=1002,restock_anchor=(10,10)),stepper=NS(step_to=step))
+    proof=s.park(loop,threading.Event(),notes.append)
+    assert proof['position']==[10,10] and 18<=now[0]<120
+    assert len(checks)>len(moves)>1
+    assert all(max(abs(x-10),abs(y-10))>max(abs(a-10),abs(b-10)) for (x,y),(a,b) in moves)
+    assert any('heading toward town' in text for text in notes)
+
+
 def test_final_safe_check_failure_preserves_old_app(monkeypatch):
     from conquest.desktop_app import DesktopApp
     calls=[]
@@ -88,3 +114,27 @@ def test_final_safe_check_failure_preserves_old_app(monkeypatch):
     monkeypatch.setattr('conquest.safe_reload.validate_handoff',lambda *a:(_ for _ in ()).throw(ValueError('monster approached')))
     assert not DesktopApp._restart_now(app)
     assert 'monster approached' in calls[0]
+
+
+@pytest.mark.parametrize('lock_available',[True,False])
+def test_terminal_unqueryable_pid_still_requires_exclusive_controller_lock(monkeypatch,tmp_path,lock_available):
+    from contextlib import contextmanager
+    monkeypatch.chdir(tmp_path);(tmp_path/'.runtime').mkdir()
+    h=health();calls=[]
+    monkeypatch.setattr(s,'read_json',lambda *args:{'pid':999,'phase':'stopped'})
+    monkeypatch.setattr(s,'process_alive',lambda pid:None)
+    monkeypatch.setattr('conquest.worker.request',lambda *args:h)
+    @contextmanager
+    def guard():
+        calls.append('lock');yield lock_available
+    monkeypatch.setattr('conquest.route_controller.controller_guard',guard)
+    loop=NS(refresh=lambda:None,record=lambda *a,**k:None,check_stop=lambda:None)
+    monkeypatch.setattr('conquest.overnight.OvernightLoop',lambda route:loop)
+    monkeypatch.setattr(s,'park',lambda *a:calls.append('park') or {'verified':True})
+    if lock_available:
+        assert s.prepare('worker','bandit',threading.Event(),lambda text:None)=={'verified':True}
+        assert calls==['lock','park']
+    else:
+        with pytest.raises(ValueError,match='Another route owns input'):
+            s.prepare('worker','bandit',threading.Event(),lambda text:None)
+        assert calls==['lock']

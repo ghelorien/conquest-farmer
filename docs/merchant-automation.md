@@ -1,17 +1,21 @@
 # Unified Conquest merchant automation
 
-Baseline: private repository commit `1b4d916dcc41f7d5efd8ad33450c9cb2f3949059`.
+Farmer integration baseline: private repository commit
+`117cc08d9ed8d418ae5b483f49196b143322a2a0` (September 12 update).
+Merchant development initially used `1b4d916`; the combined source now includes
+the newer farmer's embedding, viewport, ammunition and recovery changes.
 The existing desktop entry point now adds Overview, Farmer, Spiritual and Dutch
 tabs. Farmer configuration, travel routes, loot policy and delivery timing stay
 with the existing farmer. Nothing here starts a route or changes Farming On.
 
 ## Current rollout state
 
-Publication validation on September 12, 2026: the full Windows test suite passed
-with **1,650 tests**, including existing farmer regressions, shared input guards,
-merchant isolation, native UI integration and sales accounting. Farmer profiles,
-routes, combat and loot policy are unchanged from the baseline. Automated tests
-do not qualify the remaining live gameplay scenarios below.
+The pre-merge Windows suite passed with **1,650 tests**, including existing farmer
+regressions, shared input guards, merchant isolation, native UI integration and
+sales accounting. Final integration validation is recorded in
+[farmer integration parity](farmer-tab-merge-parity.md). Farmer profiles, routes,
+combat and loot policy are preserved from the updated farmer baseline. Automated
+tests do not qualify the remaining live gameplay scenarios below.
 
 Both merchants have completed foreground listing/repricing batches on the
 installed client. The app contains native 12-hour pricing, five-minute refill,

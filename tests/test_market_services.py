@@ -13,8 +13,20 @@ def test_dialog_choice_uses_exact_memory_records_and_table(monkeypatch):
     assert m.dialog_point(None,'Pack ten Meteors',records)==(95,111)
     with pytest.raises(ValueError,match='changed'):m.dialog_point(None,'Pack ten Meteors',[])
     with pytest.raises(ValueError,match='absent'):m.dialog_point(None,'Unpack',records)
-    d['table']=(40.,100.,270.,22.)
+    d['table']=(40.,100.,310.,22.)
     with pytest.raises(ValueError,match='layout'):m.dialog_point(None,'Pack ten Meteors',records)
+
+
+def test_resized_phoenix_dialog_uses_actual_equal_columns(monkeypatch):
+    records=[{'kind':1,'option':i,'text':text} for i,text in enumerate(
+        ('Twin City','Market','Just passing by.'))]
+    d={'records':records,'window':NS(position=(378.,20.),size=(356.,162.),scroll=(0.,0.)),
+       'table':(398.,130.,714.,44.)}
+    monkeypatch.setattr(m,'read_dialog',lambda observer:d)
+    assert m.dialog_point(None,'Market',records)==(635,141)
+    assert m.dialog_point(None,'Just passing by.',records)==(477,163)
+    d['table']=(398.,130.,float('nan'),44.)
+    with pytest.raises(ValueError,match='layout'):m.dialog_point(None,'Market',records)
 
 
 def test_withdrawal_requires_exact_meteor_uid_and_no_other_loss():

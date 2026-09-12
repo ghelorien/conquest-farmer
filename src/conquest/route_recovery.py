@@ -177,8 +177,10 @@ class EmbeddedRecoveryInput:
             raise CaptureUnavailable('Character changed before recovery input')
         target=observer.bridge.operations.target
         before=target.snapshot()
-        if before['client_size']!=[1036,793]:
-            raise ValueError('Recovery needs the inspected embedded client size')
+        from conquest.viewport import size_for,clear_scene,revive_point
+        viewport=size_for(observer)
+        if tuple(before['client_size'])!=viewport:
+            raise ValueError('Recovery client geometry changed')
         if before['foreground']!=before['root_hwnd'] or before['minimized']:
             raise CaptureUnavailable('Recovery waiting for game focus; no input sent')
         from conquest.mouse_priority import require_idle
@@ -187,7 +189,7 @@ class EmbeddedRecoveryInput:
         if kind=='revive':
             if not life.revive_ready_candidate:
                 raise ValueError('Revive is not ready')
-            point=(518,640)
+            point=revive_point(observer.adapter,viewport)
         elif kind in ('jump','run'):
             # Low health must not prevent escaping toward healing supplies.
             # A new death is transient: reobserve and let the owner revive.
@@ -207,13 +209,13 @@ class EmbeddedRecoveryInput:
             from conquest.scene_input import memory_player_anchor
             anchor=memory_player_anchor(observer,life)
             point=(anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16)
-            if not (20<point[0]<1016 and 60<point[1]<690):
+            if not clear_scene(point,viewport):
                 raise ValueError('Projected route tile is outside the clear scene')
         else:
             raise ValueError('Unknown recovery action')
         with physical_coordinates():
             size=target.snapshot()['client_size']
-            physical=[round(point[0]*size[0]/1036),round(point[1]*size[1]/793)]
+            physical=[round(point[0]*size[0]/viewport[0]),round(point[1]*size[1]/viewport[1])]
             diagnostics={'action':kind,'source':list(life.position),'destination':destination,
                          'issued_at':time.time(),'point':point}
             try:

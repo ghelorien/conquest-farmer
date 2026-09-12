@@ -7,6 +7,7 @@ import struct
 import json
 from pathlib import Path
 import time
+from conquest.dialog_geometry import option_point as dialog_option_point
 
 TRIPS=Path('profiles/conductress-routes.json')
 
@@ -26,6 +27,7 @@ def take_saved_trip(loop,destination_map):
                 activity=f'Heading to Conductress for {trip["option"]}')
     loop.travel((438,444))
     loop.town('conductress-open')
+    prepare_destination(loop,trip['option'])
     before=loop.town('supplies')
     loop.town('conductress-travel',destination=trip['option'])
     for _ in range(30):
@@ -91,10 +93,10 @@ def read_dialog(observer):
     return {'records':records,'window':window,'table':(left,top,right,height)}
 
 
-def destination_point(observer,destination):
+def validate_destination(data,destination):
     choices={'Phoenix Castle','Desert City','Ape Mountain','Bird Island.'}
     if destination not in choices:raise ValueError('Unsupported leveling destination')
-    data=read_dialog(observer);records=data['records'];window=data['window']
+    records=data['records']
     options=[r for r in records if r['kind']==1]
     texts=[r['text'] for r in records if r['kind']==0]
     if (texts!=['Where are you heading? I can teleport you for a price of 100 silver.']
@@ -102,10 +104,23 @@ def destination_point(observer,destination):
                 'Mine Cave','Market','Just passing by.'] or [r['option'] for r in options]!=list(range(7))
             or any(r['kind']==2 for r in records)):
         raise ValueError('Conductress choices differ from the qualified dialog')
-    left,top,right,height=data['table'];x,y=window.position
-    # Inspected renderer: two columns, four 22px rows. EndTable retains its
-    # complete layout in the window DC, independent of remembered screen pixels.
-    if window.size!=(280.,198.) or window.scroll!=(0.,0.) or (left,top,right,height)!=(x+20,y+110,x+240,88.):
-        raise ValueError('Conductress button table geometry changed')
-    index=next(i for i,r in enumerate(options) if r['text']==destination)
-    return (round(left+(index%2+.5)*(right-left)/2),round(top+(index//2+.5)*22))
+
+
+def prepare_destination(loop,destination):
+    from conquest.dialog_geometry import scroll_direction
+    deadline=time.monotonic()+5
+    while time.monotonic()<deadline:
+        loop.check_stop()
+        data=loop.town('service-dialog')
+        validate_destination(data,destination)
+        if not scroll_direction(data,destination,data.get('viewport')):return
+        loop.town('service-scroll-dialog',name='Conductress',records=data['records'],option=destination)
+        time.sleep(.15)
+    raise ValueError('Conductress choice is still clipped; no fare submitted')
+
+
+def destination_point(observer,destination):
+    data=read_dialog(observer)
+    validate_destination(data,destination)
+    from conquest.viewport import size_for
+    return dialog_option_point(data,destination,size_for(observer))

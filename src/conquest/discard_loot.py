@@ -9,6 +9,8 @@ from conquest.discord_notify import read_json, write_json
 from conquest.foreground import foreground_drag, foreground_click
 from conquest.memory_ground import MemoryGroundReader
 from conquest.town_trade import sale_candidate
+from conquest.viewport import size_for
+from conquest.scene_input import memory_player_anchor
 
 JOURNAL=Path('.runtime/discarded-loot.json')
 
@@ -120,7 +122,7 @@ class DiscardLoot:
         # threshold while the open bag obstructs combat. Death is still guarded.
         t.life(0)
         point=(round(window.position[0]+window.size[0]-18),round(window.position[1]+18))
-        foreground_click(self.observer.operations.target,*point,(1036,793),require_foreground=True)
+        foreground_click(self.observer.operations.target,*point,size_for(self.observer),require_foreground=True)
         def closed():
             try:t.shop.gui.read('Inventory')
             except ValueError as error:
@@ -162,10 +164,11 @@ class DiscardLoot:
         source=(round(grid.position[0]+20+40*(item.slot%10)),
                 round(grid.position[1]+20+40*(item.slot//10)))
         # The same memory-qualified world projection used by movement/loot.
-        destination=(518,396)
+        viewport=size_for(self.observer)
+        destination=memory_player_anchor(self.observer,life)
         window=t.shop.gui.read('Inventory')
-        if (window.position[0]<=518<=window.position[0]+window.size[0]
-                and window.position[1]<=396<=window.position[1]+window.size[1]):
+        if (window.position[0]<=destination[0]<=window.position[0]+window.size[0]
+                and window.position[1]<=destination[1]<=window.position[1]+window.size[1]):
             raise ValueError('Inventory overlaps the world discard target')
         ground_before=t.verified_read(self.ground.read,lambda value:True,
             "Ground observation unavailable before discard; no drag sent")
@@ -173,7 +176,10 @@ class DiscardLoot:
         latest=t.life(.8)
         if (fresh.items!=before.items or fresh.silver!=before.silver
                 or latest.position!=life.position or latest.map_id!=life.map_id
-                or t.shop.gui.read('Inventory/##ItemGrid_')!=grid):
+                or t.shop.gui.read('Inventory/##ItemGrid_')!=grid
+                or t.shop.gui.read('Inventory')!=window
+                or size_for(self.observer)!=viewport
+                or memory_player_anchor(self.observer,latest)!=destination):
             raise CaptureUnavailable('Inventory or player moved before discard; no drag sent')
         # Persist intent BEFORE input. Ambiguous results never trigger another
         # drag for this UID, even after an application restart.
@@ -182,7 +188,7 @@ class DiscardLoot:
         self.records.append(row)
         write_json(JOURNAL,self.records)
         self.attempted.add(uid)
-        foreground_drag(self.observer.operations.target,source,destination,(1036,793))
+        foreground_drag(self.observer.operations.target,source,destination,viewport)
         before_keys={tuple(ground_key(d,life.map_id)) for d in ground_before}
         def receipt():
             bag=t.inventory.read()

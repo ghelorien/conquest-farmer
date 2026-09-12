@@ -23,8 +23,9 @@ def clear_observation(health):
                for m in data.get('monsters',[]))
 
 
-def nearby_escape(terrain,position,monsters,*,anchor=None,avoid=()):
+def nearby_escape(terrain,position,monsters,*,anchor=None,avoid=(),viewport=(1036,793)):
     from conquest.navigation import native_waypoint
+    from conquest.viewport import clear_scene
     threats=[tuple(m['position']) for m in monsters if m.get('alive') is not False]
     def clearance(p):return min((max(abs(p[0]-x),abs(p[1]-y)) for x,y in threats),default=CLEARANCE)
     choices=[]
@@ -37,12 +38,12 @@ def nearby_escape(terrain,position,monsters,*,anchor=None,avoid=()):
             except ValueError:continue
             if len(path)>73:continue
             score=min(CLEARANCE,clearance(target))-(len(path)-1)*.03
-            step=native_waypoint(path,12)
+            step=native_waypoint(path,12,viewport=viewport)
             if step in avoid:continue
             if anchor:
                 sx,sy=step[0]-position[0],step[1]-position[1]
                 px,py=anchor[0]+(sx-sy)*32,anchor[1]+(sx+sy)*16
-                if not(80<px<956 and 140<py<667):continue
+                if not clear_scene((px,py),viewport):continue
             choices.append((score,-len(path),target,step))
     if not choices:return None
     best=max(choices)
@@ -54,7 +55,8 @@ def park(loop,cancelled,notify):
     """Keep travel healing/revival active until three quiet seconds are verified."""
     from conquest.travel_care import TravelStateChanged
     from conquest.navigation import read_terrain
-    stable_since=None;previous=None;deadline=time.monotonic()+120;avoided=set()
+    stable_since=None;previous=None;started=time.monotonic();deadline=started+120;avoided=set()
+    retreat=None;retreat_map=None
     while time.monotonic()<deadline:
         if cancelled.is_set():raise ValueError('Reload canceled by user')
         health=loop.living()
@@ -63,6 +65,8 @@ def park(loop,cancelled,notify):
         data=health['embedded_controls'];life=data['life']
         if loop.terrain.map_id!=life['map_id']:
             loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',life['map_id'])
+        if retreat_map is not None and retreat_map!=life['map_id']:
+            retreat=None;retreat_map=None
         key=(life['object_address'],life['map_id'],tuple(life['position']))
         if previous and previous[0]!=key:avoided.clear()
         quiet=clear_observation(health)
@@ -78,9 +82,32 @@ def park(loop,cancelled,notify):
             from conquest.scene_input import memory_player_anchor
             try:
                 anchor=memory_player_anchor(SimpleNamespace(adapter=loop.care.session),SimpleNamespace(**life))
-                target=nearby_escape(loop.terrain,life['position'],data.get('monsters',[]),anchor=anchor,avoid=avoided)
+                viewport=tuple(health.get('window',{}).get('client_size',(1036,793)))
+                if retreat is None and time.monotonic()-started>=15:
+                    route=getattr(loop,'route',None)
+                    if route:
+                        candidate=(route.restock_anchor if route.restock_map_id==life['map_id'] else
+                                   route.town_anchor if route.map_id==life['map_id'] else None)
+                        if candidate and loop.terrain.walkable(candidate):
+                            retreat=tuple(candidate);retreat_map=life['map_id']
+                            notify('Local area crowded; heading toward town for a safe app reload')
+                if retreat is not None and tuple(life['position'])!=retreat:
+                    # Keep a fixed destination instead of chasing a new local
+                    # clearance maximum every tick in a continuously dense spawn.
+                    from conquest.navigation import travel_waypoint,clear_segment
+                    from conquest.scene_input import visible_route_delta
+                    from conquest.viewport import scene_bounds
+                    source=tuple(life['position'])
+                    path=loop.terrain.travel_path(source,retreat,avoid=avoided)
+                    target=travel_waypoint(loop.terrain,path,avoid=avoided,viewport=viewport)
+                    delta=visible_route_delta((target[0]-source[0],target[1]-source[1]),anchor,scene_bounds(viewport))
+                    target=(source[0]+delta[0],source[1]+delta[1]) if delta else None
+                    if target and not clear_segment(loop.terrain,source,target,avoid=avoided):target=None
+                else:
+                    target=nearby_escape(loop.terrain,life['position'],data.get('monsters',[]),anchor=anchor,avoid=avoided,
+                                         viewport=viewport)
                 if target:
-                    notify('Moving to a nearby clear spot before reloading')
+                    if retreat is None:notify('Moving to a nearby clear spot before reloading')
                     # One bounded step, then inspect threats again. Never spend a
                     # whole travel deadline trying to reach a stale escape point.
                     result=loop.stepper.step_to(target,expected_position=tuple(life['position']))
@@ -106,8 +133,11 @@ def prepare(info,route_id,cancelled,notify):
         if cancelled.is_set():raise ValueError('Reload canceled by user')
         status=read_json('reports/overnight/status.json')
         health=request(info,'health')
+        # A stopped controller may leave a PID that Windows cannot query.
+        # Its terminal record permits trying the exclusive lock below; only
+        # acquiring that lock authorizes the replacement movement controller.
         released=(process_alive(status.get('pid')) is False or not status.get('pid')
-                  or (status.get('pid')==os.getpid() and status.get('phase')=='stopped'))
+                  or status.get('phase')=='stopped')
         if not health['embedded_controls'].get('external_execution') and released:break
         time.sleep(.1)
     else:raise ValueError('Route controller did not release input; reload deferred')

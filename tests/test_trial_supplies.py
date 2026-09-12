@@ -50,3 +50,14 @@ def test_patrol_does_not_create_partly_used_arrow_packs(remaining):
     config=SimpleNamespace(ammo_type=1050000,attack_button='right',jump_scatter=True)
     bag=replace(SNAPSHOT,items=(replace(AMMO,uid=3,slot=0),),equipped_ammo=replace(AMMO,amount=remaining))
     assert not ammunition_reload_needed(bag,config,proactive=True)
+
+
+def test_better_selected_reserve_reloads_instead_of_stopping_on_old_equipped_tier():
+    from conquest.trial import ammunition_reload_needed
+    config=SimpleNamespace(ammo_type=1050002,potion_type=1000000,ammo_key=113,
+                           attack_button='right',jump_scatter=True)
+    speed=replace(AMMO,uid=3,type_id=1050002,amount=5000,limit=5000,slot=1)
+    bag=replace(SNAPSHOT,items=(POTION,speed))
+    assert supply_stop_reason(bag,config,10.5) is None
+    assert ammunition_reload_needed(bag,config)
+    assert supply_stop_reason(replace(bag,items=(POTION,)),config,10.5)=='ammo_unavailable'

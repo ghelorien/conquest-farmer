@@ -34,8 +34,9 @@ def select_saved_dialog(loop,name,step):
         loop.check_stop()
         data=loop.town('service-dialog')
         if data['records']==step['records']:
-            if data['table'][1]+data['table'][3]>data['window']['position'][1]+data['window']['size'][1]:
-                loop.town('service-scroll-dialog',name=name,records=data['records'])
+            from conquest.dialog_geometry import scroll_direction
+            if scroll_direction(data,step['option'],data.get('viewport')):
+                loop.town('service-scroll-dialog',name=name,records=data['records'],option=step['option'])
                 time.sleep(.15)
                 continue
             return loop.town('service-select',name=name,option=step['option'],records=data['records'])

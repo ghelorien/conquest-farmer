@@ -47,6 +47,10 @@ def decode_attribute(table: bytes, mode: int, count: int, index: int) -> int:
 
 
 class HealthWorkerSession(WorkerPointerSession):
+    def viewport_size(self):
+        from conquest.viewport import validate_size
+        return validate_size(self.request('health')['window']['client_size'])
+
     def read_block(self, address, size):
         checked_address(address, size)
         if type(size) is not int or not 1 <= size <= 65536:

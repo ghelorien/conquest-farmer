@@ -145,22 +145,26 @@ class Operations:
             life = read_life(adapter,layout,body['character'])
             if not life.revive_ready_candidate:
                 raise ValueError('The inspected ghost state is not present; no Revive click sent')
-            if body.get('expected_size') != [1036,793]:
-                raise ValueError('Revive button geometry has not been inspected at this size')
+            from conquest.viewport import validate_size,revive_point
+            viewport=validate_size(body.get('expected_size',[]))
+            if tuple(self.target.snapshot()['client_size'])!=viewport:
+                raise ValueError('Revive client geometry changed')
+            adapter.viewport_size=lambda:viewport
+            logical_point=revive_point(adapter,viewport)
             if set(body)-{'health_profile','character','expected_size','expires_at','input_mode'}:
                 raise ValueError('Revive does not accept arbitrary click coordinates')
             mode=body.get('input_mode','background')
             if mode=='background':
-                result = click_probe(self.target,518,640,[1036,793],move_settle_seconds=.2)
+                result = click_probe(self.target,*logical_point,list(viewport),move_settle_seconds=.2)
             elif mode=='foreground':
                 # The hosted child shares its wrapper's foreground root. Convert
                 # logical calibration to physical pixels before desktop input.
                 from conquest.desktop_runtime import physical_coordinates
-                if self.target.snapshot()['client_size']!=[1036,793]:
+                if tuple(self.target.snapshot()['client_size'])!=viewport:
                     raise ValueError('Embedded Revive calibration changed')
                 with physical_coordinates():
                     size=self.target.snapshot()['client_size']
-                    point=[round(518*size[0]/1036),round(640*size[1]/793)]
+                    point=[round(logical_point[0]*size[0]/viewport[0]),round(logical_point[1]*size[1]/viewport[1])]
                     result=foreground_click(self.target,*point,size)
             else:
                 raise ValueError('Unknown recovery input mode')

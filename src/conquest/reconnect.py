@@ -88,7 +88,7 @@ class LoginErrorReader:
         if message != 'Error: Connection with the server is interrupted. Please re-login.':
             raise ValueError('Unrecognized login error requires attention')
         window = self.gui.read('##ErrorModal')
-        if window.size != (409., 84.) or window.scroll != (0., 0.):
+        if window.scroll != (0., 0.):
             raise ValueError('Login error geometry changed')
         # The qualified render function ends with a full-width OK button.
         # ImGui DC retains its previous-line Y/height and end X after rendering.
@@ -97,7 +97,10 @@ class LoginErrorReader:
         left = struct.unpack_from('<f', dc, 16)[0]
         height = struct.unpack_from('<f', dc, 0x34)[0]
         x, y = window.position
-        if (left, end_x, top, height) != (x+8, x+401, y+58, 18.):
+        import math
+        if (not all(math.isfinite(v) for v in (left,end_x,top,height,*window.position,*window.size))
+                or left!=x+8 or end_x!=x+window.size[0]-8 or height!=18.
+                or not y+20<=top<top+height<=y+window.size[1]-8 or end_x-left<32):
             raise ValueError('Login error OK button layout changed')
         if (s.read_block(self.root+0x6e8, 0x22) != raw
                 or s.read_block(window.address+0xe0, 0x38) != dc
@@ -110,6 +113,8 @@ def dismiss_login_error(target, session):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_click
     reader = LoginErrorReader(session)
+    from conquest.viewport import size_for
+    viewport=size_for(session)
     with physical_coordinates():
         if not login_screen(target.hwnd):
             raise CaptureUnavailable('Client left login before dialog check')
@@ -117,17 +122,37 @@ def dismiss_login_error(target, session):
         if point is None:
             return False
         size = target.snapshot()['client_size']
-        if tuple(size) != (1295, 991):
-            raise ValueError('Login geometry differs from qualified client')
+        if size_for(session)!=viewport:raise ValueError('Login viewport changed')
         if not login_screen(target.hwnd) or reader.read() != point:
             raise CaptureUnavailable('Login dialog changed before dismissal')
-        foreground_click(target, round(point[0]*size[0]/1036),
-                         round(point[1]*size[1]/793), size)
+        foreground_click(target, round(point[0]*size[0]/viewport[0]),
+                         round(point[1]*size[1]/viewport[1]), size)
         for _ in range(20):
             time.sleep(.05)
             if not login_screen(target.hwnd) or reader.read() is None:
                 return True
         raise CaptureUnavailable('Waiting for login error dialog to close')
+
+def login_form_points(session, window):
+    """Pinned ImGui renderer: labels, two fields, server, checkbox, button, footer."""
+    import hashlib
+    import struct
+    from conquest.memory_shop import MemoryGui
+    base=MemoryGui(session).base
+    for rva,size,digest in (
+        (0xe67f0,211,'2eeddcb3c87af4385b8b65fa1c77f8ebfa9c6da5bd18d6688e110eef6e192006'),
+        (0xe6b8a,36,'a414f6338c9dd8a7c33d0f7f64befc0d1484414dbca291b80f6efce3a676c298')):
+        if hashlib.sha256(session.read_block(base+rva,size)).hexdigest()!=digest:
+            raise ValueError('Login renderer changed')
+    x,y=window.position
+    dc=struct.unpack('<14f',session.read_block(window.address+0xe0,0x38))
+    if (window.size!=(208.,186.) or window.scroll!=(0.,0.)
+            or (dc[0],dc[1],dc[3],dc[4],dc[5],dc[6],dc[7],dc[13])
+                !=(x+8,y+182,y+166,x+8,y+8,x+200,y+178,12.)):
+        raise ValueError('Login form layout changed')
+    return ((round(x+104),round(y+33)),(round(x+104),round(y+71)),
+            (round(x+104),round(y+153)))
+
 
 def submit_login(target,credential_path=Path('.runtime/account.dpapi'), *, session=None):
     from conquest.desktop_runtime import physical_coordinates
@@ -137,21 +162,27 @@ def submit_login(target,credential_path=Path('.runtime/account.dpapi'), *, sessi
     if session is None:
         raise ValueError('Memory session is required to check login dialogs')
     dismiss_login_error(target, session)
+    from conquest.memory_shop import MemoryGui
+    from conquest.viewport import size_for
+    viewport=size_for(session)
+    gui=MemoryGui(session);window=gui.read('Login')
+    points=login_form_points(session,window)
     account=load_credentials(credential_path)
     with physical_coordinates():
         before=target.snapshot()
         size=before['client_size']
-        if tuple(size)!=(1295,991):
-            raise ValueError('Login geometry differs from the inspected hosted client')
         def click(point):
             if not login_screen(target.hwnd):
                 raise CaptureUnavailable('Client left login before input')
-            foreground_click(target,round(point[0]*size[0]/1036),round(point[1]*size[1]/793),size)
-        click((518,454))
+            if (size_for(session)!=viewport or gui.read('Login')!=window
+                    or login_form_points(session,window)!=points):
+                raise CaptureUnavailable('Login form moved before input')
+            foreground_click(target,round(point[0]*size[0]/viewport[0]),round(point[1]*size[1]/viewport[1]),size)
+        click(points[0])
         type_login_field(target,account['username'])
-        click((518,493))
+        click(points[1])
         type_login_field(target,account['password'])
-        click((518,575))
+        click(points[2])
     return {'submitted':True}  # Never include credential text or key events.
 
 

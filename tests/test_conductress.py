@@ -27,10 +27,17 @@ def test_choices_use_live_dialog_table_position(dialog):
 def test_changed_dialog_never_selects_destination(dialog,change):
     if change=='price':dialog['records'][0]['text']='Price is 1000 silver'
     if change=='id':dialog['records'][1]['option']=5
-    if change=='size':dialog['window'].size=(280.,199.)
+    if change=='size':dialog['window'].size=(280.,100.)
     if change=='input':dialog['records'].append({'kind':2,'text':'','option':0})
-    if change=='scroll':dialog['window'].scroll=(0.,22.)
+    if change=='scroll':dialog['window'].scroll=(1.,22.)
     with pytest.raises(ValueError):c.destination_point(None,'Phoenix Castle')
+
+
+def test_resized_twin_dialog_keeps_exact_destination_checks(dialog):
+    dialog['window'].size=(356.,234.)
+    dialog['table']=(398.,130.,714.,88.)
+    assert c.destination_point(None,'Phoenix Castle')==(477,141)
+    assert c.destination_point(None,'Bird Island.')==(635,163)
 
 
 def test_dialog_reader_copies_and_rechecks_deque_and_strings(monkeypatch):
@@ -59,7 +66,7 @@ def test_dialog_reader_copies_and_rechecks_deque_and_strings(monkeypatch):
     with pytest.raises(ValueError,match='changed'):c.read_dialog(observer)
 
 
-def test_uncertain_teleport_is_not_paid_again(monkeypatch,tmp_path):
+def test_uncertain_teleport_is_not_paid_again(monkeypatch,tmp_path,dialog):
     import json
     path=tmp_path/'trips.json'
     path.write_text(json.dumps({'trips':[dict(destination_map=1011,source_map=1002,verified=True,
@@ -69,10 +76,12 @@ def test_uncertain_teleport_is_not_paid_again(monkeypatch,tmp_path):
     calls=[]
     def town(action,**fields):
         calls.append(action)
+        if action=='service-dialog':return dialog
         return {'silver':1000}
     health={'embedded_controls':{'observed_at':10,'life':dict(object_address=123,map_id=1002,
         dead_candidate=False,position=[958,555])}}
-    loop=SimpleNamespace(living=lambda:health,health=lambda:health,town=town,travel=lambda p:None,record=lambda *a,**kw:None)
+    loop=SimpleNamespace(living=lambda:health,health=lambda:health,town=town,travel=lambda p:None,
+        record=lambda *a,**kw:None,check_stop=lambda:None)
     with pytest.raises(ValueError,match='no repeat payment'):c.take_saved_trip(loop,1011)
     assert calls.count('conductress-travel')==1
     health['embedded_controls']['life']['map_id']=1011

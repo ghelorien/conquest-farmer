@@ -365,11 +365,12 @@ class Notifications:
         details.append(f'{kills} verified kills in the last 15 minutes' if kills is not None
                        else '15-minute kill count unavailable')
         hourly=recent_kills(path.parent.parent/'desktop-farming'/'trial.sqlite3',now,seconds=3600)
-        details.append(f'{hourly:,} verified kills in the last hour (target: 1,800)' if hourly is not None
+        minimum,stretch=kill_rate_targets()
+        details.append(f'{hourly:,} verified kills in the last hour (minimum: {minimum*60:,.0f}, stretch: {stretch*60:,.0f})' if hourly is not None
                        else 'Hourly kill count unavailable')
         if kills is not None:details.append(f'15-minute pace: {kills*4:,}/hour, including downtime')
         minute=recent_kills(path.parent.parent/'desktop-farming'/'trial.sqlite3',now,seconds=60)
-        if minute is not None:details.append(f'last minute: {minute} kills (target: 30)')
+        if minute is not None:details.append(f'last minute: {minute} kills (minimum: {minimum:g}, stretch: {stretch:g})')
         if abs(now-app.get('live_checked_at',0))<=3 and app.get('live_hp') is not None:
             details.append(f"HP {app['live_hp']}/{app.get('live_max_hp','?')}")
         if 0<=now-route.get('updated_at',0)<=45:
@@ -527,6 +528,20 @@ class Notifications:
                             type_id=row['type_id'],plus=row.get('plus'))
                 except (ValueError,TypeError,KeyError):
                     continue
+
+
+KILL_RATE_POLICY=Path('profiles/route-optimization.json')
+
+
+def kill_rate_targets():
+    """Use the same current policy as route assessment, without imposing a cap."""
+    import math
+    policy=read_json(KILL_RATE_POLICY)
+    def positive(name,default):
+        value=policy.get(name,default)
+        return value if type(value) in (int,float) and math.isfinite(value) and value>0 else default
+    minimum=positive('target_kills_per_minute',40)
+    return minimum,max(minimum,positive('stretch_kills_per_minute',50))
 
 
 def ensure_monitor():

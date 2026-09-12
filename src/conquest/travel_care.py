@@ -39,7 +39,7 @@ class TravelCare:
             if life['revive_ready_candidate'] and now-self.last_revive>=2:
                 try:
                     request(self.info,'revive-click',{'health_profile':self.health_layout,'character':'Parasite',
-                        'expected_size':[1036,793],'expires_at':time.time()+4,'input_mode':'foreground'})
+                        'expected_size':health.get('window',{}).get('client_size',[1036,793]),'expires_at':time.time()+4,'input_mode':'foreground'})
                 except ValueError as error:
                     if (str(error)=='Recovery waiting for game focus; no input sent'
                             or str(error).startswith('Mouse control is yours')):
@@ -78,7 +78,7 @@ class TravelCare:
         self.empty_healing_reported=False
         addresses=resolve_player(self.session,self.layout)
         try:
-            request(self.info,'foreground-key',{'vk':112,'expected_size':[1036,793],
+            request(self.info,'foreground-key',{'vk':112,'expected_size':health.get('window',{}).get('client_size',[1036,793]),
                 'require_foreground':True,'expires_at':time.time()+4,
                 'guard':{'name_address':hex(addresses['name']),'name':'Parasite',
                          'hp_address':hex(addresses['max_hp']),'max_hp':life['max_hp']}})
@@ -112,7 +112,7 @@ class TravelCare:
                 raise TravelStateChanged('Travel XP input state changed')
             addresses=resolve_player(self.session,self.layout)
             request(self.info,'foreground-click',{'point':list(point),'button':'left','control':False,
-                'expected_size':[1036,793],'require_foreground':True,'expires_at':time.time()+4,
+                'expected_size':health.get('window',{}).get('client_size',[1036,793]),'require_foreground':True,'expires_at':time.time()+4,
                 'guard':{'name_address':hex(addresses['name']),'name':'Parasite',
                          'hp_address':hex(addresses['max_hp']),'max_hp':current['max_hp']}})
         if self._xp_skill.step(click):raise TravelStateChanged('XP full; activating Fly before continuing travel')

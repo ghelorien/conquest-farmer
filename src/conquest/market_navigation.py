@@ -1,8 +1,9 @@
 """Bounded alternate landings for Market and Phoenix travel corridors."""
 from conquest.navigation import clear_segment
+from conquest.viewport import clear_scene,DEFAULT_SIZE
 
 
-def recovery_landing(terrain, source, goal, anchor, *, failed=(), used=()):
+def recovery_landing(terrain, source, goal, anchor, *, failed=(), used=(),viewport=DEFAULT_SIZE):
     """Find a visible 8–12 tile sidestep with a checked onward path.
 
     A failed click is evidence about its landing, not proof that every tile
@@ -23,7 +24,7 @@ def recovery_landing(terrain, source, goal, anchor, *, failed=(), used=()):
             if point in excluded or direction(point) in used_directions or not clear_segment(terrain,source,point):continue
             x=anchor[0]+(dx-dy)*distance*32
             y=anchor[1]+(dx+dy)*distance*16
-            if not (80<x<956 and 140<y<667) or (x<615 and (y>550 or y<170)):continue
+            if not clear_scene((x,y),viewport):continue
             candidates.append((max(abs(a-b) for a,b in zip(point,goal)), -distance, point))
     for _,_,point in sorted(candidates):
         try:terrain.travel_path(point,goal)

@@ -34,6 +34,8 @@ class MemoryGui:
 
     def read(self, name):
         s = self.session
+        from conquest.viewport import size_for
+        viewport=size_for(s)
         s.assert_identity()
         context = struct.unpack('<Q', s.read_block(self.base+0x6966f0, 8))[0]
         checked_address(context)
@@ -64,8 +66,8 @@ class MemoryGui:
         x, y, width, height = struct.unpack_from('<4f', record, 0x18)
         scroll = struct.unpack_from('<2f', record, 0x64)
         if (not all(math.isfinite(v) for v in (x,y,width,height,*scroll))
-                or not 0 <= x < 1036 or not 0 <= y < 793
-                or not 1 <= width <= 1036 or not 1 <= height <= 793):
+                or not 0 <= x < viewport[0] or not 0 <= y < viewport[1]
+                or not 1 <= width <= viewport[0] or not 1 <= height <= viewport[1]):
             raise ValueError('GUI window geometry is invalid')
         latest_count, latest_capacity, latest_array = struct.unpack('<IIQ',s.read_block(context+0x3e58,16))
         if not 0 < latest_count <= latest_capacity <= 256:
@@ -79,6 +81,7 @@ class MemoryGui:
                 or fresh[0x64:0x6c] != record[0x64:0x6c]
                 or s.read_block(self.base+0x6966f0,8) != struct.pack('<Q',context)):
             raise ValueError('GUI window changed during observation')
+        if size_for(s)!=viewport:raise ValueError('Client resized during GUI observation')
         return GuiWindow(address,title,(x,y),(width,height),scroll)
 
 

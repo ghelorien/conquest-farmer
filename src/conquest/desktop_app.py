@@ -477,6 +477,10 @@ class DesktopApp:
 
     def restart(self):
         if getattr(self,'reload_preparing',False):return False
+        # A diagnostic detach retains the observer and exact client identity.
+        # Restore hosting before the usual safe-spot/pinned-client handoff.
+        if self.observer and not self.host.saved:
+            if not self.change_native_window(False,resume=False):return False
         if not self.host.saved:return self._restart_now()
         info=self.last.get('worker_info_path')
         if not info or not self.selected_route:
@@ -593,6 +597,11 @@ class DesktopApp:
         return EmbeddedObserver(pid,hwnd,health,entities,'Parasite')
 
     def embed(self,candidate=None):
+        if self.observer:
+            if candidate and candidate!=self.client:
+                self.state_text.set('Release the current client before selecting another')
+                return
+            return self.change_native_window(False)
         if self.thread and self.thread.is_alive():
             self.state_text.set('Stop farming before embedding the client')
             return
@@ -652,6 +661,36 @@ class DesktopApp:
             except Exception as cleanup_error:
                 self.state_text.set(f'{error}; restoration pending: {cleanup_error}')
             self.record(state='Embed failed', embed_error=self.state_text.get())
+
+    def change_native_window(self,detached,*,resume=True):
+        """Apply queued hosting changes without rewriting the user's intent."""
+        try:
+            if not self.observer or not self.client:
+                raise ValueError('Select and embed a client first')
+            with self.observer.lock:
+                if detached:
+                    if (self.control.snapshot()['enabled'] or
+                            (self.thread and self.thread.is_alive())):
+                        raise ValueError('Stop farming before detaching the client')
+                    self.host.detach()
+                elif not self.host.saved:
+                    # The same lock serializes bridge input and window changes.
+                    # On may already be queued; it must not veto reattachment.
+                    self.host.attach(self.client[1],self.client[2],self.pane.winfo_id(),
+                                     self.pane.winfo_width(),self.pane.winfo_height())
+                self.observer.bridge.sync_window_mode(self.host)
+            self.record(state='Native client input check' if detached else 'Embedded',
+                        hwnd=self.client[1],window_mode='detached' if detached else self.host.mode,
+                        embed_error=None)
+            self.state_text.set('Client detached' if detached else 'Client embedded')
+            if not detached and resume and self.control.snapshot()['enabled']:
+                self.messages.put(('farm_requested',{}))
+            return True
+        except Exception as error:
+            # Retain the existing memory connection and HWND for a retry.
+            self.state_text.set(str(error))
+            self.record(embed_error=str(error))
+            return False
 
     def embedded_layout(self):
         self.sidebar.pack_configure(expand=False, fill='y')
@@ -859,6 +898,9 @@ class DesktopApp:
         if self.thread and self.thread.is_alive():
             self.show_game()
             return
+        if not self.host.saved and self.observer:
+            if not self.change_native_window(False,resume=False):
+                raise ValueError('Client reattachment failed; see embedding status')
         if not self.host.saved or self.host.mode!='owned':
             raise ValueError('Open the hosted native client before starting farming')
         from conquest.navigation import straight_waypoints,path_boundary
@@ -887,7 +929,7 @@ class DesktopApp:
         ranges=read_combat_ranges(self.observer)
         from conquest.equipment import read_equipment
         from conquest.arrow_upgrades import current_arrow,NORMAL_ARROWS
-        reserves=[i.type_id for i in self.observer.town_trade.inventory.read().items if i.amount>0]
+        reserves=[i.type_id for i in self.observer.town_trade.inventory.read().items if i.amount>=3]
         ammo_type=current_arrow(read_equipment(self.observer),route.supplies.arrow_type,reserves)
         self.record(ammunition={'type_id':ammo_type,'name':NORMAL_ARROWS[ammo_type]})
         self.record(combat_ranges=ranges)
@@ -904,7 +946,9 @@ class DesktopApp:
                    else tuple(life['position']))
         path=terrain.path(departure,route.hunting_anchor)
         approach=tuple(straight_waypoints(path,12)[1:])
-        config=config.model_copy(update={'observation_mode':'memory_only','client_size':(1036,793),'player_anchor':(518,396),
+        from conquest.viewport import size_for
+        viewport=size_for(self.observer)
+        config=config.model_copy(update={'observation_mode':'memory_only','client_size':viewport,'player_anchor':(viewport[0]//2,viewport[1]//2),
             'monster':monster_name,'monster_variants':monster_variants,'expected_map':route.map_id,'attack_button':'right','adaptive_scatter':True,'single_isolated_targets':True,
             'single_attack_range_tiles':min(route.attack_range_tiles,ranges['bow']['range']),
             'kite_when_surrounded':route.kite_when_surrounded,'jump_scatter':route.jump_scatter,
@@ -1119,17 +1163,7 @@ class DesktopApp:
                 if self.control.snapshot()['enabled'] and not self.mouse_priority.active():
                     self.show_game()
             elif event=='native_window_requested':
-                if self.control.snapshot()['enabled']:
-                    self.state_text.set('Stop farming before changing window mode')
-                elif fields['detached']:
-                    self.host.detach()
-                    self.record(state='Native client input check')
-                elif self.client and not self.host.saved:
-                    self.host.attach(self.client[1],self.client[2],self.pane.winfo_id(),
-                                     self.pane.winfo_width(),self.pane.winfo_height())
-                    self.record(state='Embedded',hwnd=self.client[1])
-                if self.observer:
-                    self.observer.bridge.sync_window_mode(self.host)
+                self.change_native_window(fields['detached'])
             elif event == 'memory_loot_retry':
                 self.record(loot_reader_note=fields['detail'])
             elif event == 'memory_loot_ready':

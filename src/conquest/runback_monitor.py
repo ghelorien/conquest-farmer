@@ -90,7 +90,7 @@ class RunbackMonitor:
         self.finished=True;self.urgent=False;self.publish('runback_finished',result)
 
 
-def escape_step(terrain, source, destination, anchor, monsters, *, avoid=()):
+def escape_step(terrain, source, destination, anchor, monsters, *, avoid=(),viewport=(1036,793)):
     """Pick a clear visible escape using only current living-monster positions."""
     threats=[tuple(m['position']) for m in monsters if m.get('alive') is not False
              and m.get('current_hp',1)!=0 and m.get('position')]
@@ -104,7 +104,8 @@ def escape_step(terrain, source, destination, anchor, monsters, *, avoid=()):
             if point in avoid or not terrain.walkable(point):break
             if step not in (4,8,9,10,11,12):continue
             x=anchor[0]+(dx-dy)*step*32;y=anchor[1]+(dx+dy)*step*16
-            if not(80<x<956 and 140<y<667):continue
+            from conquest.viewport import clear_scene
+            if not clear_scene((x,y),viewport):continue
             if danger(point)>=danger(source) and nearest(point)<=nearest(source):continue
             candidates.append((danger(point),-min(12,nearest(point)),math.dist(point,destination),-step,point))
     return min(candidates)[-1] if candidates else None
