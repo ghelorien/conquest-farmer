@@ -98,16 +98,36 @@ class TownTrade:
             raise ValueError('Town action requires a living character on the town map')
         return life
 
-    def click(self, point, button='left'):
+    def click(self, point, button='left', *, before_press=None):
         self.life(any_map=True)
         from conquest.viewport import size_for
         try:
             return foreground_click(self.observer.operations.target,*point,size_for(self.observer),
-                button=button,require_foreground=True)
+                button=button,require_foreground=True,before_press=before_press)
         except CaptureUnavailable as error:
             if 'no input sent' in str(error) or 'no button pressed' in str(error):
                 raise TownObservationUnavailable(str(error)) from error
             raise
+
+    def click_npc(self, npc, reread, *, point=None):
+        from conquest.scene_pointer import wait_scene_pointer
+        point=interaction_point(npc) if point is None else point
+        def unchanged():
+            try:
+                self.life(any_map=True)
+                fresh=reread()
+            except ValueError as error:
+                if transient_observation(error):
+                    raise TownObservationUnavailable(str(error)+'; no button pressed') from error
+                raise
+            if fresh!=npc:
+                raise TownObservationUnavailable('Vendor moved before interaction; no button pressed')
+        def before_press():
+            # The renderer may still be using the previous pointer location
+            # after Windows has accepted its move. Wait for memory feedback,
+            # rechecking the NPC while waiting, without repeating any click.
+            wait_scene_pointer(self.observer.adapter,point,unchanged)
+        return self.click(point,before_press=before_press)
 
     def vendor(self, type_id):
         life = self.life(any_map=True) if type_id==0 else self.life()
@@ -165,7 +185,7 @@ class TownTrade:
             npc=read_conductress(self.observer)
             if read_conductress(self.observer)!=npc:raise ValueError('Conductress changed during observation')
             self.input_attempted=True
-            self.click((npc.draw_position[0],npc.draw_position[1]-32))
+            self.click_npc(npc,lambda:read_conductress(self.observer))
             self.conductress_npc=npc
             self.service_npc=npc  # The shared geometry reader can scroll this dialogue.
             return {'interacted':True,'npc_id':npc.entity_id}
@@ -197,7 +217,7 @@ class TownTrade:
             except ValueError as error:
                 if 'not active' not in str(error) and 'absent' not in str(error):raise
             self.input_attempted=True
-            self.click(interaction_point(npc))
+            self.click_npc(npc,lambda:self.vendor(0))
             self.verified_read(reader.read,lambda b:True,'Warehouse opening unverified; no repeat input issued')
             return {'opened':True,'npc_id':npc.entity_id}
         if action=='warehouse-locate' and set(body)=={'action'}:
@@ -374,7 +394,8 @@ class TownTrade:
             if self.vendor(0)!=npc:
                 raise ValueError('Vendor moved before interaction')
             self.input_attempted=True
-            self.click((npc.draw_position[0],npc.draw_position[1]-32))
+            self.click_npc(npc,lambda:self.vendor(0),
+                           point=(npc.draw_position[0],npc.draw_position[1]-32))
             return {'interacted':True,'vendor_id':npc.entity_id,'position':npc.position}
         if action == 'supplies' and set(body) == {'action'}:
             self.life(0,any_map=True)
@@ -391,7 +412,7 @@ class TownTrade:
             if fresh != npc:
                 raise ValueError('Vendor moved before interaction')
             self.input_attempted = True
-            self.click((npc.draw_position[0],npc.draw_position[1]-32))
+            self.click_npc(npc,lambda:self.vendor(body['vendor_type']))
             time.sleep(.25)
             result = self.verified_read(lambda:self.shop.read(npc.entity_id),lambda value:True,
                 'Shop opening was not verified; no repeat input issued')
