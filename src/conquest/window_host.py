@@ -29,6 +29,10 @@ class WindowState:
 
 
 class HostApi:
+    def activate_owned_caption(self, hwnd, identity):
+        from conquest.caption_focus import activate_owner_caption
+        return activate_owner_caption(hwnd,identity,self)
+
     def __init__(self):
         import win32gui
         self.gui = win32gui
@@ -40,6 +44,7 @@ class HostApi:
         self.attach_input = bind(user, 'AttachThreadInput', [wintypes.DWORD,wintypes.DWORD,wintypes.BOOL], wintypes.BOOL)
         self.current_thread = bind(self.backend.kernel, 'GetCurrentThreadId', [], wintypes.DWORD)
         self.key_state = bind(user, 'GetAsyncKeyState', [ctypes.c_int], ctypes.c_short)
+        self.show_async = bind(user,'ShowWindowAsync',[wintypes.HWND,ctypes.c_int],wintypes.BOOL)
 
     def thread_info(self, hwnd):
         owner = wintypes.DWORD()
@@ -87,11 +92,28 @@ class HostApi:
         # WindowFromPoint also rejects an overlapping popup or sidebar control.
         return self.contains(hwnd,self.gui.WindowFromPoint(self.gui.GetCursorPos()))
 
+    def activate_owned_click(self, state, parent):
+        """Complete a user's click from the active wrapper into its owned game."""
+        self.assert_owner(state.hwnd,state.identity)
+        owner = self.gui.GetAncestor(parent,2)
+        if (self.gui.GetWindow(state.hwnd,4)!=owner
+                or self.gui.GetForegroundWindow() not in (owner,state.hwnd)
+                or not self.gui.IsWindowVisible(state.hwnd)
+                or not self.contains(state.hwnd,self.gui.WindowFromPoint(self.gui.GetCursorPos()))):
+            return False
+        if self.gui.GetForegroundWindow()!=state.hwnd:
+            self.gui.SetForegroundWindow(state.hwnd)
+        if self.gui.GetForegroundWindow()!=state.hwnd:
+            return False
+        self.focus(state)
+        return True
+
     def embed_owned(self, state, parent):
         """Host a borderless top-level client, preserving native input activation."""
         self.assert_owner(state.hwnd,state.identity)
         owner = self.gui.GetAncestor(parent,2)
-        self.gui.ShowWindow(state.hwnd,9)
+        if self.gui.IsIconic(state.hwnd):
+            self.show_async(state.hwnd,9)
         style = (state.style & ~(WS_CHILD | FRAME_STYLES)) | WS_POPUP
         self.gui.SetWindowLong(state.hwnd,-16,ctypes.c_int32(style).value)
         self.gui.SetWindowLong(state.hwnd,-20,ctypes.c_int32(state.exstyle & ~0x00040000).value)
@@ -106,13 +128,34 @@ class HostApi:
                    and not self.gui.IsIconic(owner) and min(width,height)>0)
         if not visible:
             if self.gui.IsWindowVisible(state.hwnd):
-                self.gui.ShowWindow(state.hwnd,0)
+                self.show_async(state.hwnd,0)
             return
         x,y = self.gui.ClientToScreen(parent,(0,0))
         if self.gui.GetWindowRect(state.hwnd)!=(x,y,x+width,y+height):
-            self.gui.SetWindowPos(state.hwnd,0,x,y,width,height,0x10 | 0x4 | 0x20)
+            self.gui.SetWindowPos(state.hwnd,0,x,y,width,height,0x4000 | 0x10 | 0x4 | 0x20)
         if not self.gui.IsWindowVisible(state.hwnd):
-            self.gui.ShowWindow(state.hwnd,4)  # Show without taking keyboard focus.
+            self.show_async(state.hwnd,4)  # Do not wait for the client's render thread or activate it.
+        self.ensure_above_owner(state.hwnd,owner)
+
+    def is_above(self, hwnd, other):
+        current=other
+        for _ in range(2048):
+            current=self.gui.GetWindow(current,3)  # GW_HWNDPREV: toward the top of the desktop Z order.
+            if not current:return False
+            if current==hwnd:return True
+        return False  # A changing desktop must not trap the UI in a traversal.
+
+    def ensure_above_owner(self, hwnd, owner):
+        if self.is_above(hwnd,owner):return
+        previous=self.gui.GetWindow(owner,3)
+        # Insert immediately above our wrapper, preserving all unrelated apps
+        # that are already above it. Crossing a topmost-band boundary must not
+        # accidentally make a normal merchant permanently topmost.
+        owner_topmost=bool(self.gui.GetWindowLong(owner,-20)&8)
+        if previous and bool(self.gui.GetWindowLong(previous,-20)&8)!=owner_topmost:
+            previous=-1 if owner_topmost else 0
+        self.gui.SetWindowPos(hwnd,previous or 0,0,0,0,0,
+                              0x4000|0x200|0x10|0x1|0x2)  # async, no owner reorder/activation/size/move
 
     def assert_owner(self, hwnd, identity):
         if not self.owns_window(hwnd,identity):

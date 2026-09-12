@@ -7,6 +7,7 @@ from ctypes import wintypes as w
 from conquest.win32 import bind
 from conquest.capture import CaptureUnavailable
 from conquest.mouse_priority import require_idle, guarded_send
+from conquest.merchants.coordination import coordinated_input
 
 
 class MouseInput(c.Structure):
@@ -53,6 +54,7 @@ def press_scan_sequence(send, scans, sleep=time.sleep):
             raise first_error
 
 
+@coordinated_input
 def foreground_key(target, vk, expected_size, control=False, require_foreground=False):
     """One explicit F1-F11 baseline; F12 is reserved for emergency stop."""
     if type(vk) is not int or not 0x70 <= vk <= 0x7A:
@@ -102,8 +104,9 @@ def require_click_position(snapshot, hwnd, expected_size, expected_point):
         raise CaptureUnavailable("Cursor moved away from the target; no button pressed")
 
 
+@coordinated_input
 def foreground_click(target, x, y, expected_size, button="left", control=False,
-                     require_foreground=False, expected_origin=None,diagnostics=None):
+                     require_foreground=False, expected_origin=None,diagnostics=None,before_press=None):
     if button not in ("left", "right"):
         raise ValueError("Unsupported mouse button")
     if type(control) is not bool:
@@ -182,6 +185,9 @@ def foreground_click(target, x, y, expected_size, button="left", control=False,
             key_state = bind(user, "GetAsyncKeyState", [c.c_int], c.c_short)
             if key_state(0x7B) & 0x8000:
                 raise ValueError("Emergency stop before click")
+            if before_press:
+                before_press()
+                require_click_position(target.snapshot(),foreground_hwnd,expected_size,(point.x,point.y))
             mouse(down)
             time.sleep(0.04 if require_foreground else 0.1)
         finally:
@@ -194,7 +200,8 @@ def foreground_click(target, x, y, expected_size, button="left", control=False,
             "point": [x, y], "button": button, "control": control, "qualified_for_background": False}
 
 
-def foreground_drag(target, source, destination, expected_size):
+@coordinated_input
+def foreground_drag(target, source, destination, expected_size,*,before_press=None):
     """One bounded client-local drag for explicit shortcut calibration."""
     require_idle()
     state = target.snapshot()
@@ -226,6 +233,9 @@ def foreground_drag(target, source, destination, expected_size):
     time.sleep(.1)
     require_click_position(target.snapshot(),target.hwnd,expected_size,(a.x,a.y))
     try:
+        if before_press:
+            before_press()
+            require_click_position(target.snapshot(),target.hwnd,expected_size,(a.x,a.y))
         mouse(0x2)
         time.sleep(.15)
         for step in range(1,9):
@@ -238,6 +248,7 @@ def foreground_drag(target, source, destination, expected_size):
     return {"mode":"foreground_drag_calibration","source":source,"destination":destination,"after":target.snapshot()}
 
 
+@coordinated_input
 def foreground_scroll(target, point, ticks, expected_size=(1036,793)):
     """Bounded wheel input over a memory-qualified shop grid."""
     require_idle()

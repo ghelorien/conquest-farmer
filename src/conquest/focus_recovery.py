@@ -3,6 +3,10 @@ import time
 import pywintypes
 
 
+from conquest.merchants.coordination import coordinated_input
+
+
+@coordinated_input
 def activate_client(hwnd, identity, *, api=None):
     from conquest.window_host import HostApi
     import win32api
@@ -32,10 +36,24 @@ def activate_client(hwnd, identity, *, api=None):
             win32process.AttachThreadInput(current, other, True)
             attached = True
         api.assert_owner(hwnd, identity)
-        gui.SetForegroundWindow(root)
+        try:
+            gui.SetForegroundWindow(root)
+        except pywintypes.error:
+            # A denied foreground request often carries Windows error 0.
+            # This is an ordinary focus denial, not a client or permission failure.
+            pass
     finally:
         if attached:
             win32process.AttachThreadInput(current, other, False)
+    if gui.GetForegroundWindow() == root:
+        return True
+    fallback = getattr(api,'activate_owned_caption',None)
+    if fallback and fallback(hwnd,identity):
+        api.assert_owner(hwnd,identity)
+        try:
+            gui.SetForegroundWindow(root)
+        except pywintypes.error:
+            return False
     return gui.GetForegroundWindow() == root
 
 

@@ -37,16 +37,17 @@ def money_points(reader,snapshot):
     return result
 
 
-def type_amount(target,amount):
+def type_amount(target,amount,*,expected_size=(1036,793),maximum=999999999):
     from conquest.foreground import Input,InputUnion,KeyboardInput,press_scan_sequence
     from conquest.win32 import bind
     from conquest.mouse_priority import guarded_send,require_idle
     from conquest.capture import CaptureUnavailable
-    if type(amount) is not int or not 1<=amount<=999999999:raise ValueError('Invalid money amount')
+    if type(maximum) is not int or not 1<=maximum<=2147483647 or type(amount) is not int or not 1<=amount<=maximum:
+        raise ValueError('Invalid money amount')
     require_idle()
     def focus():
         view=target.snapshot()
-        if view['minimized'] or view['client_size']!=[1036,793] or target.backend.foreground()!=target.hwnd:
+        if view['minimized'] or view['client_size']!=list(expected_size) or target.backend.foreground()!=target.hwnd:
             raise CaptureUnavailable('Warehouse input lost focus')
     focus()
     keys=bind(target.backend.user,'GetAsyncKeyState',[c.c_int],c.c_short)

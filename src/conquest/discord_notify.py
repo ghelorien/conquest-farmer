@@ -281,9 +281,9 @@ class Notifications:
                 self.state.pop(key,None)
         self.farming_since=None
 
-    def enqueue(self,text,now,kind=None):
+    def enqueue(self,text,now,kind=None,character='Parasite'):
         stamp=datetime.fromtimestamp(now,timezone.utc).astimezone().strftime('%H:%M:%S %Z')
-        row={'content':f'[{stamp}] Parasite — {text}','created_at':now,'kind':kind}
+        row={'content':f'[{stamp}] {character} — {text}','created_at':now,'kind':kind}
         if kind=='terminal_stop':
             self.state['queue'].insert(0,row)
         else:
@@ -472,6 +472,32 @@ class Notifications:
                 and not any(row.get('kind')=='farming_resumed' for row in self.state['queue'])):
             self.enqueue('Farming resumed — recovery confirmed',now,'farming_resumed')
 
+    def merchants(self,path,now):
+        """Replay the durable merchant outbox into the existing Discord queue."""
+        if not Path(path).exists():
+            return
+        from conquest.merchants.journal import Journal
+        journal = Journal(path)
+        for event in journal.events(self.state.get('merchant_cursor',0),100):
+            payload = json.loads(event['payload'])
+            kind,character = event['event'],event['character']
+            message = None
+            if kind=='delivery_verified':
+                items = payload.get('result',{}).get('items',[])
+                message = 'Delivery verified from Parasite: '+', '.join(
+                    f'{i["name"]} ×{i["quantity"]}' for i in items)
+            elif kind=='scan_completed':
+                message = f'Repricing complete: {payload["changed"]} changes; {payload["deferred"]} items deferred.'
+            elif kind=='persistent_failure':
+                message = 'Needs attention — '+payload['note']
+            elif kind=='recovery_verified':
+                message = 'Recovery confirmed by character, server, inventory and booth checks.'
+            if message:
+                self.enqueue(message,event['timestamp'],'merchant_'+kind,character=character)
+                self.state['queue'][-1]['merchant_event_id'] = event['id']
+            # Queue and cursor are saved atomically by the existing notifier.
+            self.state['merchant_cursor'] = event['id']
+
     def drops(self,path,now):
         path=Path(path)
         if not path.exists():
@@ -543,6 +569,7 @@ def run():
                     notifications.observe(app,route,now)
                     notifications.updates(app,route,'reports/overnight/events.jsonl',now)
                     notifications.drops('reports/desktop-farming/pickups.jsonl',now)
+                    notifications.merchants('reports/merchants/journal.sqlite3',now)
                     write_json(STATE,notifications.state)  # durable before sending
                     if notifications.state['queue'] and now>=notifications.state.get('retry_at',0):
                         try:

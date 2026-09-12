@@ -288,6 +288,9 @@ class DesktopApp:
             return submit_login(self.observer.operations.target, session=self.observer.adapter)
 
     def refocus_if_farming(self):
+        if getattr(self,'unified',None) and (self.unified.coordinator.owner or
+                (self.unified.grant and self.unified.safe_to_yield())):
+            return
         import win32gui
         state=self.control.snapshot()
         if self.closing or not self.client or not self.host.saved:
@@ -360,6 +363,9 @@ class DesktopApp:
             down = bool(self.host.api.key_state(1) & 0x8000)
             pressed = down and not self.pointer_down
             self.pointer_down = down
+            unified = getattr(self,'unified',None)
+            if pressed and unified:
+                unified.focus_clicked_merchant()
             if pressed and self.host.saved and self.host.api.pointer_in_client(self.host.saved.hwnd):
                 self.focus_game()
         except Exception as error:
@@ -459,6 +465,9 @@ class DesktopApp:
                 session.close()
 
     def stop(self):
+        if getattr(self,'unified',None):
+            self.unified.grant = None
+            self.unified.runtime.global_stop()
         if getattr(self,'reload_cancel',None):self.reload_cancel.set()
         from conquest.safe_reload import RESUME
         RESUME.unlink(missing_ok=True)
@@ -502,6 +511,10 @@ class DesktopApp:
         if self.thread and self.thread.is_alive():
             self.state_text.set('Stop foreground farming before reloading')
             return False
+        unified = getattr(self,'unified',None)
+        if unified and (unified.coordinator.owner or unified.calibrating):
+            self.state_text.set('Wait for merchant input to finish before reloading')
+            return False
         repo = Path(__file__).resolve().parents[2]
         # Validate new source while the approved parent and client are intact.
         try:
@@ -537,6 +550,10 @@ class DesktopApp:
                      '--client-started',str(selected.identity['creation_time_100ns']),
                      '--client-hwnd',str(selected.hwnd)]
         try:
+            if unified:
+                # Release owned game windows and the bridge before the new app starts.
+                if unified.close(reason='restarting') is False:
+                    return False
             subprocess.Popen(args,cwd=repo)
             self.root.destroy()
             return True
@@ -649,7 +666,7 @@ class DesktopApp:
         self.root.geometry('1500x800')
         if self.root.state() != 'withdrawn':
             self.root.state('zoomed')
-        self.pane.pack(side='right', fill='both', expand=True)
+        self.pane.pack(in_=getattr(self,'content_parent',self.root),side='right', fill='both', expand=True)
 
     def compact(self):
         self.pane.pack_forget()
@@ -760,6 +777,9 @@ class DesktopApp:
             self.route_note.set(str(error))
 
     def update_ids(self, enabled):
+        if enabled and getattr(self,'unified',None):
+            self.unified.grant = None
+            self.unified.coordinator.resume()
         if enabled:
             from conquest.storage_halt import clear_by_user
             clear_by_user()
@@ -804,6 +824,9 @@ class DesktopApp:
             self.messages.put(('control_intent',{'enabled':body['enabled'],'source':'authenticated bridge','time':time.time()}))
         current = self.control.update(body)
         if body.get('enabled') is True:
+            if getattr(self,'unified',None):
+                self.unified.grant = None
+                self.unified.coordinator.resume()
             self.messages.put(('farm_requested',{}))
         elif body.get('enabled') is False and self.thread:
             (self.output/'stop.request').write_text('Farming Off')
@@ -1220,6 +1243,9 @@ class DesktopApp:
         return True
 
     def close(self):
+        if getattr(self,'unified',None):
+            if self.unified.close() is False:
+                return False
         self.launch_watch.cancel()
         self.stop()
         self.closing = True
@@ -1245,6 +1271,13 @@ def main():
     use_unaware_dpi()
     root = tk.Tk()
     app = DesktopApp(root, args.profile)
+    from conquest.merchants.ui import UnifiedUI
+    try:
+        app.unified = UnifiedUI(app)
+        from conquest.merchants.alerts import ensure_monitor as ensure_shop_monitor
+        ensure_shop_monitor()
+    except (ValueError,OSError) as error:
+        app.state_text.set(f'Merchant UI unavailable: {error}')
     if args.start or args.calibrate or args.launch_client or args.embed_client:
         if ctypes.windll.shell32.IsUserAnAdmin():
             def continue_action():

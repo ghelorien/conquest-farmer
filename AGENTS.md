@@ -1,5 +1,64 @@
 # Gameplay observation rule
 
+Merchant listing priority: for Spiritual and Dutch, fill available booth slots
+with eligible inventory in descending order of the freshly computed total listing
+price. Unknown/unreliable prices remain deferred; never guess value to fill a
+slot. Keep excess inventory queued in the same value order. This applies to
+one-time listing, new deliveries and recurring scans.
+Check each merchant's booth capacity every five minutes in the native
+script. Fill free slots from inventory using saved comparable price history,
+without another undercut or requiring a fresh website scan. Preserve socket/plus
+matching, highest-value-first order, owned-shop matching, explicit refill pause/Global Stop and
+safe input handoffs. Persist check times; unknown values remain queued.
+Refill is enabled by default and independent of merchant operations: pausing
+trading/repricing does not pause refill, and refill never enables trades, repricing,
+login or travel. Its separate Pause refill and Global Stop survive app restart.
+
+Spiritual and Dutch must never compete with each other. Exclude both from
+independent seller counts and outlier calculations. If either has the lowest
+valid comparable price (including ties), match the lowest owned price without
+another discount. Prefer fresh verified booth memory over delayed website data.
+Only undercut outside sellers when their valid price is below our owned floor.
+
+Evaluate every inventory item on every merchant scan. A single comparable live
+seller is sufficient; only run the half-median outlier test with at least three
+other sellers. If no exact live match exists, reuse the last observed equivalent
+price without discounting it again. With no exact live/history quote, value +2
+equipment at three times the equivalent +1 live or historical unit price. Keep
+type, sockets, currency and quantity comparable. For + items, Fixed, Normal,
+Refined, Unique and Elite share a pricing group; Super remains separate.
+Unplussed items retain exact quality matching. Never compare unsocketed with
+socketed items; both socket count and contents must match, including history
+and the +1-to-+2 fallback. User-mentioned prices
+were examples, not hardcoded references. Never invent a price without these data.
+
+Send Discord #shops a sales update every four hours, including zero-sale periods,
+with per-merchant and combined verified item/silver totals for the period and
+since tracking began. Use the dedicated encrypted shops webhook and durable
+sales receipts, never listing/reprice counts as sales. Label observation gaps
+and unavailable earlier sales. Preserve the farmer's existing notification policy.
+The four-hour report timer runs inside the Conquest app, never an AI checker.
+Merchant failures and requests for help must also notify Discord #shops. Send
+urgent alerts for uncertain transactions/auto-paused failures, and one alert
+after 60 seconds for persistent problems. Send recovery only after fresh checks
+confirm resolution. Normal manual pause/input and farmer handoff waits stay
+quiet. Use the independent local shop-alert process so app crashes can alert;
+persist incident/queue state across restart and keep webhook secrets encrypted.
+Automatically embed, focus and qualify merchant booth input under a safe handoff;
+do not require a manual Embed & verify click. Preserve manual Stop and input
+priority. Focus recovery may click only the verified native Conquest title bar,
+never guessed game controls, and must confirm actual foreground ownership.
+
+After merchant disconnect/reconnect, treat Twin City as a transit stop: travel
+directly to its memory-identified Conductress, choose Market at the verified fare,
+then follow checked terrain to a vacant Market stall and restore the shop.
+Return takes priority over scans, trades and ordinary inventory work. Preserve
+manual pause/Stop and safe farmer input ownership. ShopFlag names alone do not
+prove vacancy (occupied flags retain that name). Require live-qualified occupancy
+and claim controls; never announce recovery on login alone. Persist transfer and
+shop intent, reconcile uncertain results before retrying, restore highest-value
+listings first at their verified previous prices, and notify #shops if blocked.
+
 The user requires memory-only gameplay decisions. Use read-only process memory
 for monsters, NPC IDs (including the Pharmacist), shop items, inventory, health,
 death, movement, and combat feedback. Never substitute image matching, OCR,

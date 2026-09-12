@@ -68,11 +68,14 @@ def active():
     return bool(_guard and _guard.active())
 
 def require_idle():
+    from conquest.merchants.coordination import check_input
+    check_input()
     if _guard:_guard.require_idle()
 
 def guarded_send(send):
+    from contextlib import nullcontext
+    from conquest.merchants.coordination import input_scope
     def wrapped(count, pointer, size):
-        if _guard is None:return send(count,pointer,size)
         from conquest.foreground import Input
         events=c.cast(pointer,c.POINTER(Input))
         moving=False;down=up=0;release=True
@@ -90,12 +93,17 @@ def guarded_send(send):
                 key=(event.data.ki.wVk,event.data.ki.wScan,event.data.ki.dwFlags&~2)
                 (key_up if event.data.ki.dwFlags&2 else key_down).add(key)
                 release=release and bool(event.data.ki.dwFlags&2)
-        with _guard.lock:
-            if release and not (up & _guard.owned_buttons or key_up & _guard.owned_keys):
-                return count  # Never release a physical button/key we did not press.
-            result=_guard.send(lambda:send(count,pointer,size),release=release,
-                               moving=moving,down=down,up=up)
-            if result==count:
-                _guard.owned_keys=(_guard.owned_keys|key_down)-key_up
-            return result
+        if not release:
+            from conquest.merchants.coordination import check_input
+            check_input()
+        with nullcontext() if release else input_scope():
+            if _guard is None:return send(count,pointer,size)
+            with _guard.lock:
+                if release and not (up & _guard.owned_buttons or key_up & _guard.owned_keys):
+                    return count  # Never release a physical button/key we did not press.
+                result=_guard.send(lambda:send(count,pointer,size),release=release,
+                                   moving=moving,down=down,up=up)
+                if result==count:
+                    _guard.owned_keys=(_guard.owned_keys|key_down)-key_up
+                return result
     return wrapped

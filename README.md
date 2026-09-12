@@ -4,6 +4,17 @@ Windows Python diagnostics and a supervised Archer farming prototype using
 read-only process memory, normal input, YAML configuration, SQLite statistics,
 and a small local dashboard.
 
+The native app now includes Overview, Farmer, Spiritual and Dutch tabs around
+the existing farmer controls. Farmer routes, combat, loot policy and saved
+configuration are preserved. Merchant listings/repricing, five-minute inventory
+refill, sales totals and four-hour Discord reporting run in native scripts.
+Foreground actions share one input coordinator; the experimental background
+backend is disabled after a failed interruption test. See
+[merchant setup and rollout](docs/merchant-automation.md),
+[sales accounting](docs/merchant-sales-accounting.md), and
+[background-input findings](docs/background-input-proof.md) for qualification
+limits. Credentials, webhook secrets and local state are excluded from Git.
+
 **Snapshot: September 11, 2026.** The Windows client wrapper and foreground
 farmer use read-only memory for gameplay decisions. The current implementation
 includes saved leveling routes, jump/Scatter combat, healing and revival,

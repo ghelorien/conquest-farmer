@@ -1,0 +1,85 @@
+"""Authenticated localhost merchant commands; no credentials or raw input API."""
+import hmac
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import json
+import os
+from pathlib import Path
+import secrets
+import threading
+import time
+from conquest.discord_notify import write_json
+
+
+class MerchantBridge:
+    def __init__(self, dispatch, path='.runtime/merchants/bridge.json'):
+        self.path,self.dispatch = Path(path),dispatch
+        self.token,self.stop = secrets.token_hex(32),threading.Event()
+        self.path.parent.mkdir(parents=True,exist_ok=True)
+        # Keep one app owner, even if a previous crash left connection metadata.
+        import msvcrt
+        self.owner = self.path.with_suffix('.lock').open('a+b')
+        self.owner.write(b'0');self.owner.flush();self.owner.seek(0)
+        try:
+            msvcrt.locking(self.owner.fileno(),msvcrt.LK_NBLCK,1)
+        except OSError:
+            self.owner.close()
+            raise ValueError('A merchant app is already running') from None
+        bridge = self
+        class Handler(BaseHTTPRequestHandler):
+            def setup(self):
+                super().setup();self.connection.settimeout(3)
+
+            def log_message(self,*args):
+                pass
+
+            def do_POST(self):
+                self.close_connection = True
+                if not hmac.compare_digest(self.headers.get('X-Conquest-Token',''),bridge.token):
+                    self.send_error(403);return
+                try:
+                    if self.path != '/merchants':
+                        raise ValueError('Unknown operation')
+                    size = int(self.headers.get('Content-Length','0'))
+                    if not 0 < size <= 65536:
+                        raise ValueError('Invalid request length')
+                    body = json.loads(self.rfile.read(size))
+                    if not isinstance(body,dict):
+                        raise ValueError('Expected an object')
+                    result,status = bridge.dispatch(body),200
+                except (ValueError,TypeError,KeyError,OSError) as error:
+                    result,status = {'error':str(error)},400
+                payload = json.dumps(result).encode()
+                self.send_response(status)
+                self.send_header('Content-Type','application/json')
+                self.send_header('Content-Length',str(len(payload)))
+                self.end_headers();self.wfile.write(payload)
+        self.server = HTTPServer(('127.0.0.1',0),Handler)
+        self.server.timeout = .2
+        write_json(self.path,{'port':self.server.server_port,'token':self.token,'pid':os.getpid()})
+        self.thread = threading.Thread(target=self.run,daemon=True,name='merchant-bridge')
+        self.thread.start()
+
+    def run(self):
+        try:
+            while not self.stop.is_set():
+                self.server.handle_request()
+        finally:
+            self.server.server_close()
+            self.path.unlink(missing_ok=True)
+            self.owner.close()
+
+    def close(self):
+        self.stop.set();self.thread.join(timeout=4)
+
+
+def request(body, path='.runtime/merchants/bridge.json'):
+    import urllib.request
+    import urllib.error
+    info = json.loads(Path(path).read_text())
+    call = urllib.request.Request(f'http://127.0.0.1:{int(info["port"])}/merchants',
+        data=json.dumps(body).encode(),headers={'X-Conquest-Token':info['token'],'Content-Type':'application/json'})
+    try:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(call,timeout=5) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        raise ValueError(json.load(error).get('error','Merchant request failed')) from None

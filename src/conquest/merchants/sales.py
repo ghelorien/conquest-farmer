@@ -1,0 +1,148 @@
+"""Read-only sales receipts: removed booth stock plus the matching silver gain."""
+import json
+import time
+from conquest.merchants.controller import identities
+from conquest.merchants.journal import CHARACTERS, character_name
+
+
+RECEIPT_WINDOW = 5
+
+
+def net_bounds(items):
+    """Observed America booth deduction is 3%; retain one-silver rounding bounds.
+
+    Receipts always use the actual balance delta, never the calculated estimate.
+    Historical client receipts show both rounding directions for fractional silver.
+    A booth price already covers the entire stack.
+    """
+    return (sum(i['price'] * 97 // 100 for i in items),
+            sum((i['price'] * 97 + 99) // 100 for i in items))
+
+
+def missing_stock(before, current):
+    present = {i['uid'] for i in current['booth'] + current['inventory']}
+    return [i for i in before['booth'] if i['uid'] not in present]
+
+
+def observe(journal, snapshot):
+    character = character_name(snapshot['character'])
+    if snapshot.get('server') != 'America':
+        return
+    # Keep only observation evidence; no GUI window addresses or secrets.
+    current = {k:snapshot[k] for k in ('identity','timestamp','inventory','booth','silver','request','trade')}
+    at = current['timestamp']
+    with journal.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT * FROM sales_baseline WHERE character=?',(character,)).fetchone()
+        latest = json.loads(row['snapshot']) if row else None
+        if latest and at <= latest['timestamp']:
+            return
+        before = latest.get('_sales_anchor', latest) if latest else None
+        if before:
+            old = {i['uid']:i for i in before['booth']}
+            booth = {i['uid']:i for i in current['booth']}
+            inventory = identities(current['inventory'])
+            missing = missing_stock(before, current)
+            gap = latest['identity'] != current['identity'] or at-latest['timestamp'] > 10
+            if gap:
+                db.execute('INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)',
+                    (character,'sales_observation_gap',json.dumps({'from':before['timestamp'],'to':at}),at))
+            busy = db.execute("SELECT 1 FROM transactions WHERE character=? AND created<=? AND updated>=? LIMIT 1",
+                              (character,at,before['timestamp'])).fetchone()
+            stable = (not gap and not busy and not before['request'] and not current['request']
+                    and not before['trade'] and not current['trade']
+                    and identities(before['inventory']) == inventory
+                    and all(uid in old and old[uid]['price']==i['price']
+                        and identities([old[uid]])==identities([i]) for uid,i in booth.items()))
+            gain = current['silver']-before['silver']
+            low, high = net_bounds(missing)
+            pending_since = latest.get('_sales_pending_since', at)
+            verified = bool(missing) and stable and low <= gain <= high and at-pending_since <= RECEIPT_WINDOW
+            # Stock and silver can arrive in separate client updates, in either order.
+            # Save the original observation across restart, with a bounded deadline.
+            if (not verified and stable and (missing or gain > 0) and gain >= 0
+                    and at-pending_since < RECEIPT_WINDOW):
+                current['_sales_anchor'] = before
+                current['_sales_pending_since'] = pending_since
+            elif missing:
+                note = 'Booth removal and net silver gain after 3% deduction verified' if verified else 'Stock disappeared without an unambiguous silver receipt'
+                items = [{k:i[k] for k in ('uid','name','quantity','price')} for i in missing]
+                db.execute('INSERT INTO sales(character,observed_at,phase,items,silver,note) VALUES(?,?,?,?,?,?)',
+                    (character,at,'verified' if verified else 'unconfirmed',json.dumps(items),gain if verified else 0,note))
+                db.execute('INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)',
+                    (character,'sale_verified' if verified else 'sale_unconfirmed',
+                     json.dumps({'items':items,'silver':gain if verified else None,'note':note,
+                         'before_silver':before['silver'],'after_silver':current['silver'],
+                         'from':before['timestamp'],'gross':sum(i['price'] for i in missing),
+                         'net_bounds':[low,high],'deduction':sum(i['price'] for i in missing)-gain if verified else None}),at))
+        db.execute('INSERT OR REPLACE INTO sales_baseline VALUES(?,?,?)',
+                   (character,json.dumps(current),row['started_at'] if row else at))
+
+
+def summary(journal, *, now=None, since=None):
+    now = time.time() if now is None else now
+    since = now-14400 if since is None else since
+    result = {'at':now,'since':since,'characters':{}}
+    with journal.db() as db:
+        for character in CHARACTERS:
+            baseline = db.execute('SELECT * FROM sales_baseline WHERE character=?',(character,)).fetchone()
+            rows = list(db.execute('SELECT * FROM sales WHERE character=? AND observed_at<=?',(character,now)))
+            def totals(selected):
+                return {'items':sum(sum(i['quantity'] for i in json.loads(r['items'])) for r in selected),
+                        'silver':sum(r['silver'] for r in selected)}
+            verified = [r for r in rows if r['phase']=='verified']
+            recovered = list(db.execute('SELECT * FROM sales_reconciliations WHERE character=? AND until_at<=?', (character,now)))
+            total = totals(verified)
+            period = totals([r for r in verified if r['observed_at']>since])
+            for receipt in recovered:
+                for dest in ([total,period] if receipt['first_sale_at']>since else [total]):
+                    dest['silver'] += receipt['silver']
+                    dest['items'] += receipt['items']
+            saved = json.loads(baseline['snapshot']) if baseline else {}
+            pending = len(missing_stock(saved['_sales_anchor'], saved)) if '_sales_anchor' in saved else 0
+            gaps = db.execute("SELECT COUNT(*) FROM events WHERE character=? AND event='sales_observation_gap' AND timestamp>? AND timestamp<=?",
+                              (character,since,now)).fetchone()[0]
+            result['characters'][character] = {
+                'started_at':baseline['started_at'] if baseline else None,
+                'last_observed_at':json.loads(baseline['snapshot'])['timestamp'] if baseline else None,
+                'period':period,'total':total,'gaps':gaps,
+                'recovered_silver':sum(r['silver'] for r in recovered),
+                'period_incomplete':any(r['first_sale_at']<=since<r['until_at'] for r in recovered),
+                'pending':pending,
+                'unconfirmed':pending+sum(len(json.loads(r['items'])) for r in rows if r['phase'] not in ('verified','reconciled')),
+            }
+    return result
+
+
+def format_summary(data):
+    lines = ['**Shop sales — 4-hour update**']
+    lines.append('Reporting through '+time.strftime('%Y-%m-%d %H:%M UTC',time.gmtime(data['at'])))
+    lines.append('Silver totals are net proceeds after booth deductions.')
+    total_items = total_silver = 0
+    period_items = period_silver = 0
+    for character,row in data['characters'].items():
+        period,total = row['period'],row['total']
+        if row['started_at'] is None:
+            lines.append(f'**{character}:** sales tracking unavailable')
+            continue
+        period_note = 'incomplete; confirmed within window ' if row.get('period_incomplete') else ''
+        lines.append(f'**{character}:** last 4h {period_note}{period["items"]} items / {period["silver"]:,} silver; '
+                     f'since tracking began {total["items"]} items / {total["silver"]:,} silver.')
+        period_items += period['items'];period_silver += period['silver']
+        total_items += total['items'];total_silver += total['silver']
+        if row['unconfirmed']:
+            lines.append(f'  {row["unconfirmed"]} unconfirmed stock departures excluded from sales totals.')
+        if row.get('recovered_silver'):
+            lines.append(f'  Includes {row["recovered_silver"]:,} silver recovered by reconciling historical stock and balances.')
+        if row.get('period_incomplete'):
+            lines.append('  A recovered batch crosses this reporting boundary; its silver is included only in the cumulative total.')
+        if row['gaps'] or data['at']-(row['last_observed_at'] or 0)>10:
+            lines.append('  Observation gaps/offline time: verified totals may be incomplete.')
+    period_note = 'incomplete; confirmed within window ' if any(r.get('period_incomplete') for r in data['characters'].values()) else ''
+    lines.append(f'**Combined verified:** last 4h {period_note}{period_items} items / {period_silver:,} silver; '
+                 f'cumulative {total_items} items / {total_silver:,} silver.')
+    starts = [r['started_at'] for r in data['characters'].values() if r['started_at'] is not None]
+    if starts:
+        lines.append('Tracking started '+time.strftime('%Y-%m-%d %H:%M UTC',time.gmtime(min(starts)))+
+                     '. Earlier sales are unavailable; listings and reprices are not sales.')
+    return '\n'.join(lines)

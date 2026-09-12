@@ -22,6 +22,7 @@ class WindowGui:
         self.reject_owner = False
         self.visible = {GAME: True, PANE: True, WRAPPER: True}
         self.minimized = False
+        self.z_order=[GAME,WRAPPER]
 
     def GetAncestor(self, hwnd, flag):
         assert flag == 2  # GA_ROOT must not silently become GA_ROOTOWNER.
@@ -55,6 +56,9 @@ class WindowGui:
         return {-16: self.style, -20: self.exstyle, -8: self.owner}[index]
 
     def GetWindow(self, hwnd, flag):
+        if flag==3:
+            index=self.z_order.index(hwnd)
+            return self.z_order[index-1] if index else 0
         assert flag == 4
         return self.owner
 
@@ -71,7 +75,10 @@ class WindowGui:
 
     def SetWindowPos(self, hwnd, after, x, y, width, height, flags):
         self.calls.append(('position', hwnd, after, x, y, width, height, flags))
-        self.rect = (x, y, x+width, y+height)
+        if not flags&3:self.rect = (x, y, x+width, y+height)
+        if not flags&4:
+            self.z_order.remove(hwnd)
+            self.z_order.insert(0 if after in (0,-1,-2) else self.z_order.index(after)+1,hwnd)
 
     def GetWindowRect(self, hwnd):
         return self.rect
@@ -90,6 +97,7 @@ def owned_api():
                         (0, 1, (0, 0), (0, 0), (100, 100, 900, 700)))
     api = HostApi.__new__(HostApi)
     api.gui = WindowGui(state)
+    api.show_async = api.gui.ShowWindow
     api.assert_owner = lambda hwnd, identity: None
     api.owns_window = lambda hwnd, identity: True
     api.require_matching_dpi = lambda *args: None
@@ -124,6 +132,7 @@ def test_owned_resize_uses_screen_coordinates_without_activation():
     assert positioned[3:7] == (-600, 80, 1036, 793)
     assert positioned[-1] & 0x10  # SWP_NOACTIVATE
     assert positioned[-1] & 0x4  # SWP_NOZORDER
+    assert positioned[-1] & 0x4000  # SWP_ASYNCWINDOWPOS: do not block Tk on the client.
     assert api.gui.foreground == GAME
 
 
@@ -134,6 +143,29 @@ def test_unchanged_owned_geometry_does_not_repeat_window_mutations():
     for _ in range(4):
         api.resize_owned(state, PANE, 1036, 793)
     assert api.gui.calls == []
+
+
+def test_visible_client_behind_wrapper_is_reordered_without_focus_or_geometry_changes():
+    api,state=owned_api()
+    api.gui.z_order=[777,WRAPPER,888,GAME]
+    api.gui.foreground=777
+    api.resize_owned(state,PANE,1036,793)
+    assert api.gui.z_order==[777,GAME,WRAPPER,888]
+    assert api.gui.foreground==777
+    assert api.gui.rect==(-600,80,436,873)
+    call=api.gui.calls[-1]
+    assert call[2]==777 and call[-1]&0x10 and call[-1]&0x200
+    api.gui.calls.clear()
+    api.resize_owned(state,PANE,1036,793)
+    assert not api.gui.calls
+
+
+def test_normal_client_does_not_become_topmost_at_owner_band_boundary():
+    api,state=owned_api();api.gui.z_order=[777,WRAPPER,GAME]
+    original=api.gui.GetWindowLong
+    api.gui.GetWindowLong=lambda hwnd,index:8 if hwnd==777 and index==-20 else original(hwnd,index)
+    api.ensure_above_owner(GAME,WRAPPER)
+    assert api.gui.calls[-1][2]==0  # HWND_TOP, not a topmost HWND insertion target.
 
 
 @pytest.mark.parametrize('hidden', ['pane', 'wrapper', 'minimized'])
@@ -179,6 +211,39 @@ def test_owned_focus_preserves_game_text_field_when_game_is_foreground():
     api.thread_info = lambda hwnd: (200, SimpleNamespace(hwndFocus=21))
     assert api.focus(state) == 21
     assert api.gui.foreground == GAME
+
+
+@pytest.mark.parametrize('foreground,hit,visible,expected',[
+    (WRAPPER,GAME,True,True),(GAME,21,True,True),
+    (777,GAME,True,False),(WRAPPER,PANE,True,False),(WRAPPER,GAME,False,False)])
+def test_manual_owned_click_focus_only_reaches_visible_clicked_client(foreground,hit,visible,expected):
+    api,state=owned_api()
+    api.gui.owner=WRAPPER
+    api.gui.foreground=foreground
+    api.gui.visible[GAME]=visible
+    api.gui.GetCursorPos=lambda:(1,2)
+    api.gui.WindowFromPoint=lambda point:hit
+    activated=[];focused=[]
+    def activate(hwnd):
+        activated.append(hwnd);api.gui.foreground=hwnd
+    api.gui.SetForegroundWindow=activate
+    api.focus=lambda state:focused.append(state.hwnd)
+    assert api.activate_owned_click(state,PANE)==expected
+    assert focused==([GAME] if expected else [])
+    assert activated==([GAME] if expected and foreground==WRAPPER else [])
+
+
+def test_merchant_manual_focus_preserves_pause_and_automation_owner():
+    from conquest.merchants.ui import UnifiedUI
+    from unittest.mock import Mock
+    host=SimpleNamespace(saved=object(),mode='owned',parent=PANE,api=SimpleNamespace(activate_owned_click=Mock(return_value=True)))
+    ui=SimpleNamespace(closed=False,coordinator=SimpleNamespace(owner='Dutch'),hosts={'Spiritual':host},layout_status={})
+    assert not UnifiedUI.focus_clicked_merchant(ui)
+    host.api.activate_owned_click.assert_not_called()
+    ui.coordinator.owner=None
+    assert UnifiedUI.focus_clicked_merchant(ui)
+    assert 'click_focus_ms' in ui.layout_status['Spiritual']
+    assert ui.coordinator.owner is None
 
 
 @pytest.mark.parametrize('restore_fails', [False, True])

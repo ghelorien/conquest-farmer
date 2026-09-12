@@ -48,6 +48,43 @@ def test_changed_client_is_rejected_before_focus_input():
         activate_client(10,{},api=SimpleNamespace(assert_owner=reject,gui=None))
 
 
+def test_caption_fallback_rejects_other_apps(monkeypatch):
+    import win32process,os
+    from conquest.caption_focus import activate_owner_caption
+    monkeypatch.setattr(win32process,'GetWindowThreadProcessId',lambda hwnd:(1,os.getpid()+1))
+    api=SimpleNamespace(assert_owner=lambda *args:None,gui=SimpleNamespace(GetWindow=lambda *args:20))
+    assert activate_owner_caption(10,{},api) is False
+
+
+def test_caption_fallback_manual_stop_precedes_window_changes(monkeypatch):
+    import win32process,os
+    from conquest.caption_focus import activate_owner_caption
+    from conquest.capture import CaptureUnavailable
+    monkeypatch.setattr(win32process,'GetWindowThreadProcessId',lambda hwnd:(1,os.getpid()))
+    def stopped():raise CaptureUnavailable('Manual Stop')
+    monkeypatch.setattr('conquest.caption_focus.check_input',stopped)
+    api=SimpleNamespace(assert_owner=lambda *args:None,gui=SimpleNamespace(GetWindow=lambda *args:20))
+    with pytest.raises(CaptureUnavailable,match='Manual Stop'):activate_owner_caption(10,{},api)
+
+
+def test_owned_caption_fallback_runs_only_after_detaching_and_verifies_focus(monkeypatch):
+    import win32api,win32process,pywintypes
+    calls=[];foreground=[20]
+    monkeypatch.setattr(win32api,'GetCurrentThreadId',lambda:1)
+    monkeypatch.setattr(win32process,'GetWindowThreadProcessId',lambda hwnd:(2,3))
+    monkeypatch.setattr(win32process,'AttachThreadInput',lambda a,b,on:calls.append(on))
+    def activate(hwnd):
+        if foreground[0]==20:raise pywintypes.error(0,'SetForegroundWindow','Denied')
+        foreground[0]=hwnd
+    def caption(hwnd,identity):
+        assert calls==[True,False]
+        foreground[0]=30;return True
+    api=SimpleNamespace(assert_owner=lambda *args:None,activate_owned_caption=caption,gui=SimpleNamespace(
+        GetAncestor=lambda *args:10,IsIconic=lambda hwnd:False,
+        GetForegroundWindow=lambda:foreground[0],SetForegroundWindow=activate))
+    assert activate_client(10,{},api=api) and foreground[0]==10
+
+
 def test_windows_focus_denial_does_not_stop_refocus_loop():
     import pywintypes
     now=[0.];r=AutoRefocuser(clock=lambda:now[0])
@@ -57,3 +94,17 @@ def test_windows_focus_denial_does_not_stop_refocus_loop():
     assert r.step(True,False,denied) is False
     now[0]=2
     assert r.step(True,False,lambda:True) is True
+
+
+def test_foreground_denial_with_windows_zero_is_deferred_and_detached(monkeypatch):
+    import win32api,win32process,pywintypes
+    calls=[]
+    monkeypatch.setattr(win32api,'GetCurrentThreadId',lambda:1)
+    monkeypatch.setattr(win32process,'GetWindowThreadProcessId',lambda hwnd:(2,3))
+    monkeypatch.setattr(win32process,'AttachThreadInput',lambda a,b,on:calls.append(on))
+    def denied(hwnd):raise pywintypes.error(0,'SetForegroundWindow','No error message is available')
+    api=SimpleNamespace(assert_owner=lambda *args:None,gui=SimpleNamespace(
+        GetAncestor=lambda *args:10,IsIconic=lambda hwnd:False,
+        GetForegroundWindow=lambda:20,SetForegroundWindow=denied))
+    assert activate_client(10,{},api=api) is False
+    assert calls==[True,False]
