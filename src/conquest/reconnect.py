@@ -10,6 +10,7 @@ from pathlib import Path
 import time
 
 from conquest.capture import CaptureUnavailable
+from conquest.merchants.coordination import coordinated_input
 
 
 def login_screen(hwnd):
@@ -154,6 +155,7 @@ def login_form_points(session, window):
             (round(x+104),round(y+153)))
 
 
+@coordinated_input
 def submit_login(target,credential_path=Path('.runtime/account.dpapi'), *, session=None):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_click

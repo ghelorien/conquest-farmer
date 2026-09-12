@@ -73,6 +73,10 @@ class GuiObservationChanged(ValueError):
     """The renderer changed a previously valid GUI sample while reading it."""
 
 
+class TransitObservationChanged(ValueError):
+    """A moving actor or town transition needs another read, never another click."""
+
+
 class HoverNotReady(ValueError):
     """The rendered hover ID does not yet identify the requested control."""
 
@@ -304,13 +308,14 @@ class MerchantMemory:
         flags=[unpack(s,p+12,'<B')[0] for p in models]
         windows=self.gui.windows()
         fresh=read_life(s,self.observer.health_layout,self.observer.character)
-        if (fresh.object_address!=life.object_address or fresh.map_id!=life.map_id
-                or fresh.position!=life.position or fresh.dead_candidate or fresh.current_hp<=0
+        if (fresh.object_address!=life.object_address or fresh.dead_candidate or fresh.current_hp<=0
                 or resolve_player(s,self.player)!=wrapper
-                or unpack(s,silver_address,'<I')[0]!=silver
-                or [unpack(s,p+12,'<B')[0] for p in models]!=flags
                 or s.read_block(self.base+0x697860,64)!=server):
-            raise ValueError('Merchant transit observation changed')
+            raise ValueError('Merchant transit identity or life changed')
+        if (fresh.map_id!=life.map_id or fresh.position!=life.position
+                or unpack(s,silver_address,'<I')[0]!=silver
+                or [unpack(s,p+12,'<B')[0] for p in models]!=flags):
+            raise TransitObservationChanged('Merchant transit observation changed')
         s.assert_identity()
         if time.monotonic()-started>max_seconds:raise ValueError('Merchant transit observation expired')
         return {'character':self.observer.character,'identity':s.identity,'timestamp':time.time(),

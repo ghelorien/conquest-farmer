@@ -19,6 +19,17 @@ def transit_waypoint(terrain,path,anchor,viewport):
     raise ValueError('No visible checked Market route landing')
 
 
+def stall_approach(terrain,position,flag):
+    """Approach the flag outside its presumed booth standing tile."""
+    x,y=flag['position'];candidates=[]
+    for target in ((x-2,y),(x,y-2),(x,y+2)):
+        try:path=terrain.travel_path(tuple(position),target)
+        except ValueError:continue
+        candidates.append((len(path),target))
+    if not candidates:raise ValueError('No checked stall approach is available')
+    return min(candidates)
+
+
 class ReturnDriver:
     def __init__(self, driver, *, travel_only=False):
         self.driver,self.observer=driver,driver.observer
@@ -26,7 +37,14 @@ class ReturnDriver:
         self.travel_only=travel_only
 
     def read(self):
-        if self.travel_only:return self.driver.memory.read_travel()
+        if self.travel_only:
+            from conquest.merchants.memory import TransitObservationChanged,GuiObservationChanged
+            deadline=time.monotonic()+.4
+            while True:
+                try:return self.driver.memory.read_travel()
+                except (TransitObservationChanged,GuiObservationChanged):
+                    if time.monotonic()>=deadline:raise
+                    time.sleep(.025)
         return self.driver.memory.read(recovery=True)
 
     def qualify_movement(self):
@@ -53,8 +71,10 @@ class ReturnDriver:
                 check();self.observer.adapter.assert_identity()
                 if self.qualify_movement()!=profile:raise ValueError('Route calibration changed')
                 before_press()
-            return foreground_click(self.driver.target,*physical,tuple(size),control=jump,
-                                    require_foreground=True,before_press=guard)
+            diagnostics={}
+            result=foreground_click(self.driver.target,*physical,tuple(size),control=jump,
+                                    require_foreground=True,before_press=guard,diagnostics=diagnostics)
+            return {**result,'diagnostics':diagnostics}
 
     def move(self, snapshot, destination, check):
         self.qualify_movement()
@@ -98,11 +118,14 @@ class ReturnDriver:
             if point_now()!=point:raise ValueError('Projected return waypoint moved')
             state=self.read()
             if state.get('trade') or state.get('request'):raise CaptureUnavailable('Trade interrupted the return route')
-        self.click(point,check,before_press=guard,jump=max(abs(a-b) for a,b in zip(target,snapshot['position']))>=8)
+        self.last_move={'before':snapshot['position'],'target':list(target),'point':list(point)}
+        self.last_move['input']=self.click(point,check,before_press=guard,
+            jump=max(abs(a-b) for a,b in zip(target,snapshot['position']))>=8)
         end=time.monotonic()+3
         while time.monotonic()<end:
             check();after=self.read()
             if after['map_id']!=snapshot['map_id']:raise ValueError('Unexpected map change during return movement')
+            self.last_move['after']=after['position']
             if tuple(after['position'])==target:return after
             time.sleep(.1)
         return after
@@ -152,11 +175,9 @@ class ReturnDriver:
         terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',1036)
         position=self.read()['position']
         for flag in sorted(candidates,key=lambda f:max(abs(a-b) for a,b in zip(f['position'],preferred))):
-            # Both current booths use the tile two steps east of the flag.
-            approach=[flag['position'][0]+2,flag['position'][1]]
-            try:terrain.travel_path(tuple(position),tuple(approach))
+            try:_,approach=stall_approach(terrain,position,flag)
             except ValueError:continue
-            return {'flag':flag,'position':approach}
+            return {'flag':flag,'position':list(approach)}
         raise ValueError('No memory-verified vacant reachable stall is available nearby')
 
     def prepare_shop(self, chosen, check):
