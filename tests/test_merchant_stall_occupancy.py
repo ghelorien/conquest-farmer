@@ -21,3 +21,13 @@ def test_scene_booth_occupancy_uses_owner_entity_not_flag_name(monkeypatch,case)
     if case in ('new_occupant','moved','unknown_layout'):
         with pytest.raises(ValueError):stalls.vacant_flags(observer,spec)
     else:assert stalls.vacant_flags(observer,spec)==([] if case=='out_of_range' else [empty])
+
+
+@pytest.mark.parametrize('change',[{}, {'name':'Stranger'}, {'uid':55}, {'model':1086}, {'position':[100,100]}])
+def test_owned_booth_requires_exact_owner_identity_and_nearby_scene(monkeypatch,change):
+    booth={'uid':900,'name':'Dutch','type_id':0,'model':406,'position':[265,206]}
+    monkeypatch.setattr(stalls,'scene_stalls',lambda o:[{**booth,**change}])
+    snapshot={'map_id':1036,'own_booth_uid':900,'position':[264,206]}
+    if change:
+        with pytest.raises(ValueError):stalls.owned_booth(NS(character='Dutch'),snapshot)
+    else:assert stalls.owned_booth(NS(character='Dutch'),snapshot)==booth

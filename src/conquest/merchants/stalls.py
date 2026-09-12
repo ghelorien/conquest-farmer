@@ -50,6 +50,18 @@ def scene_flags(observer):
     return [r for r in scene_stalls(observer) if r['name']=='ShopFlag']
 
 
+def owned_booth(observer,snapshot):
+    uid=snapshot.get('own_booth_uid')
+    if type(uid) is not int or uid<=0 or snapshot['map_id']!=1036:
+        raise ValueError('No memory-verified owned Market booth')
+    matches=[r for r in scene_stalls(observer) if r['uid']==uid]
+    if (len(matches)!=1 or matches[0]['name']!=observer.character
+            or (matches[0]['type_id'],matches[0]['model'])!=(0,406)
+            or max(abs(a-b) for a,b in zip(matches[0]['position'],snapshot['position']))>8):
+        raise ValueError('Owned booth is absent, changed or out of range')
+    return matches[0]
+
+
 def unoccupied_scene_flags(observer,spec):
     """A nearby flag is occupied by a separate owner-named booth scene entity."""
     from conquest.memory_life import read_life

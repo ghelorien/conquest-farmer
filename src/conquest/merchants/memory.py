@@ -21,6 +21,15 @@ def unpack(session, address, fmt):
     return struct.unpack(fmt, session.read_block(checked_address(address), struct.calcsize(fmt)))
 
 
+def assert_booth_stable(session,actor,model,owned_uid,before):
+    # +0x54 begins the editable price buffer. Native queued typing may change
+    # it during a read; price submission has its own exact-value guard. Keep
+    # the model/header, open state, owner and selected item UID stable.
+    after=session.read_block(model,0x58)
+    if (unpack(session,actor+0x3258,'<I')[0]!=owned_uid or after[:0x54]!=before[:0x54]):
+        raise ValueError('Booth ownership or selected item changed during observation')
+
+
 def character_uid(session, base, actor):
     # Both pinned call sites resolve the self actor using RVA 0x181b30,
     # then compare actor+0x68 with a received/other actor identity.
@@ -400,9 +409,8 @@ class MerchantMemory:
             raise ValueError('Merchant observation expired during GUI sampling')
         if character_uid(s,self.base,actor)!=own_uid:
             raise ValueError('Character UID changed during observation')
-        if unpack(s,actor+0x3258,'<I')[0]!=own_booth_uid or s.read_block(model,0x58)!=model_raw:
-            raise ValueError('Booth ownership changed during observation')
+        assert_booth_stable(s,actor,model,own_booth_uid,model_raw)
         return {'character':self.observer.character,'character_uid':own_uid,'identity':s.identity,'timestamp':time.time(),'server':'America',
             'map_id':life.map_id,'position':list(fresh.position),'hp':fresh.current_hp,'capacity':inv.capacity,'silver':inv.silver,
             'inventory':[asdict(i) for i in stock],'booth':[asdict(i) for i in booth],
-            'booth_open':booth_open,'trade':trade,'request':request,'windows':windows}
+            'own_booth_uid':own_booth_uid,'booth_open':booth_open,'trade':trade,'request':request,'windows':windows}

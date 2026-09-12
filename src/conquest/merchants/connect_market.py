@@ -194,8 +194,15 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
                             if geometry(driver)!=dimensions:raise ValueError('Stall inspection viewport changed')
                             return dimensions
                         travel.qualify_movement=stationary_geometry
-                        try:inspect_flag(driver,travel,runtime.journal,check)
+                        try:result=inspect_flag(driver,travel,runtime.journal,check)
                         finally:travel.qualify_movement=original
+                        if (result.get('operation')=='open_owned_panel' and result.get('booth_open')
+                                and result.get('own_booth_uid_before')==result.get('own_booth_uid')==result.get('displayed_booth_uid')
+                                and result.get('inventory_unchanged')):
+                            record_capability(driver,'booth_panel',result,dimensions=dimensions)
+                            qualified=read_json(driver.qualification)
+                            qualified['booth_panel']={'mode':'owned_scene_entity','draw_offset':[0,-32]}
+                            write_json(driver.qualification,qualified)
                         before=travel.read()
                 if market_trial:
                     from conquest.merchants.stalls import scene_flags

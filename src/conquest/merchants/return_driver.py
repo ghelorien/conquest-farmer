@@ -180,6 +180,51 @@ class ReturnDriver:
             return {'flag':flag,'position':list(approach)}
         raise ValueError('No memory-verified vacant reachable stall is available nearby')
 
+    def open_owned_booth(self,snapshot,check,*,before_press=lambda:None):
+        from conquest.merchants.stalls import owned_booth
+        from conquest.merchants.qualification import stock
+        profile=self.driver.require_qualified('booth_panel')
+        if profile.get('booth_panel')!={'mode':'owned_scene_entity','draw_offset':[0,-32]}:
+            raise ValueError('Owned booth panel control needs live qualification')
+        target=owned_booth(self.observer,snapshot)
+        point=(target['draw_position'][0],target['draw_position'][1]-32)
+        width,height=self.driver.memory.gui.viewport_size()
+        if not (80<point[0]<width-80 and 170<point[1]<height-160):
+            raise ValueError('Owned booth is outside the qualified scene')
+        def guard():
+            check();fresh=self.driver.memory.read(recovery=True)
+            if (fresh.get('booth_open') or fresh.get('trade') or fresh.get('request')
+                    or stock(fresh)!=stock(snapshot)
+                    or any(fresh[k]!=snapshot[k] for k in ('identity','map_id','position','own_booth_uid'))
+                    or owned_booth(self.observer,fresh)!=target):
+                raise ValueError('Owned booth changed before opening its panel')
+            for window in fresh['windows']:
+                x,y,w,h=window['geometry']
+                if w>=width-10 and h>=height-10:continue
+                if x<=point[0]<=x+w and y<=point[1]<=y+h:
+                    raise ValueError('A GUI panel covers the owned booth')
+            before_press()
+        self.click(point,check,before_press=guard)
+
+    def open_inventory(self,snapshot,check,*,before_press=lambda:None):
+        from conquest.discard_loot import inventory_button
+        from conquest.memory_shop import MemoryGui
+        from conquest.merchants.qualification import stock
+        self.driver.require_qualified('inventory_panel')
+        gui=MemoryGui(self.observer.adapter)
+        point=inventory_button(gui)
+        def guard():
+            check();fresh=self.driver.memory.read(recovery=True)
+            if (any(w['name']=='Inventory' for w in fresh['windows'])
+                    or fresh.get('trade') or fresh.get('request')
+                    or not fresh.get('booth_open')
+                    or stock(fresh)!=stock(snapshot)
+                    or any(fresh[k]!=snapshot[k] for k in ('identity','map_id','position','own_booth_uid'))
+                    or inventory_button(gui)!=point):
+                raise ValueError('Merchant inventory control changed before opening')
+            before_press()
+        self.click(point,check,before_press=guard)
+
     def prepare_shop(self, chosen, check):
         from conquest.merchants.stalls import vacant_flags
         profile=self.driver.require_qualified('booth_setup')
@@ -187,6 +232,7 @@ class ReturnDriver:
         flag=next((f for f in flags if f['uid']==chosen['flag']['uid']),None)
         if flag is None:raise CaptureUnavailable('Selected stall was occupied; another will be selected')
         fresh=self.read();check()
+        if fresh.get('own_booth_uid'):raise ValueError('Merchant already owns a booth; reopen its panel')
         if fresh['map_id']!=1036 or max(abs(a-b) for a,b in zip(fresh['position'],chosen['position']))>1:
             raise ValueError('Merchant is not at the selected stall')
         return {'flag':flag,'snapshot':fresh,'spec':profile['shop_setup']}
@@ -198,6 +244,7 @@ class ReturnDriver:
         point=(flag['draw_position'][0],flag['draw_position'][1]-32)
         def guard():
             check();fresh=self.read()
+            if fresh.get('own_booth_uid'):raise ValueError('Merchant already owns a booth; no new flag claim')
             if any(fresh[k]!=snapshot[k] for k in ('identity','map_id','position')):
                 raise ValueError('Merchant moved before claiming the stall')
             if fresh.get('trade') or fresh.get('request'):raise ValueError('Trade interrupted stall setup')

@@ -495,6 +495,15 @@ class DesktopApp:
         if not info or not self.selected_route:
             self.state_text.set('Reload deferred: waiting for memory connection and route')
             return False
+        unified=getattr(self,'unified',None)
+        if unified:
+            if unified.coordinator.owner or unified.calibrating:
+                self.state_text.set('Wait for merchant input before preparing the farmer for reload')
+                return False
+            # Revival and safety input require the farmer's actual visible
+            # surface, even when reload was requested from a merchant tab.
+            unified.notebook.select(unified.frames['Farmer'])
+            self.root.update_idletasks()
         from conquest.discord_notify import read_json,process_alive
         status=read_json('reports/overnight/status.json')
         self.reload_resume=bool(self.control.snapshot()['enabled'] or

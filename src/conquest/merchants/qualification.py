@@ -90,6 +90,10 @@ def verify_booth_controls(driver, journal, check):
     try:
         previous = json.loads(driver.qualification.read_text(encoding='utf-8'))
         if all(previous.get(k)==profile[k] for k in ('client_sha256','character','server')):
+            # Recalibrating listing controls must retain separately qualified
+            # recovery control specifications as well as their capability flags.
+            for key in ('shop_setup','booth_panel'):
+                if key in previous:profile[key]=previous[key]
             controls.update({k:v for k,v in previous.get('controls',{}).items() if k not in controls})
             profile['capabilities'].update({k:v for k,v in previous.get('capabilities',{}).items() if k!='booth_input'})
     except (OSError,ValueError):

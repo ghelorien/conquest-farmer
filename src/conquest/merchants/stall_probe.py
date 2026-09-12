@@ -3,7 +3,7 @@ import struct
 import time
 from conquest.memory_life import read_life
 from conquest.merchants.memory import unpack
-from conquest.merchants.stalls import vacant_flags
+from conquest.merchants.stalls import vacant_flags,owned_booth
 
 
 def reconcile_interrupted_probe(driver,journal):
@@ -50,7 +50,8 @@ def inspect_flag(driver,travel,journal,check):
     # Qualification of the vacancy field must precede even a diagnostic click.
     profile=driver.require_qualified('stall_occupancy')
     spec=profile.get('shop_setup',{})
-    flags=[f for f in vacant_flags(driver.observer,spec)
+    reopening=bool(before.get('own_booth_uid'))
+    flags=[owned_booth(driver.observer,before)] if reopening else [f for f in vacant_flags(driver.observer,spec)
            if max(abs(a-b) for a,b in zip(f['position'],before['position']))<=3]
     if len(flags)!=1:raise ValueError('Stand beside exactly one memory-verified unattended stall flag')
     flag=flags[0];point=(flag['draw_position'][0],flag['draw_position'][1]-32)
@@ -72,7 +73,8 @@ def inspect_flag(driver,travel,journal,check):
             raise ValueError('Merchant moved before stall inspection')
         if driver.require_qualified('stall_occupancy')!=profile:
             raise ValueError('Stall occupancy qualification changed before inspection')
-        match=next((f for f in vacant_flags(driver.observer,spec) if f['uid']==flag['uid']),None)
+        match=(owned_booth(driver.observer,driver.memory.read()) if reopening else
+               next((f for f in vacant_flags(driver.observer,spec) if f['uid']==flag['uid']),None))
         if match!=flag:raise ValueError('Stall was occupied or changed before inspection')
         inv=driver.memory.inventory.read()
         if inv.items!=inventory.items or inv.silver!=inventory.silver:
@@ -85,6 +87,8 @@ def inspect_flag(driver,travel,journal,check):
         record['press_pending']=True
         journal.set(character,'stall_probe',record)
     record={'phase':'submitted','submitted_at':time.time(),'flag':flag,
+            'operation':'open_owned_panel' if reopening else 'inspect_vacant_flag',
+            'own_booth_uid_before':before.get('own_booth_uid',0),
             'identity':before['identity'],'position':before['position'],
             'silver':inventory.silver,'inventory_uids':[i.uid for i in inventory.items],
             'inventory_before':before['inventory'],'booth_before':before['booth'],
@@ -109,7 +113,9 @@ def inspect_flag(driver,travel,journal,check):
         except ValueError as error:
             if str(error)!='NPC dialog is absent':raise
             records=[]
-        if raw[12] or records or own:
+        if raw[12] or records or (own and own!=before.get('own_booth_uid',0)):
+            if raw[12] and (not own or struct.unpack_from('<I',raw,0x4c)[0]!=own):
+                raise ValueError('Stall response opened a foreign booth; no qualification')
             record.update(phase='observed',observed_at=time.time(),position=list(life.position),
                           own_booth_uid=own,displayed_booth_uid=struct.unpack_from('<I',raw,0x4c)[0],
                           booth_open=bool(raw[12]),dialog=records,inventory_unchanged=True,

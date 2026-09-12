@@ -468,7 +468,8 @@ class MerchantRuntime:
                 controller = self.controllers.get(character)
                 return_state=self.returns[character].state()
                 returning=bool(return_state and return_state['phase']!='complete')
-                for capability in ('trade_request','trade','booth_input','login','market_return','booth_setup'):
+                for capability in ('trade_request','trade','booth_input','login','market_return','booth_setup',
+                                   'booth_panel','inventory_panel'):
                     try:
                         if controller is None:
                             raise ValueError('Not attached')

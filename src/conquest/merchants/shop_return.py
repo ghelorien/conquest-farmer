@@ -74,8 +74,21 @@ class ShopReturn:
                 self.save(state,'transfer_submitted',transfer_silver=fresh['silver'],submitted_at=self.clock())
                 travel.transfer(records,controller.check)
             return False
+        # Closing the panel does not surrender a stall. Never seek another flag
+        # while memory still identifies a booth owned by this merchant.
+        if snapshot.get('own_booth_uid') and not snapshot['booth_open']:
+            if state['phase']=='panel_submitted':
+                if self.clock()-state['submitted_at']<=10:return False
+                self.block(state,'Owned booth panel did not open; verify it before retrying')
+            with controller.coordinator.lease(self.character):
+                controller.check()
+                travel.driver.require_qualified('booth_panel')
+                self.save(state,'opening_panel',own_booth_uid=snapshot['own_booth_uid'])
+                travel.open_owned_booth(snapshot,controller.check,before_press=lambda:
+                    self.save(state,'panel_submitted',submitted_at=self.clock()))
+            return False
         home=state.get('home')
-        if not home:
+        if not home and not snapshot.get('own_booth_uid'):
             self.block(state,'No memory-verified Market booth location was saved before disconnect')
         if not snapshot['booth_open']:
             if state['phase']=='shop_submitted':
@@ -99,6 +112,17 @@ class ShopReturn:
         current=identities(snapshot['inventory']+snapshot['booth'])
         if expected!=current:
             self.block(state,'Stock changed across disconnect; reconcile missing/new items before restoring the shop')
+        if not any(w['name']=='Inventory' for w in snapshot.get('windows',[])):
+            if state['phase']=='inventory_submitted':
+                if self.clock()-state['submitted_at']<=10:return False
+                self.block(state,'Inventory panel did not open; verify it before retrying')
+            with controller.coordinator.lease(self.character):
+                controller.check()
+                travel.driver.require_qualified('inventory_panel')
+                self.save(state,'opening_inventory')
+                travel.open_inventory(snapshot,controller.check,before_press=lambda:
+                    self.save(state,'inventory_submitted',submitted_at=self.clock()))
+            return False
         self.save(state,'restoring_listings')
         wanted=sorted(before['booth'],key=lambda i:(-i['price'],i['uid']))
         for item in wanted:

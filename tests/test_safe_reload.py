@@ -44,6 +44,32 @@ def test_parking_requires_quiet_interval_and_keeps_care_running(monkeypatch):
     assert now[0]>=3 and len(checks)>=15 and proof['hp']==600
 
 
+def test_preparation_deadline_also_bounds_nested_living_wait(monkeypatch,tmp_path):
+    from contextlib import contextmanager
+    monkeypatch.chdir(tmp_path);(tmp_path/'.runtime').mkdir()
+    now=[0.];events=[]
+    monkeypatch.setattr(s.time,'monotonic',lambda:now[0])
+    monkeypatch.setattr('conquest.merchants.delivery_operation.guard_reload',lambda:None)
+    monkeypatch.setattr('conquest.worker.request',lambda *a:health())
+    @contextmanager
+    def guard():yield True
+    monkeypatch.setattr('conquest.route_controller.controller_guard',guard)
+    class Loop:
+        def __init__(self,route):pass
+        def refresh(self):pass
+        def check_stop(self):pass
+        def record(self,event,**kwargs):events.append(event)
+    monkeypatch.setattr('conquest.overnight.OvernightLoop',Loop)
+    def blocked_living(loop,*args,**kwargs):
+        now[0]=121
+        loop.check_stop()
+        pytest.fail('Nested recovery wait must expire')
+    monkeypatch.setattr(s,'park',blocked_living)
+    with pytest.raises(ValueError,match='living focused control'):
+        s.prepare('worker','bandit',threading.Event(),lambda note:None)
+    assert events[-1]=='reload_preparation_finished'
+
+
 def test_settings_label_error_does_not_starve_control_poll(monkeypatch):
     from conquest.desktop_app import DesktopApp
     calls=[]

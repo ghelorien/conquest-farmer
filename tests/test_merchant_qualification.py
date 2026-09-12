@@ -25,6 +25,21 @@ def test_price_dialog_must_finish_initial_auto_size_before_input():
     assert not booth_dialog_ready(state)
 
 
+@pytest.mark.parametrize('change',['price','owner','displayed_owner','selected_item','open','model'])
+def test_native_price_typing_is_not_a_booth_ownership_change(change):
+    from conquest.merchants.memory import assert_booth_stable
+    before=bytearray(0x58);after=bytearray(before);owned=900
+    offset={'price':0x54,'displayed_owner':0x4c,'selected_item':0x50,'open':12,'model':0}.get(change)
+    if offset is not None:after[offset]=1
+    if change=='owner':owned+=1
+    session=SimpleNamespace(read_block=lambda addr,size:
+        struct.pack('<I',owned) if addr==0x10000+0x3258 else bytes(after))
+    if change=='price':assert_booth_stable(session,0x10000,0x20000,900,bytes(before))
+    else:
+        with pytest.raises(ValueError,match='ownership or selected item'):
+            assert_booth_stable(session,0x10000,0x20000,900,bytes(before))
+
+
 @pytest.mark.parametrize('mode',['ready','wrong','changed','stop'])
 def test_hover_wait_rechecks_whole_guard_and_never_bypasses_wrong_control(mode):
     elapsed=[0.0];reads=[]
@@ -211,8 +226,15 @@ def test_booth_probe_only_enters_and_cancels_before_qualification(tmp_path,monke
     monkeypatch.setattr(money,'type_amount',type_amount)
     journal = Journal(tmp_path/'journal.sqlite3')
     if typed_correctly and cancel_preserves_stock:
+        recovery={'shop_setup':{'occupancy_mode':'scene_booth','booth_model':406},
+                  'booth_panel':{'mode':'owned_scene_entity','draw_offset':[0,-32]}}
+        driver.qualification.write_text(json.dumps({**recovery,'client_sha256':CLIENT_SHA256,
+            'character':'Spiritual','server':'America','capabilities':{'inventory_panel':True,'booth_panel':True}}))
         assert verify_booth_controls(driver,journal,lambda:None)['verified']
-        assert json.loads(driver.qualification.read_text())['capabilities']['booth_input'] is True
+        saved=json.loads(driver.qualification.read_text())
+        assert saved['capabilities']['booth_input'] is True
+        assert saved['capabilities']['inventory_panel'] is True
+        assert all(saved[k]==v for k,v in recovery.items())
     else:
         with pytest.raises(ValueError):verify_booth_controls(driver,journal,lambda:None)
         assert not driver.qualification.exists()

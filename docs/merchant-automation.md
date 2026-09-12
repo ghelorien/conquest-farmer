@@ -535,3 +535,39 @@ reconciliation, durable requests, exclusive input, manual stop, credential
 isolation, notification replay, bridge authentication and native tab structure,
 alongside the existing farmer regressions. Test fixtures do not trade with the
 live clients. Automated passes do not replace the live rollout requirement.
+# Owned stalls and panel recovery (2026-09-12)
+
+The merchant snapshot distinguishes `own_booth_uid` from `booth_open`.
+A closed panel must not cause a merchant that still owns a stall to claim
+another flag. Recovery first reopens the exact owned booth, reconciles stock,
+opens Inventory if necessary, and restores verified listings. Each submitted
+panel action waits for memory confirmation; an uncertain result is never
+repeated blindly, including after an app restart.
+
+These recovery controls require separate live capabilities: `booth_panel`
+and `inventory_panel`. Booth verification now includes a bounded Items-button
+close/open trial with unchanged stock and merchant identity. Existing ownership
+or panels opened manually do not qualify automatic opening. Listing calibration
+preserves independently qualified occupancy and panel-control specifications.
+
+Live app 1342368 loaded this update. Both merchants passed automatic Inventory
+close/open and booth price-entry/cancel checks, with their stock unchanged and
+no listing submitted. Inventory reopening and booth listing controls are now
+qualified; automatic owned-Booth-panel reopening and full disconnect recovery
+are still unqualified. Unattended merchant delivery remains disabled.
+
+The live price trial exposed a reader race: editable price bytes were included
+in its booth-ownership comparison. Those bytes now use the separate exact-price
+guard; the model/header, open state, owner and selected item still must remain
+stable. Both merchants subsequently passed the price/cancel trial.
+
+Safe reload now selects the Farmer tab before recovery input. Its 120-second
+preparation bound also covers nested focus/revival waits. This does not impose
+a farming-session timer. A live merchant-tab reload exposed the hidden farmer's
+unsuccessful revive attempts; detaching its surface allowed a memory-verified
+revive to full HP before the safe reload completed. The new tab-selection
+behavior completed the subsequent reload without another manual panel change.
+
+The authenticated `pause-merchant` action uses the same pause operation as the
+native UI and preserves pending work; it does not pause the separate refill
+permission or implicitly resume farming.

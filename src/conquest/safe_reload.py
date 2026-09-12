@@ -149,8 +149,13 @@ def prepare(info,route_id,cancelled,notify):
         loop=OvernightLoop(route_id);loop.refresh();loop.phase='reloading'
         loop.record('reload_started',activity='Moving to a safe spot for app reload')
         original=loop.check_stop
+        preparation_deadline=time.monotonic()+120
         def check_stop():
             if cancelled.is_set():raise ValueError('Reload canceled by user')
+            # living() also waits for focus/revival. Bound that nested wait,
+            # not only the outer parking loop; this is not a farming timer.
+            if time.monotonic()>=preparation_deadline:
+                raise ValueError('Safe reload could not verify living focused control; reload deferred')
             original()
         loop.check_stop=check_stop
         try:return park(loop,cancelled,notify)

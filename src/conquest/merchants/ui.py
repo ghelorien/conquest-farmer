@@ -314,6 +314,10 @@ class UnifiedUI:
             scan=self.runtime.journal.resume_batch(character)
             self.coordinator.resume()
             return {'resumed':character,'request_id':scan['request_id']}
+        if action=='pause-merchant' and set(body)=={'action','character'}:
+            character=character_name(body['character'])
+            self.pause(character)
+            return {'paused':character,'pending_work_preserved':True}
         if action=='window-state' and set(body)=={'action','maximized'} and type(body['maximized']) is bool:
             state = 'zoomed' if body['maximized'] else 'normal'
             self.ui_requests.put((lambda:self.root.state(state),None,{}))
@@ -789,7 +793,16 @@ class UnifiedUI:
                         self.coordinator.check()
                     wait_for_calibration_idle(self.coordinator,cancel,lambda:self.closed)
                     with self.coordinator.lease(character),observer.lock,physical_coordinates():
-                        result = verify_booth_controls(self.runtime.controllers[character].driver,self.runtime.journal,check)
+                        if self.runtime.journal.pending(character):
+                            raise ValueError('Reconcile pending transactions before panel verification')
+                        from conquest.merchants.inventory_panel import verify_inventory_panel
+                        driver=self.runtime.controllers[character].driver
+                        if any(w['name']=='Add Item to Booth' for w in driver.read()['windows']):
+                            # Resume a canceled/unsubmitted qualification dialog
+                            # without toggling Inventory beneath that modal.
+                            driver.require_qualified('inventory_panel')
+                        else:verify_inventory_panel(driver,check)
+                        result = verify_booth_controls(driver,self.runtime.journal,check)
                     self.calibration_results[character] = result
                 except Exception as error:
                     failure = calibration_failure(error)

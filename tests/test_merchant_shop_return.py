@@ -18,7 +18,7 @@ def run(tmp_path):
     r=ShopReturn('Dutch',j,clock=lambda:now[0])
     s=dict(character='Dutch',identity={'pid':1},map_id=1036,position=[264,214],
            timestamp=100,silver=1000,inventory=[],booth=[item(1,100),item(2,900)],
-           booth_open=True,trade=None,request=None)
+           booth_open=True,trade=None,request=None,windows=[{'name':'Inventory'}])
     r.remember(s)
     r.save({'phase':'returning','before':copy.deepcopy(s),'home':j.get('Dutch','shop_home'),
             'moves':0,'stalls':0})
@@ -131,3 +131,57 @@ def test_shopflag_name_alone_never_proves_vacancy(monkeypatch):
     assert vacant_flags(observer,{'vacancy_offset':64,'vacancy_mask':0xffffffff,'vacancy_value':0})==[]
     monkeypatch.setattr(memory,'unpack',lambda *args:(0,))
     assert vacant_flags(observer,{'vacancy_offset':64,'vacancy_mask':0xffffffff,'vacancy_value':0})==[flag]
+
+
+@pytest.mark.parametrize('panel,capability,method,phase',[
+    ('booth','booth_panel','open_owned_booth','panel_submitted'),
+    ('inventory','inventory_panel','open_inventory','inventory_submitted'),
+])
+def test_missing_owned_panel_opens_once_and_reconciles_after_restart(run,panel,capability,method,phase):
+    run.s['own_booth_uid']=900
+    if panel=='booth':run.s['booth_open']=False
+    else:run.s['windows']=[]
+    required=[]
+    run.t.driver=SimpleNamespace(require_qualified=lambda cap:required.append(cap))
+    def open_panel(snapshot,check,*,before_press):
+        check()
+        assert run.r.state()['phase']!=phase
+        before_press()
+        run.calls.append(panel)
+    setattr(run.t,method,open_panel)
+    assert not run.r.step(run.s,run.c,run.t)
+    assert run.calls==[panel] and required==[capability]
+    assert run.r.state()['phase']==phase
+    recreated=ShopReturn('Dutch',run.j,clock=lambda:run.now[0])
+    assert not recreated.step(run.s,run.c,run.t)
+    assert run.calls==[panel]
+    run.now[0]+=11
+    with pytest.raises(ValueError,match='panel did not open'):
+        recreated.step(run.s,run.c,run.t)
+    assert run.calls==[panel]
+
+
+def test_owned_booth_never_claims_another_flag_without_panel_qualification(run):
+    run.s.update(own_booth_uid=900,booth_open=False)
+    def unqualified(cap):raise ValueError('pending qualification')
+    run.t.driver=SimpleNamespace(require_qualified=unqualified)
+    with pytest.raises(ValueError,match='pending qualification'):
+        run.r.step(run.s,run.c,run.t)
+    assert not run.calls
+    assert run.r.state()['phase']=='returning'
+
+
+def test_existing_owned_booth_can_recover_without_an_old_home(run):
+    run.s['own_booth_uid']=900
+    run.r.save(run.r.state(),home=None)
+    assert run.r.step(run.s,run.c,run.t)
+    assert run.r.state()['phase']=='complete'
+    assert not run.calls
+
+
+def test_open_panels_do_not_override_missing_stock_reconciliation(run):
+    run.s.update(own_booth_uid=900,windows=[])
+    run.s['booth']=[]
+    with pytest.raises(ValueError,match='Stock changed'):
+        run.r.step(run.s,run.c,run.t)
+    assert not run.calls
