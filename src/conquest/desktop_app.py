@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import sqlite3
 import subprocess
 import threading
 import time
@@ -70,6 +71,9 @@ class DesktopApp:
         from conquest.mouse_priority import install
         self.mouse_priority=install()
         self.last = {'state':'Off', 'kills':0, 'attempts':0}
+        from conquest.session_kills import SessionKills
+        self.kill_session=SessionKills(self.output)
+        self.last.update(self.kill_session.snapshot())
         root.title('Conquest Farmer')
         root.geometry('540x850')
         root.minsize(500, 700)
@@ -234,8 +238,18 @@ class DesktopApp:
             self.setup_frame.pack(fill='x',in_=self.details_button.master)
             self.details_button.configure(text='Hide client tools & details')
 
+    def update_kill_metrics(self, action='refresh'):
+        metrics=getattr(self,'kill_session',None)
+        if metrics is None:return
+        try:
+            getattr(metrics,action)()
+        except (OSError,ValueError,sqlite3.Error):
+            metrics.error='Kill metrics unavailable; farming controls remain active'
+        self.last.update(metrics.snapshot())
+
     def record(self, **fields):
         self.last.update(fields)
+        if getattr(self,'kill_session',None):self.last.update(self.kill_session.snapshot())
         self.last.update(pid=os.getpid(), updated_at=time.time(), ui_revision=5,
             selected_route=self.selected_route.id if self.selected_route else None,
             client_tools_revision=2,runback_monitor_revision=1,meteor_loop_revision=1,return_path_revision=2,
@@ -414,6 +428,7 @@ class DesktopApp:
                 win32gui.ShowWindow(self.client[1], 3)
                 if tuple(win32gui.GetClientRect(self.client[1])[2:]) != config.client_size:
                     raise ValueError('Maximized client does not match this screen profile')
+            if not calibration:self.update_kill_metrics('begin')
             self.thread = threading.Thread(target=self.run, args=(config,calibration), daemon=False)
             self.thread.start()
         except Exception as error:
@@ -471,6 +486,7 @@ class DesktopApp:
                 session.close()
 
     def stop(self):
+        self.update_kill_metrics('stop')
         if getattr(self,'unified',None):
             self.unified.grant = None
             self.unified.runtime.global_stop()
@@ -852,6 +868,7 @@ class DesktopApp:
                 if enabled:raise ValueError('Reload preparation owns input; Stop cancels it')
                 self.reload_cancel.set()
             current = self.control.update({'enabled':enabled})
+            self.update_kill_metrics('begin' if enabled else 'stop')
             if enabled and self.host.saved:
                 self.start_embedded_farm()
             elif not enabled and self.thread:
@@ -984,7 +1001,8 @@ class DesktopApp:
             self.runtime.external_execution=True
             self.control.update({'input_mode':'foreground'})
             (self.output/'stop.request').unlink(missing_ok=True)
-            self.record(state='Starting farm',kills=0,attempts=0,kills_per_hour=0)
+            self.update_kill_metrics('begin')
+            self.record(state='Starting farm',attempts=0)
             self.thread=threading.Thread(target=self.run_embedded_farm,args=(config,),daemon=False)
             self.thread.start()
 
@@ -1206,7 +1224,9 @@ class DesktopApp:
             elif event == 'region_rotated':
                 self.record(region_rotation=fields,activity=fields['activity'],activity_at=time.time())
             elif event == 'kill_verified':
-                self.record(kills=fields['total'],kills_per_hour=fields.get('kills_per_hour') if self.control.snapshot()['enabled'] else 0)
+                # The durable log is authoritative; a runner's total resets
+                # during ordinary banking, recovery and action-limit rollover.
+                pass
             elif event == 'experience_sample':
                 self.record(experience=fields,experience_observed_at=time.time())
             elif event in ('runback_progress','runback_finished'):
@@ -1250,6 +1270,7 @@ class DesktopApp:
             self.stats_text.set(farm_stats(self.last,self.control.snapshot()['enabled']))
         if not self.closing and time.monotonic()-self.telemetry_poll_at>=.5:
             self.telemetry_poll_at=time.monotonic()
+            self.update_kill_metrics()
             try:
                 self.route_status=json.loads(Path('reports/overnight/status.json').read_text(encoding='utf-8'))
             except (OSError,ValueError):

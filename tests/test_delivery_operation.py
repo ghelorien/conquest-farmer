@@ -8,11 +8,13 @@ from conquest.merchants.journal import Journal
 def test_readiness_checks_qualification_without_input_or_journal(monkeypatch):
     calls=[]
     monkeypatch.setattr(operation,'FarmerTradeDriver',lambda ui:NS(require_qualified=lambda:calls.append('qualification')))
-    assert operation.dispatch(NS(),{'action':'delivery-readiness'})=={'qualified':True}
+    assert operation.dispatch(NS(),{'action':'delivery-readiness'})['qualified'] is True
     assert calls==['qualification']
     def absent():raise ValueError('No live qualification')
     monkeypatch.setattr(operation,'FarmerTradeDriver',lambda ui:NS(require_qualified=absent))
-    assert operation.dispatch(NS(),{'action':'delivery-readiness'})=={'qualified':False}
+    result=operation.dispatch(NS(),{'action':'delivery-readiness'})
+    assert result['qualified'] is False
+    assert 'farmer_trade_controls_unqualified' in result['blockers']
 
 
 def test_town_source_reader_requires_farmer_identity(monkeypatch):

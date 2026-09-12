@@ -31,11 +31,8 @@ def status(journal,key):
 
 def dispatch(ui,body):
     if body=={'action':'delivery-readiness'}:
-        try:
-            FarmerTradeDriver(ui).require_qualified()
-        except (ValueError,OSError,AttributeError):
-            return {'qualified':False}
-        return {'qualified':True}
+        from conquest.merchants.delivery_readiness import describe
+        return describe(ui,FarmerTradeDriver)
     action=body.get('action');expected={'action','request_id'}
     if action=='delivery-start':expected|={'character','uids'}
     if action not in ('delivery-start','delivery-status') or set(body)!=expected:
