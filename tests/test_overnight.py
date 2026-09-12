@@ -443,6 +443,31 @@ def test_restart_restock_depends_on_supplies_not_farming_switch(enabled,full,low
     assert panels==['Shop','Inventory']
 
 
+def test_arrow_refill_reopens_shop_after_deferred_equipment_review(monkeypatch):
+    from conquest import equipment
+    loop=OvernightLoop.__new__(OvernightLoop)
+    loop.route=RouteLibrary().load('turtledove');loop.cycles=0
+    opened=[False];purchases=[]
+    rows=[{'type_id':1050000,'amount':200},{'type_id':1000020,'amount':15}]
+    def review(vendor):
+        opened[0]=False  # equip succeeds but subsequent Shop reopen was deferred
+        return False
+    monkeypatch.setattr(equipment,'EquipmentReview',lambda loop:SimpleNamespace(visit=review))
+    def town(action,**fields):
+        if action=='supplies':return {'items':rows,'capacity':40,'silver':10000}
+        if action=='open':opened[0]=True
+        if action=='close' and fields['window']=='Shop':opened[0]=False
+        if action=='buy':
+            assert opened[0], 'Refill attempted through a closed shop'
+            purchases.append(fields['type_id']);rows.append({'type_id':1050000,'amount':200})
+            return {'verified':True}
+        return {}
+    loop.town=town;loop.travel=lambda p:None;loop.sell_junk=lambda v:None
+    loop.recycle_small_arrows=lambda:None;loop.record=lambda *a,**kw:None
+    loop.restock()
+    assert purchases==[1050000] and loop.cycles==1
+
+
 def test_optional_equipment_shop_failure_does_not_block_supplied_route(monkeypatch):
     from conquest import equipment
     monkeypatch.setattr(equipment,'EquipmentReview',lambda loop:SimpleNamespace(visit=lambda vendor:None))

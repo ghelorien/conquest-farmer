@@ -572,6 +572,10 @@ class OvernightLoop:
             if (counts['free_slots'] <= self.route.supplies.minimum_free_slots
                     and counts['arrows'] >= self.route.supplies.arrows_return_below):
                 break
+            # Equipping upgraded arrows closes Shop. An optional equipment
+            # review may then defer before reopening it; verify the vendor
+            # again before the required refill's price read or purchase.
+            self.town('open',vendor_type=5)
             if not self.buy_supply(5,self.route.supplies.arrow_type):
                 break
         self.town('close',window='Shop')
