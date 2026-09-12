@@ -1,4 +1,6 @@
 """Required-town delivery trip with verified fares and warehouse fallback."""
+from conquest.character_context import farmer_name
+from conquest.character_context import installation_path, state_path
 from pathlib import Path
 import time
 
@@ -8,7 +10,7 @@ from conquest.merchants.delivery import eligible,validate_snapshot
 from conquest.merchants.journal import CHARACTERS
 from conquest.merchants import delivery_route
 
-JOURNAL=Path('reports/banking/merchant-journey.json')
+JOURNAL=Path(state_path('reports/banking/merchant-journey.json'))
 
 
 def pending():
@@ -37,7 +39,7 @@ def preflight(loop,send):
         if not ready:return False
         source=send({'action':'delivery-source'})['farmer']
         origin=loop.living()['embedded_controls']['life']['map_id']
-        if (source.get('character')!='Parasite' or source.get('server')!='America'
+        if (source.get('character')!=farmer_name() or source.get('server')!='America'
                 or not source.get('identity') or type(source.get('character_uid')) is not int
                 or source['character_uid']<=0
                 or source.get('map_id')!=origin or not 0<=time.time()-source.get('timestamp',0)<=5
@@ -131,7 +133,7 @@ def resume(loop,*,send=request):
     state=read_json(JOURNAL);origin=state['origin']
     loop.phase='restocking'
     world=loop.living()['embedded_controls']['life']['map_id']
-    loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',world)
+    loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),world)
     if world==origin and state['phase']=='prepared':
         close_warehouse(loop)
         leg(loop,state,'outbound');world=1036

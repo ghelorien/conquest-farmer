@@ -1,4 +1,5 @@
 """Drop qualified unwanted carried items and remember their ground records."""
+from conquest.character_context import state_path
 from dataclasses import asdict
 from pathlib import Path
 import time
@@ -12,7 +13,7 @@ from conquest.town_trade import sale_candidate
 from conquest.viewport import size_for
 from conquest.scene_input import memory_player_anchor
 
-JOURNAL=Path('.runtime/discarded-loot.json')
+JOURNAL=Path(state_path('.runtime/discarded-loot.json'))
 
 
 def discard_candidate(item):

@@ -3,6 +3,7 @@
 The login caption/class and field coordinates were inspected once with explicit
 user permission. Credentials stay DPAPI-encrypted at rest and never enter logs.
 """
+from conquest.character_context import state_path
 import ctypes as c
 from ctypes import wintypes as w
 import json
@@ -18,7 +19,7 @@ def login_screen(hwnd):
             and win32gui.GetWindowText(hwnd).strip()=='[ClassicConquer]')
 
 
-def load_credentials(path=Path('.runtime/account.dpapi')):
+def load_credentials(path=Path(state_path('.runtime/account.dpapi'))):
     import win32crypt
     _,plain=win32crypt.CryptUnprotectData(Path(path).read_bytes(),None,None,None,0)
     account=json.loads(plain.decode('utf-8'))
@@ -154,7 +155,7 @@ def login_form_points(session, window):
             (round(x+104),round(y+153)))
 
 
-def submit_login(target,credential_path=Path('.runtime/account.dpapi'), *, session=None):
+def submit_login(target,credential_path=Path(state_path('.runtime/account.dpapi')), *, session=None):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_click
     if not login_screen(target.hwnd):

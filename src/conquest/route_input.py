@@ -1,4 +1,5 @@
 """Foreground jumps shared by saved route travel and death return."""
+from conquest.character_context import installation_path
 from dataclasses import asdict
 import time
 
@@ -25,7 +26,7 @@ class RouteJumpInput:
             raise ValueError('Route map changed')
         if body['map_id']!=self.terrain.map_id:
             from conquest.navigation import read_terrain
-            self.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',body['map_id'])
+            self.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),body['map_id'])
         dx,dy=destination[0]-source[0],destination[1]-source[1]
         distance=max(abs(dx),abs(dy))
         if not 1<=distance<=12:

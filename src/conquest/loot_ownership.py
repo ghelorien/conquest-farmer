@@ -1,4 +1,5 @@
 """Read system pickup rejection messages and remember rejected ground instances."""
+from conquest.character_context import state_path
 from dataclasses import dataclass
 from pathlib import Path
 import json
@@ -78,7 +79,7 @@ class SystemMessageReader:
 
 
 class LootOwnership:
-    def __init__(self,session,path=Path('.runtime/loot-ownership.json')):
+    def __init__(self,session,path=Path(state_path('.runtime/loot-ownership.json'))):
         self.reader=SystemMessageReader(session);self.path=Path(path)
         self.identity=session.identity;self.denied={}
         try:

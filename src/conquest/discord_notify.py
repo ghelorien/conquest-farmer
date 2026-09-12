@@ -1,4 +1,5 @@
 """Independent Discord observer; never controls the game or reads screenshots."""
+from conquest.character_context import state_path
 import ctypes
 from datetime import datetime, timezone
 import json
@@ -16,10 +17,10 @@ import urllib.request
 
 from conquest.farm_telemetry import item_label
 
-SECRET = Path('.runtime/discord-webhook.dpapi')
-STATE = Path('.runtime/discord-notifications.json')
-STATUS = Path('reports/discord-status.json')
-PAUSED = Path('.runtime/discord.paused')
+SECRET = Path(state_path('.runtime/discord-webhook.dpapi'))
+STATE = Path(state_path('.runtime/discord-notifications.json'))
+STATUS = Path(state_path('reports/discord-status.json'))
+PAUSED = Path(state_path('.runtime/discord.paused'))
 
 
 def webhook_url(value):
@@ -283,7 +284,9 @@ class Notifications:
                 self.state.pop(key,None)
         self.farming_since=None
 
-    def enqueue(self,text,now,kind=None,character='Parasite'):
+    def enqueue(self,text,now,kind=None,character=None):
+        from conquest.character_context import farmer_name
+        character=character or farmer_name()
         stamp=datetime.fromtimestamp(now,timezone.utc).astimezone().strftime('%H:%M:%S %Z')
         row={'content':f'[{stamp}] {character} — {text}','created_at':now,'kind':kind}
         if kind=='terminal_stop':
@@ -580,13 +583,13 @@ def run():
                 if PAUSED.exists() or not SECRET.exists():
                     status['state']='Paused' if PAUSED.exists() else 'Webhook not configured'
                 else:
-                    app=with_live_status(read_json('reports/desktop-farming/app-state.json'))
-                    route=read_json('reports/overnight/status.json')
+                    app=with_live_status(read_json(state_path('reports/desktop-farming/app-state.json')))
+                    route=read_json(state_path('reports/overnight/status.json'))
                     now=time.time()  # The memory check completed after this loop began.
                     notifications.observe(app,route,now)
-                    notifications.updates(app,route,'reports/overnight/events.jsonl',now)
-                    notifications.drops('reports/desktop-farming/pickups.jsonl',now)
-                    notifications.merchants('reports/merchants/journal.sqlite3',now)
+                    notifications.updates(app,route,state_path('reports/overnight/events.jsonl'),now)
+                    notifications.drops(state_path('reports/desktop-farming/pickups.jsonl'),now)
+                    notifications.merchants(state_path('reports/merchants/journal.sqlite3'),now)
                     write_json(STATE,notifications.state)  # durable before sending
                     if notifications.state['queue'] and now>=notifications.state.get('retry_at',0):
                         try:

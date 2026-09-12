@@ -1,4 +1,5 @@
 """Memory-qualified archer shop upgrades during scheduled town visits."""
+from conquest.character_context import state_path
 import struct
 from dataclasses import asdict
 from conquest.addressing import checked_address
@@ -139,7 +140,7 @@ class EquipmentReview:
         import time
         from conquest.discord_notify import read_json,write_json
         loop=self.loop
-        journal=Path('.runtime/equipment-upgrades.json')
+        journal=Path(state_path('.runtime/equipment-upgrades.json'))
         attempts=read_json(journal,[])
         try:
             state=loop.town('gear');bag=loop.town('supplies')

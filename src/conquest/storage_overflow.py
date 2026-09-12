@@ -1,11 +1,12 @@
 """Move carried warehouse overflow to Market through saved memory services."""
+from conquest.character_context import installation_path, state_path
 from pathlib import Path
 import time
 from conquest.discord_notify import read_json,write_json
 from conquest.meteor_banking import POLICY,trip
 from conquest.town_trade import stash_candidate
 
-JOURNAL=Path('reports/banking/overflow.json')
+JOURNAL=Path(state_path('reports/banking/overflow.json'))
 
 
 def pending():
@@ -53,7 +54,7 @@ def resume(loop):
     from conquest.storage_halt import request_stop
     loop.phase='restocking'
     life=loop.living()['embedded_controls']['life'];world=life['map_id'];origin=state['origin']
-    loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',world)
+    loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),world)
     if world==origin and state['phase']=='departing':
         if state.get('departure_attempted'):
             raise ValueError('Previous overflow departure was not verified; no repeat fare issued')

@@ -3,6 +3,7 @@
 No control coordinates or remote-player layout are guessed here. A qualified
 profile must supply them for the pinned client before this adapter can act.
 """
+from conquest.character_context import state_path
 from contextlib import contextmanager
 from pathlib import Path
 import struct
@@ -16,7 +17,7 @@ from conquest.merchants.delivery import exact_items,prepare,validate_offers
 from conquest.merchants.delivery_bridge import pair
 from conquest.merchants.driver import MerchantDriver,wait_hover_validation
 
-PROFILE=Path('.runtime/merchants/farmer-delivery-qualified.json')
+PROFILE=Path(state_path('.runtime/merchants/farmer-delivery-qualified.json'))
 
 
 def partial_offer(intent,farmer,merchant):

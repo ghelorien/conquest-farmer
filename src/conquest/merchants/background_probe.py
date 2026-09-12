@@ -1,4 +1,5 @@
 """Opt-in, bounded background diagnostics. No production input routing."""
+from conquest.character_context import state_path
 import ctypes
 from ctypes import wintypes
 from contextlib import contextmanager
@@ -31,7 +32,7 @@ def validate_live_mode(mode):
 
 def code_evidence(adapter, base):
     """Read-only code/window-handler provenance; no text buffers or secrets."""
-    data = Path('reports/merchant-image.bin').read_bytes()
+    data = Path(state_path('reports/merchant-image.bin')).read_bytes()
     ranges = ((0x398e0,0x710),(0xc0220,0x380),(0xf160,0x144),
               (0x1eeb0,0x4e0),(0x4c675,0x1c6),(0xd36a0,0x140),(0x1bf2b0,0x400))
     matches = {hex(start):adapter.read_block(base+start,size)==data[start:start+size]
@@ -632,7 +633,7 @@ def start_probe(ui, character, mode):
                       'error':str(error) if isinstance(error,(ValueError,OSError)) else type(error).__name__}
             from conquest.merchants.ui import calibration_failure
             report['diagnostic'] = calibration_failure(error)['diagnostic']
-        path = Path('reports/merchants/background')/(probe_id+'.json')
+        path = Path(state_path('reports/merchants/background'))/(probe_id+'.json')
         try:
             path.parent.mkdir(parents=True,exist_ok=True)
             path.write_text(json.dumps(report,indent=2),encoding='utf-8')

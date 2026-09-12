@@ -1,22 +1,28 @@
 """Durable merchant state, transaction receipts and a notification outbox."""
+from conquest.character_context import (state_path, MerchantNames, resolve_merchant,
+    ProfileName, database_character)
 from contextlib import contextmanager
 import json
 from pathlib import Path
 import sqlite3
 import time
 
-CHARACTERS = ('Spiritual', 'Dutch')
+CHARACTERS = MerchantNames()
+sqlite3.register_adapter(ProfileName, lambda name: name.profile_id)
+
+
+def profile_row(cursor, values):
+    values = tuple(database_character(value) if column[0]=='character' else value
+                   for column,value in zip(cursor.description,values))
+    return sqlite3.Row(cursor,values)
 
 
 def character_name(value):
-    matches = [name for name in CHARACTERS if name.casefold() == str(value).casefold()]
-    if len(matches) != 1:
-        raise ValueError('Unknown merchant')
-    return matches[0]
+    return resolve_merchant(value)
 
 
 class Journal:
-    def __init__(self, path='reports/merchants/journal.sqlite3'):
+    def __init__(self, path=state_path('reports/merchants/journal.sqlite3')):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.db() as db:
@@ -49,7 +55,7 @@ class Journal:
     @contextmanager
     def db(self):
         db = sqlite3.connect(self.path, timeout=5)
-        db.row_factory = sqlite3.Row
+        db.row_factory = profile_row
         db.execute('PRAGMA journal_mode=WAL')
         db.execute('PRAGMA synchronous=FULL')
         try:

@@ -1,4 +1,5 @@
 """Persistent confirmed pickup history and human-readable route activity."""
+from conquest.character_context import installation_path
 from collections import deque
 from datetime import datetime
 import json
@@ -11,7 +12,7 @@ from conquest.valuables import DRAGONBALL_NAMES
 ITEM_NAMES.update(DRAGONBALL_NAMES)
 # Local client definitions supply display names; live memory supplies identity.
 try:
-    definitions=json.loads(Path(r'C:\Program Files\Classic Conquer 2.0\ini\itemtype.json').read_text(encoding='utf-8'))
+    definitions=json.loads(Path(installation_path(r'C:\Program Files\Classic Conquer 2.0\ini\itemtype.json')).read_text(encoding='utf-8'))
     ITEM_NAMES.update({item['id']:item['name'] for item in definitions})
 except (OSError,ValueError,KeyError,TypeError):
     pass

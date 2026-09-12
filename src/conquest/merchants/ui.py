@@ -1,4 +1,5 @@
 """Unified native tabs around the unchanged farmer controls."""
+from conquest.character_context import state_path, ProfileMap, is_farmer_owner
 import json
 from pathlib import Path
 import time
@@ -107,9 +108,10 @@ class UnifiedUI:
         self.notebook.pack(fill='both',expand=True)
         self.notebook.bind('<<NotebookTabChanged>>',lambda event:self.schedule_visibility())
         self.root.bind('<Configure>',lambda event:self.schedule_visibility() if event.widget==self.root else None,add='+')
-        self.frames = {name:ttk.Frame(self.notebook) for name in ('Overview','Farmer',*CHARACTERS)}
-        for name,frame in self.frames.items():
-            self.notebook.add(frame,text=name)
+        self.frames=ProfileMap()
+        for name in ('Overview','Farmer',*CHARACTERS):
+            frame=ttk.Frame(self.notebook);self.frames[name]=frame
+            self.notebook.add(frame,text=str(name))
         app.content_parent = self.frames['Farmer']
         sidebar_host.pack(in_=app.content_parent,side='left',fill='both',expand=True)
         # pack(in_=...) changes geometry ownership, not the native parent.
@@ -121,7 +123,7 @@ class UnifiedUI:
         self.connect_threads={}
         from conquest.merchants.presentation import MerchantPresentation
         self.presentation = MerchantPresentation(self.runtime)
-        self.coordinator.owner_allowed = lambda character:character=='Farmer' or self.runtime.input_allowed(character) or (
+        self.coordinator.owner_allowed = lambda character:is_farmer_owner(character) or self.runtime.input_allowed(character) or (
             not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
             and character in self.calibrating and not self.calibration_cancel[character].is_set())
         self.coordinator.on_acquire = self.prepare_input
@@ -130,25 +132,32 @@ class UnifiedUI:
         # merchant threads. A second UI cannot become a second controller.
         self.bridge = MerchantBridge(self.dispatch)
         install(self.coordinator)
-        self.rows,self.labels,self.tables = {},{},{}
+        self.rows,self.labels,self.tables = ProfileMap(),{},{}
         self.build_overview()
         for character in CHARACTERS:
             self.build_merchant(character)
-        self.root.title('Conquest — Farmer · Spiritual · Dutch')
+        self.root.title('Conquest')
+        from conquest.portable_ui import install as install_profiles
+        install_profiles(self)
         self.root.geometry('1080x850')
-        self.root.minsize(900,700)
+        self.root.minsize(640,480)
         from conquest.discord_notify import read_json
-        saved_window = read_json('.runtime/merchants/window.json')
+        saved_window = read_json(state_path('.runtime/merchants/window.json'))
         import re
         geometry = saved_window.get('geometry','')
         if isinstance(geometry,str) and re.fullmatch(r'\d{3,5}x\d{3,5}[+-]\d+[+-]\d+',geometry):
-            self.root.geometry(geometry)
+            from conquest.client_attachment import fit_geometry,available_work_areas
+            parts=re.fullmatch(r'(\d+)x(\d+)([+-]\d+)([+-]\d+)',geometry)
+            try:
+                w,h,x,y=fit_geometry(*map(int,parts.groups()),available_work_areas())
+                self.root.geometry(f'{w}x{h}{x:+d}{y:+d}')
+            except (OSError,ValueError):pass
         if saved_window.get('state')=='zoomed':
             self.root.state('zoomed')
         self.runtime.start()
         self.presentation.start()
         from conquest.discord_notify import write_json
-        write_json('.runtime/merchants/app-lifecycle.json',{'state':'running','at':time.time()})
+        write_json(state_path('.runtime/merchants/app-lifecycle.json'),{'state':'running','at':time.time()})
         self.root.after(500,self.poll)
         self.root.after(50,self.poll_ui_requests)
 
@@ -161,18 +170,22 @@ class UnifiedUI:
         if control['enabled'] or (self.app.thread and self.app.thread.is_alive()):
             return False
         from conquest.discord_notify import read_json,process_alive
-        route = read_json('reports/overnight/status.json')
+        route = read_json(state_path('reports/overnight/status.json'))
         # A stale heartbeat does not prove its process stopped.
         if route.get('phase') not in (None,'stopped','completed','failed') and process_alive(route.get('pid')) is not False:
             return False
         return True
 
     def dispatch(self, body):
+        from conquest.portable_ui import normalize_command
+        from conquest.character_context import profile_status
+        body=normalize_command(body)
+        if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
         if action=='start-readonly-diagnostics' and set(body)=={'action'}:
             import subprocess,sys
             from conquest.worker import request as worker_request
-            paths=[Path('.runtime')/f'merchant-diagnostic-{c.lower()}.json' for c in CHARACTERS]
+            paths=[Path(state_path(f'.runtime/merchant-diagnostic-{c.lower()}.json')) for c in CHARACTERS]
             if any(p.exists() for p in paths):
                 results=[worker_request(p,'health') for p in paths]
                 if not all(r.get('read_only') for r in results):
@@ -387,14 +400,14 @@ class UnifiedUI:
     def build_overview(self):
         frame = self.frames['Overview']
         ttk.Label(frame,text='Conquest',font=('Segoe UI',22,'bold')).pack(anchor='w',padx=20,pady=15)
-        ttk.Label(frame,text='Manage Spiritual and Dutch shops · America').pack(anchor='w',padx=20)
+        ttk.Label(frame,text='Characters and coordinated input on this PC').pack(anchor='w',padx=20)
         for name in ('Farmer',*CHARACTERS):
             box = ttk.LabelFrame(frame,text=name,padding=15);box.pack(fill='x',padx=20,pady=10)
             text = tk.StringVar(value='Connecting…')
             self.rows[name] = text
             ttk.Label(box,textvariable=text,wraplength=900).pack(anchor='w')
         row = ttk.Frame(frame);row.pack(fill='x',padx=20,pady=10)
-        ttk.Button(row,text='Update both shops now',command=self.list_once).pack(side='left')
+        ttk.Button(row,text='Update all shops now',command=self.list_once).pack(side='left')
         ttk.Button(row,text='How shop controls work',command=self.shop_help).pack(side='left',padx=8)
         ttk.Button(row,text='Configure Discord #shops',command=self.configure_shops).pack(side='left',padx=8)
         ttk.Button(row,text='Stop all (including farmer)',command=self.global_stop).pack(side='right')
@@ -436,6 +449,8 @@ class UnifiedUI:
         more=ttk.Menubutton(controls,text='More / help')
         menu=tk.Menu(more,tearoff=False);more.configure(menu=menu)
         menu.add_command(label='How shop controls work',command=self.shop_help)
+        from conquest.portable_ui import copy_diagnostics
+        menu.add_command(label='Copy attachment diagnostics',command=lambda:copy_diagnostics(self,character))
         menu.add_command(label='Download prices only (no shop changes)',command=lambda:self.scan(character))
         menu.add_separator()
         for label,callback in (
@@ -577,6 +592,16 @@ class UnifiedUI:
             return
         pane = self.client_panes[character]
         size = (pane.winfo_width(),pane.winfo_height())
+        from conquest.character_context import registry
+        if registry() and pane.winfo_ismapped() and min(size)>1:
+            from conquest.client_attachment import require_viewport, ViewportTooSmall
+            try:require_viewport(*size)
+            except ViewportTooSmall:
+                self.coordinator.surface_blocks[character]=True
+                self.runtime.invalidate_refill(character)
+                host.detach();self.released_clients.add(character)
+                self.calibration_results[character]={'verified':False,'note':'Full viewport does not fit. Use More / help → Open game in separate window.'}
+                raise
         previous = self.render_sizes.get(character)
         if pane.winfo_ismapped() and min(size)>1 and previous!=size:
             # Stop before changing the surface that any in-flight input targets.
@@ -621,10 +646,15 @@ class UnifiedUI:
         self.detail_tabs[character].select(0)
         self.root.update_idletasks()
         pane = self.client_panes[character]
+        from conquest.character_context import registry
+        if registry():
+            from conquest.client_attachment import require_viewport
+            require_viewport(pane.winfo_width(),pane.winfo_height())
         if not host.saved:
             host.attach(observer.operations.target.hwnd,observer.adapter.identity,pane.winfo_id(),
                         pane.winfo_width(),pane.winfo_height())
         self.resize_merchant(character,automatic=automatic)
+        self.coordinator.surface_blocks[character]=False
         return observer
 
     def show_merchant(self, character):
@@ -663,7 +693,7 @@ class UnifiedUI:
         self.resize_merchant(character,automatic=True)
 
     def prepare_input(self, character):
-        if character=='Farmer' or self.coordinator.purpose=='connect_launch':
+        if is_farmer_owner(character) or self.coordinator.purpose=='connect_launch':
             return
         if self.coordinator.purpose=='connect':
             observer=self.runtime.observers.get(character)
@@ -688,7 +718,7 @@ class UnifiedUI:
         wait_for_merchant_surface(host,others,self.coordinator.check)
 
     def release_input(self, character):
-        if character!='Farmer':
+        if not is_farmer_owner(character):
             self.ui_requests.put((lambda:self.restore_input(character),None,{}))
 
     def restore_input(self, character):
@@ -950,8 +980,8 @@ class UnifiedUI:
             self.closed = True
             self.background_cancel.set()
             from conquest.discord_notify import write_json
-            write_json('.runtime/merchants/app-lifecycle.json',{'state':reason,'at':time.time()})
-            write_json('.runtime/merchants/window.json',{'geometry':self.root.geometry(),'state':self.root.state()})
+            write_json(state_path('.runtime/merchants/app-lifecycle.json'),{'state':reason,'at':time.time()})
+            write_json(state_path('.runtime/merchants/window.json'),{'geometry':self.root.geometry(),'state':self.root.state()})
             if self.visibility_job is not None:
                 self.root.after_cancel(self.visibility_job)
                 self.visibility_job = None

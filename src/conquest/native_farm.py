@@ -1,4 +1,5 @@
 """Run the existing foreground combat loop with the hosted client's life reader."""
+from conquest.character_context import state_path
 from contextlib import contextmanager
 from dataclasses import asdict,replace
 import ctypes
@@ -123,7 +124,7 @@ class NativeFarmSupervisor:
         from conquest.equipment import read_equipment
         from conquest.combat_ranges import read_combat_ranges
         if not hasattr(self,'_attack_strategy'):
-            self._attack_strategy=AttackStrategy('.runtime/attack-strategy.json',self.notify)
+            self._attack_strategy=AttackStrategy(state_path('.runtime/attack-strategy.json'),self.notify)
             self._next_strategy_check=0
         if time.monotonic()>=self._next_strategy_check:
             self._next_strategy_check=time.monotonic()+5

@@ -1,4 +1,5 @@
 """Independent, durable #shops failure notifications; no game input or AI."""
+from conquest.character_context import state_path
 import json
 import os
 from pathlib import Path
@@ -12,9 +13,9 @@ from conquest.discord_notify import DeliveryError, deliver, read_json, write_jso
 from conquest.merchants.bridge import request
 from conquest.merchants.sales_report import SECRET, load_webhook
 
-STATE = Path('.runtime/merchants/shops-alerts.json')
-STATUS = Path('reports/merchants/shops-alert-status.json')
-LIFECYCLE = Path('.runtime/merchants/app-lifecycle.json')
+STATE = Path(state_path('.runtime/merchants/shops-alerts.json'))
+STATUS = Path(state_path('reports/merchants/shops-alert-status.json'))
+LIFECYCLE = Path(state_path('.runtime/merchants/app-lifecycle.json'))
 QUIET_WAITS = ('Automation stopped or manual input active','Mouse control is yours',
                'Waiting for input owner','Waiting for a safe farmer handoff',
                'Farmer handoff was revoked','Paused; recovery will not change manual intent')

@@ -1,4 +1,5 @@
 """Authenticated localhost merchant commands; no credentials or raw input API."""
+from conquest.character_context import state_path
 import hmac
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
@@ -12,7 +13,7 @@ from conquest.capture import CaptureUnavailable
 
 
 class MerchantBridge:
-    def __init__(self, dispatch, path='.runtime/merchants/bridge.json'):
+    def __init__(self, dispatch, path=state_path('.runtime/merchants/bridge.json')):
         self.path,self.dispatch = Path(path),dispatch
         self.token,self.stop = secrets.token_hex(32),threading.Event()
         self.path.parent.mkdir(parents=True,exist_ok=True)
@@ -80,7 +81,7 @@ class MerchantBridge:
         self.stop.set();self.thread.join(timeout=4)
 
 
-def request(body, path='.runtime/merchants/bridge.json'):
+def request(body, path=state_path('.runtime/merchants/bridge.json')):
     import urllib.request
     import urllib.error
     info = json.loads(Path(path).read_text())

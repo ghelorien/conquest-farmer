@@ -1,11 +1,12 @@
 """Persistent, user-requested shutdown when both warehouses are full."""
+from conquest.character_context import state_path
 import ctypes as c
 from ctypes import wintypes as w
 from pathlib import Path
 import time
 from conquest.discord_notify import read_json,write_json
 
-HALT=Path('.runtime/storage-halt.json')
+HALT=Path(state_path('.runtime/storage-halt.json'))
 REASON='Town and Market warehouses are full; farming stopped and automatic reconnect disabled'
 
 
@@ -77,7 +78,7 @@ def enforce(app,disconnect=disconnect_exact_client):
     app.control.update({'enabled':False})
     app.reconnect_pending=False
     (app.output/'stop.request').write_text('Storage full')
-    Path('.runtime/overnight.stop').write_text('Storage full')
+    Path(state_path('.runtime/overnight.stop')).write_text('Storage full')
     if getattr(app,'reload_preparing',False):app.reload_cancel.set()
     if not halt.get('disconnected') and time.time()>=getattr(app,'next_storage_disconnect',0):
         app.next_storage_disconnect=time.time()+5

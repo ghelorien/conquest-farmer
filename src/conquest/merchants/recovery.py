@@ -1,4 +1,5 @@
 """Durable, bounded recovery independent of merchant pause intent."""
+from conquest.character_context import state_path
 import time
 from conquest.capture import CaptureUnavailable
 
@@ -45,9 +46,8 @@ class Recovery:
 
 
 def credential_path(character):
-    from pathlib import Path
-    from conquest.merchants.journal import character_name
-    return Path('.runtime/merchants') / character_name(character).lower() / 'account.dpapi'
+    from conquest.character_context import credential_for
+    return credential_for(character)
 
 
 def save_credentials(character, username, password):

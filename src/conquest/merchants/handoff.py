@@ -1,11 +1,12 @@
 """Durable farmer work windows; never accumulate missed merchant intervals."""
+from conquest.character_context import state_path
 import time
 from pathlib import Path
 from conquest.discord_notify import read_json, write_json
 
 INTERVAL = 900
 WORK_SECONDS = 15
-STATE = Path('.runtime/merchant-handoff.json')
+STATE = Path(state_path('.runtime/merchant-handoff.json'))
 
 
 class WorkWindows:

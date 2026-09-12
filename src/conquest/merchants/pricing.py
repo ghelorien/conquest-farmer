@@ -6,7 +6,8 @@ import math
 import re
 import time
 
-OWNED = frozenset(('spiritual', 'dutch'))
+from conquest.character_context import OwnedMerchants
+OWNED = OwnedMerchants()
 SERVER = 'America'
 # The fingerprint-pinned booth dialog enables Confirm only for 1..999,999,999
 # (renderer RVA 0x75c0c: unsigned (amount - 1) <= 0x3b9ac9fe).

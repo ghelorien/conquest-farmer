@@ -3,6 +3,7 @@
 Layouts are derived from the c2b53437 client renderer and checked against live
 merchant inventories/booths. Trade and input qualification is tracked separately.
 """
+from conquest.character_context import farmer_name
 from dataclasses import dataclass, asdict
 import math
 import struct
@@ -327,7 +328,7 @@ class MerchantMemory:
         life = read_life(s,self.observer.health_layout,self.observer.character)
         allowed_maps = (1002,1036) if recovery else (1036,)
         if farmer_preflight:
-            if self.observer.character!='Parasite':
+            if self.observer.character!=farmer_name():
                 raise ValueError('Town delivery preflight is restricted to the farmer')
             allowed_maps=(1002,1011,1036)
         if life.dead_candidate or life.current_hp <= 0 or life.map_id not in allowed_maps:
@@ -397,7 +398,14 @@ class MerchantMemory:
             raise ValueError('Character UID changed during observation')
         if unpack(s,actor+0x3258,'<I')[0]!=own_booth_uid or s.read_block(model,0x58)!=model_raw:
             raise ValueError('Booth ownership changed during observation')
-        return {'character':self.observer.character,'character_uid':own_uid,'identity':s.identity,'timestamp':time.time(),'server':'America',
+        snapshot={'character':self.observer.character,'character_uid':own_uid,'identity':s.identity,'timestamp':time.time(),'server':'America',
             'map_id':life.map_id,'position':list(fresh.position),'hp':fresh.current_hp,'capacity':inv.capacity,'silver':inv.silver,
             'inventory':[asdict(i) for i in stock],'booth':[asdict(i) for i in booth],
             'booth_open':booth_open,'trade':trade,'request':request,'windows':windows}
+        from conquest.character_context import merchant_context, current, registry
+        context=current() if farmer_preflight else merchant_context(self.observer.character)
+        if context:
+            context.verify(snapshot)
+            if context.profile.character_uid is None:
+                registry().bind(context.profile.id,snapshot['character'],snapshot['server'],own_uid)
+        return snapshot

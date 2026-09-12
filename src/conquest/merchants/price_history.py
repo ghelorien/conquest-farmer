@@ -1,4 +1,5 @@
 """Shared durable market observations, never repeatedly discounted targets."""
+from conquest.character_context import state_path
 from collections import defaultdict
 from dataclasses import asdict, replace
 import json
@@ -9,7 +10,7 @@ from conquest.merchants.pricing import ItemKey, price_item
 
 
 class PriceHistory:
-    def __init__(self, path='reports/merchants/price-history.sqlite3'):
+    def __init__(self, path=state_path('reports/merchants/price-history.sqlite3')):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True,exist_ok=True)
         with sqlite3.connect(self.path,timeout=5) as db:

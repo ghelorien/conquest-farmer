@@ -1,4 +1,5 @@
 """Idempotent four-hour report dispatch to the separately configured #shops webhook."""
+from conquest.character_context import state_path
 import json
 from pathlib import Path
 import time
@@ -6,7 +7,7 @@ from conquest.discord_notify import webhook_url, deliver, DeliveryError
 from conquest.merchants.journal import Journal
 from conquest.merchants.sales import summary, format_summary
 
-SECRET = Path('.runtime/merchants/shops-webhook.dpapi')
+SECRET = Path(state_path('.runtime/merchants/shops-webhook.dpapi'))
 INTERVAL = 4*60*60
 
 

@@ -1,4 +1,5 @@
 """One process-wide input owner; an OS lock also excludes other app instances."""
+from conquest.character_context import state_path, is_farmer_owner, ProfileMap
 from contextlib import contextmanager
 from pathlib import Path
 import threading
@@ -6,7 +7,7 @@ import time
 from functools import wraps
 from conquest.capture import CaptureUnavailable
 
-INPUT_LOCK = Path('.runtime/merchant-input.lock')
+INPUT_LOCK = Path(state_path('.runtime/merchant-input.lock'))
 
 class InputCoordinator:
     def __init__(self, safe_to_yield=lambda: False, manual_active=lambda: False, path=None):
@@ -18,6 +19,7 @@ class InputCoordinator:
         self.thread = None
         self.purpose = None
         self.stopped = False
+        self.surface_blocks=ProfileMap()
         self.handoff_until = 0
         self.owner_allowed = lambda character:True
         self.on_acquire = lambda character:None
@@ -31,13 +33,15 @@ class InputCoordinator:
         self.stopped = False
 
     def check(self):
+        if self.owner and self.surface_blocks.get(self.owner):
+            raise CaptureUnavailable('Client surface needs reattachment and input qualification')
         if self.stopped or self.manual_active():
             raise CaptureUnavailable('Automation stopped or manual input active')
         if self.owner and self.thread != threading.get_ident():
             raise CaptureUnavailable('Another character owns game input')
         if self.owner and not self.owner_allowed(self.owner):
             raise CaptureUnavailable('Character was paused during input')
-        if self.owner and self.owner != 'Farmer' and not self.safe_to_yield():
+        if self.owner and not is_farmer_owner(self.owner) and not self.safe_to_yield():
             raise CaptureUnavailable('Farmer handoff was revoked or expired')
 
     @contextmanager

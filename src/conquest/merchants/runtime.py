@@ -1,4 +1,5 @@
 """Concurrent memory observers; serialized merchant input and durable work."""
+from conquest.character_context import installation_path, state_path
 import json
 from pathlib import Path
 import threading
@@ -19,7 +20,10 @@ def make_observer(client, character):
     from conquest.memory_entities import EntityLayout
     health = HealthLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-health-candidate.yaml').read_text()))
     entities = EntityLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-entities-candidate.yaml').read_text()))
-    observer = EmbeddedObserver(client.identity['pid'],client.hwnd,health,entities,character)
+    from conquest.character_context import merchant_context
+    context=merchant_context(character)
+    kwargs={'context':context} if context else {}
+    observer = EmbeddedObserver(client.identity['pid'],client.hwnd,health,entities,character,**kwargs)
     if observer.adapter.identity != client.identity:
         observer.close()
         raise ValueError('Client identity changed during attachment')
@@ -28,9 +32,16 @@ def make_observer(client, character):
 
 class MerchantRuntime:
     def __init__(self, catalog, coordinator, *, journal=None, observer_factory=make_observer,
-                 market_path='reports/merchants/market.json', qualification_dir='.runtime/merchants'):
+                 market_path=state_path('reports/merchants/market.json'), qualification_dir=state_path('.runtime/merchants')):
         self.catalog,self.coordinator = catalog,coordinator
         self.journal = journal or Journal()
+        from conquest.character_context import registry
+        if registry():
+            for character in CHARACTERS:
+                if not self.journal.get(character,'profile_initialized',False):
+                    self.journal.set(character,'enabled',False)
+                    self.journal.set(character,'refill_enabled',False)
+                    self.journal.set(character,'profile_initialized',True)
         self.observer_factory,self.market_path = observer_factory,Path(market_path)
         self.qualification_dir = Path(qualification_dir)
         self.lock,self.discovery_lock = threading.RLock(),threading.Lock()
@@ -185,10 +196,21 @@ class MerchantRuntime:
                 self.returns[character].begin()
 
     def bind(self, character, observer):
+        from conquest.character_context import merchant_context, merchant_directory
+        context=merchant_context(character)
+        if context:
+            from conquest.client_attachment import verify_observer, remember_installation
+            # Login candidates may not yet expose a character. They remain
+            # unbound until the identity can be verified; no saved UID is reused.
+            from conquest.reconnect import login_screen
+            if not login_screen(observer.operations.target.hwnd):verify_observer(context,observer)
+            try:remember_installation(context,observer.adapter.identity['path'])
+            except ValueError:pass  # Hosting/reading do not require terrain files.
         previous=self.journal.get(character,'last_identity')
         if previous and previous!=observer.adapter.identity:
             self.returns[character].begin()
-        driver = MerchantDriver(observer,self.qualification_dir/character.lower()/'qualification.json',self.coordinator)
+        directory=merchant_directory(character) if context else self.qualification_dir/character.lower()
+        driver = MerchantDriver(observer,directory/'qualification.json',self.coordinator)
         with self.lock:
             self.observers[character] = observer
             self.controllers[character] = MerchantController(character,self.journal,driver,self.coordinator)
@@ -224,7 +246,8 @@ class MerchantRuntime:
                         self.launch_owner = None
                         raise ValueError('Launcher did not produce one verified candidate; retry reconnect')
                     return
-                launcher = Path(r'C:\Program Files\Classic Conquer 2.0\ImBootstrapper.exe')
+                from conquest.character_context import merchant_installation
+                launcher = merchant_installation(character)/'ImBootstrapper.exe'
                 watch = LaunchWatch(self.catalog,[str(launcher)],cwd=launcher.parent)
                 with self.coordinator.lease(character):
                     if self.recoveries[character].attempt(watch.start):
@@ -490,6 +513,7 @@ class MerchantRuntime:
                     'pending':self.journal.pending(character),'recovery':self.recoveries[character].state(),
                     'shop_return':self.returns[character].state()}
                 result[character]['connect_market']=self.journal.get(character,'connect_market')
+                result[character]['profile_id']=getattr(character,'profile_id',None)
                 result[character]['refill'] = {**self.refills[character].state(),'enabled':self.refill_enabled(character)}
                 result[character]['market_refresh']=self.market_worker.state(character)
                 result[character]['batch_progress']=self.journal.get(character,'batch_progress',{})

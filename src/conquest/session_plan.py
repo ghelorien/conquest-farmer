@@ -1,10 +1,11 @@
 """A temporary user-requested route hold, independent of reusable route templates."""
+from conquest.character_context import state_path
 from pathlib import Path
 import time
 from conquest.discord_notify import read_json,write_json
 
-PLAN=Path('.runtime/session-plan.json')
-CIRCUIT=Path('.runtime/equipment-circuit.json')
+PLAN=Path(state_path('.runtime/session-plan.json'))
+CIRCUIT=Path(state_path('.runtime/equipment-circuit.json'))
 # Shop level thresholds for the seven supported archer slots.
 UPGRADE_LEVELS=(1,7,8,10,12,15,17,20,22,25,27,30,32,35,37,40,42,45,50,52,55,57,60,65,67,70,73,75,77,80,82,85,87,90,95,97)
 

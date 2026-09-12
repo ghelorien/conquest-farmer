@@ -228,6 +228,8 @@ def client_file(root, relative):
 
 
 def read_terrain(client_root, map_id):
+    from conquest.character_context import installation_path
+    client_root=installation_path(client_root)
     records=json.loads(client_file(client_root,'ini/GameMap.json').read_text(encoding='utf-8'))
     matches=[r for r in records if r['DocumentId']==map_id]
     if len(matches)!=1:

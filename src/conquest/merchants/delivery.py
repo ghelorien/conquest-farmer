@@ -1,4 +1,5 @@
 """Exact two-account delivery plans and durable, fail-closed reconciliation."""
+from conquest.character_context import farmer_name
 import math
 import time
 import uuid
@@ -44,7 +45,7 @@ def validate_snapshot(snapshot, character, now):
 
 def plan_deliveries(farmer, merchants, *, reserved=(), now=None):
     now=time.time() if now is None else now
-    validate_snapshot(farmer,'Parasite',now)
+    validate_snapshot(farmer,farmer_name(),now)
     candidates=[]
     seen=set()
     for state in merchants:
@@ -85,7 +86,7 @@ def prepare(farmer, merchant, items, *, now=None):
     name=merchant.get('character')
     if name not in CHARACTERS:
         raise ValueError('Unknown delivery recipient')
-    source=validate_snapshot(farmer,'Parasite',now)
+    source=validate_snapshot(farmer,farmer_name(),now)
     destination=validate_snapshot(merchant,name,now)
     offered=exact_items(items)
     if (not 1<=len(offered)<=20 or len(offered)>merchant['capacity']-len(destination)
@@ -132,7 +133,7 @@ def validate_offers(intent, farmer, merchant, *, now=None):
 def reconcile(intent, farmer, merchant, *, now=None):
     now=time.time() if now is None else now
     try:
-        source=validate_snapshot(farmer,'Parasite',now)
+        source=validate_snapshot(farmer,farmer_name(),now)
         destination=validate_snapshot(merchant,intent['merchant']['character'],now)
         for role,current in (('farmer',farmer),('merchant',merchant)):
             before=intent[role]
