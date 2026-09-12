@@ -119,6 +119,14 @@ class NativeFarmSupervisor:
                 finally:trade({'action':'close','window':'Inventory'})
         return self.dispatch(reload)
 
+    def heal_potion(self,uid):
+        def consume():
+            with logical_coordinates():
+                trade=self.observer.town_trade
+                try:return trade({'action':'consume-healing','uid':uid})
+                finally:trade({'action':'close','window':'Inventory'})
+        return self.dispatch(consume)
+
     def attack_strategy(self):
         from conquest.attack_strategy import AttackStrategy,equipment_context
         from conquest.equipment import read_equipment

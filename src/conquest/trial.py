@@ -547,6 +547,14 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         time.sleep(.05)
                         continue
                     issued = time.monotonic()
+                    if supervisor and config.potion_type==1000020 and hasattr(supervisor,'heal_potion'):
+                        receipt=supervisor.heal_potion(potion.uid)
+                        last_heal=time.monotonic()
+                        if receipt['consumed']:
+                            verified_heals+=1
+                            event('healing_outcome',outcome='verified',item_uid=potion.uid,receipt=receipt)
+                        else:event('healing_unneeded',reason=receipt['reason'])
+                        continue
                     if config.potion_key is None:
                         dispatch(point, "right",ui=True)
                     else:

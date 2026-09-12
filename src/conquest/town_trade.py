@@ -150,6 +150,9 @@ class TownTrade:
         raise ValueError(failure)
 
     def execute(self, body):
+        if body.get('action')=='consume-healing' and set(body)=={'action','uid'}:
+            from conquest.healing import consume_inventory_potion
+            return consume_inventory_potion(self,body['uid'])
         if body.get('action','').startswith('service-'):
             from conquest.market_services import execute
             result=execute(self,body)

@@ -722,7 +722,8 @@ class OvernightLoop:
                 if getattr(self,'reported_hold',None)!=plan['started_at']:
                     self.reported_hold=plan['started_at']
                     self.record('route_hold_active',route_hold=plan,
-                                activity=('Continuous Poltergeist farming; no silver limit' if plan.get('mode')=='save_silver' and plan.get('silver_target') is None
+                                activity=(f'Staying on {selected.name}; automatic route changes paused' if plan.get('mode')=='hold_route'
+                                          else 'Continuous Poltergeist farming; no silver limit' if plan.get('mode')=='save_silver' and plan.get('silver_target') is None
                                           else 'Saving 50,000 silver at Poltergeists; affordable IronArrows allowed' if plan.get('mode')=='save_silver' and plan.get('allow_iron_arrows')
                                           else 'Saving 50,000 silver at Poltergeists; upgrades disabled' if plan.get('mode')=='save_silver'
                                           else 'Overnight hold: Bandits, with Phoenix shops only' if plan['upgrade_maps']==[1011]
