@@ -94,6 +94,15 @@ def _negative_outcome_proven(trace, digest, now):
 
 
 def _proof_digest(intent, farmer, merchant, trace, sale_receipts=()):
+    # Observations receive full journal receipts; reconciliation receives the
+    # validated canonical receipts. Hash the same value-bearing fields in both
+    # paths so a verified concurrent sale cannot prevent stable settlement.
+    sale_receipts=[{'id':receipt.get('id'),'observed_at':receipt.get('observed_at'),
+                    'silver':receipt.get('silver'),
+                    'items':[{name:item.get(name) for name in
+                              ('uid','type_id','plus','gem1','gem2','quantity','bound','price')}
+                             for item in receipt.get('items',[])]}
+                   for receipt in sale_receipts or ()]
     durable=[];observations={}
     for step in trace or ():
         record={k:step.get(k) for k in ('stage','status','payload')}
@@ -198,6 +207,8 @@ def reconciliation_outcome(intent, farmer, merchant, *, trace=None, sale_receipt
         wanted=exact_items(intent['items'])
         before_source=exact_items(intent['farmer']['inventory'])
         before_destination=exact_items(intent['merchant']['inventory'])
+        from conquest.merchants.operator_addition import additions
+        external,operator_receipts=additions(intent,farmer,merchant,trace,now)
         moved={uid:details for uid,details in wanted.items()
                if uid not in source and destination.get(uid)==details}
         remaining={uid:details for uid,details in wanted.items()
@@ -206,7 +217,7 @@ def reconciliation_outcome(intent, farmer, merchant, *, trace=None, sale_receipt
             raise ReconciliationBlocked('Reserved items have ambiguous ownership')
         if source!={uid:details for uid,details in before_source.items() if uid not in moved}:
             raise ReconciliationBlocked('Farmer surrounding inventory changed')
-        if destination!={**before_destination,**moved}:
+        if destination!={**before_destination,**moved,**external}:
             raise ReconciliationBlocked('Merchant surrounding inventory changed')
         if not remaining:
             outcome='delivered'
@@ -226,6 +237,7 @@ def reconciliation_outcome(intent, farmer, merchant, *, trace=None, sale_receipt
         return {'outcome':outcome,'delivered':[i for i in intent['items'] if i['uid'] in moved],
                 'remaining':[i for i in intent['items'] if i['uid'] in remaining],
                 'sale_receipts':sales,
+                'operator_additions':operator_receipts,
                 'cleanup_pending':cleanup,'farmer':farmer,'merchant':merchant,
                 'proof_digest':_proof_digest(intent,farmer,merchant,trace,sales),'reconciled_at':now}
     except ReconciliationBlocked:

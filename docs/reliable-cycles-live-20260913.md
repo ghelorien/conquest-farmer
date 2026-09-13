@@ -149,17 +149,32 @@ a qualified target within its approach allowance, and Spiritual's incoming
 request was never accepted. No item placement or confirmation was journaled.
 Fresh bilateral memory still shows the selected +1 LeatherArmor on Parasite.
 Spiritual received an unrelated +2 TaoRobe during the attempt; the operator
-confirmed adding it manually. This is incident evidence, not an automated
-transfer receipt. Preserve the uncertain operation and its expired service
-budget until the native reconciliation can account for that external change.
+confirmed adding it manually. Its exact UID and attributes are recorded as
+operator-confirmed inventory evidence, separately from automated transfers.
+The original intent, action trace and expired service budget remain preserved.
 
 The incoming request reader exposed only a name while the merchant controller
 required a UID. The source fix resolves the exact name to one stable scene actor
 using the qualified remote actor layout, retaining the controller trust check
 and independent opened-trade UID check. Changed, missing, duplicate or unknown
 actors cannot authorize acceptance. The name accessor is pinned to live client
-code. This fix is not yet deployed or live-qualified: a pending uncertain
-transfer prevents a safe reload. Do not bypass that guard or replay the request.
+code. This fix is not yet deployed or live-qualified.
+
+An assisted, read-only recovery subsequently reconciled both journals as
+`no_transfer` and cleared the route's active operation. The selected +1
+LeatherArmor remains on Parasite; the manually added +2 TaoRobe remains on
+Spiritual. No gameplay input, new transfer, permission change or budget renewal
+was performed. SQLite backups and the bilateral receipt are retained locally.
+
+The shared recovery code now accepts explicitly confirmed external additions
+only for an untouched farmer batch before item placement or confirmation. It
+still requires exact participant identity, remaining inventory, binding,
+sockets, quantities, verified sales/currency, closed trade panels and stable
+terminal observations. Unknown changes remain blocked. A second fix makes
+full sale journal receipts and their canonical forms produce the same ownership
+digest; otherwise a concurrent verified sale prevented settlement indefinitely.
+The focused recovery/transaction/sales suite passed 102 tests, including a
+two-journal operator-addition recovery and the sale-format regression.
 
 No new two-hour uninterrupted run has started. Farmer intent remains Off during
 these controlled checks. General merchant operations remain paused, while both
