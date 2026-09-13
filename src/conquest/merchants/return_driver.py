@@ -3,8 +3,12 @@ from conquest.character_context import merchant_installation
 import struct
 import time
 from conquest.capture import CaptureUnavailable
-from conquest.memory_life import read_life
+from conquest.merchants.transit_life import stable_life as read_life
 from conquest.navigation import read_terrain,clear_segment
+
+
+class TravelPlanChanged(CaptureUnavailable):
+    """Projection changed before mouse-down; no movement was submitted."""
 
 
 def transit_waypoint(terrain,path,anchor,viewport):
@@ -78,6 +82,18 @@ class ReturnDriver:
             return {**result,'diagnostics':diagnostics}
 
     def move(self, snapshot, destination, check):
+        for attempt in range(4):
+            try:return self._move(snapshot,destination,check)
+            except TravelPlanChanged:
+                check()
+                if attempt==3:raise
+                time.sleep(.08)
+                fresh=self.read()
+                if any(fresh[k]!=snapshot[k] for k in ('identity','map_id')):
+                    raise CaptureUnavailable('Merchant changed during route replanning')
+                snapshot=fresh
+
+    def _move(self, snapshot, destination, check):
         self.qualify_movement()
         o=self.observer
         if snapshot['map_id'] not in self.terrains:
@@ -98,7 +114,7 @@ class ReturnDriver:
             if life.map_id!=snapshot['map_id'] or list(life.position)!=snapshot['position'] or life.dead_candidate:
                 raise CaptureUnavailable('Merchant moved before route input')
             raw=o.adapter.read_block(life.object_address+0xd8,24)
-            if struct.unpack_from('<2I',raw)!=tuple(life.position):raise ValueError('Route anchor changed')
+            if struct.unpack_from('<2I',raw)!=tuple(life.position):raise TravelPlanChanged('Route anchor changed')
             anchor=struct.unpack_from('<2i',raw,16)
             dx,dy=target[0]-life.position[0],target[1]-life.position[1]
             point=(anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16)
@@ -112,11 +128,11 @@ class ReturnDriver:
                 if x<=point[0]<=x+w and y<=point[1]<=y+h:
                     raise ValueError('Close the panel covering the return route')
             if not clear_segment(terrain,life.position,target):raise ValueError('Route segment became blocked')
-            if o.adapter.read_block(life.object_address+0xd8,24)!=raw:raise ValueError('Route projection changed')
+            if o.adapter.read_block(life.object_address+0xd8,24)!=raw:raise TravelPlanChanged('Route projection changed')
             return point
         point=point_now()
         def guard():
-            if point_now()!=point:raise ValueError('Projected return waypoint moved')
+            if point_now()!=point:raise TravelPlanChanged('Projected return waypoint moved')
             state=self.read()
             if state.get('trade') or state.get('request'):raise CaptureUnavailable('Trade interrupted the return route')
         self.last_move={'before':snapshot['position'],'target':list(target),'point':list(point)}
@@ -139,8 +155,21 @@ class ReturnDriver:
         npc=read_conductress(self.observer)
         point=(npc.draw_position[0],npc.draw_position[1]-32)
         def guard():
+            check()
             if read_conductress(self.observer)!=npc:raise ValueError('Conductress moved before input')
-        self.click(point,check,before_press=guard)
+            fresh=self.read()
+            if any(fresh[k]!=snapshot[k] for k in ('identity','map_id','position')):
+                raise CaptureUnavailable('Merchant moved before Conductress input')
+            if fresh.get('trade') or fresh.get('request'):
+                raise CaptureUnavailable('Trade interrupted Conductress input')
+            for window in self.driver.memory.gui.windows():
+                x,y,w,h=window['geometry']
+                if x<=point[0]<=x+w and y<=point[1]<=y+h:
+                    raise ValueError('A GUI panel covers the Conductress')
+        def prepare_press():
+            from conquest.scene_pointer import wait_scene_pointer
+            guard();wait_scene_pointer(self.observer.adapter,point,guard)
+        self.click(point,check,before_press=prepare_press)
         deadline=time.monotonic()+3
         while time.monotonic()<deadline:
             check()
@@ -168,7 +197,7 @@ class ReturnDriver:
         from conquest.merchants.stalls import vacant_flags
         profile=self.driver.require_qualified('booth_setup')
         spec=profile.get('shop_setup',{})
-        if spec.get('claim_mode') not in ('direct','dialog'):
+        if spec.get('claim_mode') not in ('direct','dialog','native_confirm'):
             raise ValueError('Shop flag claim needs live qualification')
         if spec['claim_mode']=='dialog' and (not spec.get('records') or not spec.get('option')):
             raise ValueError('Shop flag confirmation needs live qualification')
@@ -179,6 +208,11 @@ class ReturnDriver:
             try:_,approach=stall_approach(terrain,position,flag)
             except ValueError:continue
             return {'flag':flag,'position':list(approach)}
+        if max(abs(a-b) for a,b in zip(position,preferred))>8:
+            # Vacancy is qualified only within eight tiles. Approach the saved
+            # area first, then resolve a real vacant flag before any claim.
+            terrain.travel_path(tuple(position),tuple(preferred))
+            return {'flag':None,'position':list(preferred),'scouting':True}
         raise ValueError('No memory-verified vacant reachable stall is available nearby')
 
     def open_owned_booth(self,snapshot,check,*,before_press=lambda:None):
@@ -249,8 +283,11 @@ class ReturnDriver:
     def start_shop(self, prepared, check):
         from conquest.merchants.stalls import vacant_flags
         from conquest.market_services import dialog_point
+        from conquest.merchants.flag_target import flag_target,CONTROL as FLAG_CONTROL
         flag=prepared['flag'];spec=prepared['spec'];snapshot=prepared['snapshot']
-        point=(flag['draw_position'][0],flag['draw_position'][1]-32)
+        if spec.get('target')!=FLAG_CONTROL:
+            raise ValueError('Vacant flag collision target needs live qualification')
+        target=flag_target(self.observer,flag);point=target['point']
         def guard():
             check();fresh=self.read()
             if fresh.get('own_booth_uid'):raise ValueError('Merchant already owns a booth; no new flag claim')
@@ -259,7 +296,28 @@ class ReturnDriver:
             if fresh.get('trade') or fresh.get('request'):raise ValueError('Trade interrupted stall setup')
             current=next((f for f in vacant_flags(self.observer,spec) if f['uid']==flag['uid']),None)
             if current!=flag:raise ValueError('Stall was occupied or changed before claiming it')
-        self.click(point,check,before_press=guard)
+            if flag_target(self.observer,current)!=target:
+                raise ValueError('Flag collision target moved before claiming it')
+            width,height=self.driver.memory.gui.viewport_size()
+            for window in fresh['windows']:
+                x,y,w,h=window['geometry']
+                if w>=width-10 and h>=height-10:continue
+                if x<=target['point'][0]<=x+w and y<=target['point'][1]<=y+h:
+                    raise ValueError('A GUI panel covers the vacant flag')
+        def prepare_press():
+            from conquest.scene_pointer import wait_scene_pointer
+            guard();wait_scene_pointer(self.observer.adapter,point,guard)
+        self.click(point,check,before_press=prepare_press)
+        if spec['claim_mode']=='native_confirm':
+            from conquest.merchants.booth_confirmation import submit,CONTROL as CONFIRM_CONTROL
+            if spec.get('confirmation')!=CONFIRM_CONTROL:raise ValueError('Native booth confirmation needs qualification')
+            deadline=time.monotonic()+3
+            while time.monotonic()<deadline:
+                check();now=self.driver.memory.read()
+                if any(w['name']=='Open Booth###Confirm' for w in now['windows']):break
+                time.sleep(.1)
+            else:raise ValueError('Native Open Booth confirmation was not observed')
+            submit(self.driver,self,snapshot,flag,check,lambda:None)
         if spec['claim_mode']=='dialog':
             deadline=time.monotonic()+3
             while time.monotonic()<deadline:

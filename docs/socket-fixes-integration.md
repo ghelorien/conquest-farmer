@@ -1,3 +1,5 @@
+> Historical socket-only integration report. The [full UI and behavior merge](full-portable-integration.md) supersedes its Parasite-only desktop limitation.
+
 # Socket/ground fixes integrated with the other PC's update
 
 Integration base: `ca58e7b00748706764a171a9e88682e1e177996c` from

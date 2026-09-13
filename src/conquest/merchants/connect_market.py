@@ -20,7 +20,8 @@ def save(runtime,character,phase,**fields):
 
 def geometry(driver):
     """Qualify the shared pinned actor projection and current viewport twice."""
-    from conquest.memory_life import CLIENT_SHA256,read_life
+    from conquest.memory_life import CLIENT_SHA256
+    from conquest.merchants.transit_life import stable_life as read_life
     from conquest.scene_input import memory_player_anchor
     from conquest.desktop_runtime import physical_coordinates
     observer=driver.observer
@@ -71,6 +72,41 @@ def qualify_move(driver,travel,before,destination,check):
     return after
 
 
+def approach_vacant_flag(driver,travel,check):
+    """Bounded supervised setup approach; vacancy is rechecked before every move."""
+    from conquest.merchants.stalls import vacant_flags
+    from conquest.merchants.return_driver import stall_approach
+    from conquest.merchants.qualification import stock
+    from conquest.navigation import read_terrain
+    initial=driver.memory.read()
+    if initial.get('own_booth_uid'):return None
+    if initial['map_id']!=1036 or initial.get('trade') or initial.get('request') or initial['booth_open']:
+        raise ValueError('Vacant stall approach requires an idle merchant in Market')
+    spec=driver.require_qualified('stall_occupancy').get('shop_setup',{})
+    from conquest.character_context import merchant_installation
+    terrain=read_terrain(merchant_installation(driver.observer.character),1036)
+    choices=[]
+    for flag in vacant_flags(driver.observer,spec):
+        try:distance,target=stall_approach(terrain,initial['position'],flag)
+        except ValueError:continue
+        choices.append((distance,flag['uid'],target))
+    if not choices:raise ValueError('No memory-verified reachable vacant flag is nearby')
+    _,uid,target=min(choices)
+    for _ in range(8):
+        check();fresh=driver.memory.read()
+        if (fresh['identity']!=initial['identity'] or fresh['map_id']!=1036
+                or stock(fresh)!=stock(initial) or fresh.get('own_booth_uid')
+                or fresh.get('trade') or fresh.get('request')):
+            raise ValueError('Merchant or stock changed during vacant stall approach')
+        flag=next((f for f in vacant_flags(driver.observer,spec) if f['uid']==uid),None)
+        if flag is None:raise CaptureUnavailable('Selected flag is now occupied; approach deferred')
+        if max(abs(a-b) for a,b in zip(fresh['position'],target))<=1:return uid
+        after=travel.move(travel.read(),target,check)
+        if after['position']==fresh['position']:
+            raise CaptureUnavailable('Vacant stall approach did not make progress')
+    raise CaptureUnavailable('Vacant stall approach reached its work limit')
+
+
 def select_client(ui,character,pid):
     if type(pid) is not int or pid<=0:raise ValueError('Select an exact open client PID')
     matches=[w for w in ui.runtime.catalog.windows() if w.identity['pid']==pid]
@@ -105,7 +141,7 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
         check()
         if selected:
             from conquest.reconnect import login_screen
-            from conquest.memory_life import read_life
+            from conquest.merchants.transit_life import stable_life as read_life
             observer=runtime.observer_factory(selected,character)
             try:
                 if not login_screen(selected.hwnd):read_life(observer.adapter,observer.health_layout,character)
@@ -120,8 +156,9 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
                 if market_trial or stall_inspection:raise ValueError('Market qualification requires an already connected merchant')
                 from conquest.client_wrapper import LaunchWatch
                 from conquest.character_context import merchant_installation
-                launcher=merchant_installation(character)/'ImBootstrapper.exe'
-                watch=LaunchWatch(runtime.catalog,[str(launcher)],cwd=launcher.parent)
+                from conquest.merchants.client_launch import installed_client
+                command,cwd=installed_client(merchant_installation(character))
+                watch=LaunchWatch(runtime.catalog,command,cwd=cwd)
                 with guard.lease(character,purpose='connect_launch'):
                     check();save(runtime,character,'launching');watch.start()
                     save(runtime,character,'launching',launcher_pid=watch.process.pid,
@@ -164,7 +201,7 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
             while login_screen(driver.target.hwnd) and time.monotonic()<until:
                 check();time.sleep(.2)
             if login_screen(driver.target.hwnd):raise ValueError('Login did not reach the game; no repeated submission')
-        from conquest.memory_life import read_life
+        from conquest.merchants.transit_life import stable_life as read_life
         until=time.monotonic()+15
         while True:
             check()
@@ -197,7 +234,10 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
                             if geometry(driver)!=dimensions:raise ValueError('Stall inspection viewport changed')
                             return dimensions
                         travel.qualify_movement=stationary_geometry
-                        try:result=inspect_flag(driver,travel,runtime.journal,check)
+                        try:
+                            pending=runtime.journal.get(character,'stall_probe',{})
+                            selected_flag=None if pending.get('phase')=='submitted' else approach_vacant_flag(driver,travel,check)
+                            result=inspect_flag(driver,travel,runtime.journal,check,flag_uid=selected_flag)
                         finally:travel.qualify_movement=original
                         from conquest.merchants.booth_target import CONTROL
                         if (result.get('operation')=='open_owned_panel' and result.get('booth_open')
@@ -207,6 +247,20 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
                             record_capability(driver,'booth_panel',result,dimensions=dimensions)
                             qualified=read_json(driver.qualification)
                             qualified['booth_panel']=dict(CONTROL)
+                            write_json(driver.qualification,qualified)
+                        from conquest.merchants.flag_target import CONTROL as FLAG_CONTROL
+                        if (result.get('operation')=='inspect_vacant_flag'
+                                and (result.get('booth_open') or result.get('claim_verified'))
+                                and result.get('control')==FLAG_CONTROL
+                                and not result.get('own_booth_uid_before') and result.get('own_booth_uid')
+                                and (result.get('claim_verified') or result['own_booth_uid']==result.get('displayed_booth_uid'))
+                                and result.get('inventory_unchanged') and not result.get('dialog')):
+                            record_capability(driver,'booth_setup',result,dimensions=dimensions)
+                            qualified=read_json(driver.qualification)
+                            from conquest.merchants.booth_confirmation import CONTROL as CONFIRM_CONTROL
+                            qualified.setdefault('shop_setup',{}).update(
+                                claim_mode='native_confirm' if result.get('native_confirmation') else 'direct',
+                                confirmation=CONFIRM_CONTROL if result.get('native_confirmation') else None,target=FLAG_CONTROL)
                             write_json(driver.qualification,qualified)
                         before=travel.read()
                 if market_trial:

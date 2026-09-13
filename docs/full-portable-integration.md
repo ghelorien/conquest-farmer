@@ -2,7 +2,7 @@
 
 This merge combines both histories, not only the socket fixes:
 
-- Farmer/merchant branch through `e9ea6e7` (behavior through `ca58e7b`).
+- Farmer/merchant branch through `d168881` (including merchant recovery and booth setup).
 - Entire portable-character branch through `588ef2a`.
 
 It restores profile management, dynamic character tabs, per-character state,
@@ -29,11 +29,9 @@ without a portable context still uses Parasite and legacy paths.
 
 ## Checks
 
-- Initial merged suite: 2,302 passed.
-- Targeted integration checks after adapter corrections: 218 passed.
-- Final suite: 2,310 passed and one Windows Tk resource-loading failure in
-  `test_sidebar`. The installed theme file was present; the failed test passed
-  immediately in isolation (1 passed) without a source change.
+- Final complete suite after integrating `d168881`: **2,360 passed**.
+- Targeted launch, login identity and stall approach checks: 48 passed, including
+  the selected merchant's installation and exact-process login reattachment.
 - Hidden portable UI smoke check passed with the merged source and its local
   launch runtime: dynamic profiles, duplicate-server names, reserved-name
   isolation and paused startup. No gameplay input is sent by this check.
@@ -49,3 +47,21 @@ this full integration. Socket-only ground pickup, background input, and remote
 PC control remain unqualified/unsupported as documented previously. Full live
 merchant trade/repricing cycles require attached merchant accounts; this PC
 currently has only Kilhiam.
+
+## Latest behavior integration
+
+Commit `d168881` arrived during validation and was merged as well. Recovery keeps
+its fingerprint-checked installed-client launch and scoped input ownership,
+while resolving the selected merchant's local installation. Login discovery keeps
+profile attachment diagnostics and skips in-world identity reads only for a
+previously pinned login process. The vacant-stall approach resolves terrain from
+the merchant installation; diagnostic workers use local state paths.
+
+## Local live check
+
+The combined app attached to Kilhiam with Farming Off. Eight consecutive bridge
+checks reported the selected profile, available memory observations and stopped
+control. Equipment reads retained ScarletBow's one empty socket (255/0).
+A request for a different profile was rejected by the authenticated bridge.
+No merchant account is present on this PC, so merchant gameplay cycles and the
+other PC's display/embedding checks remain untested locally.

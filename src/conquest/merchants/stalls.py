@@ -4,6 +4,18 @@ from conquest.memory_entities import sample_fields
 
 
 def scene_stalls(observer):
+    # A bystander entering/leaving the scene can tear an otherwise static flag
+    # snapshot. Retry complete observations, never reuse a partial vacancy read.
+    deadline=time.monotonic()+.4
+    for attempt in range(6):
+        try:return _scene_stalls(observer)
+        except ValueError as error:
+            if str(error)!='Shop flag changed while reading' or attempt==5 or time.monotonic()>=deadline:
+                raise
+            time.sleep(.015)
+
+
+def _scene_stalls(observer):
     from conquest.memory_life import read_life
     life=read_life(observer.adapter,observer.health_layout,observer.character)
     if life.map_id!=1036 or life.dead_candidate:

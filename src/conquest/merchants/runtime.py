@@ -180,13 +180,14 @@ class MerchantRuntime:
                 observer = None
                 try:
                     from conquest.reconnect import login_screen
-                    if login_screen(client.hwnd):
+                    at_login=login_screen(client.hwnd)
+                    if at_login and client.identity!=self.journal.get(character,'last_identity'):
                         continue
                     status.enter('access',pid=client.identity['pid'],hwnd=client.hwnd,
                                  process_created=client.identity.get('creation_time_100ns'))
                     observer = self.observer_factory(client,character)
                     status.enter('identity')
-                    read_life(observer.adapter,observer.health_layout,character)
+                    if not at_login:read_life(observer.adapter,observer.health_layout,character)
                     matches.append(observer)
                 except Exception as error:
                     status.fail(error)
@@ -204,7 +205,8 @@ class MerchantRuntime:
                 status.fail(error)
                 self.journal.set(character,'attachment',status.snapshot())
                 raise
-            if read_life(matches[0].adapter,matches[0].health_layout,character).map_id==1002:
+            if (not login_screen(matches[0].operations.target.hwnd)
+                    and read_life(matches[0].adapter,matches[0].health_layout,character).map_id==1002):
                 self.returns[character].begin()
 
     def bind(self, character, observer):
@@ -263,16 +265,17 @@ class MerchantRuntime:
                         raise ValueError('Launcher did not produce one verified candidate; retry reconnect')
                     return
                 from conquest.character_context import merchant_installation
-                launcher = merchant_installation(character)/'ImBootstrapper.exe'
-                watch = LaunchWatch(self.catalog,[str(launcher)],cwd=launcher.parent)
-                with self.coordinator.lease(character):
+                from conquest.merchants.client_launch import installed_client
+                command,cwd=installed_client(merchant_installation(character))
+                watch = LaunchWatch(self.catalog,command,cwd=cwd)
+                with self.coordinator.lease(character,purpose='connect_launch'):
                     if self.recoveries[character].attempt(watch.start):
                         self.launches[character],self.launch_owner = watch,character
             return
         driver = self.controllers[character].driver
         driver.require_qualified('login')
         from conquest.reconnect import submit_login
-        with self.coordinator.lease(character):
+        with self.coordinator.lease(character,purpose='connect'):
             self.recoveries[character].attempt(lambda:submit_login(driver.target,
                 credential_path(character),session=driver.observer.adapter))
 

@@ -31,3 +31,19 @@ def test_owned_booth_requires_exact_owner_identity_and_nearby_scene(monkeypatch,
     if change:
         with pytest.raises(ValueError):stalls.owned_booth(NS(character='Dutch'),snapshot)
     else:assert stalls.owned_booth(NS(character='Dutch'),snapshot)==booth
+
+
+@pytest.mark.parametrize('message',['Shop flag changed while reading','Shop flag identity is invalid'])
+def test_scene_retry_is_limited_to_torn_snapshot(monkeypatch,message):
+    calls=[]
+    def read(observer):
+        calls.append(1)
+        if len(calls)==1:raise ValueError(message)
+        return ['fresh_complete_snapshot']
+    monkeypatch.setattr(stalls,'_scene_stalls',read)
+    if 'changed while reading' in message:
+        assert stalls.scene_stalls(None)==['fresh_complete_snapshot']
+        assert len(calls)==2
+    else:
+        with pytest.raises(ValueError,match='identity'):stalls.scene_stalls(None)
+        assert len(calls)==1

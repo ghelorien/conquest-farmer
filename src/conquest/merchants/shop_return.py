@@ -138,7 +138,20 @@ class ShopReturn:
                   'attributes':list(current[item['uid']]),'reason':'Restore verified pre-disconnect listing'}
             controller.apply_price(plan)
             return False
-        self.save(state,'complete',completed_at=self.clock())
+        trial=self.journal.get(self.character,'recovery_trial',{})
+        from conquest.merchants.qualification import stock
+        trial_before=trial.get('before')
+        matching_trial=bool(trial.get('phase')=='recovering' and trial_before
+            and trial_before.get('character_uid')==before.get('character_uid')
+            and stock(trial_before)==stock(before))
+        interventions=state.get('manual_interventions',[]) or (trial.get('manual_interventions',[]) if matching_trial else [])
+        self.save(state,'complete',completed_at=self.clock(),automatic_recovery_verified=not bool(interventions),
+                  completion_kind='assisted_recovery' if interventions else 'automatic_recovery',
+                  manual_interventions=interventions)
+        if matching_trial:
+            trial.update(phase='assisted' if interventions else 'verified',verified_at=self.clock(),
+                         automatic_recovery_verified=not bool(interventions),after=snapshot)
+            self.journal.set(self.character,'recovery_trial',trial)
         self.journal.set(self.character,'new_stock',True)
         self.journal.event(self.character,'shop_return_verified',position=snapshot['position'],restored=len(wanted))
         return True

@@ -1,15 +1,14 @@
 # Portable character profiles and native client hosting
 
-Integration branch: `codex/portable-character-ui`. Initial behavior baseline:
-`b38b4cd`; latest integrated behavior commit: `a431fb6` (Market occupancy and
-exclusive login input). Combat, farming, pricing, delivery and recovery policy
-remain in those engines. This branch adds configuration/identity adapters and
-hosting diagnostics; it does not enable background input or remote-PC control.
+Published integration branch: `codex/merchant-automation`. The full portable
+history through `588ef2a` is combined with behavior through `d168881`, including
+merchant client recovery and native booth setup. Combat, farming, pricing,
+delivery and recovery policy remain in those engines. See
+[full integration evidence](full-portable-integration.md) for tests and live limits.
+This integration does not enable background input or remote-PC control.
 
-## Open the review build
+## Open the combined build
 
-Use a separate checkout of this branch with its own virtual environment. Do not
-replace the active launcher until the live acceptance rows below are complete.
 Install the game separately on each PC. From this branch's repository root:
 
 ```powershell

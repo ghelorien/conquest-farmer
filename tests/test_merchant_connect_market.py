@@ -128,3 +128,33 @@ def test_login_focus_failure_precedes_loading_credentials(monkeypatch):
     with pytest.raises(CaptureUnavailable,match='verified focus'):
         reconnect.submit_login(NS(hwnd=7),session=session)
     assert calls==['identity',(7,{'pid':2})]
+
+
+@pytest.mark.parametrize('occupied',[False,True])
+def test_stall_approach_rechecks_vacancy_before_moving(monkeypatch,tmp_path,occupied):
+    s={'identity':{'pid':1},'map_id':1036,'position':[200,190],'silver':1,
+       'inventory':[],'booth':[],'booth_open':False,'own_booth_uid':0}
+    flag={'uid':10,'position':[208,190]};reads=[0];moves=[]
+    def flags(*args):
+        reads[0]+=1
+        return [] if occupied and reads[0]>1 else [flag]
+    monkeypatch.setattr('conquest.merchants.stalls.vacant_flags',flags)
+    merchant_root=tmp_path/'Dutch installation'
+    monkeypatch.setattr('conquest.character_context.merchant_installation',
+                        lambda character:merchant_root if character=='Dutch' else pytest.fail('Wrong character installation'))
+    def terrain(root,map_id):
+        assert root==merchant_root and map_id==1036
+        return object()
+    monkeypatch.setattr('conquest.navigation.read_terrain',terrain)
+    monkeypatch.setattr('conquest.merchants.return_driver.stall_approach',lambda *a:(7,(206,190)))
+    driver=NS(memory=NS(read=lambda:dict(s)),observer=NS(character='Dutch'),require_qualified=lambda cap:{'shop_setup':{}})
+    def move(*a):
+        moves.append(a[1]);s['position']=[206,190];return s
+    travel=NS(read=lambda:s,move=move)
+    if occupied:
+        with pytest.raises(CaptureUnavailable,match='occupied'):
+            connect.approach_vacant_flag(driver,travel,lambda:None)
+        assert not moves
+    else:
+        assert connect.approach_vacant_flag(driver,travel,lambda:None)==10
+        assert moves==[(206,190)]

@@ -185,3 +185,17 @@ def test_open_panels_do_not_override_missing_stock_reconciliation(run):
     with pytest.raises(ValueError,match='Stock changed'):
         run.r.step(run.s,run.c,run.t)
     assert not run.calls
+
+
+@pytest.mark.parametrize('assisted',[False,True])
+def test_recovery_trial_preserves_manual_intervention(run,assisted):
+    trial={'phase':'recovering','before':copy.deepcopy(run.r.state()['before'])}
+    trial['before']['timestamp']-=.02
+    if assisted:trial['manual_interventions']=['User completed Conductress transfer']
+    run.j.set('Dutch','recovery_trial',trial)
+    assert run.r.step(run.s,run.c,run.t)
+    state=run.r.state();result=run.j.get('Dutch','recovery_trial')
+    assert state['automatic_recovery_verified'] is not assisted
+    assert result['phase']==('assisted' if assisted else 'verified')
+    assert result['automatic_recovery_verified'] is not assisted
+    if assisted:assert state['manual_interventions']==trial['manual_interventions']

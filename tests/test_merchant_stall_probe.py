@@ -10,6 +10,8 @@ def test_stall_probe_journals_once_and_never_confirms(tmp_path,monkeypatch,case)
     journal=Journal(tmp_path/'state.sqlite3');calls=[];clicked=False
     if case=='pending':journal.set('Dutch','stall_probe',{'phase':'submitted'})
     flag={'uid':101503,'position':[230,181],'draw_position':[1008,364]}
+    monkeypatch.setattr('conquest.merchants.flag_target.flag_target',lambda *a:{'point':(1008,332)})
+    monkeypatch.setattr('conquest.scene_pointer.wait_scene_pointer',lambda s,p,check:check())
     vacancy_reads=0
     def vacant(observer,spec):
         nonlocal vacancy_reads
@@ -29,7 +31,7 @@ def test_stall_probe_journals_once_and_never_confirms(tmp_path,monkeypatch,case)
             'position':[228,181],'identity':{'pid':1},'windows':[],'inventory':[{'uid':9}],'booth':[]}
     observer=NS(character='Dutch',health_layout=None,adapter=NS(read_block=lambda a,n:bytes(n)))
     memory=NS(read=lambda:before,inventory=NS(read=inventory),
-              gui=NS(viewport_size=lambda:(1888,665),model=lambda *a:0x200000))
+              gui=NS(viewport_size=lambda:(1888,665),model=lambda *a:0x200000,windows=lambda:[]))
     def qualified(capability):
         assert capability=='stall_occupancy'
         if case=='occupancy_unknown':raise ValueError('Stall occupancy qualification is pending')
@@ -111,7 +113,7 @@ def test_owned_booth_probe_uses_native_tile_and_verifies_receipt(tmp_path,monkey
     observer=NS(character='Spiritual',health_layout=None,adapter=NS(read_block=read))
     driver=NS(observer=observer,require_qualified=lambda *a:{'shop_setup':{}},
         memory=NS(read=lambda:state,inventory=NS(read=lambda:inv),
-                  gui=NS(viewport_size=lambda:(1888,665),model=lambda *a:0x200000)))
+                  gui=NS(viewport_size=lambda:(1888,665),model=lambda *a:0x200000,windows=lambda:[])))
     def click(point,check,*,before_press):
         assert not journal.get('Spiritual','stall_probe')['press_pending']
         before_press()
