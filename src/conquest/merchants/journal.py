@@ -11,6 +11,7 @@ CHARACTERS = MerchantNames()
 sqlite3.register_adapter(ProfileName, lambda name: name.profile_id)
 
 TERMINAL_PHASES = ('verified', 'aborted')
+DELIVERY_ITEM_FIELDS = ('uid','type_id','plus','gem1','gem2','quantity','bound')
 LEGAL_TRANSITIONS = {
     'prepared': frozenset(('submitted', 'uncertain', 'verified', 'aborted')),
     'submitted': frozenset(('uncertain', 'verified')),
@@ -18,6 +19,14 @@ LEGAL_TRANSITIONS = {
     'verified': frozenset(('verified',)),
     'aborted': frozenset(('aborted',)),
 }
+
+
+def canonical_delivery_items(items):
+    """Strip observational fields while retaining every ownership attribute."""
+    from conquest.merchants.delivery import exact_items
+    exact_items(items)
+    return sorted(({name:item.get(name) for name in DELIVERY_ITEM_FIELDS} for item in items),
+                  key=lambda item:item['uid'])
 
 
 def profile_row(cursor, values):
@@ -119,7 +128,7 @@ class Journal:
                 (key,'transaction','prepared','{}',now))
             if admission:
                 row=db.execute('SELECT * FROM delivery_admissions WHERE request_id=?',(key,)).fetchone()
-                items=json.dumps(sorted(before['items'],key=lambda item:item['uid']),sort_keys=True)
+                items=json.dumps(canonical_delivery_items(before['items']),sort_keys=True)
                 if (not row or row['character']!=character
                         or json.loads(row['uids_json'])!=sorted(item['uid'] for item in before['items'])
                         or row['items_json'] not in (None,items)):
@@ -180,8 +189,8 @@ class Journal:
 
     def admit_delivery(self,key,character,uids,origin,items=None):
         encoded_uids=json.dumps(sorted(uids));encoded_origin=json.dumps(origin,sort_keys=True)
-        encoded_items=(json.dumps(sorted(items,key=lambda item:item['uid']),sort_keys=True)
-                       if items is not None else None)
+        encoded_items=(json.dumps(canonical_delivery_items(items),sort_keys=True)
+                        if items is not None else None)
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             row=db.execute('SELECT * FROM delivery_admissions WHERE request_id=?',(key,)).fetchone()
@@ -204,8 +213,8 @@ class Journal:
             if not row:raise ValueError('Delivery admission not found')
             if row['phase']=='transaction_started' and phase!='transaction_started':
                 raise ValueError('Started delivery admission is immutable')
-            encoded=(json.dumps(sorted(items,key=lambda item:item['uid']),sort_keys=True)
-                     if items is not None else row['items_json'])
+            encoded=(json.dumps(canonical_delivery_items(items),sort_keys=True)
+                      if items is not None else row['items_json'])
             if row['items_json'] is not None and encoded!=row['items_json']:
                 raise ValueError('Delivery admission item fingerprints changed')
             db.execute('UPDATE delivery_admissions SET phase=?,items_json=?,reason=?,updated=? WHERE request_id=?',

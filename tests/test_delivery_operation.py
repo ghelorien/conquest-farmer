@@ -1,4 +1,5 @@
 from types import SimpleNamespace as NS
+import json
 import threading
 import pytest
 from conquest.merchants import delivery_operation as operation
@@ -57,6 +58,36 @@ def test_inflight_admission_is_running_until_source_transaction_or_rejection(tmp
     assert result['receipt']['outcome']=='retryable_before_input'
     ui.delivery_admissions.clear()
     assert operation.dispatch(ui,{'action':'delivery-status','request_id':'one'})['running'] is False
+
+
+def test_delivery_admission_matches_core_request_to_rich_live_item(tmp_path):
+    journal=Journal(tmp_path/'source.sqlite3')
+    selected={'uid':10,'type_id':114643,'plus':1,'gem1':0,'gem2':0,'quantity':1,'bound':False}
+    live={**selected,'name':'CloudCap','slot':17,'price':None,'vtable':12345}
+    origin={'operation_id':'one'}
+    journal.admit_delivery('one','Dutch',[10],origin,[selected])
+    journal.update_delivery_admission('one','admitted',items=[live])
+    admission=journal.delivery_admission('one')
+    assert json.loads(admission['items_json'])==[selected]
+    assert journal.begin('one','Dutch','farmer_delivery',{'items':[live]},admission=True)
+    admission=journal.delivery_admission('one')
+    assert admission['phase']=='transaction_started'
+    with journal.db() as db:
+        before=json.loads(db.execute(
+            'SELECT before_json FROM transactions WHERE id=?',('one',)).fetchone()[0])
+    assert before['items']==[live]
+
+
+@pytest.mark.parametrize(('field','changed'),[
+    ('uid',11),('type_id',114644),('plus',2),('gem1',1),('gem2',2),
+    ('quantity',2),('bound',True),
+])
+def test_delivery_admission_rejects_changed_ownership_attribute(tmp_path,field,changed):
+    journal=Journal(tmp_path/f'{field}.sqlite3')
+    selected={'uid':10,'type_id':114643,'plus':1,'gem1':0,'gem2':0,'quantity':1,'bound':False}
+    journal.admit_delivery('one','Dutch',[10],{'operation_id':'one'},[selected])
+    with pytest.raises(ValueError,match='fingerprints changed'):
+        journal.update_delivery_admission('one','admitted',items=[{**selected,field:changed,'name':'CloudCap','slot':17}])
 
 
 def test_restart_only_reconciles_and_repeated_request_reuses_live_worker(tmp_path,monkeypatch):
