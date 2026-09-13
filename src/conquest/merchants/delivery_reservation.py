@@ -96,7 +96,7 @@ def validate_receiver(journal,snapshot,*,now=None):
         raise ValueError('Reserved merchant inventory or identity changed')
     if not trade:
         return state
-    if (trade.get('participant')!='Parasite' or trade.get('participant_uid')!=intent['farmer']['character_uid']
+    if (trade.get('participant')!=intent['farmer']['character'] or trade.get('participant_uid')!=intent['farmer']['character_uid']
             or trade.get('own_silver')!=0 or trade.get('other_silver')!=0 or trade.get('own_items')):
         raise ValueError('Reserved delivery participant or currency changed')
     if state['phase']!='offer_ready':

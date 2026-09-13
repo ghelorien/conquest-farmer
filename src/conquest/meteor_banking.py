@@ -1,10 +1,11 @@
 """Reusable ten-Meteor consolidation, using verified dialog and item receipts."""
+from conquest.character_context import installation_path, state_path
 import time
 from pathlib import Path
 from conquest.discord_notify import read_json,write_json
 
 POLICY=Path('profiles/meteor-banking.json')
-JOURNAL=Path('reports/banking/meteor-consolidation.json')
+JOURNAL=Path(state_path('reports/banking/meteor-consolidation.json'))
 METEOR=1088001
 SCROLL=720027
 
@@ -74,7 +75,7 @@ def trip(loop,plan,*,before_submit=None):
         if any(stash_candidate(item) for item in loop.town('supplies')['items']):
             raise ValueError('Stay in Market: deposit all protected valuables before returning to town')
     if loop.terrain.map_id!=life['map_id']:
-        loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',life['map_id'])
+        loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),life['map_id'])
     # The warehouse frontage rejects short walking clicks. Leave through the
     # observed clear eastbound jump before planning toward the controller.
     # This is an intermediate waypoint, so do not chase a one-tile offset.
@@ -120,7 +121,7 @@ def trip(loop,plan,*,before_submit=None):
                 and fresh['map_id']==plan['destination_map'] and 0<=time.time()-data.get('observed_at',0)<=1):
             after=loop.town('supplies')
             if before['silver']-after['silver']!=plan['fare']:raise ValueError('Meteor route fare was not verified')
-            loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',fresh['map_id'])
+            loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),fresh['map_id'])
             return
         time.sleep(.1)
     raise ValueError('Meteor route arrival unverified; no repeat payment issued')
@@ -225,7 +226,7 @@ def resume(loop):
     from conquest.navigation import read_terrain
     loop.phase='restocking'
     world=loop.living()['embedded_controls']['life']['map_id']
-    loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',world)
+    loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),world)
     if world==state['origin'] and state['phase']=='returning':
         if carried(loop):raise ValueError('Protected valuables unexpectedly carried after Market return')
         open_warehouse(loop);save(state,'completed',completed_at=time.time())

@@ -1,4 +1,5 @@
 """Validate complete browser-collected market snapshots before pricing."""
+from conquest.character_context import state_path
 from dataclasses import asdict
 import json
 import re
@@ -133,7 +134,7 @@ def browser_pages(data, definitions):
     return result
 
 
-def import_snapshot(source, destination='reports/merchants/market.json'):
+def import_snapshot(source, destination=state_path('reports/merchants/market.json')):
     data = json.loads(Path(source).read_text(encoding='utf-8'))
     snapshot = MarketSnapshot(data)
     write_json(destination,data)

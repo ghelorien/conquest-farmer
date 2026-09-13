@@ -1,4 +1,5 @@
 """Deterministic public-table collection; no model, game input, or challenge bypass."""
+from conquest.character_context import installation_path, state_path
 import json
 from pathlib import Path
 import re
@@ -10,7 +11,7 @@ from conquest.merchants.price_history import PriceHistory
 from conquest.merchants.public_market import collect_public
 
 
-def browser_launch_options(settings='.runtime/merchants/browser.json'):
+def browser_launch_options(settings=state_path('.runtime/merchants/browser.json')):
     """Allow a verified local browser installation shared with the desktop app."""
     path=Path(settings)
     if not path.exists():return {'headless':True}
@@ -99,8 +100,8 @@ def collect_pages(page, *, check=lambda:None, clock=time.time):
     return data
 
 
-def collect_market(*, destination='reports/merchants/market.json',
-                   definitions_path=r'C:\Program Files\Classic Conquer 2.0\ini\itemtype.json',
+def collect_market(*, destination=state_path('reports/merchants/market.json'),
+                   definitions_path=installation_path(r'C:\Program Files\Classic Conquer 2.0\ini\itemtype.json'),
                    stop=None, timeout=600):
     """One bounded headless collection. A blocked page fails without publishing."""
     try:

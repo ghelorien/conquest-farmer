@@ -1,4 +1,5 @@
 """Memory-driven healing and revival while a standalone route is moving."""
+from conquest.character_context import farmer_name
 from pathlib import Path
 import time
 import yaml
@@ -38,7 +39,7 @@ class TravelCare:
             self.pending=None
             if life['revive_ready_candidate'] and now-self.last_revive>=2:
                 try:
-                    request(self.info,'revive-click',{'health_profile':self.health_layout,'character':'Parasite',
+                    request(self.info,'revive-click',{'health_profile':self.health_layout,'character':farmer_name(),
                         'expected_size':health.get('window',{}).get('client_size',[1036,793]),'expires_at':time.time()+4,'input_mode':'foreground'})
                 except ValueError as error:
                     if (str(error)=='Recovery waiting for game focus; no input sent'
@@ -83,19 +84,29 @@ class TravelCare:
             self.xp_step(health)
             return  # Keep escaping toward supplies; stopping cannot restore health.
         self.empty_healing_reported=False
-        addresses=resolve_player(self.session,self.layout)
+        potion=next(i for i in inventory.items if i.type_id==1000020 and i.amount>0)
         try:
-            request(self.info,'foreground-key',{'vk':112,'expected_size':health.get('window',{}).get('client_size',[1036,793]),
-                'require_foreground':True,'expires_at':time.time()+4,
-                'guard':{'name_address':hex(addresses['name']),'name':'Parasite',
-                         'hp_address':hex(addresses['max_hp']),'max_hp':life['max_hp']}})
+            receipt=request(self.info,'town',{'action':'consume-healing','uid':potion.uid,'expires_at':time.time()+4})
         except ValueError as error:
-            if str(error) in ('Game lost focus; no key sent', 'Game did not receive focus; no key sent'):
+            from conquest.town_trade import TownObservationUnavailable
+            if isinstance(error,TownObservationUnavailable) or str(error) in ('Game lost focus; no key sent', 'Game did not receive focus; no key sent'):
                 raise TravelStateChanged('Regaining focus before travel healing') from error
+            if (str(error)=='Healing consumption unverified; no repeat input issued'
+                    and self.inventory.read().count(1000020)==inventory.count(1000020)-1):
+                self.last_heal=now
+                self.notify({'event':'travel_heal_unconfirmed','consumed':True,
+                             'activity':'Potion consumed; continuing toward safety while checking HP'})
+                return
             raise
-        self.pending=(inventory.count(1000020),life['current_hp'],now)
+        finally:
+            import sys
+            failed=sys.exc_info()[0] is not None
+            try:request(self.info,'town',{'action':'close','window':'Inventory','expires_at':time.time()+4})
+            except (ValueError,OSError):
+                if not failed:raise
         self.last_heal=now
-        self.notify({'event':'travel_heal','hp':life['current_hp']})
+        if receipt['consumed']:
+            self.notify({'event':'travel_heal_verified','hp':receipt['hp_after'],'potions':receipt['remaining']})
 
     def xp_step(self,health):
         # Normal travel uses the same memory-qualified popup as combat.
@@ -109,7 +120,7 @@ class TravelCare:
         from conquest.memory_health import HealthWorkerSession,HealthLayout
         if not hasattr(self,'_xp_skill'):
             observer=SimpleNamespace(adapter=HealthWorkerSession(self.info,self.layout.expected_sha256),
-                health_layout=HealthLayout.model_validate(self.health_layout),character='Parasite')
+                health_layout=HealthLayout.model_validate(self.health_layout),character=farmer_name())
             self._xp_skill=XpSkill(observer,lambda event,fields:self.notify({'event':event,**fields}))
         def click(point):
             fresh=request(self.info,'health')['embedded_controls']
@@ -120,6 +131,6 @@ class TravelCare:
             addresses=resolve_player(self.session,self.layout)
             request(self.info,'foreground-click',{'point':list(point),'button':'left','control':False,
                 'expected_size':health.get('window',{}).get('client_size',[1036,793]),'require_foreground':True,'expires_at':time.time()+4,
-                'guard':{'name_address':hex(addresses['name']),'name':'Parasite',
+                'guard':{'name_address':hex(addresses['name']),'name':farmer_name(),
                          'hp_address':hex(addresses['max_hp']),'max_hp':current['max_hp']}})
         if self._xp_skill.step(click):raise TravelStateChanged('XP full; activating Fly before continuing travel')

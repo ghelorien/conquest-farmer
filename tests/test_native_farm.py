@@ -75,6 +75,26 @@ def test_positive_hp_death_blocks_combat_before_ghost_animation(monkeypatch):
         supervisor.dispatch(lambda:pytest.fail('Dead player must not attack'))
 
 
+def test_native_death_and_confirmed_revival_report_once_before_combat(monkeypatch):
+    supervisor,_,life,_=setup(monkeypatch)
+    first=supervisor.observe()
+    assert first['waiting']
+    assert first['recovery_events'][0]['event']=='death_detected'
+    assert 'recovery_events' not in supervisor.observe()
+    life.dead_candidate=False
+    life.current_hp=life.max_hp
+    supervisor.recovery.episode={'phase':'verifying_revive'}
+    assert 'recovery_events' not in supervisor.observe()
+    supervisor.recovery.episode={'phase':'returning_with_farmer'}
+    supervisor.recovery.step=lambda *args:None
+    verified=supervisor.observe()
+    assert verified['recovery_events'][0]['event']=='revival_verified'
+    assert verified['returning_after_revive']
+    assert 'recovery_events' not in supervisor.observe()
+    life.dead_candidate=True
+    assert supervisor.observe()['recovery_events'][0]['event']=='death_detected'
+
+
 @pytest.mark.parametrize('change',[{'enabled':False},{'target_type_ids':[2]}])
 def test_off_or_target_change_cancels_input_prepared_earlier(monkeypatch,change):
     supervisor,control,life,_=setup(monkeypatch)
@@ -155,6 +175,33 @@ def test_moving_during_memory_sample_retries_without_input_or_switching_off(monk
         else:
             supervisor.dispatch(lambda:pytest.fail('Incoherent life sample must not allow input'))
     assert control.snapshot()['enabled']
+
+
+@pytest.mark.parametrize('outcome',['verified','before_input','uncertain'])
+def test_healing_cleanup_does_not_mask_receipt_or_repeat_uncertain_input(monkeypatch,outcome):
+    from conquest.town_trade import TownObservationUnavailable
+    supervisor,control,life,_=setup(monkeypatch)
+    life.dead_candidate=False
+    calls=[]
+    def trade(body):
+        calls.append(body['action'])
+        if body['action']=='close':raise ValueError('Life state changed during observation')
+        if outcome=='before_input':raise TownObservationUnavailable('Life state changed during observation')
+        if outcome=='uncertain':raise ValueError('Healing consumption unverified; no repeat input issued')
+        return {'consumed':True,'remaining':4}
+    supervisor.observer.town_trade=trade
+    if outcome=='verified':assert supervisor.heal_potion(42)['consumed']
+    elif outcome=='before_input':
+        with pytest.raises(CaptureUnavailable,match='reobserving'):supervisor.heal_potion(42)
+    else:
+        with pytest.raises(ValueError,match='consumption unverified'):supervisor.heal_potion(42)
+    assert calls==['consume-healing','close']
+    assert supervisor.supply_panel_pending and control.snapshot()['enabled']
+    supervisor.recovery.step=lambda *args:None
+    supervisor.observer.town_trade=lambda body:calls.append(body['action'])
+    supervisor.observe()
+    assert calls==['consume-healing','close','close']
+    assert not supervisor.supply_panel_pending
 
 
 def test_stationary_damage_enters_defense_and_expires_after_damage_stops(monkeypatch):
@@ -372,6 +419,30 @@ def test_successful_detour_restores_jumps_without_forgetting_failed_tiles(monkey
     assert supervisor.movement_run_until>0
     supervisor.movement_succeeded((10,10),(10,14),arrived=False)
     assert supervisor.movement_run_until==0 and supervisor.movement_obstructions==avoided
+
+
+@pytest.mark.parametrize('age,map_id,detect',[(1,1002,True),(13,1002,False),(1,1011,False)])
+def test_repeated_return_to_same_source_avoids_replaying_acknowledged_move(monkeypatch,age,map_id,detect):
+    import numpy as np
+    from conquest.navigation import TerrainMap
+    supervisor,_,_,notifications=setup(monkeypatch)
+    now=[100.]
+    monkeypatch.setattr(native_farm.time,'monotonic',lambda:now[0])
+    supervisor.recovery.terrain=TerrainMap(1002,50,50,np.zeros((50,50),dtype=bool),'',(),())
+    step=supervisor.patrol_step((10,10),(40,10),(0,0,49,49),chase=False)
+    supervisor.map_id=map_id
+    supervisor.movement_succeeded((10,10),step,arrived=True)
+    supervisor.movement_succeeded((10,10),step,arrived=True)
+    supervisor.map_id=1002
+    now[0]+=age
+    if detect:
+        with pytest.raises(CaptureUnavailable,match='progress reversed'):
+            supervisor.patrol_step((10,10),(40,10),(0,0,49,49),chase=False)
+        assert (1002,step) in supervisor.movement_obstructions
+        assert supervisor.patrol_step((10,10),(40,10),(0,0,49,49),chase=False)!=step
+        assert any(event=='movement_reversed' for event,_ in notifications)
+    else:
+        assert supervisor.patrol_step((10,10),(40,10),(0,0,49,49),chase=False)==step
 
 
 def test_ranged_escape_requires_fresh_living_threats_clear_path_and_boundary(monkeypatch):

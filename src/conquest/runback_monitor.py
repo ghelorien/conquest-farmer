@@ -1,10 +1,11 @@
 """Per-trip progress and survival measurements from fresh memory observations."""
+from conquest.character_context import state_path
 import json
 import math
 import time
 from pathlib import Path
 
-OUTPUT=Path('reports/runbacks')
+OUTPUT=Path(state_path('reports/runbacks'))
 
 class RunbackMonitor:
     def __init__(self, destination, map_id, kind, notify=lambda *args:None, *,

@@ -1,4 +1,5 @@
 """Run the existing foreground combat loop with the hosted client's life reader."""
+from conquest.character_context import state_path
 from contextlib import contextmanager
 from dataclasses import asdict,replace
 import ctypes
@@ -56,7 +57,9 @@ class NativeFarmSupervisor:
         self.discarder=None
         self.movement_obstructions={}
         self.movement_run_until=0
+        self.recent_movement_progress=[]
         self.patrol_chase=None
+        self.recovery_death_seen=False
 
     def observe_inventory(self, inventory):
         """Record new valuable item identities independently of ground-read races."""
@@ -118,12 +121,31 @@ class NativeFarmSupervisor:
                 finally:trade({'action':'close','window':'Inventory'})
         return self.dispatch(reload)
 
+    def heal_potion(self,uid):
+        def consume():
+            from conquest.town_trade import TownObservationUnavailable
+            with logical_coordinates():
+                trade=self.observer.town_trade
+                self.supply_panel_pending=True
+                try:
+                    try:return trade({'action':'consume-healing','uid':uid})
+                    except TownObservationUnavailable as error:
+                        raise CaptureUnavailable('Healing: reobserving before item use: '+str(error)) from error
+                finally:
+                    # Cleanup is reversible and retried separately. Never mask
+                    # a verified receipt or an uncertain consumption error.
+                    try:
+                        trade({'action':'close','window':'Inventory'})
+                        self.supply_panel_pending=False
+                    except (ValueError,OSError):pass
+        return self.dispatch(consume)
+
     def attack_strategy(self):
         from conquest.attack_strategy import AttackStrategy,equipment_context
         from conquest.equipment import read_equipment
         from conquest.combat_ranges import read_combat_ranges
         if not hasattr(self,'_attack_strategy'):
-            self._attack_strategy=AttackStrategy('.runtime/attack-strategy.json',self.notify)
+            self._attack_strategy=AttackStrategy(state_path('.runtime/attack-strategy.json'),self.notify)
             self._next_strategy_check=0
         if time.monotonic()>=self._next_strategy_check:
             self._next_strategy_check=time.monotonic()+5
@@ -205,8 +227,26 @@ class NativeFarmSupervisor:
             if intent['revision']!=self.revision:
                 return {'stop':True,'waiting':True,'health_ratio':life.current_hp/life.max_hp}
             focused=window['foreground']==window['root_hwnd'] and not window['minimized']
+            recovery_events=[]
+            if (life.dead_candidate or life.ghost_candidate) and not self.recovery_death_seen:
+                self.recovery_death_seen=True
+                recovery_events.append({'event':'death_detected','position':list(life.position),
+                    'map_id':life.map_id,'health_ratio':life.current_hp/life.max_hp,'source':'native_memory'})
             status=self.recovery.step({**asdict(life),'dead_candidate':life.dead_candidate},focused)
+            phase=(getattr(self.recovery,'episode',None) or {}).get('phase')
+            if (self.recovery_death_seen and not life.dead_candidate and not life.ghost_candidate
+                    and phase in ('returning_with_farmer','returning_after_revive','completed')):
+                # RouteRecovery has confirmed revival across fresh life samples.
+                self.recovery_death_seen=False
+                recovery_events.append({'event':'revival_verified','position':list(life.position),
+                    'map_id':life.map_id,'health_ratio':life.current_hp/life.max_hp,'source':'native_memory'})
             waiting=not intent['enabled'] or not focused or life.dead_candidate or bool(status)
+            if not waiting and getattr(self,'supply_panel_pending',False):
+                try:
+                    self.dispatch(lambda:self.observer.town_trade({'action':'close','window':'Inventory'}))
+                    self.supply_panel_pending=False
+                except (ValueError,OSError) as error:
+                    raise CaptureUnavailable('Waiting to close healing inventory: '+str(error)) from error
             if not waiting and time.monotonic()>=getattr(self,'next_panel_check',0):
                 self.next_panel_check=time.monotonic()+1
                 from conquest.game_panels import close_one
@@ -227,6 +267,7 @@ class NativeFarmSupervisor:
                 self.notify('farm_state',{'state':state,'note':note})
                 self.last_state=(state,note)
             result={'waiting':waiting,'health_ratio':life.current_hp/life.max_hp}
+            if recovery_events:result['recovery_events']=recovery_events
             if (getattr(self.recovery,'episode',None) or {}).get('phase')=='returning_with_farmer':
                 result['returning_after_revive']=True
             if self.defending:
@@ -589,6 +630,10 @@ class NativeFarmSupervisor:
         # excluded so returning to long jumps cannot replay the blocked edge.
         if max(abs(a-b) for a,b in zip(source,destination))>=3:
             self.movement_run_until=0
+            if arrived:
+                now=time.monotonic()
+                self.recent_movement_progress=[entry for entry in self.recent_movement_progress if now-entry[0]<=12]
+                self.recent_movement_progress.append((now,self.map_id,tuple(source),tuple(destination)))
 
     def patrol_step(self,position,fallback,boundary,*,chase=True,alternatives=()):
         self.patrol_destination=None
@@ -676,9 +721,24 @@ class NativeFarmSupervisor:
                     from conquest.navigation import travel_waypoint
                     step=travel_waypoint(terrain,path,4 if now<self.movement_run_until else 12,avoid=avoid,viewport=size_for(self.observer))
                 else:step=native_waypoint(path,4 if now<self.movement_run_until else 12,viewport=size_for(self.observer))
+                repeats=sum(now-stamp<=12 and map_id==self.map_id and source==tuple(position)
+                            and landing==tuple(step)
+                            for stamp,map_id,source,landing in self.recent_movement_progress)
+                if repeats>=2:
+                    # Reaching a landing is insufficient if fresh memory keeps
+                    # returning to the same source before the next identical move.
+                    # Use the existing bounded detour; do not guess whether this
+                    # was server correction, auto-chasing, or a dynamic obstacle.
+                    self.movement_failed(position,step)
+                    self.recent_movement_progress=[]
+                    self.notify('movement_reversed',{'position':list(position),'landing':list(step),
+                        'repetitions':repeats,'activity':'Repeated return to the same tile; taking another path'})
+                    raise CaptureUnavailable('Patrol progress reversed; taking another path')
                 if destination not in candidates:
                     self.patrol_destination=destination
                 return step
+            except CaptureUnavailable:
+                raise
             except ValueError:
                 continue
         raise CaptureUnavailable('Waiting for a traversable patrol step')

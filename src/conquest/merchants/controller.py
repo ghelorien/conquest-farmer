@@ -7,6 +7,7 @@ import time
 import uuid
 from conquest.merchants.pricing import OWNED, Listing, quote_item, validate_booth_price
 from conquest.capture import CaptureUnavailable
+from conquest.character_context import trusted_delivery
 
 
 class ListingNotSubmitted(CaptureUnavailable):
@@ -38,8 +39,8 @@ def offer_fingerprint(trade):
 
 def validate_trade(snapshot):
     trade = snapshot.get('trade')
-    if not trade or trade.get('participant') != 'Parasite' or not trade.get('participant_uid'):
-        raise ValueError('Only verified Parasite deliveries are accepted')
+    if not trade or not trusted_delivery(snapshot.get('character'),trade.get('participant'),trade.get('participant_uid')):
+        raise ValueError('Only explicitly trusted, verified deliveries are accepted')
     if trade['own_items'] or trade['own_silver'] != 0:
         raise ValueError('Merchant-side items and silver must be zero')
     offered = identities(trade['items'])
@@ -149,7 +150,7 @@ class MerchantController:
         with self.coordinator.lease(self.character,purpose='trade'):
             self.check()
             fresh = self.driver.read()
-            if fresh['identity'] != snapshot['identity'] or fresh.get('request') != snapshot.get('request') or not fresh.get('request') or fresh['request']['participant'] != 'Parasite':
+            if fresh['identity'] != snapshot['identity'] or fresh.get('request') != snapshot.get('request') or not fresh.get('request') or not trusted_delivery(self.character,fresh['request']['participant'],fresh['request'].get('participant_uid')):
                 raise ValueError('Unverified or changed trade request')
             if len(fresh['inventory']) >= fresh['capacity']:
                 raise ValueError('Inventory full; delivery deferred')
@@ -157,7 +158,7 @@ class MerchantController:
             validate_receiver(self.journal,fresh,now=self.clock())
             self.driver.accept_request(fresh)
             opened = self.driver.wait_for(lambda s:bool(s.get('trade')) and
-                s['trade']['participant']=='Parasite',self.check)
+                trusted_delivery(self.character,s['trade']['participant'],s['trade'].get('participant_uid')),self.check)
             self.journal.set(self.character,'accepted_request',{
                 'identity':opened['identity'],'participant_uid':opened['trade']['participant_uid'],
                 'opened_at':self.clock()})

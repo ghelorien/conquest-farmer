@@ -16,6 +16,8 @@ class EmbeddedBridge:
 
     def __init__(self, operations, lock, info_path, snapshot, lifetime=43200,*,control_update=None,on_reload=None,on_native_window=None,on_route_jump=None,on_sample_npcs=None,on_town=None):
         self.operations,self.lock = operations,lock
+        from conquest.character_context import current
+        self.character_context=current()
         self.info_path = Path(info_path)
         self.snapshot = snapshot
         self.control_update,self.on_reload = control_update,on_reload
@@ -49,6 +51,9 @@ class EmbeddedBridge:
                     body = json.loads(payload)
                     if not isinstance(body,dict):
                         raise ValueError('Expected an object')
+                    if 'profile_id' in body:
+                        if bridge.character_context is None or body.pop('profile_id')!=bridge.character_context.profile.id:
+                            raise ValueError('This bridge belongs to a different character profile')
                     operation = self.path.strip('/')
                     if operation not in bridge.allowed:
                         raise ValueError('Operation is not available in the embedded bridge')
@@ -117,6 +122,7 @@ class EmbeddedBridge:
                         else:
                             result = bridge.operations.dispatch(operation,body)
                         if operation=='health':
+                            if bridge.character_context:result['profile_id']=bridge.character_context.profile.id
                             result['embedded_controls'] = bridge.snapshot()
                             result['embedded_controls']['manual_mouse'] = active()
                             result['window_mode'] = getattr(bridge,'window_mode','unknown')

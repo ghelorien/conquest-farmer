@@ -1,4 +1,5 @@
 """Bank earnings after shopping; keep transport fares available."""
+from conquest.character_context import state_path
 import json
 import math
 from pathlib import Path
@@ -7,8 +8,8 @@ from conquest.discord_notify import read_json,write_json
 from conquest.valuables import DRAGONBALL_TYPES
 
 CONFIG=Path('profiles/banking.json')
-STATUS=Path('reports/banking/status.json')
-LEDGER=Path('reports/banking/transfers.jsonl')
+STATUS=Path(state_path('reports/banking/status.json'))
+LEDGER=Path(state_path('reports/banking/transfers.jsonl'))
 
 
 def urgent_valuables(items):

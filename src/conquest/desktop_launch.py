@@ -3,6 +3,7 @@ import ctypes
 from ctypes import wintypes
 from pathlib import Path
 import subprocess
+from conquest.character_context import context_arguments
 
 
 def start_arguments(root, profile, calibration, *, launch_client=False, embed_client=None):
@@ -15,7 +16,7 @@ def start_arguments(root, profile, calibration, *, launch_client=False, embed_cl
         selected = [value for name,number in zip(('--client-pid','--client-started','--client-hwnd'),embed_client)
                     for value in (name,str(number))]
     return [str(Path(root)/'scripts/start_desktop_app.py'), '--profile',
-            str(Path(profile).resolve()),action,*selected]
+            str(Path(profile).resolve()),action,*selected,*context_arguments()]
 
 
 def elevated_start(hwnd, root, profile, calibration=False, *, launch_client=False, embed_client=None):

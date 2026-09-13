@@ -1,5 +1,6 @@
 """Attach one explicitly identified existing client without launching another."""
 import time
+from conquest.character_context import farmer_name
 
 
 def attach(ui,pid,started,*,queued_at):
@@ -32,10 +33,13 @@ def attach(ui,pid,started,*,queued_at):
         probe.adapter.assert_identity()
         if probe.adapter.identity!=candidate.identity:raise ValueError('Selected client changed')
         if not login_screen(candidate.hwnd):
-            read_life(probe.adapter,probe.health_layout,'Parasite')
+            read_life(probe.adapter,probe.health_layout,farmer_name())
     finally:probe.close()
     require_idle()
     app.embed(candidate)
+    if getattr(app,'embed_layout_pending',False):
+        return {'attached':False,'pending':True,'pid':pid,
+                'farming_enabled':app.control.snapshot()['enabled']}
     if app.observer is None or app.observer.adapter.identity!=candidate.identity:
         raise ValueError('Farmer attachment did not complete')
     return {'attached':True,'pid':pid,'farming_enabled':app.control.snapshot()['enabled']}

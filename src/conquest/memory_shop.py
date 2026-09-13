@@ -117,7 +117,12 @@ class ShopSnapshot:
         y=self.grid.position[1]+32+80*(product.index//5)-self.grid.scroll[1]
         if product not in self.products or self.grid.scroll[0]!=0 or not self.grid.position[1]+8<y<self.grid.position[1]+self.grid.size[1]-12:
             raise ValueError('Product is outside the qualified visible shop row')
-        if self.window.size != (288.,396.) or self.grid.size != (248.,328.):
+        # Vertical resizing changes the visible row count, not the qualified
+        # five-column/80px-row pitch. Keep widths, padding and visibility pinned.
+        if (self.window.size[0]!=288. or self.grid.size[0]!=248.
+                or self.window.size[1]-self.grid.size[1]!=68.
+                or self.grid.position[0]-self.window.position[0]!=20.
+                or self.grid.position[1]-self.window.position[1]!=38.):
             raise ValueError('Shop layout differs from the qualified grid')
         return (round(self.grid.position[0]+19+48*(product.index%5)), round(y))
 

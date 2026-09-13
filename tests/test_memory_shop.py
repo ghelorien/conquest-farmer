@@ -56,3 +56,20 @@ def test_shop_item_coordinates_follow_observed_grid_and_selected_memory_index():
     far=ShopProduct(28,6,500045,'HardBow',4000,0)
     with pytest.raises(ValueError,match='qualified visible'):
         ShopSnapshot(100123,(far,),window,grid).point(far)
+
+
+def test_live_taller_pharmacist_preserves_qualified_item_pitch():
+    window=GuiWindow(1,'Shop',(79.,172.),(288.,430.),(0.,0.))
+    grid=GuiWindow(2,'Shop/grid',(99.,210.),(248.,362.),(0.,0.))
+    potion=ShopProduct(2,3,1000020,'Painkiller',60,250)
+    assert ShopSnapshot(100123,(potion,),window,grid).point(potion)==(214,242)
+
+
+@pytest.mark.parametrize('size,position',[((249.,362.),(99.,210.)),((248.,363.),(99.,210.)),
+                                         ((248.,362.),(100.,210.)),((248.,362.),(99.,211.))])
+def test_shop_width_padding_or_child_height_changes_still_block(size,position):
+    window=GuiWindow(1,'Shop',(79.,172.),(288.,430.),(0.,0.))
+    grid=GuiWindow(2,'Shop/grid',position,size,(0.,0.))
+    potion=ShopProduct(2,3,1000020,'Painkiller',60,250)
+    with pytest.raises(ValueError,match='layout differs'):
+        ShopSnapshot(100123,(potion,),window,grid).point(potion)

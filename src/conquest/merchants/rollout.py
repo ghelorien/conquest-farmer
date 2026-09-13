@@ -1,11 +1,12 @@
 """Recurring work is gated by actual durable live transaction receipts."""
+from conquest.character_context import state_path
 import json
 from pathlib import Path
 from conquest.memory_life import CLIENT_SHA256
 from conquest.merchants.journal import CHARACTERS,Journal
 
 
-def verify_rollout(path='reports/merchants/rollout.json', journal=None, qualification_dir='.runtime/merchants'):
+def verify_rollout(path=state_path('reports/merchants/rollout.json'), journal=None, qualification_dir=state_path('.runtime/merchants')):
     journal = journal or Journal()
     try:
         rollout = json.loads(Path(path).read_text())

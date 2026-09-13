@@ -30,6 +30,49 @@ def test_range_and_aim_distance_are_separate_learned_memory_fields(monkeypatch):
     assert result['scatter']=={'type_id':8001,'level':0,'range':8,'distance':15}
 
 
+@pytest.mark.parametrize('header',[(0,0,0),(0x300000,0x300000,0x300010)])
+def test_empty_learned_skills_allow_only_single_bow_attacks(monkeypatch,header):
+    observer,blobs,_=fixture(monkeypatch)
+    blobs[0x100000+0x1968]=struct.pack('<3Q',*header)
+    ranges=combat_ranges.read_combat_ranges(observer,require_scatter=False)
+    assert ranges['scatter'] is None and ranges['bow']['range']==12
+    with pytest.raises(ValueError,match='learned Scatter'):
+        combat_ranges.read_combat_ranges(observer)
+    settings=combat_ranges.route_combat_settings(NS(attack_range_tiles=15,jump_scatter=True),ranges)
+    assert settings['attack_button']=='left' and not settings['adaptive_scatter'] and not settings['jump_scatter']
+    assert settings['attack_range_tiles']==settings['single_attack_range_tiles']==12
+
+
+def test_existing_scatter_route_settings_are_preserved(monkeypatch):
+    observer,_,_=fixture(monkeypatch)
+    ranges=combat_ranges.read_combat_ranges(observer,require_scatter=False)
+    settings=combat_ranges.route_combat_settings(NS(attack_range_tiles=15,jump_scatter=True),ranges)
+    assert settings['attack_button']=='right' and settings['adaptive_scatter'] and settings['jump_scatter']
+    assert settings['attack_range_tiles']==8 and settings['single_attack_range_tiles']==12
+
+
+@pytest.mark.parametrize('header',[(0,0,16),(0x300000,0x2ffff0,0x300000),(0x300000,0x300000,0x300001)])
+def test_bad_empty_vector_is_not_treated_as_an_unlearned_skill(monkeypatch,header):
+    observer,blobs,_=fixture(monkeypatch)
+    blobs[0x100000+0x1968]=struct.pack('<3Q',*header)
+    with pytest.raises(ValueError,match='vector is invalid'):
+        combat_ranges.read_combat_ranges(observer,require_scatter=False)
+
+
+def test_skill_learned_during_empty_observation_requires_retry(monkeypatch):
+    observer,blobs,_=fixture(monkeypatch)
+    header=0x100000+0x1968;blobs[header]=bytes(24)
+    read=observer.adapter.read_block;calls=[0]
+    def changing(address,size):
+        if address==header:
+            calls[0]+=1
+            if calls[0]>1:blobs[header]=struct.pack('<3Q',0x300000,0x300010,0x300010)
+        return read(address,size)
+    observer.adapter.read_block=changing
+    with pytest.raises(ValueError,match='identity changed'):
+        combat_ranges.read_combat_ranges(observer,require_scatter=False)
+
+
 @pytest.mark.parametrize('level',[0,4,5,6,10,255,65535,0xffffffff])
 def test_scatter_rank_never_rejects_an_otherwise_valid_learned_skill(monkeypatch,level):
     observer,_,skill=fixture(monkeypatch)

@@ -3,6 +3,8 @@
 Warehouse callers retain ownership of fallback and the verified return trip.
 An uncertain submitted trade never falls through to warehouse input.
 """
+from conquest.character_context import farmer_name
+from conquest.character_context import state_path
 from pathlib import Path
 import time
 import uuid
@@ -16,7 +18,7 @@ from conquest.merchants.farmer_preferences import enabled as transfers_enabled
 from conquest.merchants.farmer_identity import route_character
 
 POLICY=Path('profiles/merchant-deliveries.json')
-STATE=Path('reports/banking/merchant-route.json')
+STATE=Path(state_path('reports/banking/merchant-route.json'))
 
 
 def pending():return bool(read_json(STATE).get('active'))
@@ -56,7 +58,7 @@ def warehouse_exhausted(loop,stored,remaining,*,send=request):
                 pair=send({'action':'delivery-pair','character':name})
                 farmer,merchant=pair['farmer'],pair['merchant']
                 now=time.time()
-                validate_snapshot(farmer,'Parasite',now)
+                validate_snapshot(farmer,farmer_name(),now)
                 inventory=validate_snapshot(merchant,name,now)
                 if (not merchant.get('booth_open') or merchant.get('trade') or merchant.get('request')
                         or farmer.get('trade') or farmer.get('request')

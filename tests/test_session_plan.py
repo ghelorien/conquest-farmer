@@ -9,6 +9,28 @@ from conquest.routes import RouteLibrary
 def plan():return {'active':True,'route_id':'bandit','upgrade_maps':[1002,1011],'started_at':123}
 
 
+def test_manual_bandit_selection_retargets_beginner_hold():
+    p.write_json(p.PLAN,{'active':True,'mode':'hold_route','route_id':'pheasant',
+        'upgrade_maps':[1002],'started_at':123})
+    p.follow_manual_route(RouteLibrary().load('bandit'))
+    held=p.active_plan()
+    assert held['route_id']=='bandit' and held['upgrade_maps']==[1011]
+    assert held['mode']=='hold_route'
+    p.follow_manual_route(RouteLibrary().load('bandit'))
+    assert p.active_plan()==held
+
+
+def test_manual_route_does_not_transfer_special_circuit_policy():
+    p.write_json(p.PLAN,plan())
+    p.follow_manual_route(RouteLibrary().load('pheasant'))
+    assert p.active_plan() is None
+
+
+def test_manual_route_keeps_automatic_leveling_when_no_hold_exists():
+    p.follow_manual_route(RouteLibrary().load('bandit'))
+    assert not p.PLAN.exists()
+
+
 def test_hold_survives_restart_until_explicit_resume(tmp_path,monkeypatch):
     monkeypatch.setattr(p,'PLAN',tmp_path/'plan.json')
     p.write_json(p.PLAN,plan())
@@ -29,6 +51,28 @@ def test_level_42_does_not_leave_bandits_while_night_hold_is_active(monkeypatch)
     monkeypatch.setattr(levels,'read_level',lambda *a:42)
     assert not loop.select_level_route()
     assert loop.route.id=='bandit' and loop.last_level==42 and 'route_hold_active' in events
+
+
+def test_pheasant_hold_prevents_level_progression_and_keeps_local_restock(tmp_path,monkeypatch):
+    from conquest import leveling_routes as levels
+    monkeypatch.setattr(p,'PLAN',tmp_path/'plan.json')
+    data={'active':True,'mode':'hold_route','route_id':'pheasant','upgrade_maps':[1002],'started_at':123}
+    p.write_json(p.PLAN,data)
+    assert p.active_plan()==data and 'Pheasant route' in p.plan_note()
+    loop=OvernightLoop.__new__(OvernightLoop)
+    loop.route=RouteLibrary().load('pheasant');loop.auto_level=True;loop.next_level_check=0;loop.last_level=1;loop.info=None
+    loop.health=lambda:{};events=[];loop.record=lambda event,**kw:events.append(event)
+    monkeypatch.setattr(levels,'read_level',lambda *a:7)
+    assert not loop.select_level_route()
+    assert loop.route.id=='pheasant' and 'route_hold_active' in events
+    assert p.upgrade_circuit(loop) is False
+    p.resume_leveling();assert p.active_plan() is None
+
+
+def test_route_hold_cannot_substitute_an_unrelated_restock_map(tmp_path,monkeypatch):
+    monkeypatch.setattr(p,'PLAN',tmp_path/'plan.json')
+    p.write_json(p.PLAN,{'active':True,'mode':'hold_route','route_id':'pheasant','upgrade_maps':[1011]})
+    with pytest.raises(ValueError,match='own restock town'):p.active_plan()
 
 
 def test_circuit_only_repeats_at_new_equipment_tier_or_after_incomplete_review():

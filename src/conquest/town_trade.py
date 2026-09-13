@@ -99,7 +99,13 @@ class TownTrade:
         return life
 
     def click(self, point, button='left', *, before_press=None):
-        self.life(any_map=True)
+        try:self.life(any_map=True)
+        except ValueError as error:
+            # This check precedes the button event, even if opening a panel
+            # earlier in the operation set input_attempted.
+            if transient_observation(error):
+                raise TownObservationUnavailable(str(error)) from error
+            raise
         from conquest.viewport import size_for
         try:
             return foreground_click(self.observer.operations.target,*point,size_for(self.observer),
@@ -173,6 +179,9 @@ class TownTrade:
         if body=={'action':'clear-travel-panels'}:
             from conquest.game_panels import close_one
             return {'closed_panel':close_one(self)}
+        if body.get('action')=='consume-healing' and set(body)=={'action','uid'}:
+            from conquest.healing import consume_inventory_potion
+            return consume_inventory_potion(self,body['uid'])
         if body.get('action','').startswith('service-'):
             from conquest.market_services import execute
             result=execute(self,body)
@@ -241,7 +250,8 @@ class TownTrade:
             try:
                 npc=self.vendor(body['vendor_type'])
                 point=interaction_point(npc)
-                return {'reachable':60<point[0]<976 and 140<point[1]<660,
+                from conquest.viewport import clear_scene
+                return {'reachable':clear_scene(point,size_for(self.observer)),
                         'npc_id':npc.entity_id,'position':npc.position,'point':point}
             except ValueError as error:
                 return {'reachable':False,'detail':str(error)}

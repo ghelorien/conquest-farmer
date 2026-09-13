@@ -1,4 +1,5 @@
 """Asynchronous native delivery operations with durable source-side receipts."""
+from conquest.character_context import state_path
 import json
 from pathlib import Path
 import threading
@@ -8,7 +9,7 @@ from conquest.merchants.journal import Journal,character_name
 from conquest.merchants.delivery import DeliveryTransaction,prepare
 from conquest.merchants.farmer_trade import FarmerTradeDriver
 
-JOURNAL=Path('reports/banking/merchant-deliveries.sqlite3')
+JOURNAL=Path(state_path('reports/banking/merchant-deliveries.sqlite3'))
 
 
 def guard_reload():

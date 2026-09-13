@@ -700,7 +700,7 @@ def test_travel_healing_focus_race_retries_without_marking_unsent_potion_used(mo
     care.next_panel_check=float('inf')  # This fixture isolates potion behavior.
     care.info='worker';care.session=None;care.layout=None;care.pending=None
     care.last_heal=-float('inf');care.notify=lambda e:None
-    care.inventory=NS(read=lambda:NS(count=lambda item:3))
+    care.inventory=NS(read=lambda:NS(count=lambda item:3,items=[NS(uid=42,type_id=1000020,amount=1)]))
     health={'embedded_controls':{'control':{'enabled':False},'life':{
         'current_hp':300,'max_hp':834,'dead_candidate':False}}}
     monkeypatch.setattr(t,'resolve_player',lambda *a:{'name':100,'max_hp':200})
@@ -708,9 +708,14 @@ def test_travel_healing_focus_race_retries_without_marking_unsent_potion_used(mo
     monkeypatch.setattr(t,'request',no_key)
     with pytest.raises(t.TravelStateChanged,match='Regaining focus'):care.check(health)
     assert care.pending is None and care.last_heal==-float('inf')
-    sent=[];monkeypatch.setattr(t,'request',lambda *a:sent.append(a))
+    sent=[]
+    def verified(*args):
+        sent.append(args)
+        return {'consumed':True,'hp_after':800,'remaining':2}
+    monkeypatch.setattr(t,'request',verified)
     care.check(health)
-    assert len(sent)==1 and care.pending[0]==3
+    assert [a[2]['action'] for a in sent]==['consume-healing','close'] and care.pending is None
+    assert care.last_heal>0
 
 
 def test_travel_healing_uncertain_input_failure_is_not_blindly_retried(monkeypatch):
@@ -720,7 +725,7 @@ def test_travel_healing_uncertain_input_failure_is_not_blindly_retried(monkeypat
     care.next_panel_check=float('inf')  # This fixture isolates potion behavior.
     care.info='worker';care.session=None;care.layout=None;care.pending=None
     care.last_heal=-float('inf');care.notify=lambda e:None
-    care.inventory=NS(read=lambda:NS(count=lambda item:3))
+    care.inventory=NS(read=lambda:NS(count=lambda item:3,items=[NS(uid=42,type_id=1000020,amount=1)]))
     health={'embedded_controls':{'control':{'enabled':False},'life':{
         'current_hp':300,'max_hp':834,'dead_candidate':False}}}
     monkeypatch.setattr(t,'resolve_player',lambda *a:{'name':100,'max_hp':200})
@@ -736,18 +741,24 @@ def test_travel_heals_at_seventy_percent_and_does_not_stop_when_damage_masks_pot
     care.next_panel_check=float('inf')  # This fixture isolates potion behavior.
     care.info='worker';care.session=None;care.layout=None;care.pending=None
     care.last_heal=-float('inf');events=[];care.notify=events.append
-    count=[3];care.inventory=NS(read=lambda:NS(count=lambda item:count[0]))
+    count=[3]
+    def inventory():
+        value=count[0]
+        return NS(count=lambda item:value,items=[NS(uid=42,type_id=1000020,amount=1)])
+    care.inventory=NS(read=inventory)
     health={'embedded_controls':{'control':{'enabled':False},'life':{
         'current_hp':700,'max_hp':1000,'dead_candidate':False}}}
-    monkeypatch.setattr(t,'resolve_player',lambda *a:{'name':100,'max_hp':200})
     now=[100];monkeypatch.setattr(t.time,'monotonic',lambda:now[0]);sent=[]
-    monkeypatch.setattr(t,'request',lambda *a:sent.append(a))
+    def masked(info,operation,body):
+        sent.append(body['action'])
+        if body['action']=='consume-healing':
+            count[0]=2
+            raise ValueError('Healing consumption unverified; no repeat input issued')
+    monkeypatch.setattr(t,'request',masked)
     care.check(health)
-    assert len(sent)==1 and care.pending
-    now[0]=103;count[0]=2;health['embedded_controls']['life']['current_hp']=650
-    care.check(health)
-    assert care.pending is None and len(sent)==1
+    assert sent==['consume-healing','close'] and care.pending is None
     assert events[-1]['event']=='travel_heal_unconfirmed' and events[-1]['consumed']
+    assert care.last_heal==100
 
 
 @pytest.mark.parametrize('arrows,potions',[(199,10),(3,1),(20,5)])

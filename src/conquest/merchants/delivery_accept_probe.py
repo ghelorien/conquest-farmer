@@ -8,13 +8,14 @@ from conquest.merchants.delivery_probe import JOURNAL
 from conquest.merchants.delivery_bridge import pair
 from conquest.merchants.delivery import exact_items,validate_offers
 from conquest.merchants.memory import string
+from conquest.character_context import farmer_name
 
 
 def control(driver,snapshot):
     s=driver.observer.adapter;g=driver.memory.gui
     model=g.model(15,0x5c4f30)
     if [string(s,model+o) for o in (0x48,0x68,0x88,0xa8)]!=[
-            'Trade###Confirm','Parasite wishes to trade with you.','Accept','Cancel']:
+            'Trade###Confirm',f'{farmer_name()} wishes to trade with you.','Accept','Cancel']:
         raise ValueError('Confirmation is not Parasite trade acceptance')
     for rva,code in ((0x95fd6,'e835dcfaff'),(0x95fdf,'b201488bcbe857070000')):
         if s.read_block(g.base+rva,len(bytes.fromhex(code)))!=bytes.fromhex(code):
@@ -46,7 +47,7 @@ def run(ui,state):
             raise CaptureUnavailable('Trade qualification was stopped or expired')
     def fresh():
         check();f,m=pair(ui,character)
-        if f.get('trade') or m.get('trade') or f.get('request') or m.get('request',{}).get('participant')!='Parasite':
+        if f.get('trade') or m.get('trade') or f.get('request') or m.get('request',{}).get('participant')!=farmer_name():
             raise ValueError('Expected incoming Parasite request changed')
         for role,snapshot in (('farmer',f),('merchant',m)):
             old=intent[role]

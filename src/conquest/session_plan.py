@@ -1,10 +1,11 @@
 """A temporary user-requested route hold, independent of reusable route templates."""
+from conquest.character_context import state_path
 from pathlib import Path
 import time
 from conquest.discord_notify import read_json,write_json
 
-PLAN=Path('.runtime/session-plan.json')
-CIRCUIT=Path('.runtime/equipment-circuit.json')
+PLAN=Path(state_path('.runtime/session-plan.json'))
+CIRCUIT=Path(state_path('.runtime/equipment-circuit.json'))
 # Shop level thresholds for the seven supported archer slots.
 UPGRADE_LEVELS=(1,7,8,10,12,15,17,20,22,25,27,30,32,35,37,40,42,45,50,52,55,57,60,65,67,70,73,75,77,80,82,85,87,90,95,97)
 
@@ -12,6 +13,12 @@ UPGRADE_LEVELS=(1,7,8,10,12,15,17,20,22,25,27,30,32,35,37,40,42,45,50,52,55,57,6
 def active_plan():
     data=read_json(PLAN)
     if not data.get('active'):return None
+    if data.get('mode')=='hold_route':
+        from conquest.routes import RouteLibrary
+        route=RouteLibrary().load(data['route_id'])
+        if data.get('upgrade_maps')!=[route.restock_map_id]:
+            raise ValueError('A saved route hold must use its own restock town')
+        return data
     if (data.get('mode')=='save_silver' and data.get('route_id')=='poltergeist'
             and data.get('silver_target') in (None,50000) and data.get('upgrade_maps')==[1002]):
         return data
@@ -23,6 +30,9 @@ def active_plan():
 def plan_note():
     plan=active_plan()
     if not plan:return 'Automatic leveling'
+    if plan.get('mode')=='hold_route':
+        from conquest.routes import RouteLibrary
+        return 'Staying on '+RouteLibrary().load(plan['route_id']).name+' until Resume leveling'
     if plan.get('mode')=='save_silver':
         if plan.get('silver_target') is None:
             from conquest.banking import policy,STATUS
@@ -41,6 +51,19 @@ def resume_leveling():
     write_json(PLAN,data)
 
 
+def follow_manual_route(route):
+    """An explicit UI selection supersedes a hold on a different route."""
+    data=read_json(PLAN)
+    if not data.get('active') or data.get('route_id')==route.id:
+        return
+    if data.get('mode')=='hold_route':
+        write_json(PLAN,{'active':True,'mode':'hold_route','route_id':route.id,
+            'upgrade_maps':[route.restock_map_id],'started_at':time.time()})
+    else:
+        # Savings/equipment circuit policies must not transfer to another area.
+        resume_leveling()
+
+
 def upgrade_tier(level):return max(tier for tier in UPGRADE_LEVELS if tier<=level)
 
 
@@ -52,7 +75,7 @@ def circuit_due(plan,level,previous):
 def upgrade_circuit(loop):
     plan=active_plan()
     if not plan or loop.route.id!=plan['route_id']:return False
-    if plan.get('mode')=='save_silver':return False
+    if plan.get('mode') in ('save_silver','hold_route'):return False
     state=loop.town('gear');previous=read_json(CIRCUIT)
     if not circuit_due(plan,state['level'],previous):return False
     from conquest.world_travel import travel_to_map,connection_path

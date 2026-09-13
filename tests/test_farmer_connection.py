@@ -4,7 +4,7 @@ import pytest
 from conquest.merchants.farmer_connection import attach
 
 
-@pytest.mark.parametrize('case',['login','parasite','merchant','wrong_character','replaced','manual','expired','enabled','stopped'])
+@pytest.mark.parametrize('case',['login','parasite','layout_pending','merchant','wrong_character','replaced','manual','expired','enabled','stopped'])
 def test_exact_farmer_attachment_preserves_other_accounts_and_manual_control(monkeypatch,case):
     calls=[];identity={'pid':10,'creation_time_100ns':20}
     candidate=NS(identity=identity,hwnd=30)
@@ -16,6 +16,7 @@ def test_exact_farmer_attachment_preserves_other_accounts_and_manual_control(mon
     def embed(c):
         assert c is candidate
         calls.append('embed');app.observer=observer
+        app.embed_layout_pending=case=='layout_pending'
     app.embed=embed
     runtime=NS(connecting={},refilling={},observers={'Dutch':observer} if case=='merchant' else {},
                journal=NS(pending=lambda c:[]))
@@ -30,10 +31,11 @@ def test_exact_farmer_attachment_preserves_other_accounts_and_manual_control(mon
     monkeypatch.setattr('conquest.reconnect.login_screen',lambda hwnd:case=='login')
     monkeypatch.setattr('conquest.memory_life.read_life',life)
     queued=time.monotonic()-(4 if case=='expired' else 0)
-    if case in ('login','parasite'):
+    if case in ('login','parasite','layout_pending'):
         result=attach(ui,10,20,queued_at=queued)
-        assert result['attached'] and not result['farming_enabled']
-        assert ('identity' in calls)==(case=='parasite')
+        assert result['attached']==(case!='layout_pending') and not result['farming_enabled']
+        if case=='layout_pending':assert result['pending']
+        assert ('identity' in calls)==(case!='login')
     else:
         with pytest.raises(ValueError):attach(ui,10,21 if case=='replaced' else 20,queued_at=queued)
         assert 'embed' not in calls

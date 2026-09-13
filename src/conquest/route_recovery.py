@@ -1,4 +1,5 @@
 """Persist a death location, verify revival, then return along checked terrain."""
+from conquest.character_context import installation_path, state_path
 import json
 from pathlib import Path
 import time
@@ -201,7 +202,7 @@ class EmbeddedRecoveryInput:
             if dx and dy and abs(dx)+abs(dy)>4:
                 from conquest.navigation import clear_segment,read_terrain
                 if self.terrain is None or self.terrain.map_id!=life.map_id:
-                    self.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',life.map_id)
+                    self.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),life.map_id)
                 if not clear_segment(self.terrain,life.position,destination):
                     raise ValueError('Return jump crosses blocked terrain')
             if kind=='jump' and max(abs(dx),abs(dy))<8:
@@ -225,5 +226,5 @@ class EmbeddedRecoveryInput:
                 diagnostics['error']=str(error)
                 raise
             finally:
-                with Path('reports/recovery-input.jsonl').open('a',encoding='utf-8') as report:
+                with Path(state_path('reports/recovery-input.jsonl')).open('a',encoding='utf-8') as report:
                     report.write(json.dumps(diagnostics)+'\n')

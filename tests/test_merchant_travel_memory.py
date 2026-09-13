@@ -7,10 +7,21 @@ from conquest.merchants import memory
 
 @pytest.mark.parametrize('change',[None,'position_inventory','position_gui',
                                   'death_gui','zero_hp_gui','map_gui','actor_gui'])
-def test_full_stock_snapshot_rechecks_life_after_gui_sampling(monkeypatch,change):
+@pytest.mark.parametrize('character',['Dutch','Kilhiam'])
+def test_full_stock_snapshot_rechecks_life_after_gui_sampling(monkeypatch,change,character):
     reader=memory.MerchantMemory.__new__(memory.MerchantMemory)
     reader.base=0x100000;reader.player=object()
-    reader.observer=NS(character='Dutch',health_layout=object())
+    reader.observer=NS(character=character,health_layout=object())
+    from conquest import character_context
+    verified=[]
+    context=NS(verify=lambda snapshot:verified.append(snapshot['character']),
+               profile=NS(character_uid=123456))
+    monkeypatch.setattr(memory,'farmer_name',lambda:'Kilhiam')
+    monkeypatch.setattr(character_context,'current',lambda:context)
+    def merchant_context(name):
+        assert name=='Dutch', 'A farmer must not be resolved as a merchant'
+        return context
+    monkeypatch.setattr(character_context,'merchant_context',merchant_context)
     live=dict(object_address=0x500000,map_id=1036,current_hp=100,
               position=(100,100),dead_candidate=False)
     inv=NS(items=[],silver=100,capacity=40)
@@ -44,6 +55,7 @@ def test_full_stock_snapshot_rechecks_life_after_gui_sampling(monkeypatch,change
         result=reader.read()
         assert result['position']==[100,100] and result['hp']==100
         assert result['inventory']==[] and result['silver']==100
+        assert verified==[character] and result['own_booth_uid']==0
 
 
 @pytest.mark.parametrize('change',[None,'position','death','server','silver','dialog'])

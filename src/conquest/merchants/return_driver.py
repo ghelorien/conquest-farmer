@@ -1,4 +1,5 @@
 """Normal foreground route input, guarded by live merchant qualification."""
+from conquest.character_context import merchant_installation
 import struct
 import time
 from conquest.capture import CaptureUnavailable
@@ -80,7 +81,7 @@ class ReturnDriver:
         self.qualify_movement()
         o=self.observer
         if snapshot['map_id'] not in self.terrains:
-            self.terrains[snapshot['map_id']]=read_terrain(r'C:\Program Files\Classic Conquer 2.0',snapshot['map_id'])
+            self.terrains[snapshot['map_id']]=read_terrain(merchant_installation(self.driver.observer.character),snapshot['map_id'])
         terrain=self.terrains[snapshot['map_id']]
         fresh=self.read()
         if any(fresh[k]!=snapshot[k] for k in ('identity','position','map_id')):
@@ -172,7 +173,7 @@ class ReturnDriver:
         if spec['claim_mode']=='dialog' and (not spec.get('records') or not spec.get('option')):
             raise ValueError('Shop flag confirmation needs live qualification')
         candidates=vacant_flags(self.observer,spec)
-        terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',1036)
+        terrain=read_terrain(merchant_installation(self.driver.observer.character),1036)
         position=self.read()['position']
         for flag in sorted(candidates,key=lambda f:max(abs(a-b) for a,b in zip(f['position'],preferred))):
             try:_,approach=stall_approach(terrain,position,flag)

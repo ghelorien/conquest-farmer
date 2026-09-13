@@ -1,11 +1,12 @@
 """Find a quiet nearby tile with read-only memory before an app handoff."""
+from conquest.character_context import installation_path, state_path
 import os
 from pathlib import Path
 import time
 
 from conquest.discord_notify import read_json,write_json,process_alive
 
-RESUME=Path('.runtime/reload-resume.json')
+RESUME=Path(state_path('.runtime/reload-resume.json'))
 CLEARANCE=24
 
 
@@ -64,7 +65,7 @@ def park(loop,cancelled,notify,*,seconds=120,allow_town_retreat=True):
         except TravelStateChanged:continue
         data=health['embedded_controls'];life=data['life']
         if loop.terrain.map_id!=life['map_id']:
-            loop.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',life['map_id'])
+            loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),life['map_id'])
         if retreat_map is not None and retreat_map!=life['map_id']:
             retreat=None;retreat_map=None
         key=(life['object_address'],life['map_id'],tuple(life['position']))
@@ -127,13 +128,13 @@ def prepare(info,route_id,cancelled,notify):
     from conquest.worker import request
     from conquest.overnight import OvernightLoop
     from conquest.route_controller import controller_guard
-    stop=Path('.runtime/overnight.stop')
+    stop=Path(state_path('.runtime/overnight.stop'))
     stop.write_text('Safe reload handoff',encoding='utf-8')
     request(info,'controls',{'enabled':False})
     deadline=time.monotonic()+20
     while time.monotonic()<deadline:
         if cancelled.is_set():raise ValueError('Reload canceled by user')
-        status=read_json('reports/overnight/status.json')
+        status=read_json(state_path('reports/overnight/status.json'))
         health=request(info,'health')
         # A stopped controller may leave a PID that Windows cannot query.
         # Its terminal record permits trying the exclusive lock below; only

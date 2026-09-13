@@ -1,4 +1,5 @@
 """Script-only scan scheduling. The running app still owns all game input."""
+from conquest.character_context import state_path
 import json
 from pathlib import Path
 import time
@@ -11,7 +12,7 @@ from conquest.merchants.rollout import verify_rollout
 
 
 def run_cycle(*, now=None, bridge=request, collect=collect_market, verify=verify_rollout,
-              market_path='reports/merchants/market.json'):
+              market_path=state_path('reports/merchants/market.json')):
     """Request only due, enabled merchants; never resume manual pause or one-time work."""
     now = time.time() if now is None else now
     verify()

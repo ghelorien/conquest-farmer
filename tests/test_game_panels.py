@@ -34,6 +34,15 @@ def test_empty_scene_needs_no_input(rig):
     assert panels.close_one(trade) is None and events==[]
 
 
+def test_selected_portable_farmer_can_close_panels(rig,monkeypatch):
+    trade,state,events=rig
+    monkeypatch.setattr(panels,'farmer_name',lambda:'Kilhiam')
+    trade.observer=NS(character='Kilhiam',adapter=object())
+    state['windows']=[{'name':'Inventory'}]
+    assert panels.close_one(trade)=='Inventory'
+    assert events==[{'action':'close','window':'Inventory'}]
+
+
 @pytest.mark.parametrize('character',['Spiritual','Dutch'])
 def test_seller_panels_are_never_closed(rig,character):
     trade,state,events=rig;trade.observer=NS(character=character)

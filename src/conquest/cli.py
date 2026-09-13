@@ -1,4 +1,5 @@
 """CLI for reproducible diagnostics; stdout is JSON, stderr is JSON logging."""
+from conquest.character_context import state_path
 
 import argparse
 import json
@@ -61,7 +62,7 @@ def main(argv=None) -> int:
     dashboard.add_argument("--health-profile", type=Path, help="Enable live control observations with this candidate health profile")
     dashboard.add_argument("--entity-profile", type=Path, default=Path("profiles/classic-1074-entities-candidate.yaml"))
     dashboard.add_argument("--character", default="Parasite")
-    dashboard.add_argument("--control-settings", type=Path, default=Path(".runtime/dashboard-controls.json"))
+    dashboard.add_argument("--control-settings", type=Path, default=Path(state_path(".runtime/dashboard-controls.json")))
     inventory = commands.add_parser("sample-inventory", help="Read candidate inventory and equipped ammo from memory; sends no input")
     inventory.add_argument("--worker-info", required=True, type=Path)
     inventory.add_argument("--player-profile", required=True, type=Path)

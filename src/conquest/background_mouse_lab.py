@@ -4,6 +4,7 @@ Windows message order and TrackMouseEvent results are real observations. Frame
 processing is a small diagnostic model of the captured ImGui input-trickle and
 control-character-filter branches, not a game renderer or gameplay proof.
 """
+from conquest.character_context import state_path
 
 import ctypes
 import json
@@ -254,7 +255,7 @@ if __name__ == '__main__':
         result = {'schema_version': 1, 'dummy_only': True, 'gameplay_qualified': False,
                   'same_position': run_lab(), 'alternating_positions': run_lab(alternate=True),
                   'capture': run_lab(pairs=1, capture=True)}
-        destination = Path('reports/merchants/background/mouse-dummy-verification.json')
+        destination = Path(state_path('reports/merchants/background/mouse-dummy-verification.json'))
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps(result, indent=2), encoding='utf-8')
         print(json.dumps(result))

@@ -11,8 +11,9 @@ from conquest.worker import Operations
 
 
 class EmbeddedObserver:
-    def __init__(self, pid, hwnd, health_layout, entity_layout, character):
+    def __init__(self, pid, hwnd, health_layout, entity_layout, character, *, context=None):
         self.lock = threading.RLock()
+        self.character_context=context
         self.bridge = None
         if health_layout.player.expected_sha256 != entity_layout.expected_sha256:
             raise ValueError('Health and entity profiles describe different clients')
@@ -35,6 +36,13 @@ class EmbeddedObserver:
 
     def __call__(self):
         with self.lock:
+            if self.character_context:
+                from conquest.reconnect import login_screen
+                if not login_screen(self.operations.target.hwnd):
+                    from conquest.client_attachment import verify_observer
+                    from conquest.character_profiles import context_for
+                    context=context_for(self.character_context.profile.id,self.character_context.root)
+                    verify_observer(context,self)
             return self._observe()
 
     def _observe(self):

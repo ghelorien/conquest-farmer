@@ -3,6 +3,7 @@
 No observer, controller, bridge, or input object is created. The result never
 qualifies input, selects an action, or changes Farming On/Off intent.
 """
+from conquest.character_context import farmer_name
 from copy import deepcopy
 from dataclasses import asdict
 import struct
@@ -14,7 +15,7 @@ from conquest.merchants.background_observation import BackgroundObservationReade
 
 
 def _unavailable(reason):
-    return {'schema_version': 1, 'available': False, 'character': 'Parasite',
+    return {'schema_version': 1, 'available': False, 'character': farmer_name(),
             'source': 'read_only_memory', 'input_qualified': False, 'reason': reason}
 
 
@@ -23,7 +24,7 @@ def snapshot(ui):
     observer = getattr(app, 'observer', None)
     if observer is None:
         return _unavailable('Farmer has no attached memory observer')
-    if getattr(observer, 'character', None) != 'Parasite':
+    if getattr(observer, 'character', None) != farmer_name():
         return _unavailable('Attached farmer observer is not Parasite')
     if not observer.lock.acquire(timeout=.1):
         return _unavailable('Farmer memory observer is busy')
@@ -54,13 +55,13 @@ def _snapshot(app, observer, *, clock=time.monotonic):
     if client is not None and (client[0] != identity['pid'] or client[1] != target.hwnd
                                or client[2] != identity):
         raise ValueError('Farmer client selection differs from observer')
-    life = read_life(session, observer.health_layout, 'Parasite')
+    life = read_life(session, observer.health_layout, farmer_name())
     motion_raw = session.read_block(life.object_address + 0x118, 8)
     if len(motion_raw) != 8:
         raise ValueError('Incomplete farmer motion sample')
     motion, frame = struct.unpack('<II', motion_raw)
     motion_stable = session.read_block(life.object_address + 0x118, 8) == motion_raw
-    result = {'schema_version': 1, 'available': True, 'character': 'Parasite',
+    result = {'schema_version': 1, 'available': True, 'character': farmer_name(),
               'source': 'read_only_memory', 'input_qualified': False, 'identity': identity,
               'geometry': geometry, 'life': {**asdict(life), 'dead_candidate': life.dead_candidate},
               'motion': {'id': motion, 'animation_frame': frame, 'stable': motion_stable,
@@ -102,7 +103,7 @@ def _snapshot(app, observer, *, clock=time.monotonic):
                 'note': 'Disappearance does not prove receipt; compare verified inventory snapshots'}
 
     optional('ground', ground)
-    after = read_life(session, observer.health_layout, 'Parasite')
+    after = read_life(session, observer.health_layout, farmer_name())
     if after.object_address != life.object_address or after.map_id != life.map_id:
         raise ValueError('Farmer actor or map changed during observation')
     session.assert_identity()

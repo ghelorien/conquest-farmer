@@ -1,4 +1,5 @@
 """Authenticated delivery coordination; snapshots are read here, never trusted from callers."""
+from conquest.character_context import farmer_name
 from conquest.merchants.journal import character_name
 from conquest.merchants.memory import MerchantMemory
 from conquest.merchants import delivery_reservation as reservations
@@ -7,7 +8,7 @@ from conquest.merchants import delivery_reservation as reservations
 def pair(ui,character):
     farmer=ui.app.observer
     receiver=ui.runtime.observers.get(character)
-    if farmer is None or farmer.character!='Parasite' or receiver is None:
+    if farmer is None or farmer.character!=farmer_name() or receiver is None:
         raise ValueError('Delivery requires both verified connected characters')
     with farmer.lock:
         source=MerchantMemory(farmer).read()
@@ -19,7 +20,7 @@ def pair(ui,character):
 def dispatch(ui,body):
     if body=={'action':'delivery-source'}:
         farmer=ui.app.observer
-        if farmer is None or farmer.character!='Parasite':
+        if farmer is None or farmer.character!=farmer_name():
             raise ValueError('Delivery source must be the verified farmer')
         with farmer.lock:
             return {'farmer':MerchantMemory(farmer).read(farmer_preflight=True)}

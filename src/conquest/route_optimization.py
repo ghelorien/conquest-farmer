@@ -3,13 +3,14 @@
 The scheduled optimization monitor conducts the tests. This module never sends
 game input or changes farming intent; discovering an area only queues work.
 """
+from conquest.character_context import state_path
 from pathlib import Path
 import time
 
 from conquest.discord_notify import read_json, write_json
 
 POLICY = Path('profiles/route-optimization.json')
-STATE = Path('.runtime/route-optimization-state.json')
+STATE = Path(state_path('.runtime/route-optimization-state.json'))
 
 
 def area_key(route):

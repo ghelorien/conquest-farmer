@@ -1,4 +1,5 @@
 """Verified ordinary use of a carried TwinCityGate scroll."""
+from conquest.character_context import state_path
 from dataclasses import asdict
 from pathlib import Path
 import time
@@ -6,7 +7,7 @@ from conquest.discord_notify import read_json,write_json
 
 TYPE=1060020
 POLICY=Path('profiles/return-scroll.json')
-STATUS=Path('reports/return-scroll/status.json')
+STATUS=Path(state_path('reports/return-scroll/status.json'))
 
 
 def in_town(life):

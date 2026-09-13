@@ -1,4 +1,5 @@
 """Reusable foreground hunt / town / sell / restock loop, independent of the AI."""
+from conquest.character_context import installation_path, state_path
 import ctypes
 import json
 import os
@@ -12,7 +13,7 @@ from conquest.travel_care import TravelCare, TravelStateChanged
 from conquest.town_trade import junk_type, sale_candidate, TownObservationUnavailable
 from conquest.worker import request
 
-RECOVERY_CHECKPOINT=Path('.runtime/death-return.json')
+RECOVERY_CHECKPOINT=Path(state_path('.runtime/death-return.json'))
 
 class OvernightStopped(Exception):
     pass
@@ -67,7 +68,7 @@ class OvernightLoop:
         from conquest.savings import configure_route
         self.route=configure_route(self.route)
         self.queue_route_optimization()
-        self.terrain = read_terrain(r'C:\Program Files\Classic Conquer 2.0',self.route.map_id)
+        self.terrain = read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),self.route.map_id)
         self.deadline = None if hours is None else time.monotonic()+hours*3600
         self.first_hunt_seconds = first_hunt_seconds
         self.info = self.care = self.stepper = None
@@ -77,9 +78,9 @@ class OvernightLoop:
         self.last_level=0
         self.phase = 'starting'
         self.cycles = 0
-        self.output = Path('reports/overnight')
+        self.output = Path(state_path('reports/overnight'))
         self.output.mkdir(parents=True,exist_ok=True)
-        self.stop_path = Path('.runtime/overnight.stop')
+        self.stop_path = Path(state_path('.runtime/overnight.stop'))
         self.state = {'pid':os.getpid(),'route':route_id,'cycles':0,'started_at':time.time(),
                       'ends_at':None if hours is None else time.time()+hours*3600}
 
@@ -119,7 +120,7 @@ class OvernightLoop:
             raise OvernightStopped('Overnight duration finished')
 
     def refresh(self):
-        state = read_status('reports/desktop-farming/app-state.json')
+        state = read_status(state_path('reports/desktop-farming/app-state.json'))
         info = state.get('worker_info_path')
         if not info:
             raise ValueError('Embed the client before starting the overnight route')
@@ -715,7 +716,7 @@ class OvernightLoop:
                 self.stop_farm()
                 return 'savings_target'
             if time.monotonic()-last_report > 10:
-                app = read_status('reports/desktop-farming/app-state.json')
+                app = read_status(state_path('reports/desktop-farming/app-state.json'))
                 self.record('hunting',position=life['position'],supplies=supplies,
                             kills=app.get('kills'),pickups=app.get('pickups'),experience=app.get('experience'))
                 last_report = time.monotonic()
@@ -750,7 +751,8 @@ class OvernightLoop:
                 if getattr(self,'reported_hold',None)!=plan['started_at']:
                     self.reported_hold=plan['started_at']
                     self.record('route_hold_active',route_hold=plan,
-                                activity=('Continuous Poltergeist farming; no silver limit' if plan.get('mode')=='save_silver' and plan.get('silver_target') is None
+                                activity=(f'Staying on {selected.name}; automatic route changes paused' if plan.get('mode')=='hold_route'
+                                          else 'Continuous Poltergeist farming; no silver limit' if plan.get('mode')=='save_silver' and plan.get('silver_target') is None
                                           else 'Saving 50,000 silver at Poltergeists; affordable IronArrows allowed' if plan.get('mode')=='save_silver' and plan.get('allow_iron_arrows')
                                           else 'Saving 50,000 silver at Poltergeists; upgrades disabled' if plan.get('mode')=='save_silver'
                                           else 'Overnight hold: Bandits, with Phoenix shops only' if plan['upgrade_maps']==[1011]
@@ -790,14 +792,14 @@ class OvernightLoop:
         travel_to_map(self,selected.map_id)
         request(self.info,'controls',{'route_id':selected.id})
         deadline=time.monotonic()+10
-        while read_status('reports/desktop-farming/app-state.json').get('selected_route')!=selected.id:
+        while read_status(state_path('reports/desktop-farming/app-state.json')).get('selected_route')!=selected.id:
             self.check_stop()
             if time.monotonic()>deadline:raise ValueError('Route selection was not acknowledged')
             time.sleep(.1)
         previous=self.route.id
         self.route=selected.model_copy(update={'supplies':selected.supplies.model_copy(update={'arrow_type':self.route.supplies.arrow_type})})
         self.queue_route_optimization()
-        self.terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',selected.map_id)
+        self.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),selected.map_id)
         self.record('level_route_changed',route=selected.id,previous_route=previous,level=level,
                     activity=f'Level {level}: heading to {selected.name}')
         return True

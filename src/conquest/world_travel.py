@@ -1,4 +1,5 @@
 """Reusable map connections learned from ordinary portal entry and memory arrival."""
+from conquest.character_context import installation_path, state_path
 from collections import deque
 import json
 from pathlib import Path
@@ -6,7 +7,7 @@ import time
 from conquest.navigation import read_terrain
 from conquest.worker import request
 
-CLIENT_ROOT=r'C:\Program Files\Classic Conquer 2.0'
+CLIENT_ROOT=installation_path(r'C:\Program Files\Classic Conquer 2.0')
 CONNECTIONS=Path('profiles/map-connections.json')
 
 
@@ -133,7 +134,7 @@ def return_from_market(loop,destination):
         raise ValueError('Market departure needs a verified return itinerary')
     if any(stash_candidate(item) for item in loop.town('supplies')['items']):
         raise ValueError('Stay in Market: store protected valuables before returning to the route')
-    journal=Path('.runtime/market-route-departure.json')
+    journal=Path(state_path('.runtime/market-route-departure.json'))
     old=read_json(journal)
     if old.get('phase')=='submitted':
         raise ValueError('Market departure is uncertain; reconcile arrival before retrying')

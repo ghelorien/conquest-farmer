@@ -126,10 +126,18 @@ class SavedRoute(BaseModel):
 class RouteLibrary:
     def __init__(self,directory='profiles/routes'):
         self.directory=Path(directory)
+        self.builtin_directory=None
+        from conquest.character_context import current
+        context=current()
+        if context and self.directory.resolve()==(Path(__file__).resolve().parents[2]/'profiles/routes').resolve():
+            self.builtin_directory=self.directory
+            self.directory=context.state_dir/'routes'
 
     def all(self):
+        files={p.name:p for p in sorted(self.builtin_directory.glob('*.yaml'))} if self.builtin_directory else {}
+        files.update({p.name:p for p in sorted(self.directory.glob('*.yaml'))})
         routes=[SavedRoute.model_validate(yaml.safe_load(p.read_text(encoding='utf-8')))
-                for p in sorted(self.directory.glob('*.yaml'))]
+                for p in files.values()]
         if len({r.id for r in routes})!=len(routes):
             raise ValueError('Duplicate saved route IDs')
         # New saved routes inherit only the explicitly recorded normal variants.

@@ -1,4 +1,5 @@
 """Explicit, one-time login and Market arrival; never enables merchant trading."""
+from conquest.character_context import installation_path
 import threading
 import time
 from pathlib import Path
@@ -118,7 +119,8 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
             except ValueError:
                 if market_trial or stall_inspection:raise ValueError('Market qualification requires an already connected merchant')
                 from conquest.client_wrapper import LaunchWatch
-                launcher=Path(r'C:\Program Files\Classic Conquer 2.0\ImBootstrapper.exe')
+                from conquest.character_context import merchant_installation
+                launcher=merchant_installation(character)/'ImBootstrapper.exe'
                 watch=LaunchWatch(runtime.catalog,[str(launcher)],cwd=launcher.parent)
                 with guard.lease(character,purpose='connect_launch'):
                     check();save(runtime,character,'launching');watch.start()
@@ -214,7 +216,8 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
                     initial=driver.memory.read()
                     if initial['booth_open'] or initial.get('trade') or initial.get('request'):
                         raise ValueError('Movement qualification requires a closed booth and no trade')
-                    terrain=read_terrain(r'C:\Program Files\Classic Conquer 2.0',1036)
+                    from conquest.character_context import merchant_installation
+                    terrain=read_terrain(merchant_installation(character),1036)
                     candidates=[]
                     for flag in scene_flags(driver.observer):
                         from conquest.merchants.return_driver import stall_approach

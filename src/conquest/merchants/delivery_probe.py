@@ -9,7 +9,8 @@ from conquest.merchants.delivery import eligible,prepare,exact_items
 from conquest.merchants.delivery_bridge import pair
 from conquest.merchants.journal import character_name
 
-JOURNAL=Path('reports/merchants/delivery-request-probe.json')
+from conquest.character_context import state_path, farmer_name
+JOURNAL=Path(state_path('reports/merchants/delivery-request-probe.json'))
 
 
 def unchanged(intent,farmer,merchant):
@@ -89,7 +90,7 @@ def run(ui,intent,revision,state):
         size=observer.operations.target.snapshot()['client_size']
         gui=memory.gui.viewport_size()
         if size!=gui:raise ValueError('Trade probe requires matching native and GUI dimensions')
-        profile=read_json('reports/merchants/trade-layout-candidate.json')
+        profile=read_json(state_path('reports/merchants/trade-layout-candidate.json'))
         profile={**profile,'gui_size':gui}
         if profile.get('client_sha256')!=observer.adapter.expected_sha256:
             raise ValueError('Trade layout build changed')
@@ -129,7 +130,7 @@ def run(ui,intent,revision,state):
             check()
             f,m=pair(ui,character)
             if m.get('request'):
-                if m['request'].get('participant')!='Parasite':
+                if m['request'].get('participant')!=farmer_name():
                     raise ValueError('Merchant received a different trade request')
                 save('request_verified',farmer_after=f,merchant_after=m)
                 return

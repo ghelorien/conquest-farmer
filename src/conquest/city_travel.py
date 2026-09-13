@@ -1,4 +1,5 @@
 """Mandatory destination-town arrival, verified with live map and position."""
+from conquest.character_context import installation_path, state_path
 import json
 import time
 from pathlib import Path
@@ -6,8 +7,8 @@ from conquest.navigation import read_terrain
 from conquest.discord_notify import write_json
 
 CITIES=Path('profiles/cities.json')
-VISIT=Path('.runtime/city-visit.json')
-CLIENT_ROOT=r'C:\Program Files\Classic Conquer 2.0'
+VISIT=Path(state_path('.runtime/city-visit.json'))
+CLIENT_ROOT=installation_path(r'C:\Program Files\Classic Conquer 2.0')
 
 
 def city_for(map_id):
