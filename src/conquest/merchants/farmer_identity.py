@@ -11,4 +11,3 @@ def ui_character(ui):
 def route_character(loop):
     return (getattr(loop,'character',None)
             or read_json('reports/desktop-farming/app-state.json').get('character') or 'Parasite')
-
