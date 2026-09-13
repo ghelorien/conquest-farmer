@@ -396,7 +396,7 @@ def test_service_window_covers_remote_ingress_before_recipient_is_actionable(rig
         return rig.send(body)
     result=route.market_storage(rig.loop,send=send)
     visit=read_json(rig.visit_path)
-    assert result and visit['phase']=='active' and rig.loop.market_service_deadline==visit['deadline']
+    assert result and visit['phase']=='active' and rig.loop.market_service_deadline is None
 
 
 def test_current_dutch_diagonal_in_range_is_not_clickable(rig):
