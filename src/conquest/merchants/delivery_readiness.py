@@ -31,6 +31,8 @@ def describe(ui,farmer_driver):
             'missing_qualifications':missing,
             'trading_enabled':bool(runtime and runtime.enabled(character))}
     blockers=[]
+    from conquest.merchants.farmer_preferences import enabled,ui_character
+    if not enabled(ui_character(ui)):blockers.append('farmer_transfers_off')
     if not policy.get('enabled'):blockers.append('delivery_rollout_disabled')
     if not policy.get('parity_verified'):blockers.append('rollout_validation_incomplete')
     if not farmer_qualified:blockers.append('farmer_trade_controls_unqualified')

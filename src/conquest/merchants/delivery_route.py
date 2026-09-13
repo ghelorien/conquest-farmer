@@ -12,6 +12,7 @@ from conquest.discord_notify import read_json,write_json
 from conquest.merchants.bridge import request
 from conquest.merchants.delivery import plan_deliveries
 from conquest.merchants.handoff import WorkWindows
+from conquest.merchants.farmer_preferences import enabled as transfers_enabled,route_character
 
 POLICY=Path('profiles/merchant-deliveries.json')
 STATE=Path('reports/banking/merchant-route.json')
@@ -42,7 +43,7 @@ def warehouse_exhausted(loop,stored,remaining,*,send=request):
     if len(stored['items'])<stored['capacity']:return False
     if remaining:return True
     policy=read_json(POLICY)
-    if not policy.get('enabled') or not policy.get('parity_verified'):return True
+    if not policy.get('enabled') or not policy.get('parity_verified') or not transfers_enabled(route_character(loop)):return True
     from conquest.merchants.delivery import validate_snapshot
     from conquest.merchants.journal import CHARACTERS
     try:
@@ -155,7 +156,7 @@ def market_storage(loop,*,send=request):
     # Disabling policy never authorizes abandoning an in-flight transaction.
     if state.get('active'):settle(loop,send,state)
     policy=read_json(POLICY)
-    if not policy.get('enabled') or not policy.get('parity_verified'):return []
+    if not policy.get('enabled') or not policy.get('parity_verified') or not transfers_enabled(route_character(loop)):return []
     if loop.living()['embedded_controls']['life']['map_id']!=1036:return []
     try:
         if not send({'action':'delivery-readiness'}).get('qualified'):return []
@@ -165,6 +166,7 @@ def market_storage(loop,*,send=request):
     # Inventory is bounded to forty slots. Re-plan after every receipt so
     # listings, capacity changes and split deliveries cannot reuse stale plans.
     for _ in range(40):
+        if not transfers_enabled(route_character(loop)):return receipts
         if not plans:return receipts
         plan=plans[0]
         check_stop(loop)

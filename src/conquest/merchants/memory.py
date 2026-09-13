@@ -267,6 +267,16 @@ class StockItem:
             self.plus,(socket_name(self.gem1),socket_name(self.gem2)))
 
 
+def trade_silver(text, *, accepted=False, locked=False):
+    # The pinned Accept Trade renderer (10fa50..10fa6d) writes this exact
+    # zero/checkmark string when it locks an untouched own gold field.
+    if text=='0 \u2714' and accepted and locked:
+        return 0
+    if text and text.isascii() and text.isdecimal():
+        return int(text)
+    raise ValueError('Unverified trade silver fields')
+
+
 class MerchantMemory:
     def __init__(self, observer, *, definitions=None):
         self.observer = observer
@@ -378,11 +388,11 @@ class MerchantMemory:
             # infer zero just because no gold has left inventory yet.
             own_silver_text = string(s,trade_model+0x78,32)
             other_silver_text = string(s,trade_model+0x58,32)
-            if not own_silver_text.isdecimal() or not other_silver_text.isdecimal():
-                raise ValueError('Unverified trade silver fields')
+            own_silver=trade_silver(own_silver_text,accepted=bool(trade_raw[0x98]),locked=bool(trade_raw[0x54]))
+            other_silver=trade_silver(other_silver_text)
             trade = {'participant':participant,'participant_uid':participant_uid,
                 'own_items':[asdict(i) for i in own],'items':[asdict(i) for i in other],
-                'own_silver':int(own_silver_text),'other_silver':int(other_silver_text),
+                'own_silver':own_silver,'other_silver':other_silver,
                 'accepted':bool(trade_raw[0x98]),'other_accepted':bool(trade_raw[0x99])}
             if s.read_block(actor+0xf28,32) != own_header or s.read_block(actor+0xf50,32) != other_header or s.read_block(trade_model,0x9a) != trade_raw:
                 raise ValueError('Trade changed during observation')

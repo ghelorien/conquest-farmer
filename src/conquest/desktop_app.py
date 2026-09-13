@@ -165,6 +165,15 @@ class DesktopApp:
         ttk.Button(farm_row, text='Farming On · F10', command=lambda:self.update_ids(True)).pack(side='left',fill='x',expand=True)
         ttk.Button(farm_row, text='Off', command=lambda:self.update_ids(False)).pack(side='left',padx=6)
         ttk.Label(farm_row,text='F11 pause · F12 stop').pack(side='right')
+        from conquest.merchants.farmer_preferences import enabled as transfers_enabled
+        try:
+            self.transfer_character=TrialConfig.model_validate(yaml.safe_load(self.profile.read_text())).character
+        except (OSError,ValueError,yaml.YAMLError):
+            self.transfer_character=None
+        self.merchant_transfers=tk.BooleanVar(value=bool(self.transfer_character and transfers_enabled(self.transfer_character)))
+        ttk.Checkbutton(self.sidebar,text='Transfer loot to merchants',variable=self.merchant_transfers,
+                        state='normal' if self.transfer_character else 'disabled',
+                        command=self.save_merchant_transfers).pack(anchor='w',pady=(0,4))
 
         self.mouse_note=tk.StringVar(value='Mouse control: automatic · move mouse to take over')
         ttk.Label(self.sidebar,textvariable=self.mouse_note).pack(anchor='w',pady=(0,4))
@@ -222,6 +231,16 @@ class DesktopApp:
         except OSError:
             self.detail_text.set('Discord notifier could not start; farming is unaffected')
 
+    def save_merchant_transfers(self):
+        from conquest.merchants.farmer_preferences import set_enabled,enabled
+        try:
+            set_enabled(self.transfer_character,bool(self.merchant_transfers.get()))
+            self.detail_text.set('Merchant transfers '+('On' if self.merchant_transfers.get() else 'Off')+
+                ' for '+self.transfer_character)
+        except (OSError,ValueError) as error:
+            self.merchant_transfers.set(enabled(self.transfer_character))
+            self.detail_text.set('Could not save merchant transfer setting: '+str(error))
+
     def toggle_route_details(self):
         if self.route_details_frame.winfo_manager():
             self.route_details_frame.pack_forget()
@@ -251,6 +270,7 @@ class DesktopApp:
         self.last.update(fields)
         if getattr(self,'kill_session',None):self.last.update(self.kill_session.snapshot())
         self.last.update(pid=os.getpid(), updated_at=time.time(), ui_revision=5,
+            character=getattr(self,'transfer_character',None),
             selected_route=self.selected_route.id if self.selected_route else None,
             client_tools_revision=2,runback_monitor_revision=1,meteor_loop_revision=1,return_path_revision=2,
             scatter_projection_revision=3,level_eta_revision=1,empty_restock_revision=1,supply_refill_revision=1,scatter_ammo_minimum_revision=1,market_warehouse_click_revision=1)

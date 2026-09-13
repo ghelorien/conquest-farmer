@@ -150,7 +150,8 @@ class FarmerTradeDriver:
             self.check();f,m=self.read_pair(intent['merchant']['character']);guard(f,m)
             if self.driver.point(f,control)!=point:raise ValueError('Trade control moved')
             window=next(w for w in f['windows'] if w['name']==spec['window'])
-            self.driver.memory.gui.assert_hovered(window,spec['label'])
+            seeds=[0x02a99238] if spec.get('mode')=='native_items_trade' else None
+            self.driver.memory.gui.assert_hovered(window,spec['label'],seeds=seeds)
         foreground_click(self.driver.target,*point,tuple(profile['client_size']),require_foreground=True,
             before_press=lambda:wait_hover_validation(before,self.check))
 

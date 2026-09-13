@@ -55,6 +55,8 @@ def dispatch(ui,body):
         raise ValueError('Delivery request ID reused for another batch')
     if running:return {'request_id':key,'running':True,'receipt':old}
     if not old:
+        from conquest.merchants.farmer_preferences import permits_new_delivery,ui_character
+        permits_new_delivery(ui_character(ui))
         policy=read_json('profiles/merchant-deliveries.json')
         if not policy.get('enabled') or not policy.get('parity_verified'):
             raise ValueError('Merchant delivery rollout is not enabled')

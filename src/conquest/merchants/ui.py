@@ -169,6 +169,12 @@ class UnifiedUI:
 
     def dispatch(self, body):
         action = body.get('action')
+        if action=='probe-delivery-request' and set(body)=={'action','character'}:
+            from conquest.merchants.delivery_probe import start
+            return start(self,body['character'])
+        if action=='probe-delivery-stage' and set(body)=={'action','stage'}:
+            from conquest.merchants.delivery_live import start
+            return start(self,body['stage'])
         if action=='reconcile-stall-inspection' and set(body)=={'action','character'}:
             character=character_name(body['character'])
             from conquest.merchants.stall_probe import reconcile_interrupted_probe

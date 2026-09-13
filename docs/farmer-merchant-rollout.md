@@ -14,6 +14,19 @@ for the current identity-reader fixes and remaining live gates. Credentials,
 local qualifications and runtime evidence are intentionally absent from GitHub.
 Unattended merchant deliveries remain disabled in this source snapshot.
 
+Each farmer tab has a **Transfer loot to merchants** checkbox beneath the farming
+controls. It is saved per character across app restarts. Off prevents new merchant
+delivery work and keeps warehouse fallback; it does not change merchant selling
+or refill permissions. Previously submitted transfers still require reconciliation.
+On permits qualified deliveries but does not bypass the rollout or input checks.
+
+A supervised Market transfer to Spiritual subsequently completed with 12 eligible
+valuables. The exact offer and both final inventories reconciled with no currency
+transfer. This exposed and fixed the native confirmed-zero gold field (`0 ✔`)
+reader and asynchronous placement observation. Staged probes retain their journal
+before input and never repeat an uncertain drag or confirmation. Qualification
+for Dutch, interrupted transfers and the unattended delivery cycle is still pending.
+
 ## Running validation
 
 The original two-hour observation starts at Unix time 1789228367.7013636.

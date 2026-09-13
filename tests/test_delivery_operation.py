@@ -44,6 +44,9 @@ def test_disabled_rollout_cannot_construct_native_input_driver(tmp_path,monkeypa
 
 
 def test_restart_only_reconciles_and_repeated_request_reuses_live_worker(tmp_path,monkeypatch):
+    from conquest.merchants import farmer_preferences
+    monkeypatch.setattr(farmer_preferences,'PATH',tmp_path/'preferences.json')
+    farmer_preferences.set_enabled('Parasite',False)
     path=tmp_path/'source.sqlite3';monkeypatch.setattr(operation,'JOURNAL',path)
     journal=Journal(path)
     journal.begin('one','Dutch','farmer_delivery',{'items':[{'uid':10}]})
