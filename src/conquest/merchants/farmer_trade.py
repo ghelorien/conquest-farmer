@@ -21,6 +21,18 @@ from conquest.merchants.trade_controls import targeting_state
 PROFILE=Path(state_path('.runtime/merchants/farmer-delivery-qualified.json'))
 
 
+class RecipientAbsent(CaptureUnavailable):
+    """The qualified receiver UID is not present in the farmer scene."""
+
+    def __init__(self,message,*,occupied_tiles=()):
+        super().__init__(message)
+        self.occupied_tiles=list(map(list,occupied_tiles))
+
+
+class RecipientAmbiguous(ValueError):
+    """More than one live scene object claims the qualified receiver UID."""
+
+
 def partial_offer(intent,farmer,merchant):
     trade=farmer.get('trade')
     if not trade:raise ValueError('Farmer trade is not open')
@@ -79,8 +91,7 @@ def _recipient_record(observer,profile,merchant,*,targeting=False):
             raise ValueError('Receiver moved during observation')
         matches.append({'address':obj,'uid':uid,'name':name,'position':list(position),
                         'point':list(point)})
-    if len(matches)!=1:raise ValueError('Receiver UID is absent or ambiguous in the farmer scene')
-    if targeting:
+    if len(matches)==1 and targeting:
         mode=profile['target_mode']
         native=targeting_state(s)
         if mode.get('rva')!=native['rva'] or mode.get('value')!=native['value']:
@@ -94,6 +105,11 @@ def _recipient_record(observer,profile,merchant,*,targeting=False):
         raise ValueError('Receiver scene changed')
     s.assert_identity()
     if time.monotonic()-started>.5:raise CaptureUnavailable('Receiver observation expired')
+    if not matches:
+        raise RecipientAbsent('Receiver UID is absent from the farmer scene',
+                              occupied_tiles=[v['position'] for v in occupied])
+    if len(matches)!=1:
+        raise RecipientAmbiguous('Receiver UID is ambiguous in the farmer scene')
     return {**matches[0],'occupied_tiles':[v['position'] for v in occupied]}
 
 
@@ -231,7 +247,10 @@ class FarmerTradeDriver:
     def target_status(self,merchant):
         """Read-only bridge helper for route preflight and live re-projection."""
         profile=self.require_qualified();farmer,receiver=self.read_pair(merchant)
-        result=recipient_actionability(self.driver.observer,profile,receiver,farmer=farmer)
+        try:
+            result=recipient_actionability(self.driver.observer,profile,receiver,farmer=farmer)
+        except RecipientAbsent as error:
+            result=None;absent_occupied=error.occupied_tiles
         from conquest.memory_life import read_life
         from conquest.scene_input import memory_player_anchor
         life=read_life(self.driver.observer.adapter,self.driver.observer.health_layout,
@@ -239,6 +258,14 @@ class FarmerTradeDriver:
         if list(life.position)!=farmer['position']:
             raise ValueError('Farmer moved during delivery target preflight')
         anchor=memory_player_anchor(self.driver.observer,life)
+        if result is None:
+            return {'schema_version':1,'ready':False,'actionable':False,
+                    'reason':'recipient_absent','character':farmer['character'],
+                    'farmer_position':farmer['position'],'merchant':receiver['character'],
+                    'merchant_position':receiver['position'],'point':None,
+                    'viewport':list(profile['gui_size']),'client_size':list(profile['client_size']),
+                    'anchor':list(anchor),'occupied_tiles':list(map(list,dict.fromkeys(map(tuple,
+                        [farmer['position'],*absent_occupied]))))}
         occupied=[farmer['position'],*result['recipient'].get('occupied_tiles',[])]
         occupied=list(map(list,dict.fromkeys(map(tuple,occupied))))
         return {'schema_version':1,'ready':result['actionable'],'reason':result['reason'],

@@ -76,7 +76,8 @@ def rig(monkeypatch,tmp_path):
         if action=='delivery-status':return {'running':False,'receipt':receipts.get(body['request_id'])}
         if action=='handoff-release':return {'released':True}
         return {}
-    return NS(loop=loop,send=send,f=f,d=d,s=s,events=events,receipts=receipts,health=health)
+    return NS(loop=loop,send=send,f=f,d=d,s=s,events=events,receipts=receipts,health=health,
+              visit_path=tmp_path/'visit.json')
 
 
 def test_disabled_storage_does_not_inspect_or_move(rig):
@@ -314,6 +315,88 @@ def test_merchant_approach_requires_visible_reachable_tile(rig):
     assert route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[40,10]},rig.send)
     assert rig.send({'action':'delivery-target','character':'Dutch'})['ready']
     assert rig.f['position']!=rig.d['position']
+
+
+def test_absent_remote_recipient_uses_only_checked_ingress_before_fresh_target_probe(rig):
+    from conquest.navigation import line_tiles
+    rig.f['position']=[10,10];rig.d['position']=[50,10]
+    rig.loop.terrain.travel_path=lambda a,b:line_tiles(a,b)
+    def send(body):
+        if body['action']=='delivery-target':
+            distance=max(abs(a-b) for a,b in zip(rig.f['position'],rig.d['position']))
+            if distance>12:
+                rig.events.append(('delivery-target',copy.deepcopy(body)))
+                return {'ready':False,'reason':'recipient_absent','point':None,
+                        'farmer_position':list(rig.f['position']),
+                        'merchant_position':list(rig.d['position']),
+                        'viewport':[1416,850],'occupied_tiles':[list(rig.f['position'])]}
+        return rig.send(body)
+    assert route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[50,10]},send)
+    assert rig.f['position']==[46,10]
+    assert len([1 for event,_ in rig.events if event=='travel'])==3
+
+
+@pytest.mark.parametrize('stalled',[False,True])
+def test_approach_applies_short_deadline_inside_travel_and_restores_outer_visit(rig,monkeypatch,stalled):
+    from conquest.travel_progress import TravelStalled
+    now=[1000.0];rig.loop.market_service_deadline=1060.0;rig.d['position']=[40,10]
+    monkeypatch.setattr(route.time,'time',lambda:now[0])
+    original=rig.loop.travel
+    def travel(point,**fields):
+        assert rig.loop.market_service_deadline==1015.0
+        if stalled:raise TravelStalled('test stall')
+        original(point,**fields)
+    rig.loop.travel=travel
+    result=route.approach_merchant(rig.loop,
+        {'merchant':'Dutch','position':rig.d['position']},rig.send,deadline=1060.0)
+    assert result is (not stalled)
+    assert rig.loop.market_service_deadline==1060.0
+
+
+def test_ambiguous_remote_recipient_is_hard_failure_without_movement(rig):
+    def send(body):
+        if body['action']=='delivery-target':raise ValueError('Receiver UID is ambiguous in the farmer scene')
+        return rig.send(body)
+    with pytest.raises(ValueError,match='ambiguous'):
+        route.approach_merchant(rig.loop,{'merchant':'Dutch','position':rig.d['position']},send)
+    assert not any(event=='travel' for event,_ in rig.events)
+
+
+def test_slow_target_observation_cannot_authorize_after_approach_deadline(rig,monkeypatch):
+    now=[1000.0];monkeypatch.setattr(route.time,'time',lambda:now[0])
+    def send(body):
+        result=rig.send(body)
+        if body['action']=='delivery-target':now[0]=1016.0
+        return result
+    assert not route.approach_merchant(rig.loop,
+        {'merchant':'Dutch','position':rig.d['position']},send,deadline=1060.0)
+    assert not any(event=='travel' for event,_ in rig.events)
+
+
+def test_service_window_covers_remote_ingress_before_recipient_is_actionable(rig):
+    from conquest.navigation import line_tiles
+    rig.f['position']=[10,10];rig.d['position']=[50,10]
+    rig.loop.terrain.travel_path=lambda a,b:line_tiles(a,b)
+    original_travel=rig.loop.travel
+    def travel(point,**fields):
+        visit=read_json(rig.visit_path)
+        assert (visit['phase']=='active'
+                and time.time()<rig.loop.market_service_deadline<=visit['deadline'])
+        original_travel(point,**fields)
+    rig.loop.travel=travel
+    def send(body):
+        if body['action']=='delivery-target':
+            distance=max(abs(a-b) for a,b in zip(rig.f['position'],rig.d['position']))
+            if distance>12:
+                rig.events.append(('delivery-target',copy.deepcopy(body)))
+                return {'ready':False,'reason':'recipient_absent','point':None,
+                        'farmer_position':list(rig.f['position']),
+                        'merchant_position':list(rig.d['position']),
+                        'viewport':[1416,850],'occupied_tiles':[list(rig.f['position'])]}
+        return rig.send(body)
+    result=route.market_storage(rig.loop,send=send)
+    visit=read_json(rig.visit_path)
+    assert result and visit['phase']=='active' and rig.loop.market_service_deadline==visit['deadline']
 
 
 def test_current_dutch_diagonal_in_range_is_not_clickable(rig):

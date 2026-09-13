@@ -194,28 +194,39 @@ def refill_remainder(loop,send,key,deadline,proof,revision):
 
 def approach_merchant(loop,plan,send,*,deadline=None):
     """World distance ranks candidates; the driver shares the arrival proof."""
-    from conquest.merchants.approach import positions
+    from conquest.merchants.approach import ingress_position,positions
     from conquest.travel_progress import TravelStalled
     used=[]
+    correction_deadline=time.time()+15
+    if deadline is not None:correction_deadline=min(correction_deadline,deadline)
     for attempt in range(4):
         check_stop(loop)
-        if deadline is not None and time.time()>=deadline:return False
+        if time.time()>=correction_deadline:return False
         probe=send({'action':'delivery-target','character':plan['merchant']})
+        if time.time()>=correction_deadline:return False
         if probe.get('merchant_position')!=plan['position']:
             return False
         if probe.get('ready'):return True
         if attempt==3:return False
-        candidates=positions(loop.terrain,probe,used=used,deadline=deadline)
+        if probe.get('reason')=='recipient_absent':
+            ingress=ingress_position(loop.terrain,probe,used=used,deadline=correction_deadline)
+            candidates=[ingress] if ingress is not None else []
+        else:
+            candidates=positions(loop.terrain,probe,used=used,deadline=correction_deadline)
         if not candidates:return False
         target=candidates[0];used.append(target)
         loop.record('merchant_repositioning',merchant=plan['merchant'],attempt=attempt+1,
                     reason=probe.get('reason'),destination=target,
                     activity=f"Repositioning for a visible trade target: {plan['merchant']}")
+        previous=getattr(loop,'market_service_deadline',None)
+        loop.market_service_deadline=(min(previous,correction_deadline)
+                                      if isinstance(previous,(int,float)) else correction_deadline)
         try:loop.travel(target,arrival_radius=0,activity=f"Approaching verified trade view of {plan['merchant']}")
         except TravelStalled:
             loop.record('merchant_approach_deferred',merchant=plan['merchant'],
                         activity='Merchant approach stalled; selecting another safe destination')
             return False
+        finally:loop.market_service_deadline=previous
     return False
 
 

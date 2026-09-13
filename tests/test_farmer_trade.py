@@ -64,12 +64,13 @@ def test_incomplete_native_qualification_never_authorizes_input():
     with pytest.raises(ValueError,match='qualification is incomplete'):d.require_qualified()
 
 
-@pytest.mark.parametrize('failure',[None,'duplicate','name','position','mode','moving'])
+@pytest.mark.parametrize('failure',[None,'absent','duplicate','name','position','mode','moving'])
 def test_receiver_memory_requires_one_stable_matching_uid_and_target_mode(monkeypatch,failure):
     import struct
     from conquest.merchants import farmer_trade as module
     base=0x100000;collection=0x200000;begin=0x300000;obj=0x400000
-    objects=[obj,obj+0x100] if failure=='duplicate' else [obj]
+    objects=([] if failure=='absent' else
+             [obj,obj+0x100] if failure=='duplicate' else [obj])
     entries=b''.join(struct.pack('<QQ',0,p) for p in objects)
     raw=bytearray(44);struct.pack_into('<QI',raw,0,base+0x400,2)
     raw[12:17]=b'Wrong' if failure=='name' else b'Dutch'
@@ -97,10 +98,38 @@ def test_receiver_memory_requires_one_stable_matching_uid_and_target_mode(monkey
         'gui_size':[1000,800],'target_mode':{'rva':0x600,'value':7}}
     merchant={'character_uid':2,'character':'Dutch','position':[100,200]}
     if failure:
-        with pytest.raises(ValueError):module.recipient_record(observer,profile,merchant,targeting=True)
+        expected=(module.RecipientAbsent if failure=='absent' else
+                  module.RecipientAmbiguous if failure=='duplicate' else ValueError)
+        with pytest.raises(expected):module.recipient_record(observer,profile,merchant,targeting=True)
     else:
         r=module.recipient_record(observer,profile,merchant,targeting=True)
         assert r['uid']==2 and r['point']==[400,300]
+
+
+def test_delivery_target_reports_exact_absent_recipient_without_collapsing_ambiguity(monkeypatch):
+    from conquest.merchants import farmer_trade as module
+    from conquest import memory_life,scene_input
+    farmer={'character':'Parasite','position':[10,20],'windows':[]}
+    merchant={'character':'Dutch','position':[50,40]}
+    driver=FarmerTradeDriver.__new__(FarmerTradeDriver)
+    driver.require_qualified=lambda:{'gui_size':[1000,800],'client_size':[1250,1000]}
+    driver.read_pair=lambda name:(farmer,merchant)
+    driver.driver=NS(observer=NS(adapter=object(),health_layout=object(),character='Parasite'))
+    monkeypatch.setattr(module,'recipient_actionability',lambda *a,**k:
+                        (_ for _ in ()).throw(module.RecipientAbsent('not in scene')))
+    monkeypatch.setattr(memory_life,'read_life',lambda *a:NS(position=(10,20)))
+    monkeypatch.setattr(scene_input,'memory_player_anchor',lambda *a:(500,400))
+    result=driver.target_status('Dutch')
+    assert result=={'schema_version':1,'ready':False,'actionable':False,
+        'reason':'recipient_absent','character':'Parasite','farmer_position':[10,20],
+        'merchant':'Dutch','merchant_position':[50,40],'point':None,
+        'viewport':[1000,800],'client_size':[1250,1000],'anchor':[500,400],
+        'occupied_tiles':[[10,20]]}
+
+    monkeypatch.setattr(module,'recipient_actionability',lambda *a,**k:
+                        (_ for _ in ()).throw(module.RecipientAmbiguous('duplicate UID')))
+    with pytest.raises(module.RecipientAmbiguous,match='duplicate UID'):
+        driver.target_status('Dutch')
 
 
 @pytest.mark.parametrize('draw_format',[None,'f32'])

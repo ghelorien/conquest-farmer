@@ -99,6 +99,27 @@ reason and timestamp when reconciliation proves no input occurred or leaves an
 ambiguous result blocked. It does not add retry authority. The existing
 LeatherArmor failure predates that fix, so its original cause is unavailable.
 
+Release `5b0a85d` was then loaded through the native safe reload. Before/after
+checks preserved the three character identities, exact inventories, booth
+prices and silver. Both independent refill permissions were restored. A first
+reload preflight deferred to manual mouse activity before any launcher change.
+
+Later fresh memory observations showed external inventory changes: the
+LeatherArmor and several other valuables were already carried by the farmer.
+No additional automated warehouse withdrawal was sent. The original terminal
+withdrawal records remain unchanged, and the carried items must be transferred
+or stored before leaving Market. Those external changes are not automated
+withdrawal receipts.
+
+A live read-only preflight found Dutch outside the farmer's scene. The new
+approach code distinguishes a stably absent receiver from an ambiguous UID,
+uses checked visible terrain steps toward the receiver's fresh world position,
+and rechecks exact scene identity before targeting. It retains known occupied
+tiles, allows at most three approach moves, and limits approach work to fifteen
+seconds inside the original sixty-second Market service budget. That deadline
+also applies while movement is running. Live transfer qualification is still
+required.
+
 ## Merchant inventory refill restored
 
 Both merchants' refill permissions had been paused for controlled qualification.
