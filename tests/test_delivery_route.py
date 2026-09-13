@@ -33,7 +33,11 @@ def rig(monkeypatch,tmp_path):
         town=lambda action,**fields:events.append((action,fields)),
         focus=lambda h:events.append(('focus',None)),
         record=lambda event,**fields:events.append((event,fields)))
-    def travel(p,**fields):f['position']=list(p);events.append(('travel',list(p)))
+    def travel(p,**fields):
+        # Match the real OvernightLoop contract rather than accepting any radius.
+        assert type(fields.get('arrival_radius')) is int
+        assert 0 <= fields['arrival_radius'] <= 2
+        f['position']=list(p);events.append(('travel',list(p)))
     loop.travel=travel
     def send(body):
         events.append((body['action'],copy.deepcopy(body)))

@@ -175,7 +175,7 @@ def market_storage(loop,*,send=request):
             try:loop.town('service-close-panel',window=window)
             except ValueError as error:
                 if not any(note in str(error) for note in ('not active','absent')):raise
-        loop.travel(tuple(plan['position']),arrival_radius=3,
+        loop.travel(tuple(plan['position']),arrival_radius=2,
                     activity=f"Taking loot to {plan['merchant']}")
         fresh=candidates(loop,send)
         if not fresh:return receipts
