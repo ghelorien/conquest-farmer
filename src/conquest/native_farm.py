@@ -445,7 +445,7 @@ class NativeFarmSupervisor:
                 self.loot_cooldowns[(drop.uid,drop.object_address)]=now+60
                 self.pending_loot=None
         self.loot_cooldowns={k:v for k,v in self.loot_cooldowns.items() if v>now}
-        candidates=[];approaches=[];anchor=None
+        candidates=[];approaches=[];deferred=[];anchor=None
         from conquest.discard_loot import ignored_drop, JOURNAL
         from conquest.discord_notify import read_json
         discarder=getattr(self,'discarder',None)
@@ -453,17 +453,25 @@ class NativeFarmSupervisor:
         for drop in drops:
             if (money_only and not drop.silver) or not wanted_drop(drop):
                 continue
+            def defer(reason):
+                deferred.append({'uid':drop.uid,'type_id':drop.type_id,'plus':drop.plus,
+                    'position':drop.position,'action':'deferred','reason':reason})
             if ownership is not None and ownership.blocked(drop,self.map_id):
+                defer('ownership_rejected')
                 continue
             if ignored_drop(drop,getattr(self,'map_id',1002),ignored):
+                defer('previously_discarded')
                 continue
             if (drop.uid,drop.object_address) in self.loot_cooldowns:
+                defer('pickup_cooldown')
                 continue
             if not drop.silver and len(inventory.items)>=inventory.capacity:
+                defer('inventory_full')
                 continue
             dx,dy=drop.position[0]-position[0],drop.position[1]-position[1]
             distance=max(abs(dx),abs(dy))
             if distance>40:
+                defer('outside_40_tile_search')
                 continue
             viewport=size_for(self.observer)
             if anchor is None:anchor=self.player_anchor(position)
@@ -473,14 +481,16 @@ class NativeFarmSupervisor:
                 approaches.append((rank,drop))
                 continue
             candidates.append((rank,drop,point))
-        if candidates or approaches:
+        if candidates or approaches or deferred or getattr(self,'last_valuable_summary',None):
             summary=[{'uid':drop.uid,'type_id':drop.type_id,'plus':drop.plus,'position':drop.position,
                       'action':'approach'} for _,drop in approaches]
             summary += [{'uid':drop.uid,'type_id':drop.type_id,'plus':drop.plus,'position':drop.position,
                          'action':'pickup'} for _,drop,_ in candidates]
+            summary += deferred
             if summary!=getattr(self,'last_valuable_summary',None):
                 self.last_valuable_summary=summary
-                self.notify('memory_loot_observed',{'valuable_drops':summary,'timestamp':time.time()})
+                self.notify('memory_loot_observed',{'valuable_drops':summary,'timestamp':time.time(),
+                    'player_position':position,'map_id':self.map_id})
         if approaches and (not candidates or min(row[0] for row in approaches)<min(row[0] for row in candidates)):
             for _,drop in sorted(approaches,key=lambda row:row[0]):
                 if self.approach_loot(drop,position,dispatch):return True
@@ -514,14 +524,21 @@ class NativeFarmSupervisor:
         """Reposition toward a freshly observed valuable instead of skipping it."""
         now=time.monotonic()
         if now<getattr(self,'loot_approach_ready',0):return True
+        def deferred(reason):
+            signature=(drop,tuple(position),reason)
+            if signature!=getattr(self,'last_loot_approach_deferred',None):
+                self.last_loot_approach_deferred=signature
+                self.notify('memory_pickup_deferred',{'uid':drop.uid,'type_id':drop.type_id,
+                    'position':drop.position,'player_position':position,'detail':reason})
+            return False
         terrain=getattr(self.recovery,'terrain',None)
-        if terrain is None or not hasattr(terrain,'path'):return False
+        if terrain is None or not hasattr(terrain,'path'):return deferred('Loot terrain unavailable')
         from conquest.navigation import native_waypoint
         boundary=getattr(self,'loot_boundary',(0,0,terrain.width-1,terrain.height-1))
         try:
             path=terrain.path(position,drop.position)
-            if len(path)<2 or len(path)>100:return False
-            if any(not(boundary[0]<=x<=boundary[2] and boundary[1]<=y<=boundary[3]) for x,y in path):return False
+            if len(path)<2 or len(path)>100:return deferred('Loot path outside bounded approach length')
+            if any(not(boundary[0]<=x<=boundary[2] and boundary[1]<=y<=boundary[3]) for x,y in path):return deferred('Loot path leaves hunting boundary')
             destination=native_waypoint(path,viewport=size_for(self.observer))
             dx,dy=destination[0]-position[0],destination[1]-position[1]
             viewport=size_for(self.observer)
@@ -529,22 +546,22 @@ class NativeFarmSupervisor:
             from conquest.scene_input import visible_route_delta
             from conquest.viewport import scene_bounds
             delta=visible_route_delta((dx,dy),anchor,scene_bounds(viewport))
-            if delta is None:return False
+            if delta is None:return deferred('Loot approach has no visible step')
             dx,dy=delta;destination=(position[0]+dx,position[1]+dy)
             point=(anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16)
             # Planning never authorizes a stale identity or stale player tile.
             with self.observer.lock:
-                if drop not in self.ground_items():return False
-                if tuple(self.read_life().position)!=tuple(position):return False
+                if drop not in self.ground_items():return deferred('Ground item changed before approach')
+                if tuple(self.read_life().position)!=tuple(position):return deferred('Player moved before loot approach')
             dispatch(point,control=max(abs(dx),abs(dy))>=8)
+            self.last_loot_approach_deferred=None
             self.loot_approach_ready=time.monotonic()+.6
             self.notify('memory_pickup_approach',{'uid':drop.uid,'type_id':drop.type_id,
                 'position':drop.position,'destination':destination,'timestamp':time.time(),
                 'activity':'Moving closer to valuable loot'})
             return True
         except ValueError as error:
-            self.notify('memory_loot_retry',{'detail':'Valuable approach: '+str(error)})
-            return False
+            return deferred('Valuable approach: '+str(error))
 
     def movement_failed(self,position,destination):
         # A failed landing is dynamic evidence, not a permanent terrain edit.

@@ -645,6 +645,32 @@ def test_meteor_appearing_between_scatters_bypasses_old_poll_delay(monkeypatch):
     assert clicks[0]['drop'].type_id==1088001
 
 
+def test_meteor_cooldown_and_disappearance_are_explained_in_audit(monkeypatch):
+    from conquest.memory_ground import GroundItem
+    supervisor,_,_,notes=setup(monkeypatch)
+    meteor=GroundItem(1,1000,1088001,(11,10))
+    supervisor.ground_items=lambda:(meteor,)
+    supervisor.loot_cooldowns[(1,1000)]=native_farm.time.monotonic()+60
+    bag=SimpleNamespace(silver=0,items=(),capacity=40)
+    supervisor.loot_step(bag,(10,10),lambda *a,**kw:pytest.fail('Cooldown must not click'))
+    observation=next(fields for event,fields in notes if event=='memory_loot_observed')
+    assert observation['valuable_drops'][0]['reason']=='pickup_cooldown'
+    assert observation['player_position']==(10,10)
+    supervisor.ground_items=lambda:()
+    supervisor.loot_step(bag,(10,10),lambda *a,**kw:pytest.fail('Absent drop must not click'))
+    assert notes[-1][1]['valuable_drops']==[]
+
+
+def test_unavailable_approach_logs_once_without_movement(monkeypatch):
+    from conquest.memory_ground import GroundItem
+    supervisor,_,_,notes=setup(monkeypatch)
+    meteor=GroundItem(1,1000,1088001,(30,30))
+    for _ in range(2):
+        assert supervisor.approach_loot(meteor,(10,10),lambda *a,**kw:pytest.fail('No terrain')) is False
+    assert len(notes)==1
+    assert notes[0][1]['detail']=='Loot terrain unavailable'
+
+
 def test_obscured_meteor_is_approached_on_checked_terrain(monkeypatch):
     import numpy as np
     from conquest.navigation import TerrainMap

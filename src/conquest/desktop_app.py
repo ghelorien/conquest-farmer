@@ -1143,6 +1143,14 @@ class DesktopApp:
                 data.get('observation_note','Waiting for the client'))
         while not self.messages.empty():
             event, fields = self.messages.get_nowait()
+            from conquest.loot_audit import append as append_loot_audit
+            try:
+                if append_loot_audit(self.output,event,fields):
+                    self.last['loot_audit_note']=None
+            except (OSError,ValueError,TypeError) as error:
+                # Diagnostics must never interrupt healing, input release or
+                # processing the verified pickup itself.
+                self.last['loot_audit_note']='Pickup audit unavailable: '+str(error)
             activity = {'attack_attempt':('Casting Scatter at nearby monsters' if fields.get('button')=='right'
                                          else 'Using single attacks at nearby monsters'),
                         'discarding_loot':'Dropping unwanted +0 loot',
