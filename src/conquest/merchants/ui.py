@@ -277,7 +277,7 @@ class UnifiedUI:
                 self.runtime.delivery_window=None
             finally:self.coordinator.lock.release()
             return {'refill':True,'expires_at':self.grant['expires_at']}
-        if action in ('delivery-start','delivery-status','delivery-readiness'):
+        if action in ('delivery-start','delivery-test','delivery-status','delivery-readiness'):
             from conquest.merchants.delivery_operation import dispatch
             return dispatch(self,body)
         if action in ('delivery-pair','delivery-reserve','delivery-ready','delivery-finish','delivery-source'):
@@ -324,6 +324,11 @@ class UnifiedUI:
             character=character_name(body['character'])
             self.pause(character)
             return {'paused':character,'pending_work_preserved':True}
+        if action=='merchant-enabled' and set(body)=={'action','character','enabled'} and type(body['enabled']) is bool:
+            character=character_name(body['character'])
+            self.runtime.enable(character,body['enabled'])
+            if body['enabled']:self.coordinator.resume()
+            return {'character':character,'enabled':self.runtime.enabled(character)}
         if action=='window-state' and set(body)=={'action','maximized'} and type(body['maximized']) is bool:
             state = 'zoomed' if body['maximized'] else 'normal'
             self.ui_requests.put((lambda:self.root.state(state),None,{}))

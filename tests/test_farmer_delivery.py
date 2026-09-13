@@ -38,7 +38,7 @@ def test_prefers_capacity_then_verified_distance_and_splits():
     states=[dict(character=n['character'],snapshot=n,ready=True,verified_travel_distance=dist)
             for n,dist in ((d,1),(s,100))]
     plans=plan_deliveries(f,states,now=100)
-    assert [(p['merchant'],len(p['items'])) for p in plans['deliveries']]==[('Spiritual',20),('Dutch',5)]
+    assert [(p['merchant'],len(p['items'])) for p in plans['deliveries']]==[('Spiritual',5)]*4+[('Dutch',5)]
     s['inventory']=s['inventory'][:10]
     d['inventory']=d['inventory'][:10]
     assert plan_deliveries(f,states,now=100)['deliveries'][0]['merchant']=='Dutch'
@@ -203,6 +203,7 @@ def test_source_journal_precedes_receiver_confirmation_and_lost_receipt_never_re
             assert j.pending('Dutch')[0]['phase']=='prepared'
         def ready(self,key,intent):
             assert j.pending('Dutch')[0]['phase']=='submitted'
+            assert calls[-1]=='confirm'  # Farmer releases input before receiver acceptance.
             calls.append('ready')
         def finish(self,key,intent):
             assert not j.pending('Dutch')
@@ -210,7 +211,7 @@ def test_source_journal_precedes_receiver_confirmation_and_lost_receipt_never_re
             if self.fail:raise OSError('Lost release acknowledgement')
     peer=Peer();t=DeliveryTransaction(j,Driver(),peer)
     with pytest.raises(OSError,match='Lost release'):t.run('Dutch',f['inventory'])
-    assert calls==['reserve','open','place','ready','confirm','finish']
+    assert calls==['reserve','open','place','confirm','ready','finish']
     assert not j.pending('Dutch')
     peer.fail=False
     recovered=DeliveryTransaction(Journal(j.path),object(),peer)

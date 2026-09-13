@@ -107,6 +107,9 @@ class FarmerTradeDriver:
             if not profile.get(key):raise ValueError('Farmer delivery layout qualification is incomplete')
         for control in ('start_trade','open_inventory','inventory_item','trade_drop','confirm_trade'):
             if control not in profile['controls']:raise ValueError('Farmer trade control is not qualified')
+        if profile.get('native_trade_layout_revision')==1:
+            profile={**profile,'client_size':self.driver.target.snapshot()['client_size'],
+                     'gui_size':self.driver.memory.gui.viewport_size()}
         return profile
 
     def check(self):
@@ -118,7 +121,7 @@ class FarmerTradeDriver:
         if self.recipient and not self.ui.runtime.enabled(self.recipient):
             raise CaptureUnavailable('Merchant trading was paused during delivery')
         import ctypes
-        if ctypes.windll.user32.GetAsyncKeyState(0x7a)&0x8000:
+        if any(ctypes.windll.user32.GetAsyncKeyState(k)&0x8000 for k in (0x7a,0x7b)):
             raise CaptureUnavailable('Farmer delivery paused with F11')
 
     def read_pair(self,merchant):
@@ -139,6 +142,9 @@ class FarmerTradeDriver:
                 raise CaptureUnavailable('Farmer surface did not become available')
             if result.get('error'):raise ValueError(result['error'])
             self.check()
+            from conquest.focus_recovery import activate_client
+            if not activate_client(self.driver.target.hwnd,self.driver.observer.adapter.identity):
+                raise CaptureUnavailable('Farmer focus unavailable; no delivery input sent')
             yield
 
     def button(self,intent,control,guard):
@@ -149,9 +155,13 @@ class FarmerTradeDriver:
         def before():
             self.check();f,m=self.read_pair(intent['merchant']['character']);guard(f,m)
             if self.driver.point(f,control)!=point:raise ValueError('Trade control moved')
-            window=next(w for w in f['windows'] if w['name']==spec['window'])
-            seeds=[0x02a99238] if spec.get('mode')=='native_items_trade' else None
-            self.driver.memory.gui.assert_hovered(window,spec['label'],seeds=seeds)
+            if spec.get('mode')=='native_trade_confirm':
+                from conquest.merchants.native_trade_input import hover
+                hover(self.driver,f,spec['mode'])
+            else:
+                window=next(w for w in f['windows'] if w['name']==spec['window'])
+                seeds=[0x02a99238] if spec.get('mode')=='native_items_trade' else None
+                self.driver.memory.gui.assert_hovered(window,spec['label'],seeds=seeds)
         foreground_click(self.driver.target,*point,tuple(profile['client_size']),require_foreground=True,
             before_press=lambda:wait_hover_validation(before,self.check))
 
@@ -207,7 +217,8 @@ class FarmerTradeDriver:
                 context=unpack(gui.session,gui.base+0x6966f0,'<Q')[0]
                 if unpack(gui.session,context+0x3ec0,'<Q')[0]!=window['address']:
                     raise HoverNotReady('Inventory cell is covered by another window')
-            foreground_drag(self.driver.target,source,destination,tuple(self.require_qualified()['client_size']),before_press=before)
+            foreground_drag(self.driver.target,source,destination,tuple(self.require_qualified()['client_size']),
+                before_press=lambda:wait_hover_validation(before,self.check))
         self.wait_until(m['character'],lambda f,m:item['uid'] in exact_items(partial_offer(intent,f,m)))
 
     def confirm(self,intent):

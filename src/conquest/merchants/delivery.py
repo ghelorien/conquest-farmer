@@ -69,8 +69,10 @@ def plan_deliveries(farmer, merchants, *, reserved=(), now=None):
     items=[i for i in farmer['inventory'] if eligible(i,reserved)]
     plans=[]
     for negative_space,distance,name,snapshot in sorted(candidates,key=lambda row:row[:3]):
-        for offset in range(0,-negative_space,20):
-            batch=items[:min(20,-negative_space-offset)]
+        # Reserve time for request/acceptance and both confirmations inside
+        # the fifteen-second handoff, even with delayed server acknowledgments.
+        for offset in range(0,-negative_space,5):
+            batch=items[:min(5,-negative_space-offset)]
             if not batch:
                 break
             items=items[len(batch):]
@@ -179,8 +181,11 @@ class DeliveryTransaction:
             validate_offers(intent,farmer,receiver)
             # Persist submission intent before the first irreversible confirm.
             self.journal.transition(key,'submitted')
-            self.peer.ready(key,intent)
             self.driver.confirm(intent)
+            # Release farmer input before the receiver confirms. A receiver
+            # waiting for completion while holding input would prevent the
+            # farmer's confirmation and deadlock both accounts.
+            self.peer.ready(key,intent)
             farmer,receiver=self.driver.wait_pair(merchant)
             if not reconcile(intent,farmer,receiver):
                 raise ValueError('Delivery result is uncertain; both inventories must reconcile')

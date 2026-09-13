@@ -206,6 +206,8 @@ class MerchantController:
             self.check_listing()
             try:
                 self.driver.require_qualified('booth_input')
+                if hasattr(self.driver,'verify_listing_layout'):
+                    self.driver.verify_listing_layout()
             except ValueError:
                 from conquest.merchants.qualification import verify_booth_controls
                 from conquest.desktop_runtime import physical_coordinates

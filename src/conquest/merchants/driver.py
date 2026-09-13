@@ -38,6 +38,16 @@ class MerchantDriver:
     def read(self):
         return self.memory.read()
 
+    def verify_listing_layout(self):
+        """Detect resized panels before recording a listing transaction."""
+        profile=self.require_qualified('booth_input')
+        snapshot=self.read()
+        for control in ('inventory_item','booth_drop','remove_listing'):
+            spec=profile['controls'][control]
+            matches=[w for w in snapshot['windows'] if w['name']==spec['window']]
+            if len(matches)!=1 or list(matches[0]['geometry'][2:])!=spec['size']:
+                raise ValueError('Merchant panel resized; refresh booth qualification')
+
     def require_qualified(self, capability):
         try:
             data = json.loads(self.qualification.read_text())
@@ -59,7 +69,14 @@ class MerchantDriver:
 
     def point(self, snapshot, control, slot=None):
         profile = json.loads(self.qualification.read_text())
+        if profile.get('native_trade_layout_revision')==1:
+            profile={**profile,'client_size':self.target.snapshot()['client_size'],
+                     'gui_size':self.memory.gui.viewport_size()}
         spec = profile['controls'][control]
+        from conquest.merchants.native_trade_input import MODES,point as native_point
+        if spec.get('mode') in MODES:
+            if slot is not None:raise ValueError('Native trade control does not take a slot')
+            return native_point(self,snapshot,spec['mode'])
         matches = [w for w in snapshot['windows'] if w['name']==spec['window'] or
             (spec['window'].endswith('_') and w['name'].startswith(spec['window']))]
         if len(matches)!=1:
@@ -116,7 +133,9 @@ class MerchantDriver:
         point = self.point(snapshot,control,slot)
         size = tuple(self.target.snapshot()['client_size'])
         profile = json.loads(self.qualification.read_text())
-        if list(size) != profile['client_size']:
+        from conquest.merchants.native_trade_input import MODES,hover as native_hover
+        native_mode=profile.get('controls',{}).get(control,{}).get('mode')
+        if native_mode not in MODES and list(size) != profile['client_size']:
             raise ValueError('Client geometry differs from qualified merchant controls')
         from conquest.focus_recovery import activate_client
         if not activate_client(self.target.hwnd,snapshot['identity']):
@@ -128,6 +147,8 @@ class MerchantDriver:
                 raise ValueError('A trade interrupted the listing control')
             if fresh['identity']!=snapshot['identity'] or self.point(fresh,control,slot)!=point:
                 raise ValueError('Merchant control changed before button press')
+            if native_mode in MODES:
+                native_hover(self,fresh,native_mode)
             if control=='accept_trade':
                 if offer_fingerprint(validate_trade(fresh))!=offer_fingerprint(validate_trade(snapshot)):
                     raise ValueError('Trade offer changed before button press')

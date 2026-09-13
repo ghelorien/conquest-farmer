@@ -34,8 +34,8 @@ def dispatch(ui,body):
         from conquest.merchants.delivery_readiness import describe
         return describe(ui,FarmerTradeDriver)
     action=body.get('action');expected={'action','request_id'}
-    if action=='delivery-start':expected|={'character','uids'}
-    if action not in ('delivery-start','delivery-status') or set(body)!=expected:
+    if action in ('delivery-start','delivery-test'):expected|={'character','uids'}
+    if action not in ('delivery-start','delivery-test','delivery-status') or set(body)!=expected:
         raise ValueError('Unsupported native delivery command')
     key=body['request_id']
     if not isinstance(key,str) or not 1<=len(key)<=100:raise ValueError('Invalid delivery request ID')
@@ -59,8 +59,10 @@ def dispatch(ui,body):
         from conquest.merchants.farmer_identity import ui_character
         permits_new_delivery(ui_character(ui))
         policy=read_json('profiles/merchant-deliveries.json')
-        if not policy.get('enabled') or not policy.get('parity_verified'):
+        if action!='delivery-test' and (not policy.get('enabled') or not policy.get('parity_verified')):
             raise ValueError('Merchant delivery rollout is not enabled')
+        if action=='delivery-test' and len(uids)>5:
+            raise ValueError('Supervised delivery test is limited to five items')
         driver=FarmerTradeDriver(ui)
         driver.require_qualified();driver.check()
         if not ui.runtime.enabled(character):raise ValueError('Merchant trading is paused')
