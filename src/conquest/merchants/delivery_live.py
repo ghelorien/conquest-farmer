@@ -7,7 +7,7 @@ from conquest.merchants.delivery_probe import JOURNAL
 
 
 def start(ui,stage):
-    if stage not in ('accept','offer','confirm'):raise ValueError('Unknown delivery qualification stage')
+    if stage not in ('accept','offer','confirm','cancel'):raise ValueError('Unknown delivery qualification stage')
     if getattr(ui,'delivery_probe_thread',None) and ui.delivery_probe_thread.is_alive():
         raise ValueError('Delivery qualification is running')
     from conquest.merchants.farmer_preferences import permits_new_delivery
@@ -15,7 +15,7 @@ def start(ui,stage):
     permits_new_delivery(ui_character(ui));ui.coordinator.check()
     if not ui.safe_to_yield():raise ValueError('Farmer input has not been released')
     state=read_json(JOURNAL)
-    if state.get('phase')!={'accept':'request_verified','offer':'trade_open_verified','confirm':'offer_verified'}[stage]:
+    if state.get('phase')!={'accept':'request_verified','cancel':'request_verified','offer':'trade_open_verified','confirm':'offer_verified'}[stage]:
         raise ValueError('Reconcile the previous delivery stage first')
     module=importlib.import_module('conquest.merchants.delivery_'+stage+'_probe')
     def work():

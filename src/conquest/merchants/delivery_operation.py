@@ -55,6 +55,9 @@ def dispatch(ui,body):
         raise ValueError('Delivery request ID reused for another batch')
     if running:return {'request_id':key,'running':True,'receipt':old}
     if not old:
+        window=getattr(getattr(ui,'runtime',None),'delivery_window',None)
+        if window and window!=key:
+            raise ValueError('Delivery request ID must match its reserved work window')
         from conquest.merchants.farmer_preferences import permits_new_delivery
         from conquest.merchants.farmer_identity import ui_character
         permits_new_delivery(ui_character(ui))

@@ -17,7 +17,8 @@ both client processes to remain identical throughout that exchange. Read-only
 transaction recovery may still reconcile after a client restart; that alone
 does not qualify input controls.
 
-The new production orchestration still needs its own successful live receipt.
+The production orchestration initially remained pending its own live receipt;
+the Spiritual-only result below supersedes that initial qualification status.
 The authenticated `delivery-test` operation exercises that path with a maximum
 of five items while ordinary automatic rollout remains disabled. It still
 requires qualified controls, merchant trading permission, the farmer transfer
@@ -56,3 +57,19 @@ pinned code, current geometry and the exact #CLOSE hover identity; it does not
 shut down a merchant's shop. Merchant clients are excluded. Trade, listing and
 confirmation dialogs stop cleanup for reconciliation instead. Ordinary shopping
 actions do not run this periodic cleanup.
+
+
+## Spiritual production transfer retest
+
+A live explicit retest completed the full native automatic transfer path from
+Parasite to Spiritual: one Meteor transferred in 5.58 seconds without manual
+recovery, with both inventories and currency reconciled. This qualifies that
+connected Spiritual transfer path, not Dutch transfers, reconnect or booth setup.
+Automatic rollout policy is unchanged.
+
+A mismatched request ID and reserved work window now fails before creating a
+delivery intent or input driver. The explicit cancellation probe closes only the
+unchanged incoming request through the native Cancel hover control. It requires
+paused merchant operations, input ownership, an active deadline and unchanged
+participants and stock, and verifies the result before reporting cancellation.
+Private receipts, journals, credentials and promoted profiles remain local.

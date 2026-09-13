@@ -80,3 +80,14 @@ def test_reload_waits_for_submitted_delivery_reconciliation(tmp_path,monkeypatch
         with pytest.raises(ValueError,match='before reloading'):operation.guard_reload()
     journal.transition('one','verified')
     operation.guard_reload()
+
+
+@pytest.mark.parametrize('action',['delivery-start','delivery-test'])
+def test_mismatched_work_window_rejects_before_native_driver_or_intent(tmp_path,monkeypatch,action):
+    path=tmp_path/'source.sqlite3';monkeypatch.setattr(operation,'JOURNAL',path)
+    monkeypatch.setattr(operation,'FarmerTradeDriver',lambda *a:pytest.fail('Mismatched window must not construct input'))
+    ui=NS(runtime=NS(delivery_window='reserved-window'))
+    with pytest.raises(ValueError,match='match its reserved work window'):
+        operation.dispatch(ui,{'action':action,'request_id':'other-request','character':'Spiritual','uids':[10]})
+    assert operation.status(Journal(path),'other-request') is None
+    assert not ui.delivery_workers
