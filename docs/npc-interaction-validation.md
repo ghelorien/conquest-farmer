@@ -19,3 +19,26 @@ gap. Separate read-only research located the model's bounds/projection chain for
 Market flags and reproduced a flag's memory-reported screen origin. Model-based
 click centers remain diagnostic candidates; the saved interaction points have
 not been replaced or qualified by that research.
+
+## Owned Market booth hit test
+
+Further read-only inspection found that an owned booth (model 406) does **not**
+use the flag's model ray test. Its graphics vtable dispatches to RVA `0x262160`,
+which accepts five tile offsets selected by the booth orientation. Actor hit
+kind 14 converts the cursor to a ground tile before this call.
+
+For Spiritual's current booth at `(272,174)`, orientation 6 accepts the center
+and the tiles `(272,173)` and `(272,175)`. The previous draw-minus-32 point
+`(976,316)` resolves to `(271,173)`, outside that footprint. The new memory-derived
+point `(976,348)` resolves to the booth's center. The accessor instructions,
+camera, booth identity, orientation and footprint were checked in the live
+client without input. Model bounding-box intersection alone would have missed
+this distinction and is not used to target an owned booth.
+
+`merchants/booth_target.py` now reads and rechecks the native tile footprint and
+camera transform. Both the owned-panel qualification probe and recovery use
+this target, revalidate before mouse-down, and wait for the native pointer.
+Recovery requires the new `native_booth_tiles` qualification; a legacy fixed
+offset receipt cannot authorize it. A successful live panel-open receipt with
+matching owned/displayed booth IDs is still required. Empty-flag claim input,
+merchant disconnect recovery and actual owned-panel reopening remain unverified.

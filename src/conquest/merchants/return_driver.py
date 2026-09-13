@@ -182,12 +182,14 @@ class ReturnDriver:
 
     def open_owned_booth(self,snapshot,check,*,before_press=lambda:None):
         from conquest.merchants.stalls import owned_booth
+        from conquest.merchants.booth_target import owned_booth_target, CONTROL
         from conquest.merchants.qualification import stock
         profile=self.driver.require_qualified('booth_panel')
-        if profile.get('booth_panel')!={'mode':'owned_scene_entity','draw_offset':[0,-32]}:
+        if profile.get('booth_panel')!=CONTROL:
             raise ValueError('Owned booth panel control needs live qualification')
         target=owned_booth(self.observer,snapshot)
-        point=(target['draw_position'][0],target['draw_position'][1]-32)
+        tile_target=owned_booth_target(self.observer,target)
+        point=tile_target['point']
         width,height=self.driver.memory.gui.viewport_size()
         if not (80<point[0]<width-80 and 170<point[1]<height-160):
             raise ValueError('Owned booth is outside the qualified scene')
@@ -198,13 +200,19 @@ class ReturnDriver:
                     or any(fresh[k]!=snapshot[k] for k in ('identity','map_id','position','own_booth_uid'))
                     or owned_booth(self.observer,fresh)!=target):
                 raise ValueError('Owned booth changed before opening its panel')
+            if owned_booth_target(self.observer,target)!=tile_target:
+                raise ValueError('Owned booth tile target changed before opening its panel')
             for window in fresh['windows']:
                 x,y,w,h=window['geometry']
                 if w>=width-10 and h>=height-10:continue
                 if x<=point[0]<=x+w and y<=point[1]<=y+h:
                     raise ValueError('A GUI panel covers the owned booth')
+        def prepare_press():
+            from conquest.scene_pointer import wait_scene_pointer
+            guard()
+            wait_scene_pointer(self.observer.adapter,point,guard)
             before_press()
-        self.click(point,check,before_press=guard)
+        self.click(point,check,before_press=prepare_press)
 
     def open_inventory(self,snapshot,check,*,before_press=lambda:None):
         from conquest.discard_loot import inventory_button

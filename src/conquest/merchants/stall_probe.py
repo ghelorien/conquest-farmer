@@ -4,6 +4,7 @@ import time
 from conquest.memory_life import read_life
 from conquest.merchants.memory import unpack
 from conquest.merchants.stalls import vacant_flags,owned_booth
+from conquest.merchants.booth_target import owned_booth_target, CONTROL
 
 
 def reconcile_interrupted_probe(driver,journal):
@@ -54,7 +55,9 @@ def inspect_flag(driver,travel,journal,check):
     flags=[owned_booth(driver.observer,before)] if reopening else [f for f in vacant_flags(driver.observer,spec)
            if max(abs(a-b) for a,b in zip(f['position'],before['position']))<=3]
     if len(flags)!=1:raise ValueError('Stand beside exactly one memory-verified unattended stall flag')
-    flag=flags[0];point=(flag['draw_position'][0],flag['draw_position'][1]-32)
+    flag=flags[0]
+    target=owned_booth_target(driver.observer,flag) if reopening else None
+    point=target['point'] if target else (flag['draw_position'][0],flag['draw_position'][1]-32)
     width,height=driver.memory.gui.viewport_size()
     if not (80<point[0]<width-80 and 170<point[1]<height-160):
         raise ValueError('Stall flag is outside the qualified scene')
@@ -67,7 +70,6 @@ def inspect_flag(driver,travel,journal,check):
     uncovered(before)
     inventory=driver.memory.inventory.read();press_pending=False
     def unchanged():
-        nonlocal press_pending
         check();life=read_life(s,driver.observer.health_layout,character)
         if life.map_id!=1036 or list(life.position)!=before['position'] or life.dead_candidate:
             raise ValueError('Merchant moved before stall inspection')
@@ -76,6 +78,8 @@ def inspect_flag(driver,travel,journal,check):
         match=(owned_booth(driver.observer,driver.memory.read()) if reopening else
                next((f for f in vacant_flags(driver.observer,spec) if f['uid']==flag['uid']),None))
         if match!=flag:raise ValueError('Stall was occupied or changed before inspection')
+        if reopening and owned_booth_target(driver.observer,match)!=target:
+            raise ValueError('Owned booth tile target changed before inspection')
         inv=driver.memory.inventory.read()
         if inv.items!=inventory.items or inv.silver!=inventory.silver:
             raise ValueError('Inventory changed before stall inspection')
@@ -83,18 +87,26 @@ def inspect_flag(driver,travel,journal,check):
         uncovered(state)
         if state['booth_open'] or state.get('trade') or state.get('request'):
             raise ValueError('Another interaction interrupted stall inspection')
+    def prepare_press():
+        nonlocal press_pending
+        unchanged()
+        if reopening:
+            from conquest.scene_pointer import wait_scene_pointer
+            wait_scene_pointer(s,point,unchanged)
         press_pending=True
         record['press_pending']=True
         journal.set(character,'stall_probe',record)
     record={'phase':'submitted','submitted_at':time.time(),'flag':flag,
             'operation':'open_owned_panel' if reopening else 'inspect_vacant_flag',
+            'control':dict(CONTROL) if reopening else None,
+            'target':target,
             'own_booth_uid_before':before.get('own_booth_uid',0),
             'identity':before['identity'],'position':before['position'],
             'silver':inventory.silver,'inventory_uids':[i.uid for i in inventory.items],
             'inventory_before':before['inventory'],'booth_before':before['booth'],
             'press_pending':False}
     journal.set(character,'stall_probe',record)
-    try:travel.click(point,check,before_press=unchanged)
+    try:travel.click(point,check,before_press=prepare_press)
     except Exception:
         if not press_pending:
             record.update(phase='cancelled_before_press',cancelled_at=time.time(),retry_safe=True)

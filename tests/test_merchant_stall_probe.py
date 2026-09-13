@@ -74,3 +74,59 @@ def test_interrupted_stall_reconciliation_never_claims_unavailable_attribute_evi
         result=stall_probe.reconcile_interrupted_probe(driver,journal)
         assert result['phase']=='reconciled_cancelled' and not result['input_qualified']
         assert result['exact_attributes_verified']==(case=='exact')
+
+
+@pytest.mark.parametrize('case',['opened','changed_target','pointer_timeout','foreign_booth'])
+def test_owned_booth_probe_uses_native_tile_and_verifies_receipt(tmp_path,monkeypatch,case):
+    import struct
+    from conquest.capture import CaptureUnavailable
+    from conquest.merchants.booth_target import CONTROL
+    journal=Journal(tmp_path/'state.sqlite3');pressed=[];reads=0
+    flag={'uid':103064,'position':[272,174],'draw_position':[976,348]}
+    target={'point':(976,348),'tile':(272,174),'orientation':6,'footprint':((0,0),)}
+    def targeting(*args):
+        nonlocal reads
+        reads+=1
+        return {**target,'point':(980,348)} if case=='changed_target' and reads>1 else target
+    monkeypatch.setattr(stall_probe,'owned_booth',lambda *a:flag)
+    monkeypatch.setattr(stall_probe,'owned_booth_target',targeting)
+    monkeypatch.setattr(stall_probe,'read_life',lambda *a:NS(map_id=1036,position=(271,174),
+        dead_candidate=False,object_address=0x100000))
+    def dialog(*args):raise ValueError('NPC dialog is absent')
+    monkeypatch.setattr('conquest.conductress.read_dialog',dialog)
+    def pointer(session,point,check):
+        assert point==(976,348);check()
+        if case=='pointer_timeout':raise CaptureUnavailable('No pointer; no button pressed')
+    monkeypatch.setattr('conquest.scene_pointer.wait_scene_pointer',pointer)
+    def read(address,n):
+        if n==4:return struct.pack('<I',103064)
+        raw=bytearray(n)
+        if pressed:
+            raw[12]=1
+            struct.pack_into('<I',raw,0x4c,999 if case=='foreign_booth' else 103064)
+        return bytes(raw)
+    state={'map_id':1036,'booth_open':False,'trade':None,'request':None,'own_booth_uid':103064,
+           'position':[271,174],'identity':{'pid':1},'windows':[],'inventory':[],'booth':[]}
+    inv=NS(items=(),silver=100)
+    observer=NS(character='Spiritual',health_layout=None,adapter=NS(read_block=read))
+    driver=NS(observer=observer,require_qualified=lambda *a:{'shop_setup':{}},
+        memory=NS(read=lambda:state,inventory=NS(read=lambda:inv),
+                  gui=NS(viewport_size=lambda:(1888,665),model=lambda *a:0x200000)))
+    def click(point,check,*,before_press):
+        assert not journal.get('Spiritual','stall_probe')['press_pending']
+        before_press()
+        assert journal.get('Spiritual','stall_probe')['press_pending']
+        pressed.append(point)
+    if case=='opened':
+        result=stall_probe.inspect_flag(driver,NS(click=click),journal,lambda:None)
+        assert result['control']==CONTROL and result['booth_open']
+        assert result['displayed_booth_uid']==result['own_booth_uid']==103064
+        assert result['inventory_unchanged'] and pressed==[(976,348)]
+    else:
+        with pytest.raises((ValueError,CaptureUnavailable)):
+            stall_probe.inspect_flag(driver,NS(click=click),journal,lambda:None)
+        record=journal.get('Spiritual','stall_probe')
+        if case=='foreign_booth':
+            assert pressed==[(976,348)] and record['phase']=='submitted'
+        else:
+            assert not pressed and record['phase']=='cancelled_before_press' and record['retry_safe']
