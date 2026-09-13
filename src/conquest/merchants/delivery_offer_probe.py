@@ -77,6 +77,8 @@ def run(ui,state):
                     pass
                 if time.monotonic()>=until:raise ValueError('Placement unverified; reconcile before another drag')
                 time.sleep(.05)
+            f,m=a,b
+            offered=received
             save('trade_open_verified',offered_uids=list(exact_items(received)),needs_more=True)
         f,m=pair(ui,character);validate_offers(intent,f,m)
         save('offer_verified',farmer_after=f,merchant_after=m,needs_more=False)

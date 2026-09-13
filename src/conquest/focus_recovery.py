@@ -6,6 +6,17 @@ import pywintypes
 from conquest.merchants.coordination import coordinated_input
 
 
+def settled_foreground(api,hwnd,identity,root,seconds=.2):
+    """Allow a queued window activation to settle without sending game input."""
+    from conquest.merchants.coordination import check_input
+    deadline=time.monotonic()+seconds
+    while True:
+        check_input();api.assert_owner(hwnd,identity)
+        if api.gui.GetForegroundWindow()==root:return True
+        if time.monotonic()>=deadline:return False
+        time.sleep(.02)
+
+
 @coordinated_input
 def activate_client(hwnd, identity, *, api=None):
     from conquest.window_host import HostApi
@@ -25,6 +36,7 @@ def activate_client(hwnd, identity, *, api=None):
             return True
     except pywintypes.error:
         pass
+    if settled_foreground(api,hwnd,identity,root):return True
     # Windows can reject SetForegroundWindow from an unrelated input queue.
     # Temporarily share the current foreground queue, then always detach.
     foreground = gui.GetForegroundWindow()
@@ -54,7 +66,7 @@ def activate_client(hwnd, identity, *, api=None):
             gui.SetForegroundWindow(root)
         except pywintypes.error:
             return False
-    return gui.GetForegroundWindow() == root
+    return settled_foreground(api,hwnd,identity,root)
 
 
 class AutoRefocuser:

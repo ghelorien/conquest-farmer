@@ -37,7 +37,11 @@ def start(ui,character):
     if not ui.safe_to_yield() or ui.app.control.snapshot()['enabled']:
         raise ValueError('Trade probe requires stopped farming and released input')
     f,m=pair(ui,character)
-    intent=prepare(f,m,[i for i in f['inventory'] if eligible(i)])
+    from conquest.merchants.delivery import plan_deliveries
+    plans=plan_deliveries(f,[{'character':character,'ready':True,'snapshot':m,
+        'verified_travel_distance':0}])['deliveries']
+    if not plans:raise ValueError('Merchant combined inventory and shop is full or unavailable')
+    intent=prepare(f,m,plans[0]['items'])
     if max(abs(a-b) for a,b in zip(f['position'],m['position']))>12:
         raise ValueError('Approach the memory-identified merchant before the trade probe')
     revision=ui.app.control.snapshot()['revision']

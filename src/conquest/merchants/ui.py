@@ -198,6 +198,9 @@ class UnifiedUI:
         if action=='test-merchant-recovery' and set(body)=={'action','character'}:
             from conquest.merchants.recovery_trial import start
             return start(self,body['character'])
+        if action=='cancel-empty-delivery' and set(body)=={'action','character'}:
+            from conquest.merchants.empty_delivery_cancel import start
+            return start(self,body['character'])
         if action=='probe-delivery-request' and set(body)=={'action','character'}:
             from conquest.merchants.delivery_probe import start
             return start(self,body['character'])

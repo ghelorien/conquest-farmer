@@ -1,4 +1,5 @@
 """Exact two-account delivery plans and durable, fail-closed reconciliation."""
+from conquest.merchants.capacity import available_slots
 from conquest.character_context import farmer_name
 import math
 import time
@@ -6,7 +7,7 @@ import uuid
 import json
 from conquest.merchants.journal import CHARACTERS
 from conquest.merchants.controller import identities
-from conquest.valuables import SPECIAL_LOOT_TYPES, storage_only
+from conquest.valuables import SPECIAL_LOOT_TYPES, DRAGONBALL_TYPES, storage_only
 
 
 def eligible(item, reserved=()):
@@ -64,10 +65,14 @@ def plan_deliveries(farmer, merchants, *, reserved=(), now=None):
         if (not snapshot.get('booth_open') or snapshot.get('trade') or snapshot.get('request')
                 or type(distance) not in (int,float) or not math.isfinite(distance) or distance<0):
             continue
-        space=snapshot['capacity']-len(inventory)
+        space=available_slots(snapshot)
         if space:
             candidates.append((-space,distance,name,snapshot))
-    items=[i for i in farmer['inventory'] if eligible(i,reserved)]
+    # Spend limited merchant space on urgent valuables first; residual items
+    # remain with the warehouse caller after all ready merchants are exhausted.
+    items=sorted((i for i in farmer['inventory'] if eligible(i,reserved)),
+        key=lambda i: (0 if i['type_id'] in DRAGONBALL_TYPES else
+                       1 if type(i.get('plus')) is int and i['plus']>=2 else 2))
     plans=[]
     for negative_space,distance,name,snapshot in sorted(candidates,key=lambda row:row[:3]):
         # Reserve time for request/acceptance and both confirmations inside
@@ -91,7 +96,7 @@ def prepare(farmer, merchant, items, *, now=None):
     source=validate_snapshot(farmer,farmer_name(),now)
     destination=validate_snapshot(merchant,name,now)
     offered=exact_items(items)
-    if (not 1<=len(offered)<=20 or len(offered)>merchant['capacity']-len(destination)
+    if (not 1<=len(offered)<=20 or len(offered)>available_slots(merchant)
             or any(not eligible(i) for i in items)
             or any(source.get(uid)!=details for uid,details in offered.items())
             or set(offered)&set(destination) or farmer.get('trade') or merchant.get('trade')
@@ -128,7 +133,7 @@ def validate_offers(intent, farmer, merchant, *, now=None):
         raise ValueError('Farmer inventory changed during trade')
     if exact_items(merchant['inventory'])!=exact_items(intent['merchant']['inventory']):
         raise ValueError('Merchant inventory changed during trade')
-    if len(wanted)>merchant['capacity']-len(merchant['inventory']):
+    if len(wanted)>available_slots(merchant):
         raise ValueError('Merchant capacity changed during trade')
 
 

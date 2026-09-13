@@ -1,11 +1,12 @@
 """Hold a merchant's stock until an exact farmer batch reconciles both sides."""
+from conquest.merchants.capacity import available_slots
 import time
 import json
 from conquest.capture import CaptureUnavailable
 from conquest.merchants.delivery import prepare,exact_items,validate_offers,reconcile
 
 KEY='delivery_reservation'
-TERMINAL=('verified','cancelled_before_input')
+TERMINAL=('verified','cancelled_before_input','partial_aborted_reconciled')
 
 
 def active(journal,character):
@@ -59,7 +60,7 @@ def save(journal,character,state,*,creating=False):
         db.execute('INSERT OR REPLACE INTO state VALUES(?,?,?)',(character,KEY,encoded))
         db.execute('INSERT OR REPLACE INTO delivery_reservations VALUES(?,?,?)',
                    (character,state['request_id'],encoded))
-        if state['phase']=='verified':
+        if state['phase'] in ('verified','partial_aborted_reconciled'):
             db.execute('INSERT OR REPLACE INTO state VALUES(?,?,?)',(character,'new_stock','true'))
 
 
@@ -103,7 +104,7 @@ def validate_receiver(journal,snapshot,*,now=None):
         raise CaptureUnavailable('Waiting for the complete reserved farmer offer')
     if exact_items(trade['items'])!=exact_items(intent['items']):
         raise ValueError('Reserved delivery offer changed')
-    if len(trade['items'])>snapshot['capacity']-len(snapshot['inventory']):
+    if len(trade['items'])>available_slots(snapshot):
         raise ValueError('Reserved delivery capacity changed')
     return state
 

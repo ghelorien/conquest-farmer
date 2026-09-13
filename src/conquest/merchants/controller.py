@@ -1,4 +1,5 @@
 """Merchant decisions and durable, verified transactions, independent of Windows."""
+from conquest.merchants.capacity import available_slots
 from conquest.valuables import require_marketable, storage_only
 from dataclasses import asdict
 import hashlib
@@ -47,7 +48,7 @@ def validate_trade(snapshot):
     before = identities(snapshot['inventory'])
     if not offered or set(offered) & set(before):
         raise ValueError('Empty or ambiguous delivery')
-    if len(offered) > snapshot['capacity']-len(before):
+    if len(offered) > available_slots(snapshot):
         raise ValueError('Insufficient merchant inventory space')
     if any(item.get('bound') for item in trade['items']):
         raise ValueError('Delivery contains a bound item')

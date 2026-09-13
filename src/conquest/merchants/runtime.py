@@ -1,4 +1,5 @@
 """Concurrent memory observers; serialized merchant input and durable work."""
+from conquest.merchants.capacity import available_slots
 from conquest.character_context import installation_path, state_path
 import json
 from pathlib import Path
@@ -524,8 +525,8 @@ class MerchantRuntime:
                     'activity':error['note'] if error else ('Returning to shop: '+return_state['phase'].replace('_',' ')
                         if returning and self.enabled(character) else 'Ready' if self.enabled(character) else 'Paused'),
                     'snapshot':snapshot if fresh else None,'error':error,'scan':scan,
-                    'capacity':snapshot['capacity']-len(snapshot['inventory']) if fresh else None,
-                    'ready':fresh and self.enabled(character) and not returning and not error and snapshot['capacity']>len(snapshot['inventory'])
+                    'capacity':available_slots(snapshot) if fresh else None,
+                    'ready':fresh and self.enabled(character) and not returning and not error and available_slots(snapshot)>0
                         and qualification['trade_request'] and qualification['trade'] and not self.journal.pending(character),
                     'qualification':qualification,
                     'credentials_saved':credential_path(character).exists(),

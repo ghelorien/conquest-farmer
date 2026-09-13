@@ -1,4 +1,5 @@
 """Required-town delivery trip with verified fares and warehouse fallback."""
+from conquest.merchants.capacity import available_slots
 from conquest.character_context import farmer_name
 from conquest.character_context import installation_path, state_path
 from pathlib import Path
@@ -38,7 +39,7 @@ def preflight(loop,send):
             try:validate_snapshot(snap,name,time.time())
             except (ValueError,KeyError,TypeError):continue
             if (snap.get('booth_open') and not snap.get('trade') and not snap.get('request')
-                    and len(snap['inventory'])<snap['capacity']):ready=True
+                    and available_slots(snap)>0):ready=True
         if not ready:return False
         source=send({'action':'delivery-source'})['farmer']
         origin=loop.living()['embedded_controls']['life']['map_id']

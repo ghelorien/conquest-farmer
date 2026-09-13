@@ -117,6 +117,20 @@ def open_warehouse(loop):
                 except ValueError as close_error:
                     if not any(t in str(close_error) for t in ('not active','absent')):raise
                 loop.town('warehouse-open')
+            if attempt==1 and life['map_id']==1036:
+                # A projected in-range click can hit the adjacent shop at the
+                # edge of the viewport. Only after two verified open failures,
+                # take one checked closer approach without the range shortcut.
+                fresh=loop.living()['embedded_controls']['life']
+                current=tuple(fresh['position'])
+                if max(abs(a-b) for a,b in zip(current,position))>6:
+                    nearby=[(position[0]+dx,position[1]+dy) for dx in range(-4,5) for dy in range(-4,5)
+                        if (dx or dy) and loop.terrain.walkable((position[0]+dx,position[1]+dy))]
+                    if not nearby:raise ValueError('No checked closer warehouse approach')
+                    target=min(nearby,key=lambda p:(max(abs(a-b) for a,b in zip(p,current)),p))
+                    loop.record('warehouse_closer_approach',source=current,destination=target,
+                        activity='Moving closer to Warehouseman after the neighbouring shop intercepted the click')
+                    loop.travel(target,arrival_radius=1,activity='Moving closer to open Market warehouse')
             time.sleep(.5)
     return loop.town('warehouse-money')
 

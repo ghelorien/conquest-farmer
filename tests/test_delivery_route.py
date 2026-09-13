@@ -287,3 +287,38 @@ def test_merchant_approach_stops_at_first_checked_in_range_tile(rig):
     rig.loop.terrain.travel_path=lambda a,b:[(x,10) for x in range(10,41)]
     route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[40,10]},rig.send)
     assert rig.f['position']==[28,10]
+
+
+def test_booth_stock_counts_against_delivery_capacity(rig):
+    rig.d['inventory']=[item(i) for i in range(200,208)]
+    rig.d['booth']=[item(i) for i in range(400,432)]
+    rig.s['inventory']=[item(i) for i in range(300,307)]
+    rig.s['booth']=[item(i) for i in range(500,532)]
+    plans=route.candidates(rig.loop,rig.send)
+    assert len(plans)==1 and plans[0]['merchant']=='Spiritual'
+    assert len(plans[0]['items'])==1
+
+
+def test_full_spiritual_uses_last_dutch_slot_for_dragonball_then_warehouse(rig):
+    from conquest.merchants.delivery import plan_deliveries
+    blade=item(100,410065);blade['plus']=1
+    db=item(101,1088000)
+    star=item(102,2000031)
+    rig.f['inventory']=[blade,db,star]
+    rig.s['inventory']=[item(i) for i in range(300,308)]
+    rig.s['booth']=[item(i) for i in range(400,432)]
+    rig.d['inventory']=[item(i) for i in range(500,507)]
+    rig.d['booth']=[item(i) for i in range(600,632)]
+    def plan():
+        return plan_deliveries(rig.f,[{'character':m['character'],'ready':True,
+            'snapshot':m,'verified_travel_distance':1} for m in (rig.s,rig.d)])
+    proposed=plan()
+    assert [(p['merchant'],[i['uid'] for i in p['items']]) for p in proposed['deliveries']]==[('Dutch',[101])]
+    assert {i['uid'] for i in proposed['warehouse']}=={100,102}
+    result=route.market_storage(rig.loop,send=rig.send)
+    assert [r['merchant'] for r in result]==['Dutch']
+    assert [i['uid'] for i in result[0]['items']]==[101]
+    remaining=plan()
+    assert remaining['deliveries']==[]
+    assert {i['uid'] for i in remaining['warehouse']}=={100,102}
+    assert sum(e=='delivery-start' for e,_ in rig.events)==1

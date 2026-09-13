@@ -3,6 +3,7 @@
 Warehouse callers retain ownership of fallback and the verified return trip.
 An uncertain submitted trade never falls through to warehouse input.
 """
+from conquest.merchants.capacity import available_slots
 from conquest.character_context import farmer_name
 from conquest.character_context import state_path
 from pathlib import Path
@@ -62,7 +63,7 @@ def warehouse_exhausted(loop,stored,remaining,*,send=request):
                 inventory=validate_snapshot(merchant,name,now)
                 if (not merchant.get('booth_open') or merchant.get('trade') or merchant.get('request')
                         or farmer.get('trade') or farmer.get('request')
-                        or len(inventory)>=merchant['capacity']):continue
+                        or available_slots(merchant)<=0):continue
                 path=loop.terrain.travel_path(tuple(farmer['position']),tuple(merchant['position']))
                 if (path and tuple(path[0])==tuple(farmer['position'])
                         and tuple(path[-1])==tuple(merchant['position'])):
@@ -171,6 +172,8 @@ def approach_merchant(loop,plan,send):
 
 def market_storage(loop,*,send=request):
     state=read_json(STATE)
+    if state.get('cleanup_pending'):
+        raise ValueError('Reconciled partial delivery still needs its empty trade window closed')
     # Reconcile an earlier submission even after the rollout is disabled.
     # Disabling policy never authorizes abandoning an in-flight transaction.
     if state.get('active'):settle(loop,send,state)

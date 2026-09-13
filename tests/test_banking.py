@@ -304,3 +304,26 @@ def test_money_layout_retry_is_bounded_to_one_reopen(monkeypatch):
     with pytest.raises(ValueError,match='geometry differs'):
         b.transfer(NS(town=town,record=lambda *a,**kw:None),'deposit',98)
     assert len(calls)==2
+
+
+def test_two_market_open_failures_use_one_closer_checked_approach(monkeypatch):
+    monkeypatch.setattr(b.time,'sleep',lambda _:None)
+    attempts=[0];travels=[];calls=[];position=[197,179]
+    def town(action,**fields):
+        calls.append(action)
+        if action=='vendor-status':return {'reachable':True}
+        if action=='warehouse-locate':return {'position':[182,180]}
+        if action=='open-bank':
+            attempts[0]+=1
+            if attempts[0]<3:raise ValueError('Warehouse opening unverified; no repeat input issued')
+        return {}
+    def travel(target,**kw):
+        assert 'vendor_type' not in kw
+        assert kw['arrival_radius']==1
+        assert max(abs(a-bb) for a,bb in zip(target,(182,180)))<=4
+        travels.append(target);position[:]=target
+    loop=NS(living=lambda:{'embedded_controls':{'life':{'map_id':1036,'position':position}}},
+        town=town,travel=travel,terrain=NS(walkable=lambda p:p==(186,180)),record=lambda *a,**kw:None)
+    b.open_warehouse(loop)
+    assert travels==[(186,180)] and attempts==[3]
+    assert not any(a in ('warehouse-deposit','buy','sell') for a in calls)

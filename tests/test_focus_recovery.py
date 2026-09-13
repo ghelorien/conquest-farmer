@@ -108,3 +108,23 @@ def test_foreground_denial_with_windows_zero_is_deferred_and_detached(monkeypatc
         GetForegroundWindow=lambda:20,SetForegroundWindow=denied))
     assert activate_client(10,{},api=api) is False
     assert calls==[True,False]
+
+
+def test_focus_wait_observes_delayed_activation_without_new_input(monkeypatch):
+    from conquest import focus_recovery as focus
+    now=[0.];checks=[]
+    monkeypatch.setattr(focus.time,'monotonic',lambda:now[0])
+    monkeypatch.setattr(focus.time,'sleep',lambda seconds:now.__setitem__(0,now[0]+seconds))
+    monkeypatch.setattr('conquest.merchants.coordination.check_input',lambda:checks.append(now[0]))
+    api=SimpleNamespace(assert_owner=lambda *a:None,gui=SimpleNamespace(GetForegroundWindow=lambda:10 if now[0]>=.1 else 20))
+    assert focus.settled_foreground(api,10,{},10)
+    assert .1<=now[0]<=.2 and len(checks)>1
+
+
+def test_focus_wait_honors_stop_before_delayed_activation(monkeypatch):
+    from conquest.focus_recovery import settled_foreground
+    from conquest.capture import CaptureUnavailable
+    def stopped():raise CaptureUnavailable('Manual Stop')
+    monkeypatch.setattr('conquest.merchants.coordination.check_input',stopped)
+    with pytest.raises(CaptureUnavailable,match='Manual Stop'):
+        settled_foreground(SimpleNamespace(),10,{},10)
