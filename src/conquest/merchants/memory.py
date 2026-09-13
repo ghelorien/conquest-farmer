@@ -405,6 +405,13 @@ class MerchantMemory:
                 request = {'participant':string(s,actor+0xfd8,63),'message':string(s,confirmation_model+0x68,256)}
                 if request['message'] != f'{request["participant"]} wishes to trade with you.':
                     raise ValueError('Incoming trade participant and confirmation disagree')
+                from conquest.merchants.request_identity import participant_uid
+                request['participant_uid'] = participant_uid(self.observer, request['participant'])
+                if (not unpack(s,confirmation_model+12,'<B')[0]
+                        or string(s,confirmation_model+0x48) != title
+                        or string(s,actor+0xfd8,63) != request['participant']
+                        or string(s,confirmation_model+0x68,256) != request['message']):
+                    raise ValueError('Incoming trade request changed during identity resolution')
         final_inventory = self.inventory.read()
         if (s.read_block(wrapper+0xb88,32) != inv_header or s.read_block(actor+0x3468,32) != booth_header
                 or final_inventory.items != inv.items or final_inventory.silver != inv.silver):

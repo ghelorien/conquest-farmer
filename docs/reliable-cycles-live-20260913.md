@@ -144,6 +144,23 @@ automation decline.
 
 ## Unattended qualification remains outstanding
 
+The next controlled visit exposed two remaining failures: Dutch did not reach
+a qualified target within its approach allowance, and Spiritual's incoming
+request was never accepted. No item placement or confirmation was journaled.
+Fresh bilateral memory still shows the selected +1 LeatherArmor on Parasite.
+Spiritual received an unrelated +2 TaoRobe during the attempt; the operator
+confirmed adding it manually. This is incident evidence, not an automated
+transfer receipt. Preserve the uncertain operation and its expired service
+budget until the native reconciliation can account for that external change.
+
+The incoming request reader exposed only a name while the merchant controller
+required a UID. The source fix resolves the exact name to one stable scene actor
+using the qualified remote actor layout, retaining the controller trust check
+and independent opened-trade UID check. Changed, missing, duplicate or unknown
+actors cannot authorize acceptance. The name accessor is pinned to live client
+code. This fix is not yet deployed or live-qualified: a pending uncertain
+transfer prevents a safe reload. Do not bypass that guard or replay the request.
+
 No new two-hour uninterrupted run has started. Farmer intent remains Off during
 these controlled checks. General merchant operations remain paused, while both
 independent refill schedules are enabled. Their open booths and connected
