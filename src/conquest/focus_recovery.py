@@ -69,6 +69,28 @@ def activate_client(hwnd, identity, *, api=None):
     return settled_foreground(api,hwnd,identity,root)
 
 
+@coordinated_input
+def activate_focused_client(hwnd, identity, *, api=None, focus=None):
+    """Activate an exact client and, when hosted, prove its keyboard focus."""
+    from conquest.merchants.coordination import check_input
+    from conquest.window_host import HostApi
+    api = api or HostApi()
+    api.assert_owner(hwnd,identity)
+    if not activate_client(hwnd,identity,api=api):
+        return False
+    # Activation may have waited or used the owner's verified caption. A Stop,
+    # pointer takeover or replaced client must win before keyboard focus.
+    check_input();api.assert_owner(hwnd,identity)
+    root=api.gui.GetAncestor(hwnd,2)
+    if api.gui.GetForegroundWindow()!=root:
+        return False
+    focused=True if focus is None else focus()
+    check_input();api.assert_owner(hwnd,identity)
+    if api.gui.GetForegroundWindow()!=root:
+        return False
+    return focused
+
+
 class AutoRefocuser:
     def __init__(self, *, clock=time.monotonic):
         self.clock = clock

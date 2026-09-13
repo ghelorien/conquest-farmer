@@ -153,6 +153,62 @@ def test_access_error_keeps_saved_window_for_later_restoration():
     assert host.saved.hwnd == 1
 
 
+def test_show_game_prepares_current_farmer_pane_and_uses_verified_activation(monkeypatch):
+    calls=[];identity={'pid':42,'creation_time_100ns':123}
+    saved=WindowState(identity,20,0,0,0,())
+    host=SimpleNamespace(saved=saved,api=object())
+    pane=SimpleNamespace(winfo_ismapped=lambda:True,winfo_width=lambda:1416,winfo_height=lambda:1016)
+    notebook=SimpleNamespace(select=lambda frame:calls.append(('tab',frame)))
+    root=SimpleNamespace(deiconify=lambda:calls.append('deiconify'),
+                         update_idletasks=lambda:calls.append('idle'),lift=lambda:calls.append('lift'))
+    app=SimpleNamespace(host=host,client=(42,20,identity),unified=SimpleNamespace(
+        notebook=notebook,frames={'Farmer':'farmer'}),root=root,pane=pane,
+        resize_host=lambda w,h:calls.append(('resize',w,h)),
+        focus_game=lambda:calls.append('keyboard') or 21,
+        state_text=SimpleNamespace(set=lambda value:calls.append(('error',value))))
+    def activate(hwnd,current,*,api,focus):
+        calls.append(('activate',hwnd,current,api));return focus()
+    monkeypatch.setattr('conquest.desktop_app.activate_focused_client',activate)
+    assert DesktopApp.show_game(app) is True
+    assert calls==[('tab','farmer'),'deiconify','idle',('resize',1416,1016),'idle','lift',
+                   ('activate',20,identity,host.api),'keyboard']
+
+
+def test_show_game_rejects_replaced_host_before_any_activation(monkeypatch):
+    calls=[];identity={'pid':42,'creation_time_100ns':123}
+    app=SimpleNamespace(host=SimpleNamespace(saved=WindowState(
+        {'pid':99,'creation_time_100ns':456},20,0,0,0,()),api=object()),
+        client=(42,20,identity),state_text=SimpleNamespace(set=lambda value:calls.append(value)))
+    monkeypatch.setattr('conquest.desktop_app.activate_focused_client',
+                        lambda *a,**k:calls.append('activate'))
+    assert DesktopApp.show_game(app) is False
+    assert calls==['Hosted client identity changed before focus']
+
+
+def test_show_game_denied_input_cannot_change_tab_or_host_geometry(monkeypatch):
+    from contextlib import contextmanager
+    from conquest.capture import CaptureUnavailable
+    calls=[];identity={'pid':42,'creation_time_100ns':123}
+    saved=WindowState(identity,20,0,0,0,())
+    app=SimpleNamespace(host=SimpleNamespace(saved=saved,api=object()),client=(42,20,identity),
+        unified=SimpleNamespace(notebook=SimpleNamespace(select=lambda frame:calls.append('tab')),
+                                frames={'Farmer':'farmer'}),
+        root=SimpleNamespace(deiconify=lambda:calls.append('show'),
+                             update_idletasks=lambda:calls.append('idle'),lift=lambda:calls.append('lift')),
+        pane=SimpleNamespace(winfo_ismapped=lambda:True,winfo_width=lambda:1416,winfo_height=lambda:1016),
+        resize_host=lambda *a:calls.append('resize'),
+        state_text=SimpleNamespace(set=lambda value:calls.append(('error',value))))
+    @contextmanager
+    def denied():
+        raise CaptureUnavailable('Manual input has priority')
+        yield
+    monkeypatch.setattr('conquest.merchants.coordination.input_scope',denied)
+    monkeypatch.setattr('conquest.desktop_app.activate_focused_client',
+                        lambda *a,**k:calls.append('activate'))
+    assert DesktopApp.show_game(app) is False
+    assert calls==[('error','Manual input has priority')]
+
+
 def focus_api(focused=40, foreground=10):
     api = HostApi.__new__(HostApi)
     calls = []

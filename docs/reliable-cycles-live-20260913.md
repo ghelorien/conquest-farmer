@@ -45,12 +45,32 @@ canonically, while retaining rich metadata as transaction evidence. The related
 188 tests passed; an independent 50-test review also passed. The complete source
 release was safely loaded while all three characters remained in Market.
 
-The expired 60-second visit must not be reset in place. Warehouse fallback,
-verified departure/reentry, and subsequent controlled transfers are outstanding.
+The expired 60-second visit must not be reset in place. Verified
+departure/reentry and subsequent controlled transfers are outstanding.
 Review also identified missing per-step layout and overlapping-panel guards in
 the existing warehouse deposit drag. Source now checks physical geometry,
 topmost hovered grids, manual input and the destination at the actual input
-boundaries. Live deposit qualification remains outstanding.
+boundaries.
+
+Release `b43adb8` completed a controlled Market warehouse fallback: all eight
+carried valuables moved into the warehouse with exact rich inventory and
+warehouse conservation. This included the +2 halberd, the mace with two open
+sockets, the MeteorScroll, and five other +1 items. Only five potions and the
+5,000-arrow reserve remained in the bag; equipped gear and ammunition stayed
+with the farmer. Warehouse and Inventory panels closed after verification.
+The immutable completion evidence is retained locally with SHA-256
+`f7620711edc564650c88426f38d2199df134aff98d3741b4909cda9702083394`.
+
+The saved Phoenix/Market round-trip check subsequently stopped at its initial
+focus/preflight boundary, before funding, fares, movement, or a transit attempt.
+The original expired visit and its evidence remain unchanged. This is an
+unresolved qualification failure, not a successful route cycle.
+
+The Show/focus path now uses the existing native activation recovery, verifies
+the exact hosted client and final foreground ownership, and checks input
+ownership again before keyboard focus. It refreshes the current Farmer pane
+geometry after a tab switch. The 39 focused tests and 67 related window,
+handoff, and trial-focus tests passed. Live retry remains required.
 
 A separate controlled retrieval command binds two selected test items to their
 immutable, fully verified deposit receipts. It compares complete item ownership,

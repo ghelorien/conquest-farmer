@@ -35,7 +35,7 @@ from conquest.farm_telemetry import PickupHistory,pickup_values,activity_text,au
 from conquest.routes import RouteLibrary
 from conquest.route_choices import saved_route_choices, route_label
 from conquest.reconnect import Reconnector,login_screen,submit_login
-from conquest.focus_recovery import AutoRefocuser,activate_client
+from conquest.focus_recovery import AutoRefocuser,activate_client,activate_focused_client
 
 
 class EventQueue(logging.Handler):
@@ -371,26 +371,36 @@ class DesktopApp:
             self.last.update(auto_refocus={'restored':result,'attempted_at':time.time()})
 
     def show_game(self):
-        import win32gui
         try:
             if not self.host.saved:
                 self.refresh_client()
             if self.client is None:
                 raise ValueError('No unique matching character client is open')
-            hwnd = self.client[1]
+            _,hwnd,identity = self.client
             if self.host.saved:
-                if getattr(self,'unified',None):
-                    self.unified.notebook.select(self.unified.frames['Farmer'])
+                if self.host.saved.hwnd!=hwnd or self.host.saved.identity!=identity:
+                    raise ValueError('Hosted client identity changed before focus')
+            from conquest.merchants.coordination import input_scope
+            with input_scope():
+                if self.host.saved:
+                    if getattr(self,'unified',None):
+                        self.unified.notebook.select(self.unified.frames['Farmer'])
+                    self.root.deiconify()
                     self.root.update_idletasks()
-                self.root.deiconify()
-                self.root.lift()
-                win32gui.SetForegroundWindow(win32gui.GetAncestor(hwnd,2))
-                self.focus_game()
-            else:
-                if win32gui.IsIconic(hwnd):
-                    win32gui.ShowWindow(hwnd, 9)
-                win32gui.SetForegroundWindow(hwnd)
-                if win32gui.GetForegroundWindow() != hwnd:
+                    width,height=self.pane.winfo_width(),self.pane.winfo_height()
+                    if not self.pane.winfo_ismapped() or min(width,height)<1:
+                        raise ValueError('Farmer pane is not visible for focus')
+                    # Tab changes can move an owned top-level client. Reapply the
+                    # current pane geometry before native activation, without using
+                    # any remembered desktop coordinate.
+                    self.resize_host(width,height)
+                    if not self.host.saved:
+                        raise ValueError('Farmer pane could not retain the hosted client')
+                    self.root.update_idletasks()
+                    self.root.lift()
+                focused=activate_focused_client(hwnd,identity,api=self.host.api,
+                                                focus=self.focus_game if self.host.saved else None)
+                if not focused:
                     raise ValueError('Conquer did not receive foreground focus')
             return True
         except Exception as error:

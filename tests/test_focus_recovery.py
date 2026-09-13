@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 import pytest
-from conquest.focus_recovery import AutoRefocuser,activate_client
+from conquest.focus_recovery import AutoRefocuser,activate_client,activate_focused_client
 
 
 def test_refocus_retries_with_backoff_and_off_cancels():
@@ -128,3 +128,26 @@ def test_focus_wait_honors_stop_before_delayed_activation(monkeypatch):
     monkeypatch.setattr('conquest.merchants.coordination.check_input',stopped)
     with pytest.raises(CaptureUnavailable,match='Manual Stop'):
         settled_foreground(SimpleNamespace(),10,{},10)
+
+
+def test_combined_activation_verifies_keyboard_focus_and_final_foreground(monkeypatch):
+    from conquest import focus_recovery as module
+    foreground=[10];calls=[]
+    api=SimpleNamespace(assert_owner=lambda *a:calls.append('identity'),gui=SimpleNamespace(
+        GetAncestor=lambda *a:10,GetForegroundWindow=lambda:foreground[0]))
+    monkeypatch.setattr(module,'activate_client',lambda *a,**k:calls.append('activate') or True)
+    monkeypatch.setattr('conquest.merchants.coordination.check_input',lambda:calls.append('check'))
+    def focus():calls.append('focus');return 21
+    assert activate_focused_client(20,{'pid':1},api=api,focus=focus)==21
+    assert calls==['identity','activate','check','identity','focus','check','identity']
+
+
+def test_combined_activation_rejects_focus_lost_after_keyboard_transfer(monkeypatch):
+    from conquest import focus_recovery as module
+    foreground=[10]
+    api=SimpleNamespace(assert_owner=lambda *a:None,gui=SimpleNamespace(
+        GetAncestor=lambda *a:10,GetForegroundWindow=lambda:foreground[0]))
+    monkeypatch.setattr(module,'activate_client',lambda *a,**k:True)
+    monkeypatch.setattr('conquest.merchants.coordination.check_input',lambda:None)
+    def focus():foreground[0]=99;return 21
+    assert activate_focused_client(20,{'pid':1},api=api,focus=focus) is False
