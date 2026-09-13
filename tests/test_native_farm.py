@@ -816,6 +816,7 @@ def test_pending_ground_pickup_and_inventory_gain_emit_one_event(monkeypatch):
 
 
 @pytest.mark.parametrize('error,retryable', [('Inventory opening unverified',True),
+    ('Equipment changed before equip input',True),
     ('Equip unverified; no repeat equip issued',False)])
 def test_arrow_panel_open_failure_retries_but_uncertain_equip_does_not(monkeypatch,error,retryable):
     monkeypatch.setattr(native_farm,'logical_coordinates',nullcontext)

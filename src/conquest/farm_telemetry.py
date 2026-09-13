@@ -81,6 +81,15 @@ def previous_route_failure(route,app):
 def activity_text(route,app,control,life,*,now=None):
     now=time.time() if now is None else now
     if life and life.get('dead_candidate'):
+        manual=app.get('manual_stop_revision')
+        if not control.get('enabled'):
+            if type(manual) is int and manual==control.get('revision'):
+                return 'Dead — Farming is off; stopped by you'
+            if route.get('phase')=='needs_attention' and not previous_route_failure(route,app):
+                return 'Dead — route stopped: '+route.get('detail','Needs attention')
+            if not (route.get('phase') in ('restocking','changing_route','recovering_route','visiting_town','reloading','starting')
+                    and 0<=now-route.get('updated_at',0)<12):
+                return 'Dead — Farming is off; recovery is not running'
         return 'Dead — reviving, then returning to the farm route'
     if app.get('state')=='Reconnect needs attention':
         return 'Reconnect needs attention; use Retry reconnect after resolving the login error'

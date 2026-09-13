@@ -111,14 +111,21 @@ class NativeFarmSupervisor:
             # coordinates; the combat thread otherwise uses physical pixels.
             with logical_coordinates():
                 trade=self.observer.town_trade
+                self.supply_panel_pending=True
                 try:return trade({'action':'equip-arrows','uid':item.uid})
                 except ValueError as error:
-                    if str(error)=='Inventory opening unverified':
-                        # This fails before the equipment click. Reobserve the
-                        # bag and life next tick rather than stopping the route.
-                        raise CaptureUnavailable('Arrow reload: waiting for Inventory to open') from error
+                    if str(error) in ('Inventory opening unverified','Equipment changed before equip input'):
+                        # Both guards fail before the equipment click. Never reuse
+                        # the old slot: the next tick reads life, bag and reserve again.
+                        raise CaptureUnavailable('Arrow reload: reobserve before equipment input: '+str(error)) from error
                     raise  # An uncertain equipment receipt must not be replayed.
-                finally:trade({'action':'close','window':'Inventory'})
+                finally:
+                    # Reversible cleanup must not mask a receipt or the original
+                    # uncertainty. The observation loop retries pending cleanup.
+                    try:
+                        trade({'action':'close','window':'Inventory'})
+                        self.supply_panel_pending=False
+                    except (ValueError,OSError):pass
         return self.dispatch(reload)
 
     def heal_potion(self,uid):
