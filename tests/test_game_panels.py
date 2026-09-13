@@ -107,3 +107,12 @@ def test_travel_cleanup_is_throttled_and_reobserves_after_closing(monkeypatch,cl
         with pytest.raises(module.TravelStateChanged):care.check(health)
     else:care.check(health)
     assert len(calls)==2
+
+
+def test_changing_gui_registry_defers_cleanup_without_stopping_farmer(rig,monkeypatch):
+ trade,state,events=rig
+ def changed():raise panels.GuiObservationChanged('GUI registry changed')
+ monkeypatch.setattr(panels,'GuiReader',lambda adapter:NS(windows=changed))
+ with pytest.raises(CaptureUnavailable,match='GUI observation changed'):
+  panels.close_one(trade)
+ assert events==[]

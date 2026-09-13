@@ -2,7 +2,7 @@
 import time
 from types import SimpleNamespace
 from conquest.capture import CaptureUnavailable
-from conquest.merchants.memory import GuiReader
+from conquest.merchants.memory import GuiReader,GuiObservationChanged
 from conquest.merchants.booth_panel_probe import close_point
 from conquest.merchants.driver import wait_hover_validation
 from conquest.character_context import farmer_name
@@ -11,6 +11,12 @@ PANELS=('Booth','Shop','Warehouse','Dialog','Inventory')
 TRANSACTIONS={'Trade##TradeWindow','Add Item to Booth','###Confirm'}
 
 def close_one(trade,check=lambda:None):
+    try:return _close_one(trade,check)
+    except GuiObservationChanged as error:
+        raise CaptureUnavailable('GUI observation changed; reobserve panels before movement') from error
+
+
+def _close_one(trade,check):
     # This helper is called only by farmer travel/combat, never by sellers.
     if trade.observer.character!=farmer_name():raise ValueError('Panel cleanup requires the farmer')
     check();gui=GuiReader(trade.observer.adapter);windows=gui.windows()
