@@ -1,10 +1,11 @@
-# Kilhiam baseline; independent of all other farmers.
+# Kilhiam measured profile; see docs/kilhiam-throughput-2026-09-13.md.
 character: Kilhiam
 combat_speed:
   action_interval: 0.15
   scatter_recast_seconds: 0.8
-  scatter_receipt_seconds: 0.8
-  jump_arrival_seconds: 0.4
-  jump_attack_guard_seconds: 0.44
-  torn_life_attempts: 1
-  moving_observation_retry_seconds: 0.1
+  scatter_receipt_seconds: 0.2
+  scatter_receipt_arrows: 2
+  jump_arrival_seconds: 0.25
+  jump_attack_guard_seconds: 0.28
+  torn_life_attempts: 3
+  moving_observation_retry_seconds: 0.01

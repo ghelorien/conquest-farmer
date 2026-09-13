@@ -8,6 +8,7 @@ class CombatSpeed(BaseModel):
     action_interval:float=Field(default=.15,ge=.15,le=10)
     scatter_recast_seconds:float=Field(default=.8,ge=.2,le=5)
     scatter_receipt_seconds:float=Field(default=.8,ge=.15,le=5)
+    scatter_receipt_arrows:int=Field(default=3,ge=2,le=3)
     jump_arrival_seconds:float=Field(default=.4,ge=.15,le=2)
     jump_attack_guard_seconds:float=Field(default=.44,ge=.15,le=2)
     torn_life_attempts:int=Field(default=1,ge=1,le=3)

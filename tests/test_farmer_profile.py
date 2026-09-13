@@ -15,3 +15,14 @@ def test_profile_cannot_be_applied_to_another_farmer(tmp_path):
 @pytest.mark.parametrize('name',['../Other','a/b','a\\b','..'])
 def test_profile_name_cannot_escape_directory(tmp_path,name):
     with pytest.raises(ValueError):load_combat_speed(name,tmp_path)
+
+
+def test_receipt_cost_is_isolated_from_other_farmers_and_attack_stock(tmp_path):
+    from conquest.trial import ammunition_per_attack
+    from types import SimpleNamespace
+    (tmp_path/'First.yaml').write_text('character: First\ncombat_speed:\n  scatter_receipt_arrows: 2\n')
+    speed=load_combat_speed('First',tmp_path)
+    assert speed.scatter_receipt_arrows==2
+    assert load_combat_speed('Second',tmp_path).scatter_receipt_arrows==3
+    assert ammunition_per_attack(SimpleNamespace(attack_button='right',combat_speed=speed))==3
+    with pytest.raises(ValueError):CombatSpeed(scatter_receipt_arrows=1)

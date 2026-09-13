@@ -13,9 +13,14 @@ observation retries use 0.01 seconds. Other profiles retain the prior defaults
 unless configured independently.
 
 Parameters: `action_interval`, `scatter_recast_seconds`,
-`scatter_receipt_seconds`, `jump_arrival_seconds`, `jump_attack_guard_seconds`,
+`scatter_receipt_seconds`, `scatter_receipt_arrows`, `jump_arrival_seconds`, `jump_attack_guard_seconds`,
 `torn_life_attempts`, and `moving_observation_retry_seconds`. All durations are
-seconds. Validation bounds prevent zero/negative delays and unbounded retries.
+seconds, except arrow and attempt counts. Validation bounds prevent zero/negative delays and unbounded retries.
 These settings do not override manual input, death checks, inventory receipts,
 loot protection, or fresh target/position checks. The 80-kills/minute target
 requires live measurement; configuration changes alone do not prove it.
+
+`scatter_receipt_arrows` defaults to 3. Kilhiam uses 2 after nineteen recorded
+Scatter attempts each showed a stable two-arrow decrease. This only determines
+when a cast receipt permits repositioning; it does not change the three-arrow
+minimum to attempt Scatter, the recast cooldown, or other farmers' profiles.

@@ -27,9 +27,9 @@ from conquest.looting import PickupAttempt, nearby_drops
 from conquest.recovery import RecoveryConfig, DeathRecovery, RecoveryPhase, revive_button
 
 
-def scatter_receipt_ready(elapsed, previous_ammo, current_ammo, minimum_seconds=.2):
-    """A full three-arrow consumption permits repositioning before recast cooldown."""
-    return elapsed>=minimum_seconds and 3<=previous_ammo-current_ammo
+def scatter_receipt_ready(elapsed, previous_ammo, current_ammo, minimum_seconds=.2, minimum_arrows=3):
+    """A profile-qualified consumption permits movement; recast/minimum stock stay separate."""
+    return elapsed>=minimum_seconds and minimum_arrows<=previous_ammo-current_ammo
 
 
 class TrialConfig(BaseModel):
@@ -701,7 +701,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     counter = fields["kill_counter"][0]
                     if (pending_attack_button=="right" and
                             (time.monotonic()-issued>=.8 or (supervisor and config.jump_scatter
-                             and scatter_receipt_ready(time.monotonic()-issued,previous_ammo,inventory.equipped_ammo.amount,speed.scatter_receipt_seconds)))):
+                             and scatter_receipt_ready(time.monotonic()-issued,previous_ammo,inventory.equipped_ammo.amount,speed.scatter_receipt_seconds,speed.scatter_receipt_arrows)))):
                         pending_attack=None
                         last_action=0
                     elif attack_interrupted:
