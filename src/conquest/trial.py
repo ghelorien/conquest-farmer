@@ -243,6 +243,16 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     time.sleep(.05)
                     continue
                 supervised = supervisor.observe() if supervisor else None
+                for recovery_event in (supervised or {}).get('recovery_events',()):
+                    payload=dict(recovery_event)
+                    name=payload.pop('event')
+                    if name=='death_detected':
+                        deaths+=1
+                        payload['deaths']=deaths
+                    elif name=='revival_verified':
+                        verified_revivals+=1
+                        payload['total']=verified_revivals
+                    event(name,**payload)
                 if supervised and supervised.get('stop'):
                     reason='control_changed'
                     break

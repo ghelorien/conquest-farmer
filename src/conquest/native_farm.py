@@ -58,6 +58,7 @@ class NativeFarmSupervisor:
         self.movement_obstructions={}
         self.movement_run_until=0
         self.patrol_chase=None
+        self.recovery_death_seen=False
 
     def observe_inventory(self, inventory):
         """Record new valuable item identities independently of ground-read races."""
@@ -225,7 +226,19 @@ class NativeFarmSupervisor:
             if intent['revision']!=self.revision:
                 return {'stop':True,'waiting':True,'health_ratio':life.current_hp/life.max_hp}
             focused=window['foreground']==window['root_hwnd'] and not window['minimized']
+            recovery_events=[]
+            if (life.dead_candidate or life.ghost_candidate) and not self.recovery_death_seen:
+                self.recovery_death_seen=True
+                recovery_events.append({'event':'death_detected','position':list(life.position),
+                    'map_id':life.map_id,'health_ratio':life.current_hp/life.max_hp,'source':'native_memory'})
             status=self.recovery.step({**asdict(life),'dead_candidate':life.dead_candidate},focused)
+            phase=(getattr(self.recovery,'episode',None) or {}).get('phase')
+            if (self.recovery_death_seen and not life.dead_candidate and not life.ghost_candidate
+                    and phase in ('returning_with_farmer','returning_after_revive','completed')):
+                # RouteRecovery has confirmed revival across fresh life samples.
+                self.recovery_death_seen=False
+                recovery_events.append({'event':'revival_verified','position':list(life.position),
+                    'map_id':life.map_id,'health_ratio':life.current_hp/life.max_hp,'source':'native_memory'})
             waiting=not intent['enabled'] or not focused or life.dead_candidate or bool(status)
             if not waiting and getattr(self,'supply_panel_pending',False):
                 try:
@@ -246,6 +259,7 @@ class NativeFarmSupervisor:
                 self.notify('farm_state',{'state':state,'note':note})
                 self.last_state=(state,note)
             result={'waiting':waiting,'health_ratio':life.current_hp/life.max_hp}
+            if recovery_events:result['recovery_events']=recovery_events
             if (getattr(self.recovery,'episode',None) or {}).get('phase')=='returning_with_farmer':
                 result['returning_after_revive']=True
             if self.defending:

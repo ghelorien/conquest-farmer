@@ -80,7 +80,12 @@ def test_slow_native_samples_keep_recovery_alive_then_heal(tmp_path,monkeypatch,
         observations.append(len(reads))
         if len(reads)==4 and not revived:
             revived.append(True)  # Stand-in for the supervisor's death/revival step.
-            return {'waiting':True,'health_ratio':0}
+            return {'waiting':True,'health_ratio':0,'recovery_events':[
+                {'event':'death_detected','position':[423,455],'source':'native_memory'}]}
+        if len(revived)==1:
+            revived.append(True)
+            return {'waiting':True,'health_ratio':1,'recovery_events':[
+                {'event':'revival_verified','position':[193,266],'source':'native_memory'}]}
         return {'waiting':False,'health_ratio':.9 if keys else .3}
     supervisor=NS(recovery=NS(terrain=NS(width=1000,height=1000)),observe=observe,
                   memory_targets=lambda *a:[],loot_step=lambda *a:False,
@@ -98,3 +103,5 @@ def test_slow_native_samples_keep_recovery_alive_then_heal(tmp_path,monkeypatch,
         assert result['reason']=='duration_limit' and keys and revived
         assert 'state_recovery_wait' in events and 'state_recovery_resumed' in events
         assert len(observations)>4
+        assert events.count('death_detected')==events.count('revival_verified')==1
+        assert result['deaths']==result['verified_revivals']==1

@@ -74,6 +74,26 @@ def test_positive_hp_death_blocks_combat_before_ghost_animation(monkeypatch):
         supervisor.dispatch(lambda:pytest.fail('Dead player must not attack'))
 
 
+def test_native_death_and_confirmed_revival_report_once_before_combat(monkeypatch):
+    supervisor,_,life,_=setup(monkeypatch)
+    first=supervisor.observe()
+    assert first['waiting']
+    assert first['recovery_events'][0]['event']=='death_detected'
+    assert 'recovery_events' not in supervisor.observe()
+    life.dead_candidate=False
+    life.current_hp=life.max_hp
+    supervisor.recovery.episode={'phase':'verifying_revive'}
+    assert 'recovery_events' not in supervisor.observe()
+    supervisor.recovery.episode={'phase':'returning_with_farmer'}
+    supervisor.recovery.step=lambda *args:None
+    verified=supervisor.observe()
+    assert verified['recovery_events'][0]['event']=='revival_verified'
+    assert verified['returning_after_revive']
+    assert 'recovery_events' not in supervisor.observe()
+    life.dead_candidate=True
+    assert supervisor.observe()['recovery_events'][0]['event']=='death_detected'
+
+
 @pytest.mark.parametrize('change',[{'enabled':False},{'target_type_ids':[2]}])
 def test_off_or_target_change_cancels_input_prepared_earlier(monkeypatch,change):
     supervisor,control,life,_=setup(monkeypatch)
