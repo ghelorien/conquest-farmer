@@ -24,7 +24,8 @@ def unchanged(intent,farmer,merchant):
 
 
 def start(ui,character):
-    from conquest.merchants.farmer_preferences import permits_new_delivery,ui_character
+    from conquest.merchants.farmer_preferences import permits_new_delivery
+    from conquest.merchants.farmer_identity import ui_character
     permits_new_delivery(ui_character(ui))
     character=character_name(character)
     if getattr(ui,'delivery_probe_thread',None) and ui.delivery_probe_thread.is_alive():
@@ -64,7 +65,8 @@ def run(ui,intent,revision,state):
     observer=ui.app.observer;memory=MerchantMemory(observer)
     character=intent['merchant']['character']
     def check():
-        from conquest.merchants.farmer_preferences import permits_new_delivery,ui_character
+        from conquest.merchants.farmer_preferences import permits_new_delivery
+        from conquest.merchants.farmer_identity import ui_character
         permits_new_delivery(intent['farmer']['character'])
         ui.coordinator.check()
         control=ui.app.control.snapshot()

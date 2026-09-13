@@ -10,7 +10,8 @@ def start(ui,stage):
     if stage not in ('accept','offer','confirm'):raise ValueError('Unknown delivery qualification stage')
     if getattr(ui,'delivery_probe_thread',None) and ui.delivery_probe_thread.is_alive():
         raise ValueError('Delivery qualification is running')
-    from conquest.merchants.farmer_preferences import permits_new_delivery,ui_character
+    from conquest.merchants.farmer_preferences import permits_new_delivery
+    from conquest.merchants.farmer_identity import ui_character
     permits_new_delivery(ui_character(ui));ui.coordinator.check()
     if not ui.safe_to_yield():raise ValueError('Farmer input has not been released')
     state=read_json(JOURNAL)

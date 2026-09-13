@@ -20,7 +20,8 @@ def save(state,**fields):
 
 
 def preflight(loop,send):
-    from conquest.merchants.farmer_preferences import enabled,route_character
+    from conquest.merchants.farmer_preferences import enabled
+    from conquest.merchants.farmer_identity import route_character
     if not enabled(route_character(loop)):return False
     policy=read_json(delivery_route.POLICY)
     if not policy.get('enabled') or not policy.get('parity_verified'):return False

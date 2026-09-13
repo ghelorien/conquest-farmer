@@ -12,7 +12,8 @@ from conquest.discord_notify import read_json,write_json
 from conquest.merchants.bridge import request
 from conquest.merchants.delivery import plan_deliveries
 from conquest.merchants.handoff import WorkWindows
-from conquest.merchants.farmer_preferences import enabled as transfers_enabled,route_character
+from conquest.merchants.farmer_preferences import enabled as transfers_enabled
+from conquest.merchants.farmer_identity import route_character
 
 POLICY=Path('profiles/merchant-deliveries.json')
 STATE=Path('reports/banking/merchant-route.json')

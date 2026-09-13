@@ -5,17 +5,6 @@ from conquest.discord_notify import read_json,write_json
 PATH=Path('.runtime/farmer-transfer-preferences.json')
 
 
-def ui_character(ui):
-    app=getattr(ui,'app',None)
-    return (getattr(app,'transfer_character',None)
-            or getattr(getattr(app,'observer',None),'character',None) or 'Parasite')
-
-
-def route_character(loop):
-    return (getattr(loop,'character',None)
-            or read_json('reports/desktop-farming/app-state.json').get('character') or 'Parasite')
-
-
 def enabled(character='Parasite'):
     return read_json(PATH).get('farmers',{}).get(character,True) is True
 
