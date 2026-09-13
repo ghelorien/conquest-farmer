@@ -64,7 +64,11 @@ def scatter_landing(supervisor, targets, position, boundary, radius,minimum_coun
             separation=max(abs(a-b) for a,b in zip(center,position))
             if not radius<separation<=48:continue
             count=sum(max(abs(a-b) for a,b in zip(p,center))<=max(2,radius-2) for p in live)
-            if count>=max(4,local_count+3):groups.append((center,count,separation))
+            # A promising first jump is not progress if the group is across
+            # a wall/river. Let terrain patrol route around that obstacle;
+            # do not repeatedly pull it back with straight-line lookahead.
+            if count>=max(4,local_count+3) and clear_jump(terrain,position,center):
+                groups.append((center,count,separation))
     recent=getattr(supervisor,'scatter_landings',[])
     now=time.monotonic();recent=[(p,at) for p,at in recent if now-at<8]
     blocked={p for (world,p),until in getattr(supervisor,'movement_obstructions',{}).items()

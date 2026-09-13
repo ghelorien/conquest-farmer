@@ -217,3 +217,19 @@ def test_cluster_lookahead_does_not_cross_wall_to_chase_dense_group():
         combat_speed=CombatSpeed(cluster_lookahead=True,fast_scatter_planning=True),scatter_scene_targets=nearby+dense)
     landing=scatter_landing(supervisor,nearby,(50,50),(20,20,130,130),10)
     assert landing is not None and landing[0]<55 and clear_jump(terrain,(50,50),landing)
+
+
+def test_lookahead_does_not_lure_patrol_to_wall_beyond_first_jump():
+    from conquest.farmer_profile import CombatSpeed
+    terrain=TerrainMap(1011,150,150,np.zeros((150,150),dtype=bool),'',(),())
+    # The first 12-tile jump is clear, but the following approach is blocked.
+    terrain.blocked[:,65]=True
+    nearby=[target(40,50)]
+    dense=[target(82+i%3,49+i//3) for i in range(8)]
+    supervisor=SimpleNamespace(recovery=SimpleNamespace(terrain=terrain),
+        combat_speed=CombatSpeed(cluster_lookahead=True,fast_scatter_planning=True),
+        scatter_scene_targets=nearby+dense)
+    landing=scatter_landing(supervisor,nearby,(50,50),(20,20,130,130),10)
+    assert landing is not None and clear_jump(terrain,(50,50),landing)
+    assert max(abs(a-b) for a,b in zip(landing,nearby[0].world_position))<=10
+    assert not supervisor.scatter_plan['lookahead']

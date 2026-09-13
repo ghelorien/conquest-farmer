@@ -85,3 +85,14 @@ All 47 handoff/refill tests pass in both live and publication trees. Live
 merchant recovery and actual listing remain under observation.
 
 Reconnect now also recreates a single pending safe-handoff request after restart, before any login input or recovery attempt. Existing requests are preserved. Paused operations cannot enqueue recovery. All 100 handoff, refill, reconnect-trial and connect-to-Market tests pass in each tree.
+
+
+### Distant-cluster approach loop
+
+The live farmer oscillated between (440,505) and (449,511) with no kills.
+Logs showed distant-cluster lookahead pulling patrol back to the same first
+jump; installed map 1011 terrain showed the group approaches across blocked
+ground. Require a clear terrain segment to the distant cluster before giving
+it lookahead utility. Immediate groups retain their scores and ordinary terrain
+patrol can still route around obstacles. Regression places a wall beyond the
+first legal jump; all 50 Scatter movement tests pass in both trees.
