@@ -849,3 +849,19 @@ def test_panel_cleanup_defers_combat_until_next_observation(monkeypatch):
     supervisor.next_panel_check=0
     assert not supervisor.observe()['waiting']
     assert supervisor.dispatch(lambda:'attack')=='attack'
+
+
+@pytest.mark.parametrize('character,expected',[('Parasite',2),('AnotherFarmer',1)])
+def test_fast_torn_life_retry_is_parasite_only(monkeypatch,character,expected):
+    supervisor,_,life,_=setup(monkeypatch);supervisor.observer.character=character;calls=[]
+    from conquest.farmer_profile import load_combat_speed
+    supervisor.combat_speed=load_combat_speed(character)
+    def read(*args):
+        calls.append(1)
+        if len(calls)==1:raise ValueError('Life state changed during observation')
+        return life
+    monkeypatch.setattr(native_farm,'read_life',read)
+    if character=='Parasite':assert supervisor.read_life() is life
+    else:
+        with pytest.raises(CaptureUnavailable):supervisor.read_life()
+    assert len(calls)==expected

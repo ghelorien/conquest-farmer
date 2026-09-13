@@ -16,6 +16,7 @@ from conquest.patrol_search import PatrolSearchConfig, AdaptivePatrol
 from pydantic import BaseModel, ConfigDict, Field
 
 from conquest.addressing import PlayerLayout, WorkerPointerSession, resolve_player
+from conquest.farmer_profile import CombatSpeed,load_combat_speed
 from conquest.capture import DesktopFrames, CaptureUnavailable, Frame
 from conquest.vision import health_ratio, targets
 from conquest.memory_inventory import InventoryLayout, MemoryInventoryReader
@@ -26,10 +27,16 @@ from conquest.looting import PickupAttempt, nearby_drops
 from conquest.recovery import RecoveryConfig, DeathRecovery, RecoveryPhase, revive_button
 
 
+def scatter_receipt_ready(elapsed, previous_ammo, current_ammo, minimum_seconds=.2):
+    """A full three-arrow consumption permits repositioning before recast cooldown."""
+    return elapsed>=minimum_seconds and 3<=previous_ammo-current_ammo
+
+
 class TrialConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     observation_mode: Literal["memory_only", "legacy_visual"] = "memory_only"
     character: str
+    combat_speed: CombatSpeed | None = None
     player_profile: str
     inventory_profile: str
     template: str
@@ -136,6 +143,8 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
     if not 1 <= seconds <= 1800:
         raise ValueError("Supervised run must last 1 to 1800 seconds")
     config = config_override or TrialConfig.model_validate(yaml.safe_load(Path(config_path).read_text()))
+    speed=config.combat_speed or load_combat_speed(config.character)
+    if supervisor:supervisor.combat_speed=speed
     if supervisor and config.attack_button=="right":
         supervisor.scatter_standoff=max(2,config.attack_range_tiles-2)
     if config.observation_mode == "memory_only" and supervisor is None:
@@ -219,6 +228,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
     boundary_return_target = None
     recovery, deaths, verified_revivals = None, 0, 0
     event("trial_started", observe_only=observe_only, seconds=seconds,
+          farmer=config.character,combat_speed=speed.model_dump(),
           monster=config.monster,
           rotation_regions=[region.name for region in config.patrol_search.regions],
           confirmed_kills=None, confirmed_pickups=None)
@@ -658,7 +668,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     before_position, issued, expected_position = moving
                     arrived=supervisor and math.dist((x,y),expected_position)<.5
                     jumped = supervisor and max(abs(a-b) for a,b in zip(before_position,expected_position)) >= 8
-                    settle = (.4 if config.jump_scatter and jumped else .5) if arrived else 1.5
+                    settle = (speed.jump_arrival_seconds if config.jump_scatter and jumped else .5) if arrived else 1.5
                     if supervisor and jumped and math.dist((x,y),before_position)<.5:
                         settle=min(settle,.8)
                     if approaching and getattr(getattr(supervisor,'runback_watch',None),'urgent',False):settle=min(settle,.5)
@@ -689,7 +699,9 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                 if pending_attack:
                     before_counter, issued, previous_ammo = pending_attack
                     counter = fields["kill_counter"][0]
-                    if pending_attack_button=="right" and time.monotonic()-issued>=.8:
+                    if (pending_attack_button=="right" and
+                            (time.monotonic()-issued>=.8 or (supervisor and config.jump_scatter
+                             and scatter_receipt_ready(time.monotonic()-issued,previous_ammo,inventory.equipped_ammo.amount,speed.scatter_receipt_seconds)))):
                         pending_attack=None
                         last_action=0
                     elif attack_interrupted:
@@ -848,7 +860,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                             raise ValueError("Action expired or foreground changed")
                         # Defense may have selected another group from the same fresh scene.
                         attack_button=mode(target.name) if strategy else config.attack_button
-                        if attack_button=="right" and time.monotonic()-last_scatter_cast<.8:
+                        if attack_button=="right" and time.monotonic()-last_scatter_cast<speed.scatter_recast_seconds:
                             time.sleep(.03)
                             continue
                         issued=time.monotonic()
@@ -938,7 +950,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         # observation/focus retry must not skip its next cast.
                         scatter_jump_due=False
                         if supervisor and long_jump:
-                            escape_settle_until=max(escape_settle_until,issued+(.44 if config.jump_scatter else .55))
+                            escape_settle_until=max(escape_settle_until,issued+(speed.jump_attack_guard_seconds if config.jump_scatter else .55))
                         moving=((x,y),issued,(x+dx,y+dy))
                         if navigation_waiting:
                             event('navigation_resumed')
@@ -948,6 +960,11 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     last_action = time.monotonic()
                 time.sleep(.08)
             except CaptureUnavailable as error:
+                if supervisor and speed.moving_observation_retry_seconds<.1 and str(error) in ('Life state changed during observation','Player moved before projection'):
+                    # No input was submitted. Re-read immediately instead of treating
+                    # a normal moving-frame race as a focus loss with a 100ms pause.
+                    time.sleep(speed.moving_observation_retry_seconds)
+                    continue
                 if str(error)=='Waiting for a traversable patrol step':
                     if not navigation_waiting:
                         event('navigation_wait',reason=str(error))

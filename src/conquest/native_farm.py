@@ -187,7 +187,12 @@ class NativeFarmSupervisor:
         if hwnd is not None and login_screen(hwnd):
             raise CaptureUnavailable('Disconnected; waiting for automatic reconnection')
         try:
-            return read_life(self.observer.adapter,self.observer.health_layout,self.observer.character)
+            attempts=getattr(getattr(self,'combat_speed',None),'torn_life_attempts',1)
+            for attempt in range(attempts):
+                try:return read_life(self.observer.adapter,self.observer.health_layout,self.observer.character)
+                except ValueError as error:
+                    if str(error)!='Life state changed during observation' or attempt==attempts-1:raise
+                    time.sleep(.005)
         except ValueError as error:
             if str(error) in ('Life state changed during observation',
                               'Player pointer changed during life observation',
