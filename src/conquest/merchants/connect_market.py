@@ -72,7 +72,7 @@ def qualify_move(driver,travel,before,destination,check):
     return after
 
 
-def approach_vacant_flag(driver,travel,check):
+def approach_vacant_flag(driver,travel,check,preferred=None):
     """Bounded supervised setup approach; vacancy is rechecked before every move."""
     from conquest.merchants.stalls import vacant_flags
     from conquest.merchants.return_driver import stall_approach
@@ -90,7 +90,24 @@ def approach_vacant_flag(driver,travel,check):
         try:distance,target=stall_approach(terrain,initial['position'],flag)
         except ValueError:continue
         choices.append((distance,flag['uid'],target))
-    if not choices:raise ValueError('No memory-verified reachable vacant flag is nearby')
+    if not choices:
+        if (not isinstance(preferred,(list,tuple)) or len(preferred)!=2
+                or any(type(v) is not int for v in preferred)
+                or max(abs(a-b) for a,b in zip(initial['position'],preferred))<=8):
+            raise ValueError('No memory-verified reachable vacant flag is nearby')
+        # The saved shop area is a scouting destination, never evidence of vacancy.
+        terrain.travel_path(tuple(initial['position']),tuple(preferred))
+        check()
+        fresh=driver.memory.read()
+        if (fresh['identity']!=initial['identity'] or fresh['map_id']!=1036
+                or stock(fresh)!=stock(initial) or fresh.get('own_booth_uid')
+                or fresh.get('trade') or fresh.get('request')):
+            raise ValueError('Merchant changed before saved-area scouting')
+        after=travel.move(travel.read(),preferred,check)
+        if after['position']==fresh['position']:
+            raise CaptureUnavailable('Saved shop area scouting made no progress')
+        raise CaptureUnavailable('Approaching saved shop area; recheck vacancy before claiming')
+
     _,uid,target=min(choices)
     for _ in range(8):
         check();fresh=driver.memory.read()
@@ -236,7 +253,8 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
                         travel.qualify_movement=stationary_geometry
                         try:
                             pending=runtime.journal.get(character,'stall_probe',{})
-                            selected_flag=None if pending.get('phase')=='submitted' else approach_vacant_flag(driver,travel,check)
+                            selected_flag=None if pending.get('phase')=='submitted' else approach_vacant_flag(driver,travel,check,
+                                preferred=(runtime.journal.get(character,'shop_home',{}) or {}).get('position'))
                             result=inspect_flag(driver,travel,runtime.journal,check,flag_uid=selected_flag)
                         finally:travel.qualify_movement=original
                         from conquest.merchants.booth_target import CONTROL

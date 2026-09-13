@@ -165,3 +165,33 @@ def test_conductress_waits_for_native_pointer_before_press(monkeypatch,confirmed
         with pytest.raises(CaptureUnavailable,match='acknowledgement'):
             travel.prepare_transfer(snapshot,lambda:None)
         assert events==[('pointer',(500,268))]
+
+
+def test_periodic_ui_poll_does_not_pause_a_dead_client(monkeypatch):
+    from unittest.mock import Mock
+    import time
+    from conquest.merchants.ui import UnifiedUI
+    monkeypatch.setattr('conquest.merchants.dashboard.merchant_text',lambda *a,**k:'Recovering')
+    calls=[]
+    host=NS(saved=object(),is_alive=lambda:False)
+    def detach():
+        calls.append('detach');host.saved=None
+    host.detach=detach
+    state={'snapshot':None,'scan':{},'enabled':True,'refill':{'enabled':True}}
+    text=Mock()
+    u=NS(closed=False,presentation=NS(latest={'characters':{'Spiritual':state},'events':[],
+        'tables':{'Spiritual':{'deferred':[]}},'collected_at':time.monotonic()}),
+        update_header=lambda data:None,app=NS(closing=False,control=NS(snapshot=lambda:{}),
+        state_text=text,activity_text=text,stats_text=text),rows={'Farmer':text,'Spiritual':text},
+        input_note=text,coordinator=NS(owner=None,stopped=False),safe_to_yield=lambda:True,
+        background_surfaces={},batch_buttons={'Spiritual':Mock()},manage_buttons={'Spiritual':Mock()},
+        refill_buttons={'Spiritual':Mock()},hosts={'Spiritual':host},labels={'Spiritual':text},
+        notebook=NS(select=lambda:'Other'),frames={'Spiritual':'Spiritual'},root=Mock(),
+        resize_jobs={},background_probe={},render_sizes={},layout_status={},calibration_results={},
+        pause=lambda c:calls.append('pause'),resize_merchant=lambda c:calls.append('resize'))
+    u.auto_show_selected=lambda:None
+    u.poll=lambda:UnifiedUI.poll(u)
+    u.finish_resize=lambda c:UnifiedUI.finish_resize(u,c)
+    UnifiedUI.poll(u)
+    assert calls==['detach']
+    assert state['enabled'] is True

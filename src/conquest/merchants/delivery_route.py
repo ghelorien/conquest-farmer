@@ -153,6 +153,22 @@ def refill_remainder(loop,send,key,deadline,proof,revision):
     return True
 
 
+def approach_merchant(loop,plan,send):
+    """Stop at verified request range, never force entry into an occupied booth."""
+    pair=send({'action':'delivery-pair','character':plan['merchant']})
+    f,m=pair['farmer'],pair['merchant']
+    if f['map_id']!=1036 or m['map_id']!=1036 or m['position']!=plan['position']:
+        raise ValueError('Merchant approach location changed; re-plan before moving')
+    source,target=tuple(f['position']),tuple(m['position'])
+    distance=lambda p:max(abs(a-b) for a,b in zip(p,target))
+    if distance(source)<=12:return
+    path=loop.terrain.travel_path(source,target)
+    if not path or tuple(path[0])!=source or tuple(path[-1])!=target:
+        raise ValueError('No checked path into merchant trade range')
+    destination=next(tuple(p) for p in path if distance(p)<=12)
+    loop.travel(destination,arrival_radius=0,activity=f"Approaching trade range of {plan['merchant']}")
+
+
 def market_storage(loop,*,send=request):
     state=read_json(STATE)
     # Reconcile an earlier submission even after the rollout is disabled.
@@ -177,8 +193,7 @@ def market_storage(loop,*,send=request):
             try:loop.town('service-close-panel',window=window)
             except ValueError as error:
                 if not any(note in str(error) for note in ('not active','absent')):raise
-        loop.travel(tuple(plan['position']),arrival_radius=2,
-                    activity=f"Taking loot to {plan['merchant']}")
+        approach_merchant(loop,plan,send)
         fresh=candidates(loop,send)
         if not fresh:return receipts
         current=fresh[0]

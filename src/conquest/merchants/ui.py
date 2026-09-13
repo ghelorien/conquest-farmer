@@ -312,6 +312,18 @@ class UnifiedUI:
         if action in ('delivery-pair','delivery-reserve','delivery-ready','delivery-finish','delivery-source'):
             from conquest.merchants.delivery_bridge import dispatch
             return dispatch(self,body)
+        if action=='focus-farmer' and set(body)=={'action'}:
+            queued_at=time.monotonic()
+            done,result=threading.Event(),{}
+            def focus_farmer():
+                from conquest.merchants.farmer_surface import focus_idle_farmer
+                result.update(focus_idle_farmer(self,queued_at=queued_at))
+            self.ui_requests.put((focus_farmer,done,result))
+            if not done.wait(3):
+                result['expired']=True
+                raise ValueError('Farmer focus request expired')
+            if result.get('error'):raise ValueError(result['error'])
+            return result
         if action=='status' and set(body)=={'action'}:
             return {'characters':self.runtime.status(),'input_owner':self.coordinator.owner,
                 'handoff_requested':self.runtime.handoff,'handoff_granted':bool(self.grant and self.safe_to_yield()),
@@ -1015,11 +1027,9 @@ class UnifiedUI:
                 self.refill_buttons[character].configure(text='Pause auto-refill' if state['refill']['enabled'] else 'Enable auto-refill')
                 host = self.hosts.get(character)
                 if host and host.saved:
-                    try:
-                        self.resize_merchant(character)
-                    except (ValueError,OSError):
-                        self.pause(character)
-                        note += '\nEmbedded client changed; reconnect and verify again'
+                    # Share the verified dead-client handling with resize events.
+                    # A disconnected HWND must not overwrite trading/recovery intent.
+                    self.finish_resize(character)
                 self.rows[character].set(note);self.labels[character].set(note)
                 if time.monotonic()-data['collected_at']>5:
                     self.rows[character].set(note+'\nStatus refresh delayed; client display remains available')

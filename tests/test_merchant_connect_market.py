@@ -158,3 +158,22 @@ def test_stall_approach_rechecks_vacancy_before_moving(monkeypatch,tmp_path,occu
     else:
         assert connect.approach_vacant_flag(driver,travel,lambda:None)==10
         assert moves==[(206,190)]
+
+
+@pytest.mark.parametrize('near,changed',[(False,False),(True,False),(False,True)])
+def test_stall_scouts_saved_area_without_claiming_or_ignoring_stock_change(monkeypatch,near,changed):
+    state={'identity':{'pid':1},'map_id':1036,'position':[200,190],'silver':1,
+           'inventory':[],'booth':[],'booth_open':False,'own_booth_uid':0}
+    reads=[0];moves=[]
+    def read():
+        reads[0]+=1
+        return {**state,'silver':2 if changed and reads[0]>1 else 1}
+    monkeypatch.setattr('conquest.merchants.stalls.vacant_flags',lambda *a:[])
+    monkeypatch.setattr('conquest.navigation.read_terrain',lambda *a:NS(travel_path=lambda *a:[]))
+    driver=NS(memory=NS(read=read),observer=NS(character='Spiritual'),require_qualified=lambda cap:{'shop_setup':{}})
+    def move(before,target,check):
+        moves.append(target);return {**state,'position':[212,190]}
+    travel=NS(read=lambda:state,move=move)
+    with pytest.raises(ValueError):
+        connect.approach_vacant_flag(driver,travel,lambda:None,preferred=[204 if near else 240,190])
+    assert moves==([] if near or changed else [[240,190]])

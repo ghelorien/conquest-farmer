@@ -123,6 +123,7 @@ def test_nonfull_warehouse_does_not_trigger_additional_merchant_inspection(rig):
 
 
 def test_capacity_changes_during_travel_are_replanned(rig):
+    rig.d["position"]=[40,10]
     original=rig.loop.travel
     def travel(p,**kw):
         original(p,**kw)
@@ -273,3 +274,16 @@ def test_refill_phase_requires_both_delivery_receipts(tmp_path,monkeypatch,verif
         with pytest.raises(ValueError,match='stock hold'):
             UnifiedUI.dispatch(ui,{'action':'delivery-refill','request_id':'batch'})
         assert runtime.delivery_window=='batch'
+
+
+def test_merchant_already_in_trade_range_does_not_move(rig):
+    rig.f['position']=[229,189];rig.d['position']=[232,193]
+    route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[232,193]},rig.send)
+    assert not any(e=='travel' for e,_ in rig.events)
+
+
+def test_merchant_approach_stops_at_first_checked_in_range_tile(rig):
+    rig.f['position']=[10,10];rig.d['position']=[40,10]
+    rig.loop.terrain.travel_path=lambda a,b:[(x,10) for x in range(10,41)]
+    route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[40,10]},rig.send)
+    assert rig.f['position']==[28,10]
