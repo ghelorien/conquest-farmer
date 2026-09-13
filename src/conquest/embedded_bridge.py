@@ -129,6 +129,9 @@ class EmbeddedBridge:
                     status = 200
                 except (ValueError,OSError,KeyError,TypeError) as error:
                     result,status = {'error':str(error)},400
+                    from conquest.capture import CaptureUnavailable
+                    if self.path.strip('/')=='route-jump' and isinstance(error,CaptureUnavailable):
+                        result['code']='foreground_unavailable'
                     if getattr(error,'code',None) == 'town_observation_unavailable':
                         result['code'] = error.code
                 encoded = json.dumps(result).encode('utf-8')

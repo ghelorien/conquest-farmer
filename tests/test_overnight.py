@@ -836,3 +836,36 @@ def test_urgent_bank_deposits_before_hunting_without_supply_shopping(monkeypatch
     else:OvernightLoop.bank_urgent_valuables(loop)
     assert calls.index('travel')<calls.index('deposit')
     assert 'buy' not in calls
+
+
+@pytest.mark.parametrize('manual_stop',[False,True])
+def test_input_handoff_during_travel_reobserves_or_honors_stop(monkeypatch,manual_stop):
+ from conquest import scene_input,overnight
+ from conquest.capture import CaptureUnavailable
+ from conquest.navigation import TerrainMap
+ import numpy as np
+ monkeypatch.setattr(scene_input,'memory_player_anchor',lambda *a:(518,396))
+ loop=OvernightLoop.__new__(OvernightLoop);loop.route=RouteLibrary().load('turtledove')
+ loop.terrain=TerrainMap(1002,30,30,np.zeros((30,30),dtype=bool),'',(),())
+ position=[10,10];steps=[];stops=[]
+ loop.living=lambda:{'embedded_controls':{'life':{'position':list(position)}}}
+ loop.care=SimpleNamespace(check=lambda h:None,session=None);loop.record=lambda *a,**k:None
+ def stop():
+  stops.append(True)
+  if manual_stop:raise OvernightStopped('Stopped by user')
+ loop.check_stop=stop
+ def step(destination,expected_position):
+  steps.append(expected_position)
+  if len(steps)==1:
+   position[:]=[11,10]
+   raise CaptureUnavailable('Automation stopped or manual input active')
+  assert expected_position==(11,10)
+  position[:]=destination
+  return {'reached':True}
+ loop.stepper=SimpleNamespace(step_to=step)
+ if manual_stop:
+  with pytest.raises(OvernightStopped):loop.travel((14,10))
+  assert len(steps)==1
+ else:
+  loop.travel((14,10));assert position==[14,10] and len(steps)==2
+ assert stops

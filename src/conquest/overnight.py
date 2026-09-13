@@ -12,6 +12,7 @@ from conquest.routes import RouteLibrary
 from conquest.travel_care import TravelCare, TravelStateChanged
 from conquest.town_trade import junk_type, sale_candidate, TownObservationUnavailable
 from conquest.worker import request
+from conquest.capture import CaptureUnavailable
 
 RECOVERY_CHECKPOINT=Path(state_path('.runtime/death-return.json'))
 
@@ -385,6 +386,12 @@ class OvernightLoop:
                     avoided.add(target);continue
                 result = self.stepper.step_to(target,expected_position=source)
             except TravelStateChanged:
+                continue
+            except CaptureUnavailable:
+                # Movement may have partially happened. Reobserve and replan;
+                # never replay a stale destination or bypass manual Stop.
+                self.check_stop()
+                time.sleep(.1)
                 continue
             except ValueError as error:
                 transient = ('changed','moved','left the planned','observation','sampling','mouse control is yours','waiting for game focus')

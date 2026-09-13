@@ -186,3 +186,13 @@ def test_reconnect_retry_queues_only_bound_action_without_changing_farm_intent(b
     with pytest.raises(ValueError,match='unsupported'):
         request(info,'reconnect-retry',{'username':'unused'})
     assert retries==[1]
+
+
+def test_route_input_interruption_retains_type_for_fresh_movement_retry(bridge):
+ from conquest.capture import CaptureUnavailable
+ service,info,calls,control=bridge
+ def blocked(body):raise CaptureUnavailable('Automation stopped or manual input active')
+ service.on_route_jump=blocked
+ with pytest.raises(CaptureUnavailable,match='manual input'):
+  request(info,'route-jump',{'expires_at':time.time()+3})
+ assert not calls
