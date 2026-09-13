@@ -484,7 +484,33 @@ class Notifications:
             return
         from conquest.merchants.journal import Journal
         journal = Journal(path)
-        for event in journal.events(self.state.get('merchant_cursor',0),100):
+        def failure_state(until):
+            active={}
+            with journal.db() as db:
+                rows=db.execute("SELECT id,character,event,payload FROM events "
+                    "WHERE id<=? AND event IN ('persistent_failure','recovery_verified') ORDER BY id",(until,))
+                for row in rows:
+                    if row['event']=='recovery_verified':
+                        active.pop(row['character'],None)
+                    else:
+                        try:note=json.loads(row['payload'])['note']
+                        except (ValueError,TypeError,KeyError):continue
+                        active[row['character']]=note
+            return active
+        if 'merchant_cursor' not in self.state:
+            # First adoption establishes a durable high-water mark. Existing
+            # merchant history may span months and must never become a Discord
+            # catch-up queue merely because this notifier gained the feature.
+            with journal.db() as db:
+                cursor=db.execute('SELECT COALESCE(MAX(id),0) FROM events').fetchone()[0]
+            self.state['merchant_cursor']=cursor
+            self.state['merchant_failures']=failure_state(cursor)
+            return
+        cursor=self.state['merchant_cursor']
+        if 'merchant_failures' not in self.state:
+            self.state['merchant_failures']=failure_state(cursor)
+        failures=self.state['merchant_failures']
+        for event in journal.events(cursor,100):
             payload = json.loads(event['payload'])
             kind,character = event['event'],event['character']
             message = None
@@ -495,9 +521,13 @@ class Notifications:
             elif kind=='scan_completed':
                 message = f'Repricing complete: {payload["changed"]} changes; {payload["deferred"]} items deferred.'
             elif kind=='persistent_failure':
-                message = 'Needs attention — '+payload['note']
+                note=payload['note']
+                if failures.get(character)!=note:
+                    message = 'Needs attention — '+note
+                failures[character]=note
             elif kind=='recovery_verified':
                 message = 'Recovery confirmed by character, server, inventory and booth checks.'
+                failures.pop(character,None)
             if message:
                 self.enqueue(message,event['timestamp'],'merchant_'+kind,character=character)
                 self.state['queue'][-1]['merchant_event_id'] = event['id']

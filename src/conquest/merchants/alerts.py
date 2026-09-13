@@ -160,6 +160,12 @@ def run():
     try:
         while True:
             try:
+                from conquest.discord_notify import PAUSED
+                if PAUSED.exists():
+                    write_json(STATUS,{'pid':os.getpid(),'version':MONITOR_VERSION,
+                        'updated_at':time.time(),'state':'Paused','queued':len(alerts.state['queue'])})
+                    time.sleep(.5)
+                    continue
                 try:
                     status = request({'action':'status'})
                 except Exception:

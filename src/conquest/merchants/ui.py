@@ -197,6 +197,9 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action=='notification-workers-restart' and set(body)=={'action','worker'}:
+            from conquest.notification_workers import restart
+            return restart(body['worker'])
         if action=='delivery-target' and set(body)=={'action','character'}:
             from conquest.merchants.farmer_trade import delivery_target_status
             return delivery_target_status(self,character_name(body['character']))

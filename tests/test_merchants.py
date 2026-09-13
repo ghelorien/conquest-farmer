@@ -502,9 +502,10 @@ def test_equipment_compares_across_names_and_levels_and_snapshot_expires():
 
 def test_notification_cursor_persisted_and_farmer_policy_unchanged(journal):
     from conquest.discord_notify import Notifications
+    notifier = Notifications()
+    notifier.merchants(journal.path,999)
     journal.event('Spiritual','scan_completed',changed=2,deferred=3)
     journal.event('Dutch','persistent_failure',note='Reconnect retries exhausted')
-    notifier = Notifications()
     notifier.merchants(journal.path,1000)
     assert len(notifier.state['queue'])==2
     assert 'Spiritual' in notifier.state['queue'][0]['content']
@@ -514,6 +515,36 @@ def test_notification_cursor_persisted_and_farmer_policy_unchanged(journal):
     assert len(restarted.state['queue'])==2
     restarted.enqueue('Farmer remains unchanged',1001,'test')
     assert 'Parasite' in restarted.state['queue'][-1]['content']
+
+
+def test_notification_first_adoption_skips_history_and_deduplicates_active_failure(journal):
+    from conquest.discord_notify import Notifications
+    journal.event('Spiritual','scan_completed',changed=9,deferred=4)
+    journal.event('Dutch','persistent_failure',note='Reconnect retries exhausted')
+    notifier=Notifications()
+    notifier.merchants(journal.path,1000)
+    cursor=notifier.state['merchant_cursor']
+    assert cursor==2 and notifier.state['queue']==[]
+    assert notifier.state['merchant_failures']=={'Dutch':'Reconnect retries exhausted'}
+
+    restarted=Notifications(json.loads(json.dumps(notifier.state)))
+    restarted.merchants(journal.path,1001)
+    assert restarted.state['merchant_cursor']==cursor and restarted.state['queue']==[]
+    journal.event('Dutch','persistent_failure',note='Reconnect retries exhausted')
+    journal.event('Spiritual','scan_completed',changed=1,deferred=0)
+    restarted.merchants(journal.path,1002)
+    assert restarted.state['merchant_cursor']==4
+    assert len(restarted.state['queue'])==1
+    assert restarted.state['queue'][0]['kind']=='merchant_scan_completed'
+
+    again=Notifications(json.loads(json.dumps(restarted.state)))
+    again.merchants(journal.path,1003)
+    assert len(again.state['queue'])==1 and again.state['merchant_cursor']==4
+    journal.event('Dutch','recovery_verified',attempts=2)
+    journal.event('Dutch','persistent_failure',note='Reconnect retries exhausted')
+    again.merchants(journal.path,1004)
+    assert [row['kind'] for row in again.state['queue'][-2:]]==[
+        'merchant_recovery_verified','merchant_persistent_failure']
 
 
 def test_separate_encrypted_credentials(tmp_path,monkeypatch):

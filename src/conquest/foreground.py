@@ -261,7 +261,7 @@ def foreground_drag(target, source, destination, expected_size,*,before_press=No
 
 
 @coordinated_input
-def foreground_scroll(target, point, ticks, expected_size=(1036,793)):
+def foreground_scroll(target, point, ticks, expected_size=(1036,793), *, layout_guard=None):
     """Bounded wheel input over a memory-qualified shop grid."""
     require_idle()
     if type(ticks) is not int or not 1<=abs(ticks)<=3:raise ValueError('Invalid wheel step')
@@ -277,10 +277,12 @@ def foreground_scroll(target, point, ticks, expected_size=(1036,793)):
     left,top,width,height=(metrics(i) for i in (76,77,78,79))
     if min(width,height)<=1:raise ValueError('Invalid desktop dimensions')
     send=guarded_send(bind(user,'SendInput',[w.UINT,c.POINTER(Input),c.c_int],w.UINT))
+    if layout_guard:layout_guard()
     move=Input(type=0,data=InputUnion(mi=MouseInput(round((screen.x-left)*65535/(width-1)),
         round((screen.y-top)*65535/(height-1)),0,0xC001,0,0)))
     if send(1,c.byref(move),c.sizeof(move))!=1:raise target.backend.error('SendInput(scroll move)')
     time.sleep(.03)
+    if layout_guard:layout_guard()
     require_click_position(target.snapshot(),hwnd,expected_size,(screen.x,screen.y))
     wheel=Input(type=0,data=InputUnion(mi=MouseInput(0,0,(ticks*120)&0xffffffff,0x800,0,0)))
     if send(1,c.byref(wheel),c.sizeof(wheel))!=1:raise target.backend.error('SendInput(wheel)')

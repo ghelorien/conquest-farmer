@@ -1,5 +1,6 @@
 """Normal foreground input, gated by per-capability live qualification."""
 import json
+import math
 from pathlib import Path
 import time
 import struct
@@ -44,14 +45,11 @@ class MerchantDriver:
                                     gui_size=self.memory.gui.viewport_size)
 
     def verify_listing_layout(self):
-        """Detect resized panels before recording a listing transaction."""
+        """Re-read resizable panels while preserving qualified table schema."""
         profile=self.require_qualified('booth_input')
         snapshot=self.read()
         for control in ('inventory_item','booth_drop','remove_listing'):
-            spec=profile['controls'][control]
-            matches=[w for w in snapshot['windows'] if w['name']==spec['window']]
-            if len(matches)!=1 or list(matches[0]['geometry'][2:])!=spec['size']:
-                raise ValueError('Merchant panel resized; refresh booth qualification')
+            self._control_layout(snapshot,control,profile['controls'][control])
 
     def require_qualified(self, capability):
         try:
@@ -64,13 +62,43 @@ class MerchantDriver:
                 or data.get('capabilities',{}).get(capability) is not True
                 or not data.get('evidence')):
             raise ValueError(f'{capability}: live memory/input qualification is pending')
-        if capability=='booth_input':
-            from conquest.desktop_runtime import physical_coordinates
-            with physical_coordinates():
-                if (list(self.target.snapshot()['client_size'])!=data.get('client_size')
-                        or self.memory.gui.viewport_size()!=data.get('gui_size',data.get('client_size'))):
-                    raise ValueError('Embedded merchant size changed; verify booth controls again')
         return data
+
+    def _control_layout(self,snapshot,control,spec):
+        """Return current window/table geometry under a qualified schema."""
+        matches=[w for w in snapshot['windows'] if w['name']==spec['window'] or
+            (spec['window'].endswith('_') and w['name'].startswith(spec['window']))]
+        if len(matches)!=1:raise ValueError(f'{control}: expected exactly one active window')
+        window=matches[0];geometry=window.get('geometry')
+        if (not isinstance(geometry,(list,tuple)) or len(geometry)!=4
+                or not all(isinstance(v,(int,float)) and math.isfinite(v) for v in geometry)
+                or min(geometry[2:])<=4):
+            raise ValueError(f'{control}: invalid live window geometry')
+        table=None
+        if spec.get('table'):
+            table=self.memory.gui.table(window,spec['table']);columns=table['columns']
+            strides=[columns[i+1]['content_x']-columns[i]['content_x']
+                     for i in range(len(columns)-1)]
+            if (len(columns)!=spec.get('columns')
+                    or abs(table['row_height']-spec['stride'][1])>.01
+                    or any(abs(width-spec['stride'][0])>.01 for width in strides)):
+                raise ValueError('Merchant table spacing or schema changed; recalibration required')
+        elif spec.get('mode')=='native_items_trade':
+            if (spec.get('window')!='##Control' or spec.get('label') not in ('Trade','Items')):
+                raise ValueError('Unqualified native HUD control')
+        elif control=='booth_drop':
+            # Qualification established that the safe drop target is the booth
+            # body centre. Preserve that semantic relationship while deriving
+            # the centre from the current draggable panel.
+            old_size=spec.get('size');offset=spec.get('offset')
+            if (not isinstance(old_size,list) or not isinstance(offset,list)
+                    or len(old_size)!=2 or len(offset)!=2
+                    or any(abs(offset[i]-old_size[i]/2)>.01 for i in range(2))):
+                raise ValueError('Booth drop relationship is not qualified')
+        elif list(geometry[2:])!=spec.get('size'):
+            # Modal-local offsets retain their fixed renderer dimensions.
+            raise ValueError(f'{control}: unqualified window dimensions')
+        return window,table
 
     def point(self, snapshot, control, slot=None):
         profile = json.loads(self.qualification.read_text())
@@ -82,14 +110,8 @@ class MerchantDriver:
         if spec.get('mode') in MODES:
             if slot is not None:raise ValueError('Native trade control does not take a slot')
             return native_point(self,snapshot,spec['mode'])
-        matches = [w for w in snapshot['windows'] if w['name']==spec['window'] or
-            (spec['window'].endswith('_') and w['name'].startswith(spec['window']))]
-        if len(matches)!=1:
-            raise ValueError(f'{control}: expected exactly one active window')
-        window = matches[0]
+        window,table = self._control_layout(snapshot,control,spec)
         x,y,width,height = window['geometry']
-        if [width,height] != spec['size']:
-            raise ValueError(f'{control}: unqualified window dimensions')
         if spec.get('mode')=='native_items_trade':
             label={'start_trade':'Trade','open_inventory':'Items'}.get(control)
             if spec['window']!='##Control' or slot is not None or not label or spec.get('label')!=label:
@@ -99,6 +121,8 @@ class MerchantDriver:
             from conquest.merchants.trade_controls import trade_button
             gui=MemoryGui(self.observer.adapter)
             px,py=(trade_button if spec['label']=='Trade' else inventory_button)(gui)
+        elif control=='booth_drop':
+            px,py=x+width/2,y+height/2
         else:
             dx,dy = spec['offset']
             if slot is not None:
@@ -107,12 +131,7 @@ class MerchantDriver:
                 dy += slot // columns * spec['stride'][1]
             px,py = x+dx-window['scroll'][0],y+dy-window['scroll'][1]
         if slot is not None and spec.get('table'):
-            table = self.memory.gui.table(window,spec['table'])
             columns = table['columns']
-            if (len(columns)!=spec['columns'] or table['row_height']!=spec['stride'][1]
-                    or any(abs(columns[i+1]['content_x']-columns[i]['content_x']-spec['stride'][0])>.01
-                           for i in range(len(columns)-1))):
-                raise ValueError('Merchant table spacing changed; recalibration required')
             px = columns[slot%len(columns)]['content_x']+spec['cell_offset'][0]
             py = table['outer'][1]+slot//len(columns)*table['row_height']+spec['cell_offset'][1]
             left,top,right,bottom = table['clip']
@@ -120,10 +139,12 @@ class MerchantDriver:
                 raise ValueError('Control is clipped; scroll before sending input')
         if not x+2 < px < x+width-2 or not y+2 < py < y+height-2:
             raise ValueError('Control is outside the visible qualified window; scroll manually')
-        gui_size = profile.get('gui_size',profile['client_size'])
-        if self.memory.gui.viewport_size()!=gui_size:
-            raise ValueError('Merchant GUI viewport changed; recalibration required')
-        return tuple(round(v*physical/logical) for v,physical,logical in zip((px,py),profile['client_size'],gui_size))
+        gui_size=tuple(self.memory.gui.viewport_size())
+        client_size=tuple(self.target.snapshot()['client_size'])
+        if (len(gui_size)!=2 or len(client_size)!=2 or min(*gui_size,*client_size)<=1
+                or not 0<=px<gui_size[0] or not 0<=py<gui_size[1]):
+            raise ValueError('Merchant control is outside the current GUI/client geometry')
+        return tuple(round(v*physical/logical) for v,physical,logical in zip((px,py),client_size,gui_size))
 
     def click(self, snapshot, control, slot=None, *, validate=None):
         from conquest.desktop_runtime import physical_coordinates
@@ -135,18 +156,21 @@ class MerchantDriver:
         self.observer.adapter.assert_identity()
         if self.observer.adapter.identity != snapshot['identity']:
             raise ValueError('Client identity changed before input')
-        point = self.point(snapshot,control,slot)
-        size = tuple(self.target.snapshot()['client_size'])
+        self.point(snapshot,control,slot)  # Read-only schema/visibility preflight.
         profile = json.loads(self.qualification.read_text())
         from conquest.merchants.native_trade_input import MODES,hover as native_hover
         native_mode=profile.get('controls',{}).get(control,{}).get('mode')
-        if native_mode not in MODES and list(size) != profile['client_size']:
-            raise ValueError('Client geometry differs from qualified merchant controls')
         from conquest.focus_recovery import activate_client
         if not activate_client(self.target.hwnd,snapshot['identity']):
             raise CaptureUnavailable('Merchant did not receive foreground focus; activate Conquest and verify again. No click sent')
         layout=self.layout_revision() if hasattr(self,'memory') else None
         revision=layout.stable() if layout is not None else None
+        stable=self.read()
+        if stable['identity']!=snapshot['identity']:
+            raise ValueError('Client identity changed while stabilizing input geometry')
+        point=self.point(stable,control,slot)
+        size=(tuple(revision.client_size) if revision is not None
+              else tuple(self.target.snapshot()['client_size']))
         def before_press():
             from conquest.merchants.controller import offer_fingerprint,validate_trade
             fresh = self.read()
@@ -269,10 +293,16 @@ class MerchantDriver:
         from conquest.focus_recovery import activate_client
         if not activate_client(self.target.hwnd,snapshot['identity']):
             raise CaptureUnavailable('Merchant did not receive foreground focus')
-        size = tuple(self.target.snapshot()['client_size'])
-        if list(size) != json.loads(self.qualification.read_text())['client_size']:
-            raise ValueError('Unqualified merchant client size')
         layout=self.layout_revision();revision=layout.stable()
+        stable=self.read()
+        if (stable['identity']!=snapshot['identity'] or stable.get('trade') or stable.get('request')
+                or identities(stable['inventory'])!=identities(snapshot['inventory'])
+                or identities(stable['booth'])!=identities(snapshot['booth'])):
+            raise ValueError('Merchant stock or modal state changed while stabilizing listing geometry')
+        snapshot=stable
+        source=self.point(snapshot,'inventory_item',item['slot'])
+        destination=self.point(snapshot,'booth_drop')
+        size=tuple(revision.client_size)
         def validate_drag():
             check()
             current = self.read()
@@ -321,15 +351,9 @@ class MerchantDriver:
             self.point(snapshot,control,slot)
             return snapshot
         original = (identities(snapshot['inventory']),identities(snapshot['booth']))
-        size = tuple(profile['client_size'])
         for _ in range(12):
             check()
-            matches = [w for w in snapshot['windows'] if w['name']==spec['window']]
-            if len(matches)!=1 or list(matches[0]['geometry'][2:])!=spec['size']:
-                raise ValueError('Merchant grid changed before scrolling')
-            table = self.memory.gui.table(matches[0],spec['table'])
-            if len(table['columns'])!=spec['columns'] or table['row_height']!=spec['stride'][1]:
-                raise ValueError('Merchant table changed before scrolling')
+            _,table=self._control_layout(snapshot,control,spec)
             y = table['outer'][1]+slot//spec['columns']*table['row_height']+spec['cell_offset'][1]
             left,top,right,bottom = table['clip']
             if top+2 < y < bottom-2:
@@ -337,11 +361,26 @@ class MerchantDriver:
                 return snapshot
             if not activate_client(self.target.hwnd,snapshot['identity']):
                 raise ValueError('Merchant did not receive focus for grid scrolling')
+            layout=self.layout_revision();revision=layout.stable()
+            fresh=self.read()
+            if (fresh['identity']!=snapshot['identity'] or fresh.get('trade') or fresh.get('request')
+                    or (identities(fresh['inventory']),identities(fresh['booth']))!=original):
+                raise ValueError('Merchant stock changed while stabilizing grid scroll')
+            snapshot=fresh;_,table=self._control_layout(snapshot,control,spec)
+            y=table['outer'][1]+slot//spec['columns']*table['row_height']+spec['cell_offset'][1]
+            left,top,right,bottom=table['clip']
+            if top+2 < y < bottom-2:
+                self.point(snapshot,control,slot)
+                return snapshot
             viewport = self.memory.gui.viewport_size()
+            size=tuple(revision.client_size)
             point = tuple(round(v*actual/logical) for v,actual,logical in
                           zip(((left+right)/2,(top+bottom)/2),size,viewport))
             self.coordinator.check()
-            foreground_scroll(self.target,point,2 if y<=top+2 else -2,size)
+            def scroll_guard():
+                self.coordinator.check();layout.assert_current(revision)
+            foreground_scroll(self.target,point,2 if y<=top+2 else -2,size,
+                              layout_guard=scroll_guard)
             fresh = self.read()
             if (fresh['identity']!=snapshot['identity'] or fresh.get('trade') or fresh.get('request')
                     or (identities(fresh['inventory']),identities(fresh['booth']))!=original):

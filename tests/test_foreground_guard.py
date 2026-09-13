@@ -72,3 +72,37 @@ def test_drag_layout_change_stops_held_movement_and_releases_once(monkeypatch):
         foreground.foreground_drag.__wrapped__(target,(10,10),(90,90),(100,100),
                                               layout_guard=layout_guard)
     assert events==[0xC001,0x2,0xC001,0x4]
+
+
+def test_scroll_layout_change_after_pointer_move_sends_no_wheel(monkeypatch):
+    import ctypes as c
+    from types import SimpleNamespace
+    from conquest import foreground
+    from conquest.layout_revision import LayoutChanged
+    cursor=[0,0];events=[]
+    def send(count,pointer,size):
+        event=c.cast(pointer,c.POINTER(foreground.Input))[0]
+        flags=event.data.mi.dwFlags;events.append(flags)
+        if flags&1:
+            cursor[:]=[round(event.data.mi.dx*100/65535),round(event.data.mi.dy*100/65535)]
+        return 1
+    def bind(user,name,args,result):
+        if name=='ClientToScreen':return lambda hwnd,point:True
+        if name=='GetSystemMetrics':return lambda index:{76:0,77:0,78:101,79:101}[index]
+        if name=='SendInput':return send
+        raise AssertionError(name)
+    backend=SimpleNamespace(user=object(),foreground=lambda:7,error=lambda name:OSError(name))
+    target=SimpleNamespace(hwnd=7,backend=backend,snapshot=lambda:{'foreground':7,
+        'client_size':[100,100],'minimized':False,'cursor':list(cursor)})
+    monkeypatch.setattr(foreground,'bind',bind)
+    monkeypatch.setattr(foreground,'guarded_send',lambda value:value)
+    monkeypatch.setattr(foreground,'require_idle',lambda:None)
+    monkeypatch.setattr(foreground.time,'sleep',lambda seconds:None)
+    checks=[]
+    def layout_guard():
+        checks.append(1)
+        if len(checks)==2:raise LayoutChanged('resized after move')
+    with pytest.raises(LayoutChanged,match='after move'):
+        foreground.foreground_scroll.__wrapped__(target,(50,50),-2,(100,100),
+                                                layout_guard=layout_guard)
+    assert events==[0xC001]

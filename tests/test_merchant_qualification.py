@@ -151,17 +151,21 @@ def test_price_controls_use_window_local_layout_and_reject_resize():
         modal_controls(memory,{'windows':[modal]})
 
 
-def test_point_scales_memory_coordinates_and_rejects_changed_viewport(tmp_path):
+def test_point_uses_current_gui_and_native_geometry_after_resize(tmp_path):
     profile = tmp_path/'qualification.json'
     profile.write_text(json.dumps({'client_size':[1250,1000],'gui_size':[1000,800],
         'controls':{'price_field':{'window':'Dialog','size':[200,100],'offset':[80,40]}}}))
     current = [1000,800]
-    driver = SimpleNamespace(qualification=profile,memory=SimpleNamespace(gui=SimpleNamespace(viewport_size=lambda:current)))
+    native=[1500,1200]
+    driver = SimpleNamespace(qualification=profile,
+        memory=SimpleNamespace(gui=SimpleNamespace(viewport_size=lambda:current)),
+        target=SimpleNamespace(snapshot=lambda:{'client_size':native}))
+    driver._control_layout=lambda snapshot,control,spec:MerchantDriver._control_layout(
+        driver,snapshot,control,spec)
     state = {'windows':[{'name':'Dialog','geometry':[100,100,200,100],'scroll':[0,0]}]}
-    assert MerchantDriver.point(driver,state,'price_field')==(225,175)
+    assert MerchantDriver.point(driver,state,'price_field')==(270,210)
     current[:] = [1200,800]
-    with pytest.raises(ValueError,match='viewport changed'):
-        MerchantDriver.point(driver,state,'price_field')
+    assert MerchantDriver.point(driver,state,'price_field')==(225,210)
 
 
 def test_handoff_failure_releases_input_and_notifies_host(tmp_path):
