@@ -57,6 +57,7 @@ class NativeFarmSupervisor:
         self.discarder=None
         self.movement_obstructions={}
         self.movement_run_until=0
+        self.recent_movement_progress=[]
         self.patrol_chase=None
         self.recovery_death_seen=False
 
@@ -605,6 +606,10 @@ class NativeFarmSupervisor:
         # excluded so returning to long jumps cannot replay the blocked edge.
         if max(abs(a-b) for a,b in zip(source,destination))>=3:
             self.movement_run_until=0
+            if arrived:
+                now=time.monotonic()
+                self.recent_movement_progress=[entry for entry in self.recent_movement_progress if now-entry[0]<=12]
+                self.recent_movement_progress.append((now,self.map_id,tuple(source),tuple(destination)))
 
     def patrol_step(self,position,fallback,boundary,*,chase=True,alternatives=()):
         self.patrol_destination=None
@@ -692,9 +697,24 @@ class NativeFarmSupervisor:
                     from conquest.navigation import travel_waypoint
                     step=travel_waypoint(terrain,path,4 if now<self.movement_run_until else 12,avoid=avoid,viewport=size_for(self.observer))
                 else:step=native_waypoint(path,4 if now<self.movement_run_until else 12,viewport=size_for(self.observer))
+                repeats=sum(now-stamp<=12 and map_id==self.map_id and source==tuple(position)
+                            and landing==tuple(step)
+                            for stamp,map_id,source,landing in self.recent_movement_progress)
+                if repeats>=2:
+                    # Reaching a landing is insufficient if fresh memory keeps
+                    # returning to the same source before the next identical move.
+                    # Use the existing bounded detour; do not guess whether this
+                    # was server correction, auto-chasing, or a dynamic obstacle.
+                    self.movement_failed(position,step)
+                    self.recent_movement_progress=[]
+                    self.notify('movement_reversed',{'position':list(position),'landing':list(step),
+                        'repetitions':repeats,'activity':'Repeated return to the same tile; taking another path'})
+                    raise CaptureUnavailable('Patrol progress reversed; taking another path')
                 if destination not in candidates:
                     self.patrol_destination=destination
                 return step
+            except CaptureUnavailable:
+                raise
             except ValueError:
                 continue
         raise CaptureUnavailable('Waiting for a traversable patrol step')
