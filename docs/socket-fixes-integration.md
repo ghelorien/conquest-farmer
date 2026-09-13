@@ -43,7 +43,12 @@ owned inventory and booth observations: old cached observations may contain
 socket classifications from the former offsets. Existing pricing rules and
 history were not rewritten.
 
-Publication remains separate from integration. This branch was prepared
-locally for review; no remote branch was updated, no merge was performed and
-the active launcher remains unchanged. Re-fetch the target before publication
-and reassess any later changes from the other PC.
+After review, the user authorized combining these fixes with the other PC's
+version. A fresh fetch still showed `ca58e7b` at the target branch, so the
+tested production code required no further changes. Publication targets
+`codex/merchant-automation` with an ordinary fast-forward push; no force push
+or rewriting of the other PC's history is permitted. The earlier base commit
+remains an ancestor for comparison and rollback through a reviewed revert.
+Healing, travel care, combat, merchant modules and the desktop UI were checked
+again and are identical to that base. Deployment remains separate: the active
+launcher and installed/running app were not changed by publication.
