@@ -121,7 +121,7 @@ def automation_status(route,app,control,life,*,now=None):
     work=app.get('automation_work') or {}
     current_work=(work.get('revision')==control.get('revision')
                   and 0<=now-work.get('at',0)<120)
-    if control.get('paused'):
+    if control.get('paused') or app.get('state')=='Paused with F11':
         return 'Paused', 'Paused with F11; press F11 to resume'
     if current_work and work.get('state') in ('running','attention'):
         return ('Running' if work['state']=='running' else 'Stopped · needs attention',work['activity'])

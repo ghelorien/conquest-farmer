@@ -35,3 +35,6 @@ def test_explicit_stop_overrides_fresh_travel_and_trade_status():
  app={'manual_stop_revision':7,'automation_work':{'state':'running','revision':7,'at':99,'activity':'Trading'}}
  assert automation_status(route,app,{'enabled':False,'revision':7},None,now=100)[0]=='Stopped'
  assert automation_status(route,app,{'enabled':True,'revision':8},None,now=100)[0]=='Running'
+
+def test_runner_f11_event_is_shown_as_manual_pause():
+ assert automation_status({}, {'state':'Paused with F11'}, {'enabled':True},None,now=100)[0]=='Paused'
