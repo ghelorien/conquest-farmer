@@ -52,3 +52,40 @@ remains an ancestor for comparison and rollback through a reviewed revert.
 Healing, travel care, combat, merchant modules and the desktop UI were checked
 again and are identical to that base. Deployment remains separate: the active
 launcher and installed/running app were not changed by publication.
+
+## Subsequent live validation on this PC
+
+Published source `d8f4a4c7f882472ce7d4495ee93593700464ad6a` was then exercised
+against the running Kilhiam client (PID 25124, creation time
+134337152471239177) using a bounded read-only diagnostic. Direct access first
+failed with Windows error 5. The separately elevated diagnostic opened only a
+query/read memory session and disabled all game-input operations; it exited
+after the observations. It did not launch the desktop app, embed the game,
+start farming, use a potion, move the character or alter a launcher.
+
+All **20 of 20** samples passed over 10.35 seconds. Each verified life,
+equipment, inventory, ground observations and process identity. The slowest
+complete sample took 0.016 seconds. Observed character state remained at map
+1011, tile (251,332), level 43, HP 513/681, three inventory entries and 207
+silver. Equipped ScarletBow UID 293092845 consistently reported sockets
+255/0. The merchant item-reading path independently returned the same UID and
+socket bytes with equipment quantity one. All ground samples were valid but
+empty; no new nonempty drop or pickup was exercised in this run. Earlier
+controlled live-drop evidence remains documented in socket-memory-mapping.md.
+
+### Full desktop rollout is not qualified for Kilhiam
+
+The integration deliberately retained the other PC's desktop code. Its
+`DesktopApp.make_observer` and embedded control runtime still select Parasite
+explicitly. The portable-profile UI from the separate local branch was not
+part of the two approved fixes. Therefore launching this combined desktop
+against Kilhiam would not constitute a supported character match.
+
+The changed readers pass live validation, but **the full combined app has not
+passed end-to-end validation on this PC**. Combat, hotkey healing, delivery,
+merchant trades and booth operations were not exercised. That requires either
+testing with the supported characters on the other PC or a separately reviewed
+integration of portable character support. Do not replace the Kilhiam launcher
+on the basis of the reader checks alone.
+
+Detailed local evidence: `%LOCALAPPDATA%\Conquest\diagnostics\live-combined-readers.json`.
