@@ -98,6 +98,112 @@ class TownTrade:
             raise ValueError('Town action requires a living character on the town map')
         return life
 
+    def warehouse_layout(self):
+        """Qualify the current native window and draggable warehouse panels."""
+        from conquest.layout_revision import SharedLayoutRevision
+        from conquest.merchants.memory import GuiReader
+        gui = GuiReader(self.observer.adapter)
+        layout = SharedLayoutRevision(self.observer.operations.target,
+            windows=gui.windows, gui_size=gui.viewport_size)
+        return layout, layout.stable()
+
+    @staticmethod
+    def warehouse_native_point(point, revision):
+        """Scale one memory-GUI point into the stable physical client."""
+        logical=revision.gui_size;physical=revision.client_size
+        if (logical is None or len(logical)!=2 or len(physical)!=2
+                or min(*logical,*physical)<=1
+                or not 0<=point[0]<logical[0] or not 0<=point[1]<logical[1]):
+            raise ValueError('Warehouse point is outside the current GUI/client geometry')
+        result=tuple(round(value*native/gui)
+            for value,native,gui in zip(point,physical,logical))
+        if not 0<=result[0]<physical[0] or not 0<=result[1]<physical[1]:
+            raise ValueError('Scaled warehouse point is outside the native client')
+        return result
+
+    def require_warehouse_hover(self, window):
+        """Require the pointer's topmost ImGui window to be this exact grid."""
+        from conquest.merchants.memory import GuiReader, HoverNotReady, unpack
+        gui=GuiReader(self.observer.adapter)
+        context=unpack(gui.session,gui.base+0x6966f0,'<Q')[0]
+        address=window['address'] if isinstance(window,dict) else window.address
+        if unpack(gui.session,context+0x3ec0,'<Q')[0]!=address:
+            raise HoverNotReady('Warehouse drag endpoint is covered by another window')
+
+    def warehouse_deposit(self, uid):
+        """Deposit one exact protected UID under physical/layout input guards."""
+        from conquest.desktop_runtime import physical_coordinates
+        with physical_coordinates():
+            layout, layout_revision = self.warehouse_layout()
+            npc = self.vendor(0)
+            reader = MemoryWarehouseReader(self.observer.adapter)
+            before = self.inventory.read()
+            stored = reader.read()
+            candidates = [i for i in before.items if i.uid == uid and stash_candidate(i)]
+            if len(candidates) != 1:
+                raise ValueError('Selected warehouse item is absent or not a supported valuable')
+            item = candidates[0]
+            if len(stored.items) >= stored.capacity or item.uid in {i.uid for i in stored.items}:
+                raise ValueError('Warehouse is full or already contains this UID')
+            grid = self.shop.gui.read('Inventory/##ItemGrid_')
+            target = reader.gui.read('Warehouse/ScrollingRegion_')
+            if grid.size != (407.,175.) or grid.scroll != (0.,0.):
+                raise ValueError('Inventory grid differs from its calibrated layout')
+            if target.size != (272.,326.) or target.scroll != (0.,0.):
+                raise ValueError('Warehouse grid differs from its calibrated layout')
+            fresh = self.inventory.read()
+            if (fresh.items != before.items or fresh.silver != before.silver
+                    or fresh.equipped_ammo != before.equipped_ammo
+                    or reader.read() != stored or self.vendor(0) != npc
+                    or self.shop.gui.read('Inventory/##ItemGrid_') != grid
+                    or reader.gui.read('Warehouse/ScrollingRegion_') != target):
+                raise ValueError('Warehouse or inventory changed before deposit')
+            logical_source = (round(grid.position[0]+20+40*(item.slot%10)),
+                              round(grid.position[1]+20+40*(item.slot//10)))
+            logical_destination = (round(target.position[0]+target.size[0]/2),
+                                   round(target.position[1]+target.size[1]/2))
+            source=self.warehouse_native_point(logical_source,layout_revision)
+            destination=self.warehouse_native_point(logical_destination,layout_revision)
+            self.life(any_map=True)
+            def input_guard():
+                check_input=getattr(self,'check_input',None)
+                if check_input is not None:check_input()
+                layout.assert_current(layout_revision)
+            def before_press():
+                from conquest.merchants.driver import wait_hover_validation
+                def ready():
+                    input_guard()
+                    current=self.inventory.read()
+                    if (current.items!=before.items or current.silver!=before.silver
+                            or current.equipped_ammo!=before.equipped_ammo
+                            or reader.read()!=stored or self.vendor(0)!=npc
+                            or self.shop.gui.read('Inventory/##ItemGrid_')!=grid
+                            or reader.gui.read('Warehouse/ScrollingRegion_')!=target):
+                        raise TownObservationUnavailable(
+                            'Warehouse or inventory changed before deposit; no button pressed')
+                    self.require_warehouse_hover(grid)
+                wait_hover_validation(ready,input_guard)
+            def before_release():
+                from conquest.merchants.driver import wait_hover_validation
+                def ready():
+                    input_guard()
+                    # The destination must still be the exact qualified warehouse
+                    # grid while the button is held. Releasing over a moved panel
+                    # could transfer the item somewhere other than storage.
+                    if (reader.gui.read('Warehouse/ScrollingRegion_')!=target
+                            or self.vendor(0)!=npc):
+                        raise ValueError('Warehouse moved during deposit drag; item preserved if still carried')
+                    self.require_warehouse_hover(target)
+                wait_hover_validation(ready,input_guard)
+            self.input_attempted = True
+            foreground_drag(self.observer.operations.target,source,destination,
+                tuple(layout_revision.client_size),before_press=before_press,
+                layout_guard=input_guard,before_release=before_release)
+            self.verified_read(lambda:(self.inventory.read(),reader.read()),
+                lambda pair:deposit_received(item,before,stored,*pair),
+                'Warehouse deposit was not verified; no repeat input issued',timeout=5)
+            return {'stored':item.uid,'type_id':item.type_id,'verified_in_warehouse':True}
+
     def click(self, point, button='left', *, before_press=None):
         try:self.life(any_map=True)
         except ValueError as error:
@@ -214,9 +320,15 @@ class TownTrade:
             self.conductress_npc=None
             return {'destination_selected':body['destination'],'point':point,'npc_id':npc.entity_id}
         action = body.get('action')
-        if action=='warehouse-items' and set(body)=={'action'}:
+        if action=='warehouse-items' and (set(body)=={'action'} or
+                set(body)=={'action','rich'} and body['rich'] is True):
             self.vendor(0)
-            return asdict(MemoryWarehouseReader(self.observer.adapter).read())
+            reader=MemoryWarehouseReader(self.observer.adapter)
+            if body.get('rich'):
+                from conquest.merchants.memory import MerchantMemory
+                memory=MerchantMemory(self.observer)
+                return asdict(reader.read(rich_item=memory.item))
+            return asdict(reader.read())
         if action=='return-scroll' and set(body)=={'action'}:
             from conquest.return_scroll import use
             return use(self)
@@ -347,40 +459,7 @@ class TownTrade:
             self.input_attempted=True  # An opening hotkey may precede the drag.
             return self.discarder.discard(body['uid'])
         if action == 'warehouse-deposit' and set(body)=={'action','uid'}:
-            npc = self.vendor(0)
-            reader = MemoryWarehouseReader(self.observer.adapter)
-            before = self.inventory.read()
-            stored = reader.read()
-            candidates = [i for i in before.items if i.uid == body['uid']
-                          and stash_candidate(i)]
-            if len(candidates) != 1:
-                raise ValueError('Selected warehouse item is absent or not a supported valuable')
-            item = candidates[0]
-            if len(stored.items) >= stored.capacity or item.uid in {i.uid for i in stored.items}:
-                raise ValueError('Warehouse is full or already contains this UID')
-            grid = self.shop.gui.read('Inventory/##ItemGrid_')
-            target = reader.gui.read('Warehouse/ScrollingRegion_')
-            if grid.size != (407.,175.) or grid.scroll != (0.,0.):
-                raise ValueError('Inventory grid differs from its calibrated layout')
-            if target.size != (272.,326.) or target.scroll != (0.,0.):
-                raise ValueError('Warehouse grid differs from its calibrated layout')
-            fresh = self.inventory.read()
-            if (fresh.items != before.items or fresh.silver != before.silver
-                    or reader.read() != stored or self.vendor(0) != npc
-                    or self.shop.gui.read('Inventory/##ItemGrid_') != grid
-                    or reader.gui.read('Warehouse/ScrollingRegion_') != target):
-                raise ValueError('Warehouse or inventory changed before deposit')
-            point = (round(grid.position[0]+20+40*(item.slot%10)),
-                     round(grid.position[1]+20+40*(item.slot//10)))
-            destination = (round(target.position[0]+target.size[0]/2),
-                           round(target.position[1]+target.size[1]/2))
-            self.life(any_map=True)
-            self.input_attempted = True
-            foreground_drag(self.observer.operations.target,point,destination,size_for(self.observer))
-            self.verified_read(lambda:(self.inventory.read(),reader.read()),
-                lambda pair:deposit_received(item,before,stored,*pair),
-                'Warehouse deposit was not verified; no repeat input issued',timeout=5)
-            return {'stored':item.uid,'type_id':item.type_id,'verified_in_warehouse':True}
+            return self.warehouse_deposit(body['uid'])
         if action=='warehouse-withdraw-meteor' and set(body)=={'action','uid'}:
             from conquest.memory_warehouse import withdrawal_received
             npc=self.vendor(0);reader=MemoryWarehouseReader(self.observer.adapter)
@@ -402,6 +481,10 @@ class TownTrade:
                 lambda pair:withdrawal_received(item,before,stored,*pair),
                 'Meteor withdrawal unverified; no repeat input issued',timeout=3)
             return {'withdrawn':item.uid,'type_id':item.type_id,'verified_in_inventory':True}
+        if action=='warehouse-withdraw-protected' and set(body)=={
+                'action','plan_id','operation_id','uid'}:
+            from conquest.protected_withdrawal import withdraw
+            return withdraw(self,body['plan_id'],body['operation_id'],body['uid'])
         if action == 'warehouse-open' and set(body)=={'action'}:
             npc=self.vendor(0)
             if self.vendor(0)!=npc:

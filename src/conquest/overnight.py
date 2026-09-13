@@ -900,6 +900,8 @@ class OvernightLoop:
             self.record('supplies_ready',supplies=counts)
 
     def _run_route(self):
+        from conquest.merchants.delivery_operation import guard_protected_assets
+        guard_protected_assets()
         from conquest.merchants import delivery_journey
         if delivery_journey.pending():
             self.stop_farm()

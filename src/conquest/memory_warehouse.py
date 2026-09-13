@@ -18,7 +18,14 @@ class MemoryWarehouseReader:
         self.session = session
         self.gui = MemoryGui(session)  # Enforces the observed client fingerprint.
 
-    def read(self):
+    def read(self, *, rich_item=None):
+        """Read the verified deque, optionally decoding full merchant attributes.
+
+        The default remains the historical ``Item`` result used by ordinary
+        banking.  Protected withdrawals opt in with ``MerchantMemory.item``;
+        the basic record is still decoded and compared so the richer result
+        cannot bypass the qualified warehouse topology or amount checks.
+        """
         s, base = self.session, self.gui.base
         window = self.gui.read('Warehouse')
         observed = []
@@ -52,7 +59,26 @@ class MemoryWarehouseReader:
             plus = block(pointer+0x6b, 1)[0]
             if vtable != base+0x5cf220 or not uid or not kind or not 0 < amount <= limit:
                 raise ValueError('Warehouse item identity is invalid')
-            items.append(Item(uid, kind, amount, limit, slot, plus))
+            basic=Item(uid, kind, amount, limit, slot, plus)
+            if rich_item is None:
+                items.append(basic)
+            else:
+                # Fence every value-bearing field across the complete deque
+                # read.  The rich decoder stabilizes one item at a time; this
+                # retained block also detects an earlier row changing while a
+                # later row is being decoded.
+                rich_raw=block(pointer,0xa0)
+                rich=rich_item(pointer,slot)
+                equipment=100000 <= kind < 600000
+                if (rich.uid!=uid or rich.type_id!=kind or rich.plus!=plus
+                        or rich.slot!=slot or rich.quantity!=(1 if equipment else amount)
+                        or rich.gem1!=rich_raw[0x67] or rich.gem2!=rich_raw[0x68]
+                        or rich.bound!=bool(rich_raw[0x44]&1)
+                        or rich.uid!=struct.unpack_from('<I',rich_raw,8)[0]
+                        or rich.type_id!=struct.unpack_from('<I',rich_raw,0x10)[0]
+                        or rich.plus!=rich_raw[0x6b]):
+                    raise ValueError('Rich warehouse item disagrees with the verified basic record')
+                items.append(rich)
         if len({i.uid for i in items}) != count:
             raise ValueError('Duplicate warehouse item identity')
         if any(s.read_block(address, len(data)) != data for address, data in observed):

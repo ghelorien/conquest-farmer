@@ -15,7 +15,14 @@ from conquest.merchants.farmer_trade import FarmerTradeDriver
 JOURNAL=Path(state_path('reports/banking/merchant-deliveries.sqlite3'))
 
 
+def guard_protected_assets():
+    from conquest.protected_withdrawal import pending
+    if pending():
+        raise ValueError('Protected warehouse withdrawal needs inventory reconciliation before continuing')
+
+
 def guard_reload():
+    guard_protected_assets()
     from conquest.merchants.delivery_route import pending
     if pending():raise ValueError('Reconcile the pending farmer delivery before reloading')
     if not JOURNAL.exists():return
@@ -170,6 +177,8 @@ def dispatch(ui,body):
         raise ValueError('Unsupported native delivery command')
     key=body['request_id']
     if not isinstance(key,str) or not 1<=len(key)<=100:raise ValueError('Invalid delivery request ID')
+    if action in ('delivery-start','delivery-test'):
+        guard_protected_assets()
     journal=Journal(JOURNAL)
     if not hasattr(ui,'delivery_workers'):
         ui.delivery_workers={};ui.delivery_errors={}

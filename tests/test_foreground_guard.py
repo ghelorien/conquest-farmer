@@ -56,6 +56,7 @@ def test_drag_layout_change_stops_held_movement_and_releases_once(monkeypatch):
         if name=='ClientToScreen':return lambda hwnd,point:True
         if name=='GetSystemMetrics':return lambda index:{76:0,77:0,78:101,79:101}[index]
         if name=='SendInput':return send
+        if name=='GetAsyncKeyState':return lambda key:0
         raise AssertionError(name)
     backend=SimpleNamespace(user=object(),foreground=lambda:7,error=lambda name:OSError(name))
     target=SimpleNamespace(hwnd=7,backend=backend,snapshot=lambda:{'foreground':7,
@@ -67,11 +68,56 @@ def test_drag_layout_change_stops_held_movement_and_releases_once(monkeypatch):
     checks=[]
     def layout_guard():
         checks.append(1)
-        if len(checks)==3:raise LayoutChanged('resized')
+        if len(checks)==4:raise LayoutChanged('resized')
     with pytest.raises(LayoutChanged,match='resized'):
         foreground.foreground_drag.__wrapped__(target,(10,10),(90,90),(100,100),
                                               layout_guard=layout_guard)
     assert events==[0xC001,0x2,0xC001,0x4]
+
+
+@pytest.mark.parametrize('race',['permission','origin'])
+def test_drag_rechecks_after_destination_settle_before_one_release(monkeypatch,race):
+    import ctypes as c
+    from types import SimpleNamespace
+    from conquest import foreground
+    from conquest.layout_revision import LayoutChanged
+    cursor=[0,0];events=[];allowed=[True];settles=[];origin=[0]
+    def send(count,pointer,size):
+        event=c.cast(pointer,c.POINTER(foreground.Input))[0]
+        flags=event.data.mi.dwFlags;events.append(flags)
+        if flags&1:
+            cursor[:]=[round(event.data.mi.dx*100/65535),round(event.data.mi.dy*100/65535)]
+        return 1
+    def bind(user,name,args,result):
+        if name=='ClientToScreen':
+            def to_screen(hwnd,pointer):
+                point=c.cast(pointer,c.POINTER(foreground.w.POINT))[0];point.x+=origin[0];return True
+            return to_screen
+        if name=='GetSystemMetrics':return lambda index:{76:0,77:0,78:101,79:101}[index]
+        if name=='SendInput':return send
+        if name=='GetAsyncKeyState':return lambda key:0
+        raise AssertionError(name)
+    def sleep(seconds):
+        if seconds==.1:
+            settles.append(seconds)
+            if len(settles)==2:
+                if race=='permission':allowed[0]=False
+                else:origin[0]=20
+    def layout_guard():
+        if not allowed[0]:raise LayoutChanged('permission changed during destination settle')
+    backend=SimpleNamespace(user=object(),foreground=lambda:7,error=lambda name:OSError(name))
+    target=SimpleNamespace(hwnd=7,backend=backend,snapshot=lambda:{'foreground':7,
+        'client_size':[100,100],'minimized':False,'cursor':list(cursor)})
+    monkeypatch.setattr(foreground,'bind',bind)
+    monkeypatch.setattr(foreground,'guarded_send',lambda value:value)
+    monkeypatch.setattr(foreground,'require_idle',lambda:None)
+    monkeypatch.setattr(foreground.time,'sleep',sleep)
+    failure=LayoutChanged if race=='permission' else foreground.CaptureUnavailable
+    message='destination settle' if race=='permission' else 'Game moved during drag'
+    with pytest.raises(failure,match=message):
+        foreground.foreground_drag.__wrapped__(target,(10,10),(90,90),(100,100),
+                                              layout_guard=layout_guard)
+    assert events.count(0x2)==1 and events.count(0x4)==1 and events[-1]==0x4
 
 
 def test_scroll_layout_change_after_pointer_move_sends_no_wheel(monkeypatch):

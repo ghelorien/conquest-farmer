@@ -235,6 +235,7 @@ def foreground_drag(target, source, destination, expected_size,*,before_press=No
     metrics = bind(user, "GetSystemMetrics", [c.c_int], c.c_int)
     send = bind(user, "SendInput", [w.UINT, c.POINTER(Input), c.c_int], w.UINT)
     send = guarded_send(send)
+    key_state = bind(user, "GetAsyncKeyState", [c.c_int], c.c_short)
     a, b = w.POINT(*source), w.POINT(*destination)
     if not to_screen(target.hwnd, c.byref(a)) or not to_screen(target.hwnd, c.byref(b)):
         raise target.backend.error("ClientToScreen")
@@ -249,6 +250,11 @@ def foreground_drag(target, source, destination, expected_size,*,before_press=No
         if target.backend.foreground() != target.hwnd:
             raise ValueError("Focus changed during drag")
         mouse(0xC001,round((x-left)*65535/(width-1)),round((y-top)*65535/(height-1)))
+    def require_current_client_point(local,screen):
+        refreshed=w.POINT(*local)
+        if (not to_screen(target.hwnd,c.byref(refreshed))
+                or (refreshed.x,refreshed.y)!=(screen.x,screen.y)):
+            raise CaptureUnavailable('Game moved during drag; held input released')
     move(a.x,a.y)
     time.sleep(.1)
     require_click_position(target.snapshot(),target.hwnd,expected_size,(a.x,a.y))
@@ -259,6 +265,10 @@ def foreground_drag(target, source, destination, expected_size,*,before_press=No
         if before_press:
             before_press()
             require_click_position(target.snapshot(),target.hwnd,expected_size,(a.x,a.y))
+        if layout_guard:layout_guard()
+        require_click_position(target.snapshot(),target.hwnd,expected_size,(a.x,a.y))
+        if key_state(0x7B)&0x8000:raise ValueError('Emergency stop before drag')
+        require_current_client_point(source,a)
         mouse(0x2)
         time.sleep(.15)
         for step in range(1,9):
@@ -266,10 +276,15 @@ def foreground_drag(target, source, destination, expected_size,*,before_press=No
             move(round(a.x+(b.x-a.x)*step/8),round(a.y+(b.y-a.y)*step/8))
             time.sleep(.04)
         require_click_position(target.snapshot(),target.hwnd,expected_size,(b.x,b.y))
+        # Let the destination hover settle before the final callbacks. Nothing
+        # may run between their last geometry/control checks and mouse-up.
+        time.sleep(.1)
         if layout_guard:layout_guard()
         if before_release:before_release()
+        if layout_guard:layout_guard()
         require_click_position(target.snapshot(),target.hwnd,expected_size,(b.x,b.y))
-        time.sleep(.1)
+        if key_state(0x7B)&0x8000:raise ValueError('Emergency stop before drag release')
+        require_current_client_point(destination,b)
     finally:
         mouse(0x4)
     return {"mode":"foreground_drag_calibration","source":source,"destination":destination,"after":target.snapshot()}

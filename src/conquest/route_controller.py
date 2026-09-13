@@ -13,6 +13,9 @@ ACTIVE={'starting','hunting','restocking','changing_route','recovering_route','v
 
 def ensure_running(route_id,*,root=None):
     root=Path(root or Path(__file__).resolve().parents[2])
+    from conquest.protected_withdrawal import pending
+    if pending(root/state_path('reports/banking/protected-withdrawals.sqlite3')):
+        return False
     if read_json(root/state_path('.runtime/storage-halt.json')).get('active'):return False
     now=time.time()
     status=read_json(root/state_path('reports/overnight/status.json'))

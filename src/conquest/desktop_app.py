@@ -976,6 +976,12 @@ class DesktopApp:
             self.route_note.set(str(error))
 
     def update_ids(self, enabled):
+        if enabled:
+            from conquest.merchants.delivery_operation import guard_protected_assets
+            try:guard_protected_assets()
+            except ValueError as error:
+                self.memory_text.set(str(error))
+                return
         if enabled and getattr(self,'character_context',None):
             if self.character_context.profile.role!='Farmer' or not self.attachment.ready:
                 self.memory_text.set('Selected farmer is not automation-ready; see attachment diagnostics')
@@ -1012,6 +1018,9 @@ class DesktopApp:
             self.memory_text.set(str(error))
 
     def update_control(self, body):
+        if body.get('enabled'):
+            from conquest.merchants.delivery_operation import guard_protected_assets
+            guard_protected_assets()
         if body.get('enabled') and getattr(self,'character_context',None):
             if self.character_context.profile.role!='Farmer' or not self.attachment.ready:
                 raise ValueError('Selected farmer is not automation-ready; see attachment diagnostics')
@@ -1050,12 +1059,15 @@ class DesktopApp:
             intent=self.control.snapshot()
             if intent['enabled']:
                 reason='Unable to start farming: '+str(error)
-                self.runtime.external_failure=(intent['revision'],reason)
+                if self.runtime is not None:
+                    self.runtime.external_failure=(intent['revision'],reason)
                 self.control.publish(intent['revision'],'runner_stopped','Farm runner stopped: '+reason)
                 self.record(state='Farming could not start',current_activity=reason,result={'detail':str(error)})
             return False
 
     def _start_embedded_farm(self):
+        from conquest.merchants.delivery_operation import guard_protected_assets
+        guard_protected_assets()
         if hasattr(self,'attachment') and not self.attachment.ready:
             raise ValueError('Automation is blocked; see attachment diagnostics')
         from conquest.storage_halt import active
