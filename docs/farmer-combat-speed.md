@@ -30,6 +30,17 @@ Additional options are independent for each farmer and disabled by default:
 - `fast_scatter_planning`: check candidate terrain in stable descending score
   order. The chosen destination and tie-break remain unchanged.
 
+- `cross_region_scatter`: approach a selected live group beyond the current
+  patrol region while retaining the overall hunting boundary and terrain guards.
+- `regional_search_expansion`: permit the saved idle-search expansion policy on
+  regional routes, retaining their saved patrol points and expansion limit.
+- `cluster_lookahead`: when at most two targets are close, score denser selected
+  groups up to 48 tiles away, discounting the additional jumps needed to reach
+  them. Nearby wounded groups, terrain, bounds and boss avoidance still apply.
+- `counter_gap_recovery`: reread identity and a large counter jump; exclude the
+  unverified increment and continue only from a stable counter. Prior verified
+  kills and elapsed time are retained.
+
 `scene_reuse_seconds` defaults to zero and is capped at 0.15 seconds. It permits
 reuse only of a successful escape scan from the same combat iteration, aged
 from before that scan. Slow or unavailable scans are read again. The chosen

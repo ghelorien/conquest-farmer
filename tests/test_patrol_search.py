@@ -45,3 +45,26 @@ def test_sweep_skips_blocked_tiles_and_stays_inside_bounds():
     points=search.patrol_points(terrain)
     assert points and len(points)==len(set(points))
     assert all(100<=x<=150 and 100<=y<=150 and terrain.walkable((x,y)) for x,y in points)
+
+
+def test_regional_idle_expansion_keeps_saved_points_and_saved_limit():
+    from pathlib import Path
+    import yaml
+    from conquest.trial import TrialConfig
+    from conquest.routes import RouteLibrary
+    route=RouteLibrary().load('bandit')
+    config=TrialConfig.model_validate(yaml.safe_load(Path('profiles/pheasant-foreground-trial.yaml').read_text()))
+    config=config.model_copy(update={'boundary':route.hunting_boundary,'route':route.patrol,'patrol_search':route.patrol_search})
+    original=config.model_dump()
+    search=AdaptivePatrol(config.boundary,config.patrol_search,0,(1000,1000))
+    terrain=SimpleNamespace(walkable=lambda p:True)
+    assert search.expand_config(config,terrain,10) is None
+    assert search.expansions==0
+    assert search.expand_config(config,terrain,4.9,regional=True) is None
+    expanded=search.expand_config(config,terrain,5,regional=True)
+    assert expanded.boundary==(317,325,525,585)
+    assert expanded.route==config.route
+    assert expanded.patrol_search.regions==config.patrol_search.regions
+    assert config.model_dump()==original
+    assert search.expand_config(expanded,terrain,15,regional=True) is None
+    assert search.expansions==1

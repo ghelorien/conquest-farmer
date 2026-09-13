@@ -53,6 +53,16 @@ class AdaptivePatrol:
         self.expansions+=1
         return new
 
+    def expand_config(self,config,terrain,now,*,regional=False):
+        if config.patrol_search.regions and not regional:
+            return None
+        expanded=self.expand(now)
+        if expanded is None:return None
+        # Regional routes keep their saved sweep; only the bounded local
+        # search envelope grows so nearby edge groups can be approached.
+        patrol=config.route if config.patrol_search.regions else self.patrol_points(terrain) or config.route
+        return config.model_copy(update={'boundary':expanded,'route':patrol})
+
     def patrol_points(self,terrain):
         x0,y0,x1,y1=self.boundary
         # Cover the interior too: a perimeter circuit can permanently miss

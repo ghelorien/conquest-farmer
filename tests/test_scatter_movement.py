@@ -156,3 +156,64 @@ def test_fast_planning_avoids_checking_lower_ranked_terrain(monkeypatch):
     fast=SimpleNamespace(recovery=SimpleNamespace(terrain=terrain),combat_speed=CombatSpeed(fast_scatter_planning=True))
     assert scatter_landing(fast,targets,(50,50),(20,20,80,80),12)==expected
     assert len(calls)==1 and original_count>50
+
+
+@pytest.mark.parametrize('enabled',[False,True])
+def test_region_edge_can_approach_live_group_only_inside_overall_hunt(enabled):
+    from conquest.farmer_profile import CombatSpeed
+    terrain=TerrainMap(1011,100,100,np.zeros((100,100),dtype=bool),'',(),())
+    group=[target(43,50),target(44,51),target(45,50)]
+    supervisor=SimpleNamespace(recovery=SimpleNamespace(terrain=terrain),
+        combat_speed=CombatSpeed(cross_region_scatter=enabled),scatter_scene_targets=group)
+    region=(50,20,80,80);overall=(20,20,80,80)
+    result=scatter_landing(supervisor,[],(60,50),region,10,minimum_count=3,hunting_boundary=overall)
+    if not enabled:
+        assert result is None
+    else:
+        assert result is not None and clear_jump(terrain,(60,50),result)
+        assert 8<=max(abs(a-b) for a,b in zip((60,50),result))<=12
+        assert all(max(abs(a-b) for a,b in zip(result,t.world_position))<=10 for t in group)
+    supervisor.scatter_scene_targets=[target(15,50),target(16,50),target(17,50)]
+    assert scatter_landing(supervisor,[],(28,50),region,10,hunting_boundary=overall) is None
+    supervisor.scatter_scene_targets=[target(43,50,0),target(44,50,0)]
+    assert scatter_landing(supervisor,[],(60,50),region,10,hunting_boundary=overall) is None
+
+
+@pytest.mark.parametrize('enabled',[False,True])
+def test_cluster_lookahead_prefers_dense_group_over_isolated_target(enabled):
+    from conquest.farmer_profile import CombatSpeed
+    terrain=TerrainMap(1011,150,150,np.zeros((150,150),dtype=bool),'',(),())
+    nearby=[target(40,50)]
+    dense=[target(82+i%3,49+i//3) for i in range(8)]
+    supervisor=SimpleNamespace(recovery=SimpleNamespace(terrain=terrain),
+        combat_speed=CombatSpeed(cluster_lookahead=enabled,fast_scatter_planning=True),scatter_scene_targets=nearby+dense)
+    landing=scatter_landing(supervisor,nearby,(50,50),(20,20,130,130),10)
+    assert landing is not None and clear_jump(terrain,(50,50),landing)
+    if enabled:assert landing[0]>=58
+    else:assert max(abs(a-b) for a,b in zip(landing,nearby[0].world_position))<=10
+
+
+def test_cluster_lookahead_preserves_nearby_groups_and_hard_bounds():
+    from conquest.farmer_profile import CombatSpeed
+    terrain=TerrainMap(1011,150,150,np.zeros((150,150),dtype=bool),'',(),())
+    nearby=[target(49,49),target(50,50),target(51,51)]
+    dense=[target(82+i%3,49+i//3) for i in range(8)]
+    supervisor=SimpleNamespace(recovery=SimpleNamespace(terrain=terrain),
+        combat_speed=CombatSpeed(cluster_lookahead=True,fast_scatter_planning=True),scatter_scene_targets=nearby+dense)
+    landing=scatter_landing(supervisor,nearby,(50,50),(20,20,130,130),10)
+    assert sum(max(abs(a-b) for a,b in zip(landing,t.world_position))<=10 for t in nearby)==3
+    supervisor.scatter_scene_targets=[target(82,50,0),*dense]
+    assert scatter_landing(supervisor,[],(50,50),(20,20,70,70),10) is None
+    supervisor.scatter_scene_targets=[target(110+i%3,49+i//3) for i in range(8)]
+    assert scatter_landing(supervisor,[],(50,50),(20,20,130,130),10) is None
+
+
+def test_cluster_lookahead_does_not_cross_wall_to_chase_dense_group():
+    from conquest.farmer_profile import CombatSpeed
+    terrain=TerrainMap(1011,150,150,np.zeros((150,150),dtype=bool),'',(),())
+    terrain.blocked[:,55]=True
+    nearby=[target(40,50)];dense=[target(82+i%3,49+i//3) for i in range(8)]
+    supervisor=SimpleNamespace(recovery=SimpleNamespace(terrain=terrain),
+        combat_speed=CombatSpeed(cluster_lookahead=True,fast_scatter_planning=True),scatter_scene_targets=nearby+dense)
+    landing=scatter_landing(supervisor,nearby,(50,50),(20,20,130,130),10)
+    assert landing is not None and landing[0]<55 and clear_jump(terrain,(50,50),landing)

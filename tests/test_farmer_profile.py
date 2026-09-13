@@ -26,3 +26,13 @@ def test_receipt_cost_is_isolated_from_other_farmers_and_attack_stock(tmp_path):
     assert load_combat_speed('Second',tmp_path).scatter_receipt_arrows==3
     assert ammunition_per_attack(SimpleNamespace(attack_button='right',combat_speed=speed))==3
     with pytest.raises(ValueError):CombatSpeed(scatter_receipt_arrows=1)
+
+
+@pytest.mark.parametrize('option', ['cross_region_scatter','regional_search_expansion',
+                                    'cluster_lookahead','counter_gap_recovery'])
+def test_saved_search_and_counter_options_apply_only_to_parasite(option):
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]/'profiles'/'farmers'
+    assert getattr(load_combat_speed('Parasite',root),option) is True
+    assert getattr(load_combat_speed('Kilhiam',root),option) is False
+    assert getattr(load_combat_speed('UnconfiguredFarmer',root),option) is False

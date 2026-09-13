@@ -15,6 +15,10 @@ class CombatSpeed(BaseModel):
     coherent_projection:bool=False
     selected_target_refresh:bool=False
     packed_monster_records:bool=False
+    cluster_lookahead:bool=False
+    regional_search_expansion:bool=False
+    counter_gap_recovery:bool=False
+    cross_region_scatter:bool=False
     fast_scatter_planning:bool=False
     scene_reuse_seconds:float=Field(default=0,ge=0,le=.15)
     torn_life_attempts:int=Field(default=1,ge=1,le=3)

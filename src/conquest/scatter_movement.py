@@ -1,5 +1,6 @@
 """Choose a long, terrain-checked jump into a fresh selected monster group."""
 import time
+import math
 from conquest.viewport import clear_scene,size_for
 
 
@@ -38,11 +39,14 @@ def wounded_group_in_range(supervisor,targets,position,radius):
     return len(wounded)>=2
 
 
-def scatter_landing(supervisor, targets, position, boundary, radius,minimum_count=1,*,anchor=(518,396)):
+def scatter_landing(supervisor, targets, position, boundary, radius,minimum_count=1,*,anchor=(518,396),hunting_boundary=None):
+    supervisor.scatter_plan=None
     terrain=supervisor.recovery.terrain
     fast=getattr(getattr(supervisor,'combat_speed',None),'fast_scatter_planning',False)
     viewport=size_for(getattr(supervisor,'observer',None))
     observed=getattr(supervisor,'scatter_scene_targets',()) or targets
+    if hunting_boundary is not None and getattr(getattr(supervisor,'combat_speed',None),'cross_region_scatter',False):
+        boundary=hunting_boundary
     x,y=position;left,top,right,bottom=boundary
     # Use the same hunt bounds as choose_target. Otherwise a dense group just
     # outside the boundary attracts repeated jumps but can never be attacked.
@@ -50,6 +54,17 @@ def scatter_landing(supervisor, targets, position, boundary, radius,minimum_coun
           and type(t.current_hp) is int and t.current_hp>0
           and left<=t.world_position[0]<=right and top<=t.world_position[1]<=bottom]
     if not live:return None
+    groups=[]
+    local_count=sum(max(abs(a-b) for a,b in zip(p,position))<=radius for p in live)
+    if getattr(getattr(supervisor,'combat_speed',None),'cluster_lookahead',False) and local_count<=2:
+        # Bounded local planning, not a route rewrite. Only consider a markedly
+        # denser group within four long jumps; finish existing nearby groups.
+        centers=sorted(set(live),key=lambda p:max(abs(a-b) for a,b in zip(p,position)))[:64]
+        for center in centers:
+            separation=max(abs(a-b) for a,b in zip(center,position))
+            if not radius<separation<=48:continue
+            count=sum(max(abs(a-b) for a,b in zip(p,center))<=max(2,radius-2) for p in live)
+            if count>=max(4,local_count+3):groups.append((center,count,separation))
     recent=getattr(supervisor,'scatter_landings',[])
     now=time.monotonic();recent=[(p,at) for p,at in recent if now-at<8]
     blocked={p for (world,p),until in getattr(supervisor,'movement_obstructions',{}).items()
@@ -69,7 +84,16 @@ def scatter_landing(supervisor, targets, position, boundary, radius,minimum_coun
             steps=max(abs(dx),abs(dy))*4
             if (blocked or not fast) and any((round(x+dx*i/steps),round(y+dy*i/steps)) in blocked for i in range(1,steps+1)):continue
             count=sum(max(abs(p[0]-point[0]),abs(p[1]-point[1]))<=radius for p in live)
-            if count<minimum_count or (not fast and not clear_jump(terrain,position,point)):continue
+            future=0.
+            for center,group_count,separation in groups:
+                remaining=max(abs(a-b) for a,b in zip(center,point))
+                if separation-remaining<4:continue
+                # Discount a distant group by the additional jumps before a
+                # cast is possible. Immediate groups retain their full score.
+                jumps=math.ceil(max(0,remaining-radius)/12)
+                future=max(future,group_count/(1+jumps))
+            utility=max(count,future)
+            if (count<minimum_count and future<max(2,minimum_count)) or (not fast and not clear_jump(terrain,position,point)):continue
             # Keep dense ordinary groups; do not deliberately land beside bosses.
             from conquest.routes import boss_name
             if any(boss_name(m.name) and max(abs(m.position[0]-point[0]),abs(m.position[1]-point[1]))<=2
@@ -77,15 +101,18 @@ def scatter_landing(supervisor, targets, position, boundary, radius,minimum_coun
             repeated=sum(max(abs(p[0]-point[0]),abs(p[1]-point[1]))<=2 for p,_ in recent)
             centrality=-sum(max(abs(p[0]-point[0]),abs(p[1]-point[1])) for p in live
                             if max(abs(p[0]-point[0]),abs(p[1]-point[1]))<=radius)
-            candidates.append(((count,-repeated,centrality,distance),point))
+            candidates.append(((utility,count,-repeated,centrality,distance),point))
     if not candidates:return None
     if fast:
         # Stable ordering preserves the original tie-break. Check terrain in
         # score order and stop at the same highest-ranked clear destination.
-        destination=next((point for _,point in sorted(candidates,key=lambda row:row[0],reverse=True)
-                          if clear_jump(terrain,position,point)),None)
-        if destination is None:return None
+        winner=next((row for row in sorted(candidates,key=lambda row:row[0],reverse=True)
+                     if clear_jump(terrain,position,row[1])),None)
+        if winner is None:return None
     else:
-        destination=max(candidates,key=lambda row:row[0])[1]
+        winner=max(candidates,key=lambda row:row[0])
+    score,destination=winner
+    supervisor.scatter_plan={'lookahead':score[0]>score[1],
+        'immediate_targets':score[1],'discounted_group_score':score[0]}
     supervisor.scatter_landings=recent+[(position,now)]
     return destination

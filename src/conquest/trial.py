@@ -431,19 +431,35 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                 elif counter>last_kill_counter:
                     increment=counter-last_kill_counter
                     if increment>(32 if config.attack_button=="right" else 10):
-                        reason='kill_counter_discontinuity'
-                        break
-                    confirmed_kills+=increment
-                    last_kill_counter=counter
-                    event('kill_verified',count=increment,total=confirmed_kills,counter=counter,
-                          character_level=fields['level'][0],
-                          ammo=inventory.equipped_ammo.amount if inventory.equipped_ammo else 0,
-                          kills_per_hour=confirmed_kills*3600/max(time.monotonic()-started,.001))
-                    if supervisor:supervisor.finish_target('kill_counter_increased')
-                    pending_attack=None
-                    attack_interrupted=False
-                    attack_failures=0
-                    last_action=0
+                        if not (supervisor and speed.counter_gap_recovery):
+                            reason='kill_counter_discontinuity'
+                            break
+                        check=session.request('sample',{'fields':[
+                            {'name':'name','address':hex(addresses['name']),'kind':'utf8'},
+                            {'name':'kill_counter','address':hex(addresses['kill_counter']),'kind':'u32'}]})
+                        checked={field['name']:field['value'] for field in check['fields']}
+                        if checked['name']!=config.character:
+                            raise ValueError('Character identity changed during counter verification')
+                        if checked['kill_counter']!=[counter]:
+                            raise CaptureUnavailable('Kill counter changed during gap verification; reobserving')
+                        event('kill_counter_gap',previous=last_kill_counter,counter=counter,
+                              unverified_increment=increment,verified_total=confirmed_kills,
+                              action='Excluded from verified totals; continuing with stable counter')
+                        last_kill_counter=counter
+                        # Do not treat an unqualified count as a kill receipt.
+                        # Pending combat still uses its normal ammunition/HP feedback.
+                    else:
+                        confirmed_kills+=increment
+                        last_kill_counter=counter
+                        event('kill_verified',count=increment,total=confirmed_kills,counter=counter,
+                              character_level=fields['level'][0],
+                              ammo=inventory.equipped_ammo.amount if inventory.equipped_ammo else 0,
+                              kills_per_hour=confirmed_kills*3600/max(time.monotonic()-started,.001))
+                        if supervisor:supervisor.finish_target('kill_counter_increased')
+                        pending_attack=None
+                        attack_interrupted=False
+                        attack_failures=0
+                        last_action=0
 
                 escape_observation=None
                 escape_observed_at=None
@@ -661,16 +677,18 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     pending_attack=moving=None
                     last_action=0
                     continue
-                if search and not config.patrol_search.regions and not approaching and not pending_attack and not defending:
-                    expanded=search.expand(time.monotonic())
-                    if expanded:
-                        patrol=search.patrol_points(supervisor.recovery.terrain) or config.route
-                        config=config.model_copy(update={'boundary':expanded,'route':patrol})
-                        l,t,r,b=expanded
-                        waypoint=min(range(len(patrol)),key=lambda i:math.dist((x,y),patrol[i]))
-                        moving=None
-                        event('patrol_expanded',boundary=expanded,idle_seconds=config.patrol_search.idle_seconds,
-                              expansion=search.expansions,patrol=patrol)
+                if search and not approaching and not pending_attack and not defending:
+                    expanded_config=search.expand_config(config,supervisor.recovery.terrain,time.monotonic(),
+                        regional=speed.regional_search_expansion)
+                    if expanded_config is not None:
+                        config=expanded_config
+                        l,t,r,b=config.boundary
+                        if not config.patrol_search.regions:
+                            waypoint=min(range(len(config.route)),key=lambda i:math.dist((x,y),config.route[i]))
+                            moving=None
+                        event('patrol_expanded',boundary=config.boundary,idle_seconds=config.patrol_search.idle_seconds,
+                              expansion=search.expansions,patrol=config.route,
+                              retained_regional_patrol=bool(config.patrol_search.regions))
                 if moving:
                     before_position, issued, expected_position = moving
                     arrived=supervisor and math.dist((x,y),expected_position)<.5
@@ -856,7 +874,8 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                             wounded_group_in_range(supervisor,observed,(x,y),config.attack_range_tiles)):
                         scatter_boundary=rotation.region.boundary if rotation else (l,t,r,b)
                         scatter_destination=scatter_landing(supervisor,observed,(x,y),scatter_boundary,config.attack_range_tiles,
-                            minimum_count=1 if scatter_jump_due else 3,anchor=config.player_anchor)
+                            minimum_count=1 if scatter_jump_due or speed.cross_region_scatter else 3,
+                            anchor=config.player_anchor,hunting_boundary=(l,t,r,b))
                     if scatter_destination is not None:target=None
                 if time.monotonic() - last_action >= config.interval:
                     event("observation", position=[x, y], health_ratio=hp, targets=len(observed),
@@ -974,6 +993,9 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                             event('navigation_resumed')
                             navigation_waiting=False
                         event("movement_attempt", point=point, waypoint=destination, approaching=approaching,
+                              scatter_approach=bool(scatter_destination),
+                              scatter_plan=getattr(supervisor,'scatter_plan',None) if scatter_destination else None,
+                              region=rotation.region.name if rotation else None,
                               movement='jump' if (long_jump if supervisor else not approaching) else 'run')
                     last_action = time.monotonic()
                 time.sleep(.08)
