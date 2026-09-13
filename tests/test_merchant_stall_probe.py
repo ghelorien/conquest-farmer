@@ -130,3 +130,45 @@ def test_owned_booth_probe_uses_native_tile_and_verifies_receipt(tmp_path,monkey
             assert pressed==[(976,348)] and record['phase']=='submitted'
         else:
             assert not pressed and record['phase']=='cancelled_before_press' and record['retry_safe']
+
+
+@pytest.mark.parametrize('case',['adopted','no_event','wrong_uid','wrong_flag','pending_trade','changed_stock',
+                               'new_request'])
+def test_recorded_manual_setup_supersedes_only_its_own_old_flag_probe(tmp_path,monkeypatch,case):
+    import time
+    from copy import deepcopy
+    journal=Journal(tmp_path/'state.sqlite3')
+    old={'phase':'submitted','submitted_at':time.time()-100,'identity':{'pid':1},
+         'flag':{'name':'ShopFlag','model':1086,'type_id':0,'position':[269,174]},
+         'inventory_before':[{'uid':9}],'silver':100}
+    journal.set('Spiritual','stall_probe',old)
+    if case!='no_event':
+        journal.event('Spiritual','manual_stall_setup_adopted',
+                      own_booth_uid=999 if case=='wrong_uid' else 103064,
+                      automatic_recovery_verified=False)
+    if case=='pending_trade':monkeypatch.setattr(journal,'pending',lambda *a:[{'id':'uncertain-trade'}])
+    current={'identity':{'pid':1},'map_id':1036,'position':[271,174],'own_booth_uid':103064,
+             'booth_open':True,'trade':None,'request':None,'windows':[],'inventory':[],
+             'booth':[],'silver':500}
+    reads=0
+    def read():
+        nonlocal reads
+        reads+=1
+        fresh=deepcopy(current)
+        if case=='changed_stock' and reads>1:fresh['silver']+=1
+        if case=='new_request' and reads>1:fresh['request']={'uid':123}
+        return fresh
+    booth={'uid':103064,'position':[274,174] if case=='wrong_flag' else [272,174]}
+    monkeypatch.setattr(stall_probe,'owned_booth',lambda *a:booth)
+    def dialog(*a):raise ValueError('NPC dialog is absent')
+    monkeypatch.setattr('conquest.conductress.read_dialog',dialog)
+    driver=NS(observer=NS(character='Spiritual'),memory=NS(read=read))
+    if case=='adopted':
+        result=stall_probe.reconcile_interrupted_probe(driver,journal)
+        assert result['phase']=='reconciled_manual_setup'
+        assert result['manual_setup_superseded_probe'] and result['own_booth_uid']==103064
+        assert not result['input_qualified'] and not result['original_inventory_result_verified']
+        assert result['inventory_before']==old['inventory_before'] and result['silver']==100
+    else:
+        with pytest.raises(ValueError):stall_probe.reconcile_interrupted_probe(driver,journal)
+        assert journal.get('Spiritual','stall_probe')['phase']=='submitted'

@@ -1,6 +1,7 @@
 """One bounded flag interaction for live setup qualification, no confirmation."""
 import struct
 import time
+import json
 from conquest.memory_life import read_life
 from conquest.merchants.memory import unpack
 from conquest.merchants.stalls import vacant_flags,owned_booth
@@ -13,6 +14,8 @@ def reconcile_interrupted_probe(driver,journal):
     if record.get('phase')!='submitted':return record
     from conquest.conductress import read_dialog
     snapshot=driver.memory.read()
+    if snapshot.get('booth_open') and snapshot.get('own_booth_uid'):
+        return reconcile_manual_setup(driver,journal,record,snapshot)
     if (snapshot['identity']!=record['identity'] or snapshot['map_id']!=1036
             or snapshot['booth_open'] or snapshot.get('trade') or snapshot.get('request')):
         raise ValueError('Stall interaction still needs live reconciliation')
@@ -31,6 +34,48 @@ def reconcile_interrupted_probe(driver,journal):
                   exact_attributes_verified=exact,input_qualified=False)
     journal.set(character,'stall_probe',record)
     journal.event(character,'stall_probe_reconciled',evidence=record)
+    return record
+
+
+def reconcile_manual_setup(driver,journal,record,snapshot):
+    """A recorded manual stall setup supersedes an older view-only flag probe."""
+    character=driver.observer.character
+    flag=record.get('flag',{})
+    if (record.get('operation') not in (None,'inspect_vacant_flag')
+            or flag.get('name')!='ShopFlag' or (flag.get('type_id'),flag.get('model'))!=(0,1086)
+            or snapshot['identity']!=record['identity'] or snapshot['map_id']!=1036
+            or snapshot.get('trade') or snapshot.get('request')
+            or journal.pending(character)
+            or any(w['name']=='Add Item to Booth' for w in snapshot.get('windows',[]))):
+        raise ValueError('Stall interaction still needs live reconciliation')
+    with journal.db() as db:
+        row=db.execute("SELECT id,timestamp,payload FROM events WHERE character=? AND "
+                       "event='manual_stall_setup_adopted' AND timestamp>? ORDER BY id DESC LIMIT 1",
+                       (character,record['submitted_at'])).fetchone()
+    if row is None or json.loads(row['payload']).get('own_booth_uid')!=snapshot['own_booth_uid']:
+        raise ValueError('No recorded manual setup supersedes this stall interaction')
+    booth=owned_booth(driver.observer,snapshot)
+    if booth['position']!=[flag['position'][0]+3,flag['position'][1]]:
+        raise ValueError('The manually adopted booth belongs to another flag')
+    from conquest.conductress import read_dialog
+    try:read_dialog(driver.observer)
+    except ValueError as error:
+        if str(error)!='NPC dialog is absent':raise
+    else:raise ValueError('Stall dialog remains open; no repeat interaction')
+    from conquest.merchants.qualification import stock
+    fresh=driver.memory.read()
+    if (stock(fresh)!=stock(snapshot) or not fresh.get('booth_open')
+            or fresh.get('trade') or fresh.get('request')
+            or any(w['name']=='Add Item to Booth' for w in fresh.get('windows',[]))
+            or any(fresh[k]!=snapshot[k] for k in ('identity','map_id','position','own_booth_uid'))
+            or owned_booth(driver.observer,fresh)!=booth):
+        raise ValueError('Manually adopted booth changed during reconciliation')
+    record.update(phase='reconciled_manual_setup',reconciled_at=time.time(),
+                  adopted_event_id=row['id'],adopted_at=row['timestamp'],own_booth_uid=booth['uid'],
+                  original_inventory_result_verified=False,manual_setup_superseded_probe=True,
+                  input_qualified=False)
+    journal.set(character,'stall_probe',record)
+    journal.event(character,'stall_probe_superseded_by_manual_setup',evidence=record)
     return record
 
 

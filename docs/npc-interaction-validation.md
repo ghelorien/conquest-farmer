@@ -58,3 +58,11 @@ submission. The probe rejects pending closes, foreign booths, changed stock,
 manual Stop and missing hover. Its entry through `inspect-market-stall` has a
 15-second input deadline. Closing a panel does not establish disconnect recovery
 or vacant-stall claim qualification.
+
+An older unresolved flag probe may be superseded by a later durable
+`manual_stall_setup_adopted` event only when its exact owned booth still exists
+at that flag, in the same client, with no pending transaction or interaction.
+Reconciliation preserves the old observations and explicitly leaves original
+inventory results and automatic input qualification unverified. It never
+retries a claim or grants a recovery capability. Current stock is checked for
+stability before recording the manual resolution.
