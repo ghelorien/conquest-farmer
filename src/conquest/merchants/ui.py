@@ -182,6 +182,9 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action=='disconnect-merchant' and set(body)=={'action','character'}:
+            from conquest.merchants.disconnect import disconnect
+            return disconnect(self.runtime,body['character'])
         if action=='start-account-diagnostic' and set(body)=={'action','character'}:
             import subprocess,sys
             character=character_name(body['character'])

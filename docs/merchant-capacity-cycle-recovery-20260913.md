@@ -96,3 +96,21 @@ ground. Require a clear terrain segment to the distant cluster before giving
 it lookahead utility. Immediate groups retain their scores and ordinary terrain
 patrol can still route around obstacles. Regression places a wall beyond the
 first legal jump; all 50 Scatter movement tests pass in both trees.
+
+
+### Critical recovery limitation: merchant deaths in transit
+
+Read-only samples of both pinned merchant processes recorded status 0 -> 0x20
+-> 0x420 while merchant automation was paused in Twin City. Inventory identities
+and silver decreased after reconnect. The cause of the deaths is not established.
+A supervised urgent 15-second safe town window advanced the return but did not
+complete it; Spiritual's paid transfer remained uncertain and was not retried.
+No stock discrepancy has been reconciled away. Full-cycle refill is not qualified.
+
+Added an authenticated `disconnect-merchant` action to the existing app, using
+the saved account identity and same-handle path/creation-time verification. It
+holds exclusive input ownership, rejects pending transactions, persists pauses
+for merchant operations and refill, and retains attention and recovery journals.
+A failed close cannot claim success or re-enable reconnect. Five focused tests
+pass in each tree. This provides protective shutdown from the already elevated
+app when Windows denies termination from the agent's lower-privilege process.
