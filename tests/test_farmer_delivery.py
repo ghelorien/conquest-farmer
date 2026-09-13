@@ -1,6 +1,7 @@
 import copy
 import pytest
-from conquest.merchants.delivery import prepare, plan_deliveries, validate_offers, reconcile, DeliveryTransaction
+from conquest.merchants.delivery import (prepare, plan_deliveries, validate_offers, reconcile,
+    reconciliation_outcome,ownership_digest,ReconciliationBlocked,DeliveryTransaction)
 from conquest.merchants.journal import Journal
 
 
@@ -234,3 +235,154 @@ def test_source_recovery_needs_both_inventories_and_never_sends_input(tmp_path,m
     driver.read_pair=lambda name:(af,am)
     t.recover('batch:1')
     assert calls==['release'] and not j.pending('Dutch')
+
+
+def test_no_transfer_requires_versioned_trace_and_exact_full_attributes(tmp_path,monkeypatch):
+    monkeypatch.setattr('conquest.merchants.delivery.time.time',lambda:100)
+    f=snapshot('Parasite',1,[item(10),item(11,1050002)]);m=snapshot('Dutch',2)
+    intent=prepare(f,m,[f['inventory'][0]],now=100)
+    with pytest.raises(ReconciliationBlocked,match='explicit action trace'):
+        reconciliation_outcome(intent,copy.deepcopy(f),copy.deepcopy(m),trace=[],now=100)
+    trace=[{'stage':'action_trace','status':'initialized','payload':{}}]
+    result=reconciliation_outcome(intent,copy.deepcopy(f),copy.deepcopy(m),trace=trace,now=100)
+    assert result['outcome']=='no_transfer' and result['remaining'][0]['uid']==10
+    changed=copy.deepcopy(f);changed['inventory'][1]['quantity']=2
+    with pytest.raises(ReconciliationBlocked,match='surrounding inventory'):
+        reconciliation_outcome(intent,changed,copy.deepcopy(m),trace=trace,now=100)
+
+
+def test_exact_partial_disposition_is_terminal_and_idempotent_on_both_ledgers(tmp_path,monkeypatch):
+    from conquest.merchants import delivery_reservation as reservations
+    monkeypatch.setattr('conquest.merchants.delivery.time.time',lambda:100)
+    items=[item(10),item(11)];f=snapshot('Parasite',1,items);m=snapshot('Dutch',2)
+    intent=prepare(f,m,items,now=100);af=copy.deepcopy(f);am=copy.deepcopy(m)
+    af['inventory']=af['inventory'][1:];am['inventory']=[copy.deepcopy(items[0])]
+    trace=[{'stage':'action_trace','status':'initialized','payload':{}},
+           {'stage':'offer_item:10','status':'before_action','payload':{}},
+           {'stage':'reconciliation_observation','status':'observed','payload':{
+               'ownership_digest':ownership_digest(intent,af,am),'observed_at':94}},
+           {'stage':'reconciliation_observation','status':'observed','payload':{
+               'ownership_digest':ownership_digest(intent,af,am),'observed_at':100}}]
+    result=reconciliation_outcome(intent,af,am,trace=trace,now=100)
+    assert result['outcome']=='partial_transfer'
+    assert [i['uid'] for i in result['delivered']]==[10]
+    assert [i['uid'] for i in result['remaining']]==[11]
+    receiver=Journal(tmp_path/'receiver.sqlite3');reservations.reserve(receiver,'batch:1',f,m,items,now=100)
+    first=reservations.disposition(receiver,'Dutch','batch:1',af,am,trace=trace,now=100)
+    second=reservations.disposition(receiver,'Dutch','batch:1',af,am,trace=trace,now=100)
+    assert first['proof_digest']==second['proof_digest']==result['proof_digest']
+    assert reservations.active(receiver,'Dutch') is None and receiver.get('Dutch','new_stock') is True
+
+
+def test_reservation_preserves_origin_and_missing_reservation_can_close_no_input(tmp_path,monkeypatch):
+    from conquest.merchants import delivery_reservation as reservations
+    monkeypatch.setattr('conquest.merchants.delivery.time.time',lambda:100)
+    f=snapshot('Parasite',1,[item(10)]);m=snapshot('Dutch',2)
+    origin={'operation_id':'batch:1','town_visit_id':'town:1',
+            'visit_id':'visit:1','farmer_profile_id':'farmer:1'}
+    journal=Journal(tmp_path/'receiver.sqlite3')
+    state=reservations.reserve(journal,'batch:1',f,m,f['inventory'],origin=origin,now=100)
+    assert all(state['intent'][name]==value for name,value in origin.items())
+    with pytest.raises(ValueError,match='reused'):
+        reservations.reserve(journal,'batch:1',f,m,f['inventory'],origin=None,now=100)
+
+    missing=Journal(tmp_path/'missing.sqlite3');intent=prepare(f,m,f['inventory'],now=100)
+    intent.update(origin)
+    trace=[{'stage':'action_trace','status':'initialized','payload':{'version':1}}]
+    result=reservations.disposition(missing,'Dutch','batch:1',f,m,trace=trace,
+                                    intent=intent,now=100)
+    again=reservations.disposition(missing,'Dutch','batch:1',f,m,trace=trace,now=100)
+    assert result['outcome']=='no_transfer' and again['proof_digest']==result['proof_digest']
+    assert reservations.active(missing,'Dutch') is None
+
+
+def test_source_no_transfer_recovery_commits_only_after_receiver_ack(tmp_path,monkeypatch):
+    monkeypatch.setattr('conquest.merchants.delivery.time.time',lambda:100)
+    f=snapshot('Parasite',1,[item(10)]);m=snapshot('Dutch',2)
+    intent=prepare(f,m,f['inventory'],now=100)
+    j=Journal(tmp_path/'source.sqlite3');j.begin('batch:1','Dutch','farmer_delivery',intent)
+    j.step('batch:1','action_trace','initialized',{'version':1});j.transition('batch:1','uncertain')
+    calls=[]
+    class Peer:
+        def disposition(self,key,saved,outcome):
+            expected=reconciliation_outcome(intent,f,m,trace=t.trace(key),now=100)
+            calls.append((key,outcome));return {'request_id':key,'outcome':outcome,
+                                                'proof_digest':expected['proof_digest']}
+    t=DeliveryTransaction(j,type('D',(),{'read_pair':lambda self,name:(f,m)})(),Peer())
+    assert t.recover('batch:1')=='batch:1'
+    row=j.trace('batch:1');assert calls==[('batch:1','no_transfer')]
+    assert not j.pending('Dutch') and any(s['status']=='aborted' for s in row)
+
+
+def test_foreign_request_does_not_block_exact_no_transfer_but_farmer_request_does(monkeypatch):
+    monkeypatch.setattr('conquest.merchants.delivery.time.time',lambda:100)
+    f=snapshot('Parasite',1,[item(10)]);m=snapshot('Dutch',2)
+    intent=prepare(f,m,f['inventory'],now=100)
+    trace=[{'stage':'action_trace','status':'initialized','payload':{}}]
+    foreign=copy.deepcopy(m);foreign['request']={'participant':'SomeoneElse'}
+    assert reconciliation_outcome(intent,f,foreign,trace=trace,now=100)['outcome']=='no_transfer'
+    own=copy.deepcopy(m);own['request']={'participant':'Parasite','participant_uid':1}
+    with pytest.raises(ReconciliationBlocked,match='reserved farmer request'):
+        reconciliation_outcome(intent,f,own,trace=trace,now=100)
+
+
+def test_attempted_request_needs_repeated_settlement_and_confirm_stays_uncertain(monkeypatch):
+    monkeypatch.setattr('conquest.merchants.delivery.time.time',lambda:100)
+    f=snapshot('Parasite',1,[item(10)]);m=snapshot('Dutch',2)
+    intent=prepare(f,m,f['inventory'],now=100);digest=ownership_digest(intent,f,m)
+    base=[{'stage':'action_trace','status':'initialized','payload':{}},
+          {'stage':'trade_request','status':'before_action','payload':{}}]
+    one=base+[{'stage':'reconciliation_observation','status':'observed','payload':{
+        'ownership_digest':digest,'observed_at':100}}]
+    with pytest.raises(ReconciliationBlocked,match='stable terminal settlement'):
+        reconciliation_outcome(intent,f,m,trace=one,now=100)
+    f['timestamp']=m['timestamp']=106
+    stable=one+[{'stage':'reconciliation_observation','status':'observed','payload':{
+        'ownership_digest':digest,'observed_at':106}}]
+    assert reconciliation_outcome(intent,f,m,trace=stable,now=106)['outcome']=='no_transfer'
+    confirmed=stable+[{'stage':'farmer_confirm','status':'before_action','payload':{}}]
+    with pytest.raises(ReconciliationBlocked,match='stable terminal settlement'):
+        reconciliation_outcome(intent,f,m,trace=confirmed,now=106)
+
+
+def test_recovery_collects_bounded_read_only_settlement_observations(tmp_path):
+    now=[100.0];f=snapshot('Parasite',1,[item(10)]);m=snapshot('Dutch',2)
+    intent=prepare(f,m,f['inventory'],now=100)
+    j=Journal(tmp_path/'source.sqlite3');j.begin('batch:1','Dutch','farmer_delivery',intent)
+    j.step('batch:1','action_trace','initialized',{'version':1})
+    j.step('batch:1','trade_request','before_action')
+    j.transition('batch:1','uncertain',{'outcome':'unknown'})
+    class Driver:
+        def read_pair(self,name):
+            farmer,merchant=copy.deepcopy(f),copy.deepcopy(m)
+            farmer['timestamp']=merchant['timestamp']=now[0]
+            return farmer,merchant
+    class Peer:
+        def disposition(self,key,saved,outcome):
+            farmer,merchant=Driver().read_pair('Dutch')
+            result=reconciliation_outcome(intent,farmer,merchant,trace=t.trace(key),now=now[0])
+            return {'request_id':key,'outcome':outcome,'proof_digest':result['proof_digest']}
+    t=DeliveryTransaction(j,Driver(),Peer(),clock=lambda:now[0],monotonic=lambda:now[0],
+                          sleep=lambda seconds:now.__setitem__(0,now[0]+seconds))
+    t.recover('batch:1')
+    assert now[0]>=105 and not j.pending('Dutch')
+    observations=[s for s in t.trace('batch:1') if s['stage']=='reconciliation_observation']
+    assert len(observations)>=2
+
+
+def test_exact_verified_sale_receipt_is_normalized_into_delivery_proof(tmp_path):
+    from conquest.merchants.sales import observe,qualified_delivery_receipts
+    farmer=snapshot('Parasite',1,[item(10)]);merchant=snapshot('Dutch',2)
+    listed=item(99);listed.update(price=100)
+    merchant['booth']=[listed];merchant['timestamp']=farmer['timestamp']=100
+    intent=prepare(farmer,merchant,farmer['inventory'],now=100)
+    journal=Journal(tmp_path/'receiver.sqlite3');observe(journal,merchant)
+    current=copy.deepcopy(merchant);current.update(timestamp=101,booth=[],silver=197)
+    observe(journal,current)
+    current_farmer=copy.deepcopy(farmer);current_farmer['timestamp']=101
+    receipts=qualified_delivery_receipts(journal,intent,current)
+    result=reconciliation_outcome(intent,current_farmer,current,
+        trace=[{'stage':'action_trace','status':'initialized','payload':{'version':1}}],
+        sale_receipts=receipts,now=101)
+    assert result['outcome']=='no_transfer' and len(result['sale_receipts'])==1
+    assert result['sale_receipts'][0]['items'][0]['uid']==99

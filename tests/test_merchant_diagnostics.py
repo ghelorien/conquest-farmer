@@ -2,6 +2,7 @@ from types import SimpleNamespace as NS
 import importlib.util
 from pathlib import Path
 import pytest
+import subprocess
 
 spec=importlib.util.spec_from_file_location('merchant_diagnostics',
     Path(__file__).resolve().parents[1]/'scripts/start_merchant_diagnostics.py')
@@ -25,3 +26,24 @@ def test_diagnostics_find_hidden_merchants_without_changing_visibility(case):
     else:
         with pytest.raises(ValueError,match='Dutch: expected one client'):
             diagnostics.merchant_candidates(catalog)
+
+
+def test_readonly_diagnostics_launches_the_script_from_its_source_release(tmp_path,monkeypatch):
+    from conquest.merchants import ui as merchant_ui
+    calls=[]
+    class Process:
+        pid=123
+    monkeypatch.setattr(merchant_ui,'state_path',lambda value:str(tmp_path/Path(value).name))
+    monkeypatch.setattr(subprocess,'Popen',lambda command,**options:
+                        calls.append((command,options)) or Process())
+    memory=type('Memory',(),{'read':lambda self:{}})()
+    controller=type('Controller',(),{'driver':type('Driver',(),{'memory':memory})()})()
+    ui=type('UI',(),{})()
+    ui.runtime=type('Runtime',(),{
+        'observers':{name:object() for name in merchant_ui.CHARACTERS},
+        'controllers':{name:controller for name in merchant_ui.CHARACTERS}})()
+    result=merchant_ui.UnifiedUI.dispatch(ui,{'action':'start-readonly-diagnostics'})
+    repo=Path(merchant_ui.__file__).resolve().parents[3]
+    assert result=={'pid':123,'read_only':True}
+    assert calls[0][0][1]==str(repo/'scripts/start_merchant_diagnostics.py')
+    assert calls[0][1]['cwd']==repo

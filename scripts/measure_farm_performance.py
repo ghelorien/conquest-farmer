@@ -20,7 +20,7 @@ start=goal.get('validation_started_at',goal['started_at'])
 full=now-start>=900
 result={'observed_at':now,'source':str(path),'validation_started_at':start,
         'full_validation_window':full,'windows':windows,
-        'rate_target_met':full and windows['900']['kills']>=300}
+        'rate_target_met':full and windows['900']['kills']>=600}
 goal.update(last_measured_at=now,rolling_windows=windows,rate_target_met=result['rate_target_met'])
 goal_path.write_text(json.dumps(goal,indent=2))
 print(json.dumps(result,indent=2))

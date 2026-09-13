@@ -73,11 +73,11 @@ def warehouse_exhausted(loop,stored,remaining,*,send=request):
     return True
 
 
-def candidates(loop,send):
+def candidates(loop,send,*,excluded=()):
     status=send({'action':'status'})
     states=[];farmer=None
     for name,state in status.get('characters',{}).items():
-        if not state.get('ready'):continue
+        if not state.get('ready') or name in excluded:continue
         try:
             pair=send({'action':'delivery-pair','character':name})
             f,m=pair['farmer'],pair['merchant']
@@ -102,30 +102,68 @@ def settle(loop,send,state,*,start=False):
     """Only a newly persisted route operation may start native input once."""
     active=state['active'];key=active['request_id']
     command={'action':'delivery-start','request_id':key,'character':active['merchant'],
-             'uids':[i['uid'] for i in active['items']]}
+             'uids':[i['uid'] for i in active['items']],'items':active['items']}
     if start:
-        send(command)
+        try:send(command)
+        except (ValueError,OSError):
+            # A lost acknowledgement or a definitive admission rejection is
+            # settled from its durable receipt; never repeat the start call.
+            pass
     else:
         result=send({'action':'delivery-status','request_id':key})
         if result.get('receipt') is None:
             raise ValueError('Delivery submission has no receipt; reconcile before any storage input')
         if not result.get('running'):
-            send(command)  # Existing source operations permit read-only recovery only.
+            send({'action':'delivery-reconcile','request_id':key})
     until=time.monotonic()+30
+    attempted_reconcile=not start
+    cleanup_attempted=False
     while True:
         check_stop(loop)
-        result=send({'action':'delivery-status','request_id':key})
+        try:result=send({'action':'delivery-status','request_id':key})
+        except (ValueError,OSError):
+            if time.monotonic()>=until:raise
+            time.sleep(.1);continue
         receipt=result.get('receipt')
         if not result.get('running'):
-            if (result.get('error') or not receipt or receipt.get('request_id')!=key
-                    or receipt.get('phase')!='verified' or receipt.get('character')!=active['merchant']
+            if (not receipt or receipt.get('request_id')!=key or receipt.get('character')!=active['merchant']
                     or sorted(receipt.get('uids',[]))!=sorted(command['uids'])):
                 raise ValueError('Merchant delivery needs reconciliation; valuables remain protected')
-            record={**active,'verified_at':time.time()}
-            state.setdefault('receipts',[]).append(record);state['active']=None
+            from conquest.merchants.delivery import exact_items
+            if exact_items(receipt.get('items',[]))!=exact_items(active['items']):
+                raise ValueError('Merchant delivery item evidence changed; reconciliation required')
+            if any(active.get(field) is not None and receipt.get(field)!=active[field]
+                   for field in ('visit_id','town_visit_id','farmer_profile_id')):
+                raise ValueError('Merchant delivery visit provenance changed; reconciliation required')
+            action=receipt.get('next_action')
+            if action=='cleanup_trade_modal' and not cleanup_attempted:
+                cleanup_attempted=True
+                send({'action':'delivery-cleanup','request_id':key})
+                continue
+            if action in ('finalize_receiver_receipt','reconcile_bilateral_ownership') and not attempted_reconcile:
+                attempted_reconcile=True
+                send({'action':'delivery-reconcile','request_id':key})
+                continue
+            if (receipt.get('phase') not in ('verified','aborted') or receipt.get('cleanup_pending')
+                    or action not in ('release_route','retry_delivery','replan_remaining_delivery')):
+                raise ValueError('Merchant delivery needs reconciliation; valuables remain protected')
+            outcome=receipt.get('outcome')
+            if outcome not in ('transferred','no_transfer','retryable_before_input','deferred'):
+                raise ValueError('Merchant delivery has no authoritative disposition')
+            delivered=receipt.get('delivered') or []
+            if outcome=='transferred' and exact_items(delivered)!=exact_items(active['items']):
+                raise ValueError('Transferred batch lacks exact ownership evidence')
+            record={**active,'items':delivered,'remaining':receipt.get('remaining') or [],
+                    'outcome':outcome,'proof_digest':receipt.get('proof_digest'),
+                    'next_action':action,'verified_at':time.time()}
+            state.setdefault('operations',[]).append(record)
+            if delivered:state.setdefault('receipts',[]).append(record)
+            state['active']=None
             write_json(STATE,state)
-            loop.record('merchant_delivery_verified',request_id=key,merchant=active['merchant'],
-                        items=active['items'],activity='Valuables delivered and verified in both inventories')
+            loop.record('merchant_delivery_verified' if delivered else 'merchant_delivery_deferred',
+                        request_id=key,merchant=active['merchant'],items=delivered,outcome=outcome,
+                        activity='Valuables delivered and verified in both inventories' if delivered else
+                                 'Trade made no transfer; selecting another safe destination')
             return record
         if time.monotonic()>=until:
             raise ValueError('Merchant delivery still running; reconcile before resuming storage')
@@ -154,23 +192,40 @@ def refill_remainder(loop,send,key,deadline,proof,revision):
     return True
 
 
-def approach_merchant(loop,plan,send):
-    """Stop at verified request range, never force entry into an occupied booth."""
-    pair=send({'action':'delivery-pair','character':plan['merchant']})
-    f,m=pair['farmer'],pair['merchant']
-    if f['map_id']!=1036 or m['map_id']!=1036 or m['position']!=plan['position']:
-        raise ValueError('Merchant approach location changed; re-plan before moving')
-    source,target=tuple(f['position']),tuple(m['position'])
-    distance=lambda p:max(abs(a-b) for a,b in zip(p,target))
-    if distance(source)<=12:return
-    path=loop.terrain.travel_path(source,target)
-    if not path or tuple(path[0])!=source or tuple(path[-1])!=target:
-        raise ValueError('No checked path into merchant trade range')
-    destination=next(tuple(p) for p in path if distance(p)<=12)
-    loop.travel(destination,arrival_radius=0,activity=f"Approaching trade range of {plan['merchant']}")
+def approach_merchant(loop,plan,send,*,deadline=None):
+    """World distance ranks candidates; the driver shares the arrival proof."""
+    from conquest.merchants.approach import positions
+    from conquest.travel_progress import TravelStalled
+    used=[]
+    for attempt in range(4):
+        check_stop(loop)
+        if deadline is not None and time.time()>=deadline:return False
+        probe=send({'action':'delivery-target','character':plan['merchant']})
+        if probe.get('merchant_position')!=plan['position']:
+            return False
+        if probe.get('ready'):return True
+        if attempt==3:return False
+        candidates=positions(loop.terrain,probe,used=used,deadline=deadline)
+        if not candidates:return False
+        target=candidates[0];used.append(target)
+        loop.record('merchant_repositioning',merchant=plan['merchant'],attempt=attempt+1,
+                    reason=probe.get('reason'),destination=target,
+                    activity=f"Repositioning for a visible trade target: {plan['merchant']}")
+        try:loop.travel(target,arrival_radius=0,activity=f"Approaching verified trade view of {plan['merchant']}")
+        except TravelStalled:
+            loop.record('merchant_approach_deferred',merchant=plan['merchant'],
+                        activity='Merchant approach stalled; selecting another safe destination')
+            return False
+    return False
 
 
 def market_storage(loop,*,send=request):
+    previous=getattr(loop,'market_service_deadline',None)
+    try:return _market_storage(loop,send=send)
+    finally:loop.market_service_deadline=previous
+
+
+def _market_storage(loop,*,send=request):
     state=read_json(STATE)
     if state.get('cleanup_pending'):
         raise ValueError('Reconciled partial delivery still needs its empty trade window closed')
@@ -185,10 +240,20 @@ def market_storage(loop,*,send=request):
         plans=candidates(loop,send)
     except (ValueError,OSError):return []
     receipts=[]
+    if not plans:return receipts
+    from conquest.merchants.service_visit import MarketVisit,parent_visit
+    visit=MarketVisit().begin(parent=parent_visit())
+    deadline=visit['deadline'];deferred_merchants=set()
+    loop.market_service_deadline=deadline
     # Inventory is bounded to forty slots. Re-plan after every receipt so
     # listings, capacity changes and split deliveries cannot reuse stale plans.
     for _ in range(40):
         if not transfers_enabled(route_character(loop)):return receipts
+        if time.time()>=deadline:
+            loop.record('merchant_service_deferred',visit_id=visit['visit_id'],
+                        activity='Market service budget used; storing remaining valuables safely')
+            return receipts
+        plans=[p for p in plans if p['merchant'] not in deferred_merchants]
         if not plans:return receipts
         plan=plans[0]
         check_stop(loop)
@@ -196,20 +261,29 @@ def market_storage(loop,*,send=request):
             try:loop.town('service-close-panel',window=window)
             except ValueError as error:
                 if not any(note in str(error) for note in ('not active','absent')):raise
-        approach_merchant(loop,plan,send)
-        fresh=candidates(loop,send)
+        if not approach_merchant(loop,plan,send,deadline=deadline):
+            MarketVisit().attempt(plan['merchant'],plan['position'],'deferred_before_input')
+            deferred_merchants.add(plan['merchant'])
+            plans=candidates(loop,send,excluded=deferred_merchants)
+            continue
+        fresh=candidates(loop,send,excluded=deferred_merchants)
         if not fresh:return receipts
         current=fresh[0]
         if (current['merchant']!=plan['merchant'] or current['position']!=plan['position']
                 or current['merchant_identity']!=plan['merchant_identity']):
             plans=fresh
             continue
+        if deadline-time.time()<5+3*len(current['items']):
+            loop.record('merchant_service_deferred',visit_id=visit['visit_id'],
+                        activity='Insufficient time for another verified trade; using safe storage')
+            return receipts
         from conquest.safe_reload import clear_observation
         health=loop.health();control=health['embedded_controls']['control']
         if control['enabled'] or control.get('paused') or not clear_observation(health):
             raise ValueError('Merchant delivery requires a memory-verified safe stopped farmer')
         key='route-delivery:'+uuid.uuid4().hex
-        windows=WorkWindows();windows.reserve(key,town=True)
+        windows=WorkWindows()
+        if not windows.reserve(key,town=True,visit=visit):return receipts
         requested=False
         try:
             # Record ownership before issuing the request so an uncertain
@@ -218,14 +292,22 @@ def market_storage(loop,*,send=request):
             send({'action':'delivery-window','request_id':key})
             deadline=windows.started()
             send({'action':'handoff-grant','request_id':key,'revision':control['revision'],
-                  'expires_at':deadline,'safe':True})
+                  'expires_at':deadline,'safe':True,'scope':'market_visit','visit_id':visit['visit_id']})
             # Persist before the first bridge submission, including uncertain
             # HTTP results. Restart recovery never blindly resubmits input.
             state['active']={'request_id':key,'merchant':current['merchant'],
-                             'items':current['items'],'started_at':time.time()}
+                             'items':current['items'],'started_at':time.time(),
+                             'visit_id':visit['visit_id'],'farmer_profile_id':visit['farmer_profile_id']}
+            state['active']['town_visit_id']=visit.get('town_visit_id')
             write_json(STATE,state)
-            receipts.append(settle(loop,send,state,start=True))
-            refill_remainder(loop,send,key,deadline,{'target':health.get('target')},control['revision'])
+            result=settle(loop,send,state,start=True)
+            MarketVisit().attempt(current['merchant'],current['position'],result['outcome'])
+            if result['items']:receipts.append(result)
+            if result['outcome']!='transferred':deferred_merchants.add(current['merchant'])
+            # Transfer the remaining batch before consuming the visit on listings.
+            remaining=candidates(loop,send,excluded=deferred_merchants)
+            if not remaining and result['outcome']=='transferred':
+                refill_remainder(loop,send,key,deadline,{'target':health.get('target')},control['revision'])
             windows.finish('completed')
         finally:
             if requested:
@@ -242,5 +324,5 @@ def market_storage(loop,*,send=request):
             from conquest.overnight import OvernightStopped
             raise OvernightStopped('Manual control changed during merchant delivery')
         loop.focus(after)
-        plans=candidates(loop,send)
+        plans=candidates(loop,send,excluded=deferred_merchants)
     raise ValueError('Merchant capacity keeps changing; defer further delivery input')

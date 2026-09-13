@@ -93,16 +93,25 @@ class BridgeJumpStepper:
         previous=None
         consecutive=0
         while time.monotonic()<deadline:
-            from conquest.travel_care import TravelStateChanged
+            from conquest.travel_care import PanelTravelChanged,TravelStateChanged
             try:
                 health=self.health()
-            except TravelStateChanged as error:
-                if str(error)!='Closed a shop panel; rechecking the route':raise
-                # Input was already issued. Count a panel interception as a
-                # failed landing so the caller avoids this same booth target.
+            except PanelTravelChanged as error:
+                # Input was already issued. Typed interception avoids treating
+                # unrelated route-care state changes as a failed landing.
                 result.update(error='Route click intercepted by a shop panel',
+                              outcome='panel_intercepted',panel=error.panel,
                               stalled_at=list(last_position),elapsed=time.monotonic()-started)
                 return result
+            except TravelStateChanged as error:
+                # Compatibility for an older TravelCare instance surviving an
+                # in-place code reload; new instances raise PanelTravelChanged.
+                if str(error)=='Closed a shop panel; rechecking the route':
+                    result.update(error='Route click intercepted by a shop panel',
+                                  outcome='panel_intercepted',panel=None,
+                                  stalled_at=list(last_position),elapsed=time.monotonic()-started)
+                    return result
+                raise
             life=health['embedded_controls'].get('life')
             if life is None:
                 time.sleep(.05)

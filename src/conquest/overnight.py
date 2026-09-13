@@ -84,6 +84,8 @@ class OvernightLoop:
         self.stop_path = Path(state_path('.runtime/overnight.stop'))
         self.state = {'pid':os.getpid(),'route':route_id,'cycles':0,'started_at':time.time(),
                       'ends_at':None if hours is None else time.time()+hours*3600}
+        from conquest.town_visit import TownVisit
+        self.town_visit = TownVisit()
 
     def queue_route_optimization(self):
         from conquest.route_optimization import queue_area
@@ -94,6 +96,8 @@ class OvernightLoop:
             pass
 
     def record(self, event, **fields):
+        visits=getattr(self,'town_visit',None)
+        if visits is not None:fields.setdefault('town_visit_id',visits.active_id())
         self.state.update(phase=self.phase,cycles=self.cycles,updated_at=time.time(),event=event,**fields)
         temporary = self.output/'status.tmp'
         temporary.write_text(json.dumps(self.state,indent=2),encoding='utf-8')
@@ -163,6 +167,11 @@ class OvernightLoop:
 
     def living(self):
         while True:
+            service_deadline=getattr(self,'market_service_deadline',None)
+            if service_deadline is not None and time.time()>=service_deadline:
+                from conquest.travel_progress import TravelStalled
+                raise TravelStalled('Market merchant-service deadline expired; defer further input',
+                                    code='service_deadline')
             h = self.health()
             data = h['embedded_controls']
             life = data.get('life')
@@ -260,6 +269,11 @@ class OvernightLoop:
         avoided = set()
         recovery_run_until=0
         deadline = time.monotonic()+90
+        service_deadline=getattr(self,'market_service_deadline',None)
+        if service_deadline is not None:
+            deadline=min(deadline,time.monotonic()+max(0,service_deadline-time.time()))
+        from conquest.travel_progress import ProgressDeadline,TravelStalled
+        progress_deadline=ProgressDeadline(clock=time.monotonic)
         last_progress_position=None
         cached_path=None
         cached_avoid=None
@@ -271,8 +285,6 @@ class OvernightLoop:
         while time.monotonic() < deadline:
             waiting=time.monotonic()
             h = self.living()
-            # Manual takeover / reconnect waits do not consume movement budget.
-            deadline+=max(0,time.monotonic()-waiting-.5)
             life = h['embedded_controls']['life']
             source = tuple(life['position'])
             from conquest.viewport import scene_bounds,clear_scene
@@ -292,7 +304,6 @@ class OvernightLoop:
                 market_failures=0;market_landings.clear();market_failed.clear()
                 obstruction_origin=source
             if source!=last_progress_position:
-                deadline=time.monotonic()+90
                 last_progress_position=source
                 avoided.discard(source)
             if max(abs(a-b) for a,b in zip(source,destination))<=arrival_radius:
@@ -324,6 +335,8 @@ class OvernightLoop:
                         path=cached_path[cached_path.index(source):]
                     else:path = planner(source,tuple(destination),avoid=avoided)
                     cached_path=path;cached_avoid=frozenset(avoided)
+                except TravelStalled:
+                    raise
                 except ValueError:
                     if not avoided:
                         from conquest.town_corner import recover_corner
@@ -338,6 +351,15 @@ class OvernightLoop:
                     cached_path=path;cached_avoid=frozenset()
                     recovery_run_until=time.monotonic()+6
                     self.record('town_path_retry',activity='Retrying the town corridor with running steps')
+                remaining=sum(max(abs(a[0]-b[0]),abs(a[1]-b[1])) for a,b in zip(path,path[1:]))
+                if service_deadline is None and (progress_deadline.best is None or remaining<progress_deadline.best):
+                    deadline=time.monotonic()+90
+                if progress_deadline.observe(remaining):
+                    cached_path=None;cached_avoid=None
+                    if not h['embedded_controls'].get('manual_mouse'):self.focus(h)
+                    self.record('travel_progress_recovery',attempt=progress_deadline.attempts,
+                                activity='Rechecking route and focus after five seconds without progress')
+                    continue
                 from conquest.navigation import travel_waypoint
                 step_limit=4 if blocked_jump_origin is not None or time.monotonic()<recovery_run_until else 12
                 target = (travel_waypoint(self.terrain,path,step_limit,avoid=avoided,viewport=viewport)
@@ -558,6 +580,9 @@ class OvernightLoop:
             return False
 
     def restock(self,*,review_both_cities=True):
+        visits=getattr(self,'town_visit',None)
+        if visits is not None:
+            visits.begin('restock',hunt_map_id=self.route.map_id,route_id=self.route.id)
         self.phase = 'restocking'
         from conquest.savings import savings_plan,configure_route
         if savings_plan():
@@ -654,6 +679,9 @@ class OvernightLoop:
         from conquest.banking import urgent_valuables,after_shopping
         items=urgent_valuables(self.town('supplies')['items'])
         if not items:return
+        visits=getattr(self,'town_visit',None)
+        if visits is not None:
+            visits.begin('urgent_banking',hunt_map_id=self.route.map_id,route_id=self.route.id)
         self.phase='restocking'
         self.record('urgent_banking_started',uids=[i['uid'] for i in items],
                     activity='Heading directly to the warehouse to protect a Dragonball or +2 item')
@@ -682,6 +710,8 @@ class OvernightLoop:
         from conquest.city_travel import ensure_city_visit
         ensure_city_visit(self)
         request(self.info,'controls',{'enabled':True,'target_type_ids':list(self.route.monster_type_ids),'target_ids':[]})
+        visits=getattr(self,'town_visit',None)
+        if visits is not None:visits.returning(self.route.map_id,target=self.identity)
         self.record('hunt_started',activity='Heading back to the hunting area')
         reached = None
         last_report = 0
@@ -716,6 +746,13 @@ class OvernightLoop:
                 self.stop_farm()
                 self.return_to_route_map()
                 return 'route_changed'
+            if visits is not None:
+                completed=visits.observe_hunting(h)
+                if completed:
+                    self.record('town_visit_completed',town_visit_id=completed['town_visit_id'],
+                        elapsed_seconds=completed['elapsed_seconds'],
+                        verified_resume_kill=completed['first_verified_resume_kill'],
+                        activity='Required town visit complete; resumed hunting is verified')
             left,top,right,bottom = self.route.hunting_boundary
             margin = self.route.patrol_search.expansion_tiles*self.route.patrol_search.maximum_expansions
             if left-margin <= life['position'][0] <= right+margin and top-margin <= life['position'][1] <= bottom+margin:
@@ -911,16 +948,35 @@ class OvernightLoop:
             except TravelStateChanged:pass
             time.sleep(.1)
 
+    def recover_travel_stall(self,error):
+        """Keep survival active off-Market, without bypassing trade settlement."""
+        if getattr(error,'code','no_progress')!='no_progress':
+            raise error
+        from conquest.merchants.delivery_route import pending as delivery_pending
+        if delivery_pending():
+            # A submitted/ambiguous trade owns the next action. Route recovery
+            # must never carry that state into hunting or another town action.
+            raise error
+        health=self.living();life=health['embedded_controls'].get('life')
+        if not life or life.get('map_id')==1036:
+            # Market is the bounded merchant fallback. Its work deadline must
+            # not be renewed by the ordinary exposed-runback retry path.
+            raise error
+        self.protect_during_movement_retry()
+
     def run(self):
         self.check_stop()
         self.refresh()
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000003)
         self.record('started')
+        from conquest.travel_progress import TravelStalled
         try:
             while True:
                 try:
                     self._run_route()
                     return
+                except TravelStalled as error:
+                    self.recover_travel_stall(error)
                 except ValueError as error:
                     if str(error) not in ('Town route remains obstructed',
                                           'Town travel has made no position progress for 90 seconds'):

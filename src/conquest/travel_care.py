@@ -13,6 +13,13 @@ class TravelStateChanged(ValueError):
     pass
 
 
+class PanelTravelChanged(TravelStateChanged):
+    code='panel_intercepted'
+    def __init__(self,panel):
+        self.panel=panel
+        super().__init__('Closed a shop panel; rechecking the route')
+
+
 class TravelCare:
     def __init__(self,worker_info,notify=lambda event:None):
         self.info,self.notify=worker_info,notify
@@ -50,20 +57,23 @@ class TravelCare:
                 self.notify({'event':'travel_revive','death_position':life['position']})
             raise TravelStateChanged('Waiting for living route position')
         if now>=getattr(self,'next_panel_check',0):
+            if getattr(self,'panel_close_uncertain',False):
+                raise ValueError('Town panel close remains uncertain; reconcile before route input')
             self.next_panel_check=now+1
             try:
                 result=request(self.info,'town',{'action':'clear-travel-panels','expires_at':time.time()+4})
             except ValueError as error:
-                if str(error)!='Town panel close was not verified':raise
-                self.panel_close_failures=getattr(self,'panel_close_failures',0)+1
-                if self.panel_close_failures>=3:raise
-                self.next_panel_check=now+.25
+                from conquest.panel_events import panel_close_unverified
+                if not panel_close_unverified(error):raise
+                # The close may have been submitted. Do not issue the same
+                # request again without a read-only panel-instance receipt.
+                self.panel_close_uncertain=True
                 raise TravelStateChanged('Rechecking an unconfirmed town panel close') from error
-            self.panel_close_failures=0
+            self.panel_close_uncertain=False
             if result.get('closed_panel'):
                 self.notify({'event':'travel_panel_closed','panel':result['closed_panel'],
                              'activity':'Closed '+result['closed_panel']+' panel; continuing travel'})
-                raise TravelStateChanged('Closed a shop panel; rechecking the route')
+                raise PanelTravelChanged(result['closed_panel'])
         if self.pending:
             before,hp,issued=self.pending
             after=self.inventory.read()

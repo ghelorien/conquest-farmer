@@ -52,8 +52,14 @@ def merchant_text(state, *, now, waiting_items=None, global_stopped=False):
             action=f"{scan['deferred']} items were left waiting at that update. Open Waiting items for current reasons."
     else:
         batch='Ready for a shop update.'
+    if state.get('delivery'):
+        batch=state['delivery']['state'].capitalize()
+        action=state['delivery']['reason']
     if refill.get('enabled'):
-        refill_note='waiting for safe input' if refill.get('pending') else 'next check in '+countdown(refill.get('next_check',now),now)
+        if refill.get('status')=='paused_budget' and refill.get('pending'):
+            refill_note=f"safely deferred · {len(refill.get('cursor',[]))} queued · {refill.get('listed',0)} listed this check"
+        else:
+            refill_note='waiting for safe input' if refill.get('pending') else 'next check in '+countdown(refill.get('next_check',now),now)
         timer=f'Auto-refill ON: fills empty shop slots using saved prices · {refill_note}'
     else:timer='Auto-refill OFF: empty shop slots stay empty until you update the shop or enable refill.'
     if scan.get('pending') and scan.get('one_time'):

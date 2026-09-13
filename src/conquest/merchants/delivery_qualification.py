@@ -41,5 +41,7 @@ def promote(receipt_path,candidate_path,farmer_path,merchant_path):
         accept_trade=dict(window='Trade##TradeWindow',mode='native_trade_confirm',label='Accept Trade'))
     peer.setdefault('capabilities',{}).update(trade_request=True,trade=True)
     peer.setdefault('trade_evidence',[]).append(str(Path(receipt_path)))
+    from conquest.merchants.farmer_qualification import promotion_destination
+    farmer_path,profile=promotion_destination(farmer_path,profile,farmer)
     write_json(farmer_path,profile);write_json(merchant_path,peer)
     return {'farmer':farmer['character'],'merchant':merchant['character'],'items':len(intent['items'])}

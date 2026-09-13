@@ -32,7 +32,7 @@ def partial_offer(intent,farmer,merchant):
     return offered
 
 
-def recipient_record(observer,profile,merchant,*,targeting=False):
+def _recipient_record(observer,profile,merchant,*,targeting=False):
     """Resolve the receiver UID in a stable scene using a qualified layout."""
     started=time.monotonic();s=observer.adapter;e=observer.entities
     spec=profile['recipient']
@@ -58,15 +58,17 @@ def recipient_record(observer,profile,merchant,*,targeting=False):
     if len(set(objects))!=len(objects):raise ValueError('Ambiguous scene object ownership')
     vtable=base+spec['vtable_rva']
     types=sample_fields(s,[(checked_address(obj),'u64') for obj in objects])
-    matches=[]
+    matches=[];occupied=[];occupied_blocks=[]
     for obj,kind in zip(objects,types):
         if kind!=vtable:continue
         raw=s.read_block(checked_address(obj),span)
         if struct.unpack_from('<Q',raw)[0]!=vtable:raise ValueError('Receiver object type changed')
         uid=struct.unpack_from('<I',raw,offsets[0])[0]
+        position=struct.unpack_from('<II',raw,offsets[2])
+        occupied.append({'uid':uid,'position':list(position)})
+        occupied_blocks.append((obj,raw))
         if uid!=merchant['character_uid']:continue
         name=raw[offsets[1]:offsets[1]+length].split(b'\0')[0].decode('utf-8')
-        position=struct.unpack_from('<II',raw,offsets[2])
         point=struct.unpack_from('<2i',raw,offsets[3])
         if name!=merchant['character'] or list(position)!=merchant['position']:
             raise ValueError('Receiver name or position disagrees between clients')
@@ -75,10 +77,8 @@ def recipient_record(observer,profile,merchant,*,targeting=False):
                 (offsets[2],offsets[2]+8),(offsets[3],offsets[3]+8)]
         if any(raw[a:b]!=fresh[a:b] for a,b in ranges):
             raise ValueError('Receiver moved during observation')
-        width,height=profile['gui_size']
-        if not (40<point[0]<width-40 and 40<point[1]<height-40):
-            raise ValueError('Receiver is outside the qualified viewport')
-        matches.append({'address':obj,'uid':uid,'name':name,'position':list(position),'point':list(point)})
+        matches.append({'address':obj,'uid':uid,'name':name,'position':list(position),
+                        'point':list(point)})
     if len(matches)!=1:raise ValueError('Receiver UID is absent or ambiguous in the farmer scene')
     if targeting:
         mode=profile['target_mode']
@@ -88,19 +88,52 @@ def recipient_record(observer,profile,merchant,*,targeting=False):
         if not native['targeting_trade']:
             raise ValueError('Client is not in the qualified trade targeting mode')
     if (sample_fields(s,headers)!=header or (end>begin and s.read_block(begin,end-begin)!=entries)
+            or any(s.read_block(obj,span)[offsets[2]:offsets[2]+8]
+                   !=raw[offsets[2]:offsets[2]+8] for obj,raw in occupied_blocks)
             or sample_fields(s,[(a,'u64') for a,_ in trace])!=[v for _,v in trace]):
         raise ValueError('Receiver scene changed')
     s.assert_identity()
     if time.monotonic()-started>.5:raise CaptureUnavailable('Receiver observation expired')
-    return matches[0]
+    return {**matches[0],'occupied_tiles':[v['position'] for v in occupied]}
+
+
+def recipient_actionability(observer,profile,merchant,*,farmer=None,targeting=False):
+    """Return structured, read-only live projection/actionability evidence."""
+    record=_recipient_record(observer,profile,merchant,targeting=targeting)
+    from conquest.target_actionability import target_actionability
+    result=target_actionability(record['point'],profile['gui_size'],profile.get('client_size',profile['gui_size']),
+                                (farmer or {}).get('windows',()))
+    return {**result,'recipient':record}
+
+
+def recipient_record(observer,profile,merchant,*,farmer=None,targeting=False):
+    result=recipient_actionability(observer,profile,merchant,farmer=farmer,targeting=targeting)
+    if not result['actionable']:
+        from conquest.target_actionability import TargetNotActionable
+        raise TargetNotActionable(result)
+    return result['recipient']
 
 
 class FarmerTradeDriver:
-    def __init__(self,ui,qualification=PROFILE):
+    def __init__(self,ui,qualification=None):
         self.ui=ui
+        if qualification is None:
+            from conquest.merchants.farmer_qualification import qualification_path
+            qualification=qualification_path(ui.app.observer)
         self.driver=MerchantDriver(ui.app.observer,qualification,ui.coordinator)
         self.revision=ui.app.control.snapshot()['revision']
         self.recipient=None
+        self.operation=None
+
+    def set_operation(self,operation):
+        self.operation=operation
+        return self
+
+    def _before_action(self,stage):
+        if self.operation is not None:self.operation.before_action(stage)
+
+    def _action_observed(self,stage,evidence=None):
+        if self.operation is not None:self.operation.action_observed(stage,evidence=evidence)
 
     def report(self,activity,state='running'):
         self.ui.app.messages.put(('automation_work',{'state':state,'activity':activity,
@@ -158,7 +191,11 @@ class FarmerTradeDriver:
                     time.sleep(.03)
             stack.enter_context(physical_coordinates())
             done=threading.Event();result={}
-            self.ui.ui_requests.put((self.ui.app.show_game,done,result))
+            callback=self.ui.app.show_game
+            fence=getattr(self.ui.coordinator,'fence',None)
+            if fence is not None:
+                callback=fence.guard_callback(fence.capture(),callback)
+            self.ui.ui_requests.put((callback,done,result))
             if not done.wait(3):
                 result['expired']=True
                 raise CaptureUnavailable('Farmer surface did not become available')
@@ -169,11 +206,12 @@ class FarmerTradeDriver:
                 raise CaptureUnavailable('Farmer focus unavailable; no delivery input sent')
             yield
 
-    def button(self,intent,control,guard):
+    def button(self,intent,control,guard,*,stage=None):
         from conquest.foreground import foreground_click
         profile=self.require_qualified();snapshot=self.driver.read()
         point=self.driver.point(snapshot,control);spec=profile['controls'][control]
         if not spec.get('label'):raise ValueError('Trade button hover identity is not qualified')
+        layout=self.driver.layout_revision();layout_revision=layout.stable()
         def before():
             self.check();f,m=self.read_pair(intent['merchant']['character']);guard(f,m)
             if self.driver.point(f,control)!=point:raise ValueError('Trade control moved')
@@ -184,8 +222,31 @@ class FarmerTradeDriver:
                 window=next(w for w in f['windows'] if w['name']==spec['window'])
                 seeds=[0x02a99238] if spec.get('mode')=='native_items_trade' else None
                 self.driver.memory.gui.assert_hovered(window,spec['label'],seeds=seeds)
+            layout.assert_current(layout_revision)
+            if stage:self._before_action(stage)
         foreground_click(self.driver.target,*point,tuple(profile['client_size']),require_foreground=True,
-            before_press=lambda:wait_hover_validation(before,self.check))
+            before_press=lambda:wait_hover_validation(before,self.check),
+            layout_guard=lambda:layout.assert_current(layout_revision))
+
+    def target_status(self,merchant):
+        """Read-only bridge helper for route preflight and live re-projection."""
+        profile=self.require_qualified();farmer,receiver=self.read_pair(merchant)
+        result=recipient_actionability(self.driver.observer,profile,receiver,farmer=farmer)
+        from conquest.memory_life import read_life
+        from conquest.scene_input import memory_player_anchor
+        life=read_life(self.driver.observer.adapter,self.driver.observer.health_layout,
+                       self.driver.observer.character)
+        if list(life.position)!=farmer['position']:
+            raise ValueError('Farmer moved during delivery target preflight')
+        anchor=memory_player_anchor(self.driver.observer,life)
+        occupied=[farmer['position'],*result['recipient'].get('occupied_tiles',[])]
+        occupied=list(map(list,dict.fromkeys(map(tuple,occupied))))
+        return {'schema_version':1,'ready':result['actionable'],'reason':result['reason'],
+                'character':farmer['character'],'farmer_position':farmer['position'],
+                'merchant':receiver['character'],'merchant_position':receiver['position'],
+                'point':result['recipient']['point'],'viewport':list(profile['gui_size']),
+                'client_size':list(profile['client_size']),'anchor':list(anchor),
+                'occupied_tiles':occupied,**result}
 
     def open_trade(self,intent):
         self.report('Requesting a trade with '+intent['merchant']['character'])
@@ -199,16 +260,24 @@ class FarmerTradeDriver:
                     raise ValueError('Delivery participants or stock changed before request')
         with self.action(intent):
             profile=self.require_qualified();f,m=self.read_pair(intent['merchant']['character'])
-            unchanged(f,m);recipient_record(self.driver.observer,profile,m)
-            self.button(intent,'start_trade',unchanged)
-            recipient=recipient_record(self.driver.observer,profile,m,targeting=True)
+            unchanged(f,m);recipient_record(self.driver.observer,profile,m,farmer=f)
+            self.button(intent,'start_trade',unchanged,stage='trade_target_mode')
+            targeting_f,targeting_m=self.read_pair(m['character']);unchanged(targeting_f,targeting_m)
+            recipient=recipient_record(self.driver.observer,profile,targeting_m,
+                                       farmer=targeting_f,targeting=True)
+            self._action_observed('trade_target_mode',{'targeting_trade':True})
             point=tuple(round(v*p/g) for v,p,g in zip(recipient['point'],profile['client_size'],profile['gui_size']))
+            layout=self.driver.layout_revision();layout_revision=layout.stable()
             def before():
                 self.check();fresh_f,fresh_m=self.read_pair(m['character']);unchanged(fresh_f,fresh_m)
-                if recipient_record(self.driver.observer,profile,fresh_m,targeting=True)!=recipient:
+                if recipient_record(self.driver.observer,profile,fresh_m,farmer=fresh_f,targeting=True)!=recipient:
                     raise ValueError('Receiver changed before trade request')
-            foreground_click(self.driver.target,*point,tuple(profile['client_size']),require_foreground=True,before_press=before)
+                layout.assert_current(layout_revision)
+                self._before_action('trade_request')
+            foreground_click(self.driver.target,*point,tuple(profile['client_size']),require_foreground=True,before_press=before,
+                layout_guard=lambda:layout.assert_current(layout_revision))
         self.wait_until(m['character'],lambda f,m:partial_offer(intent,f,m)==[])
+        self._action_observed('trade_request',{'trade_open':True})
 
     def place_item(self,intent,item):
         self.report('Placing '+item['name']+' in the trade with '+intent['merchant']['character'])
@@ -224,6 +293,7 @@ class FarmerTradeDriver:
             current=next((i for i in f['inventory'] if i['uid']==item['uid']),None)
             if not current or exact_items([current])!=exact_items([item]):raise ValueError('Reserved item changed')
             source=self.driver.point(f,'inventory_item',current['slot']);destination=self.driver.point(f,'trade_drop')
+            layout=self.driver.layout_revision();layout_revision=layout.stable()
             def before():
                 self.check();fresh,receiver=self.read_pair(m['character'])
                 if exact_items(partial_offer(intent,fresh,receiver))!=exact_items(placed):
@@ -241,15 +311,19 @@ class FarmerTradeDriver:
                 context=unpack(gui.session,gui.base+0x6966f0,'<Q')[0]
                 if unpack(gui.session,context+0x3ec0,'<Q')[0]!=window['address']:
                     raise HoverNotReady('Inventory cell is covered by another window')
+                layout.assert_current(layout_revision)
+                self._before_action('offer_item:'+str(item['uid']))
             foreground_drag(self.driver.target,source,destination,tuple(self.require_qualified()['client_size']),
-                before_press=lambda:wait_hover_validation(before,self.check))
+                before_press=lambda:wait_hover_validation(before,self.check),
+                layout_guard=lambda:layout.assert_current(layout_revision))
         self.wait_until(m['character'],lambda f,m:item['uid'] in exact_items(partial_offer(intent,f,m)))
+        self._action_observed('offer_item:'+str(item['uid']),{'offered_uid':item['uid']})
 
     def confirm(self,intent):
         self.report('Confirming the exact item transfer to '+intent['merchant']['character'])
         with self.action(intent):
             f,m=self.read_pair(intent['merchant']['character']);validate_offers(intent,f,m)
-            self.button(intent,'confirm_trade',lambda f,m:validate_offers(intent,f,m))
+            self.button(intent,'confirm_trade',lambda f,m:validate_offers(intent,f,m),stage='farmer_confirm')
 
     def wait_until(self,merchant,predicate,seconds=10):
         # Read-only observation may finish after an input handoff has expired.
@@ -266,3 +340,8 @@ class FarmerTradeDriver:
         self.report('Verifying both inventories after transfer to '+merchant)
         return self.wait_until(merchant,lambda f,m:not f.get('trade') and not m.get('trade')
                                and not f.get('request') and not m.get('request'))
+
+
+def delivery_target_status(ui,merchant,qualification=None):
+    """Dispatcher entry point; performs no focus, grant, lease or input action."""
+    return FarmerTradeDriver(ui,qualification).target_status(merchant)

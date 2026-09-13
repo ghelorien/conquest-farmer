@@ -1,6 +1,6 @@
 """One process-wide input owner; an OS lock also excludes other app instances."""
 from conquest.character_context import state_path, is_farmer_owner, ProfileMap
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 import threading
 import time
@@ -24,15 +24,22 @@ class InputCoordinator:
         self.owner_allowed = lambda character:True
         self.on_acquire = lambda character:None
         self.on_release = lambda character:None
+        # Production enables this explicitly. Legacy callers retain their
+        # existing idle/manual policy; fenced workers also pin its generation.
+        self.fence = None
 
     def stop(self):
         # Do not wait behind an in-flight transaction to record the stop.
         self.stopped = True
+        if self.fence is not None:
+            self.fence.invalidate()
 
     def resume(self):
         self.stopped = False
 
     def check(self):
+        if self.fence is not None:
+            self.fence.check()
         if self.owner and self.surface_blocks.get(self.owner):
             raise CaptureUnavailable('Client surface needs reattachment and input qualification')
         if self.stopped or self.manual_active():
@@ -46,6 +53,12 @@ class InputCoordinator:
 
     @contextmanager
     def lease(self, character, *, purpose=None):
+        with self.fence.input_action() if self.fence is not None else nullcontext():
+            with self._lease(character, purpose=purpose) as lease:
+                yield lease
+
+    @contextmanager
+    def _lease(self, character, *, purpose=None):
         if not self.lock.acquire(blocking=False):
             raise CaptureUnavailable('Waiting for input owner')
         file = None
@@ -113,6 +126,14 @@ def check_input():
 
 @contextmanager
 def input_scope():
+    fence = getattr(_coordinator, 'fence', None)
+    with fence.input_action() if fence is not None else nullcontext():
+        with _input_scope():
+            yield
+
+
+@contextmanager
+def _input_scope():
     """Hold the shared lease across a complete farmer click/drag/key action."""
     if getattr(_scope,'active',False) or (_coordinator and _coordinator.owner and _coordinator.thread==threading.get_ident()):
         yield

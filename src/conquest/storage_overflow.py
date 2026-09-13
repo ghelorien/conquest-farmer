@@ -85,6 +85,8 @@ def resume(loop):
         trip(loop,state['route']['return']);world=origin
     if world!=origin or state['phase'] not in ('returning','departing'):
         raise ValueError('Overflow trip is on an unexpected map; valuables preserved')
+    from conquest.merchants.service_visit import MarketVisit
+    MarketVisit().departed(world)
     open_warehouse(loop)
     state.update(phase='completed',completed_at=time.time());write_json(JOURNAL,state)
     loop.record('storage_overflow_complete',activity='Overflow valuables stored in Market; returning to the farm route')

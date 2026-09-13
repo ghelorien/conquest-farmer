@@ -56,8 +56,19 @@ class RefillSchedule:
             # Migrate the old cadence once; reconcile transactions separately.
             base=state.get('last_checked')
             if base is None:base=state.get('next_check',self.clock()+300)-300
-            state.update(interval_seconds=INTERVAL,next_check=base+INTERVAL,
-                         pending=False,status='waiting')
+            state.update(interval_seconds=INTERVAL,next_check=base+INTERVAL)
+            if not state.get('pending'):state['status']='waiting'
+            self.journal.set(self.character,'refill',state)
+        if state.get('status')=='work_budget_finished':
+            # The old implementation called an interrupted window complete.
+            # Keep its original evidence, but do not carry that false completion
+            # into the new scheduler. Input still requires a normal work grant.
+            state['legacy_interrupted_check']=dict(state)
+            state.update(pending=True,status='paused_budget',
+                         last_attempt_at=state.get('last_checked'),
+                         last_checked=state.get('last_completed_check_at'),
+                         original_due_at=state.get('next_check'),
+                         cursor=state.get('cursor',[]))
             self.journal.set(self.character,'refill',state)
         return state
 
@@ -65,15 +76,44 @@ class RefillSchedule:
         state = self.state()
         return state['pending'] or self.clock()>=state['next_check']
 
-    def start(self):
+    def start(self, *, visit_id=None, town_visit_id=None, operation_id=None):
         state = self.state()
-        state.update(pending=True,status='checking',last_checked=self.clock())
+        now=self.clock()
+        if not state.get('pending'):
+            state.update(original_due_at=state['next_check'],cursor=[],listed=0,deferred=0,
+                         attempt_started_at=now)
+        state.update(pending=True,status='checking',last_attempt_at=now)
+        if visit_id is not None:state['visit_id']=visit_id
+        if town_visit_id is not None:state['town_visit_id']=town_visit_id
+        if operation_id is not None:state['operation_id']=operation_id
         self.journal.set(self.character,'refill',state)
 
+    def checkpoint(self, remaining, *, listed=None, deferred=None):
+        state=self.state()
+        state.update(cursor=list(remaining),pending=True)
+        if listed is not None:state['listed']=listed
+        if deferred is not None:state['deferred']=deferred
+        self.journal.set(self.character,'refill',state)
+
+    def pause_budget(self):
+        state=self.state()
+        if not state.get('pending'):return
+        state.update(status='paused_budget',paused_at=self.clock())
+        self.journal.set(self.character,'refill',state)
+        self.journal.event(self.character,'refill_deferred',status='paused_budget',
+                           listed=state.get('listed',0),remaining=len(state.get('cursor',[])),
+                           visit_id=state.get('visit_id'),town_visit_id=state.get('town_visit_id'))
+
     def complete(self, status, *, listed=0, deferred=0):
+        if status=='work_budget_finished':
+            return self.pause_budget()
+        if status not in ('completed','no_stock','booth_full'):
+            raise ValueError('A refill check requires an observed terminal result')
         state = self.state()
         now = self.clock()
         state.update(pending=False,status=status,last_checked=now,listed=listed,deferred=deferred,
-                     next_check=now+INTERVAL,interval_seconds=INTERVAL)
+                     next_check=now+INTERVAL,interval_seconds=INTERVAL,
+                     last_completed_check_at=now,cursor=[],original_due_at=None)
         self.journal.set(self.character,'refill',state)
-        self.journal.event(self.character,'refill_checked',status=status,listed=listed,deferred=deferred)
+        self.journal.event(self.character,'refill_checked',status=status,listed=listed,deferred=deferred,
+                           visit_id=state.get('visit_id'),town_visit_id=state.get('town_visit_id'))

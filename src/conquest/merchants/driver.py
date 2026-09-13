@@ -38,6 +38,11 @@ class MerchantDriver:
     def read(self):
         return self.memory.read()
 
+    def layout_revision(self):
+        from conquest.layout_revision import SharedLayoutRevision
+        return SharedLayoutRevision(self.target,windows=self.memory.gui.windows,
+                                    gui_size=self.memory.gui.viewport_size)
+
     def verify_listing_layout(self):
         """Detect resized panels before recording a listing transaction."""
         profile=self.require_qualified('booth_input')
@@ -140,6 +145,8 @@ class MerchantDriver:
         from conquest.focus_recovery import activate_client
         if not activate_client(self.target.hwnd,snapshot['identity']):
             raise CaptureUnavailable('Merchant did not receive foreground focus; activate Conquest and verify again. No click sent')
+        layout=self.layout_revision() if hasattr(self,'memory') else None
+        revision=layout.stable() if layout is not None else None
         def before_press():
             from conquest.merchants.controller import offer_fingerprint,validate_trade
             fresh = self.read()
@@ -174,11 +181,13 @@ class MerchantDriver:
             if validate:
                 validate()
             self.coordinator.check()
+            if layout is not None:layout.assert_current(revision)
         # The client can process pointer movement after the OS reports it.
         # Re-read the complete guards each time; never reuse a stale offer,
         # item order or control position while waiting for its hover ID.
         return foreground_click(self.target,*point,size,require_foreground=False,
-            before_press=lambda:wait_hover_validation(before_press,self.coordinator.check))
+            before_press=lambda:wait_hover_validation(before_press,self.coordinator.check),
+            layout_guard=(lambda:layout.assert_current(revision)) if layout is not None else None)
 
     def accept_request(self, snapshot):
         self.click(snapshot,'accept_request')
@@ -263,6 +272,7 @@ class MerchantDriver:
         size = tuple(self.target.snapshot()['client_size'])
         if list(size) != json.loads(self.qualification.read_text())['client_size']:
             raise ValueError('Unqualified merchant client size')
+        layout=self.layout_revision();revision=layout.stable()
         def validate_drag():
             check()
             current = self.read()
@@ -272,7 +282,8 @@ class MerchantDriver:
                     or self.point(current,'inventory_item',item['slot'])!=source
                     or self.point(current,'booth_drop')!=destination):
                 raise ValueError('Listing item or window changed before drag')
-        foreground_drag(self.target,source,destination,size,before_press=validate_drag)
+        foreground_drag(self.target,source,destination,size,before_press=validate_drag,
+            layout_guard=lambda:layout.assert_current(revision))
         expected_dialog=json.loads(self.qualification.read_text())['controls']['price_field']['size']
         opened = self.wait_for(lambda s:booth_dialog_ready(s,expected_dialog),check)
         model = self.memory.gui.model(25,0x5c27f8)

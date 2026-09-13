@@ -270,7 +270,7 @@ def test_old_timer_migrates_once_and_completion_has_no_catchup(tmp_path):
     j.set('Dutch','refill',dict(next_check=1200,last_checked=900,pending=True,status='checking'))
     timer=RefillSchedule('Dutch',j,clock=lambda:now[0])
     assert timer.state()['next_check']==1800
-    assert not timer.due()
+    assert timer.due()  # An interrupted check survives cadence migration.
     now[0]=10000
     assert timer.due()
     timer.complete('no_stock')
@@ -280,11 +280,27 @@ def test_old_timer_migrates_once_and_completion_has_no_catchup(tmp_path):
     assert restarted.state()['next_check']==10900
 
 
+def test_legacy_budget_expiry_is_pending_without_false_completion(tmp_path):
+    j=Journal(tmp_path/'journal.sqlite3')
+    original=dict(next_check=1900,last_checked=1000,pending=False,
+                  status='work_budget_finished',interval_seconds=900,listed=2)
+    j.set('Dutch','refill',original)
+    timer=RefillSchedule('Dutch',j,clock=lambda:1100)
+    state=timer.state()
+    assert state['pending'] and state['status']=='paused_budget'
+    assert state['last_checked'] is None and state['last_attempt_at']==1000
+    assert state['legacy_interrupted_check']==original and state['listed']==2
+    assert timer.state()==state
+    timer.start();timer.complete('completed',listed=3)
+    assert timer.state()['last_completed_check_at']==1100
+    assert timer.state()['next_check']==2000 and not timer.due()
+
+
 def test_refill_at_town_resets_full_interval(tmp_path):
     j=Journal(tmp_path/'journal.sqlite3');now=[1000]
     timer=RefillSchedule('Dutch',j,clock=lambda:now[0])
     assert timer.state()['next_check']==1900
-    now[0]=1100;timer.start();timer.complete('town_visit',listed=1)
+    now[0]=1100;timer.start();timer.complete('completed',listed=1)
     assert timer.state()['next_check']==2000
 
 

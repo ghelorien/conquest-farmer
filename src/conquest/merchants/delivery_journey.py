@@ -151,6 +151,8 @@ def resume(loop,*,send=request):
         leg(loop,state,'return');world=origin
     if world==origin and state['phase']=='return_pending':
         verify_arrival(loop,state,'return')
+        from conquest.merchants.service_visit import MarketVisit
+        MarketVisit().departed(world)
         open_warehouse(loop)
         save(state,phase='completed',completed_at=time.time())
         loop.overflow_bank_changed=True

@@ -65,6 +65,7 @@ def test_market_travel_recovers_early_and_remains_bounded(monkeypatch,mode,map_i
         if mode=='manual_stop' and len(steps)>=2:raise OvernightStopped('Stopped by user')
         return {'embedded_controls':{'life':{'position':position.copy()}}}
     loop.living=living;loop.care=NS(check=lambda h:None,session=None)
+    loop.focus=lambda h:True
     loop.record=lambda e,**kw:events.append((e,kw))
     def step(target,expected_position):
         steps.append(target);clock[0]+=1
@@ -77,7 +78,7 @@ def test_market_travel_recovers_early_and_remains_bounded(monkeypatch,mode,map_i
         assert next(kw for e,kw in events if e==recovery_event)['attempt']==1
         assert 8<=max(abs(a-b) for a,b in zip(steps[2],(200,200)))<=12
     elif mode=='blocked':
-        with pytest.raises(ValueError,match='obstructed|no position progress'):loop.travel((230,200))
+        with pytest.raises(ValueError,match='obstructed|no position progress|no improving progress'):loop.travel((230,200))
         assert 1<=sum(e==recovery_event for e,kw in events)<=3
         assert len(steps)<90
     else:

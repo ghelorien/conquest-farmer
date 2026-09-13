@@ -25,6 +25,36 @@ def test_verified_sale_restart_and_duplicate_observation(tmp_path):
     assert len([e for e in j.events() if e['event']=='sale_verified'])==1
 
 
+def test_unrelated_incoming_request_does_not_hide_exact_sale_receipt(tmp_path):
+    j=Journal(tmp_path/'journal.sqlite3');before=state()
+    before['request']={'participant':'Proxyy-Starr','participant_uid':77}
+    observe(j,before)
+    after=state(101);after['request']=copy.deepcopy(before['request'])
+    after['booth'].pop();after['silver']+=194
+    observe(j,after)
+    receipt=summary(j,now=102)['characters']['Dutch']
+    assert receipt['total']=={'items':1,'silver':194}
+    evidence=json.loads(next(e['payload'] for e in j.events() if e['event']=='sale_verified'))
+    assert evidence['foreign_request_observed'] is True
+
+
+def test_trusted_delivery_request_still_blocks_sale_attribution(tmp_path):
+    j=Journal(tmp_path/'journal.sqlite3');before=state()
+    before['request']={'participant':'Parasite','participant_uid':999}
+    observe(j,before)
+    after=state(101);after['request']=copy.deepcopy(before['request'])
+    after['booth'].pop();after['silver']+=194
+    observe(j,after)
+    assert summary(j,now=102)['characters']['Dutch']['total']=={'items':0,'silver':0}
+
+
+def test_unidentified_request_does_not_relax_sale_causality(tmp_path):
+    j=Journal(tmp_path/'journal.sqlite3');before=state();before['request']={'participant':''}
+    observe(j,before);after=state(101);after['request']={'participant':''}
+    after['booth'].pop();after['silver']+=194;observe(j,after)
+    assert summary(j,now=102)['characters']['Dutch']['total']=={'items':0,'silver':0}
+
+
 @pytest.mark.parametrize('case',['cash_mismatch','trade','inventory_change','gap','pid_reused','repricing'])
 def test_ambiguous_disappearance_is_not_a_sale(tmp_path,case):
     j=Journal(tmp_path/'journal.sqlite3');before=state();observe(j,before)

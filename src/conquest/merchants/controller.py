@@ -255,11 +255,24 @@ class MerchantController:
                 return after
             except Exception as error:
                 import traceback
-                self.journal.transition(key,'uncertain',{
+                failure={
                     'confirmation_attempted':not isinstance(error,ListingNotSubmitted),
                     'error_type':type(error).__name__,
                     'note':str(error) if isinstance(error,(ValueError,CaptureUnavailable)) else 'Listing operation failed',
                     'frames':[{'file':f.filename.replace('\\','/').rsplit('/',1)[-1],
                                'function':f.name,'line':f.lineno}
-                              for f in traceback.extract_tb(error.__traceback__)]})
+                              for f in traceback.extract_tb(error.__traceback__)]}
+                self.journal.transition(key,'uncertain',failure)
+                if isinstance(error,ListingNotSubmitted):
+                    try:after=self.driver.read()
+                    except (ValueError,OSError,CaptureUnavailable):pass
+                    else:
+                        if unsubmitted_listing_safe_to_retry(
+                                {'uid':uid,'price':target,'item':item,'snapshot':before},after):
+                            self.journal.transition(key,'aborted',{'uid':uid,
+                                'outcome':'not_submitted','confirmation_attempted':False,
+                                'reason':failure['note'],
+                                'note':'Confirmation was never attempted; memory verifies the item remains unlisted. Safe to replan.'})
+                            self.check_listing()
+                            return None
                 raise

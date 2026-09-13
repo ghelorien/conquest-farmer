@@ -24,3 +24,14 @@ class DeliveryPeer:
 
     def finish(self,key,intent):
         return self.command('delivery-finish',key,intent,'verified')
+
+    def disposition(self,key,intent,outcome):
+        if outcome not in ('no_transfer','partial_transfer'):
+            raise ValueError('Unknown delivery disposition')
+        body={'action':'delivery-disposition','character':intent['merchant']['character'],
+              'request_id':key,'outcome':outcome}
+        result=self.send(body)
+        if (result.get('request_id')!=key or result.get('outcome')!=outcome
+                or not isinstance(result.get('proof_digest'),str)):
+            raise ValueError('Merchant delivery disposition acknowledgement is missing or changed')
+        return result

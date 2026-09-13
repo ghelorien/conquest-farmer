@@ -69,6 +69,9 @@ class UnifiedUI:
     def __init__(self, app):
         self.app,self.root = app,app.root
         self.closed,self.grant = False,None
+        from conquest.merchants.grant_fence import GrantFence
+        self.grant_fence=GrantFence()
+        self.input_revision_marker=(app.control.snapshot()['revision'],bool(app.mouse_priority.active()))
         self.ui_requests = queue.Queue()
         self.hosts,self.client_panes,self.detail_tabs = {},{},{}
         self.render_sizes,self.resize_jobs = {},{}
@@ -120,6 +123,8 @@ class UnifiedUI:
         app.pane.lift()
         self.coordinator = InputCoordinator(self.safe_to_yield,app.mouse_priority.active)
         self.runtime = MerchantRuntime(app.catalog,self.coordinator)
+        from conquest.merchants.delivery_status import enrich
+        self.runtime.status_projection=lambda states:enrich(self,states)
         self.connect_threads={}
         from conquest.merchants.presentation import MerchantPresentation
         self.presentation = MerchantPresentation(self.runtime)
@@ -128,6 +133,7 @@ class UnifiedUI:
             and character in self.calibrating and not self.calibration_cancel[character].is_set())
         self.coordinator.on_acquire = self.prepare_input
         self.coordinator.on_release = self.release_input
+        self.coordinator.fence=self.grant_fence
         # Get the process lock before installing any input hook or starting
         # merchant threads. A second UI cannot become a second controller.
         self.bridge = MerchantBridge(self.dispatch)
@@ -165,8 +171,17 @@ class UnifiedUI:
         if self.app.closing:
             return False
         control = self.app.control.snapshot()
-        if self.grant and self.grant['expires_at'] > time.time() and self.grant['revision']==control['revision']:
-            return True
+        if self.grant:
+            fence=getattr(self,'grant_fence',None)
+            if fence and (fence.active is None or fence.active.request_id!=self.grant['request_id']):
+                return False
+            if (self.grant['expires_at'] > time.time() and self.grant['revision']==control['revision']
+                    and not control['enabled'] and not control.get('paused')):
+                return True
+            fence=getattr(self,'grant_fence',None)
+            if fence and self.grant['request_id'] in fence.requests:
+                fence.revoke(self.grant['request_id'])
+            return False
         if control['enabled'] or (self.app.thread and self.app.thread.is_alive()):
             return False
         from conquest.discord_notify import read_json,process_alive
@@ -182,6 +197,9 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action=='delivery-target' and set(body)=={'action','character'}:
+            from conquest.merchants.farmer_trade import delivery_target_status
+            return delivery_target_status(self,character_name(body['character']))
         if action=='farmer-view-height' and set(body)=={'action','scale'}:
             scale = float(body['scale'])
             if not 1 <= scale <= 1.15: raise ValueError('Height scale must be between 1 and 1.15')
@@ -247,8 +265,10 @@ class UnifiedUI:
             for c in CHARACTERS:
                 if c not in self.runtime.observers:raise ValueError('Both merchants must be attached')
                 self.runtime.controllers[c].driver.memory.read()
-            self.readonly_diagnostics=subprocess.Popen([sys.executable,'scripts/start_merchant_diagnostics.py'],
-                cwd=Path.cwd(),creationflags=subprocess.CREATE_NO_WINDOW,
+            repo=Path(__file__).resolve().parents[3]
+            self.readonly_diagnostics=subprocess.Popen(
+                [sys.executable,str(repo/'scripts/start_merchant_diagnostics.py')],
+                cwd=repo,creationflags=subprocess.CREATE_NO_WINDOW,
                 stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             return {'pid':self.readonly_diagnostics.pid,'read_only':True}
         if action=='peer-identity-evidence' and set(body)=={'action','character','peer'}:
@@ -293,9 +313,6 @@ class UnifiedUI:
                 # timer write fails, the caller can revoke this exact window;
                 # no grant has yet authorized merchant input.
                 self.runtime.handoff=key
-                for character in CHARACTERS:
-                    if self.runtime.refill_enabled(character):
-                        self.runtime.refills[character].start()
             finally:self.coordinator.lock.release()
             return {'requested':key}
         if action=='delivery-refill' and set(body)=={'action','request_id'}:
@@ -319,12 +336,18 @@ class UnifiedUI:
                 if self.coordinator.owner:raise ValueError('Merchant still owns delivery input')
                 self.runtime.refill_window=key
                 self.runtime.delivery_window=None
+                for character in CHARACTERS:
+                    if self.runtime.refill_enabled(character) and (
+                            self.runtime.refills[character].due()
+                            or self.runtime.journal.get(character,'new_stock',False)):
+                        self.runtime.refills[character].start(visit_id=self.grant.get('visit_id'),
+                            town_visit_id=self.grant.get('town_visit_id'),operation_id=key)
             finally:self.coordinator.lock.release()
             return {'refill':True,'expires_at':self.grant['expires_at']}
-        if action in ('delivery-start','delivery-test','delivery-status','delivery-readiness'):
+        if action in ('delivery-start','delivery-test','delivery-status','delivery-readiness','delivery-reconcile','delivery-cleanup'):
             from conquest.merchants.delivery_operation import dispatch
             return dispatch(self,body)
-        if action in ('delivery-pair','delivery-reserve','delivery-ready','delivery-finish','delivery-source'):
+        if action in ('delivery-pair','delivery-reserve','delivery-ready','delivery-finish','delivery-source','delivery-disposition'):
             from conquest.merchants.delivery_bridge import dispatch
             return dispatch(self,body)
         if action=='focus-farmer' and set(body)=={'action'}:
@@ -426,7 +449,10 @@ class UnifiedUI:
         if action=='embed-client' and set(body)=={'action','character'}:
             character = character_name(body['character'])
             queued_at = time.monotonic()
-            self.ui_requests.put((lambda:self.embed_client(character,queued_at=queued_at),None,{}))
+            callback=lambda:self.embed_client(character,queued_at=queued_at)
+            fence=getattr(self,'grant_fence',None)
+            if fence:callback=fence.guard_callback(fence.capture(),callback)
+            self.ui_requests.put((callback,None,{}))
             return {'requested':character,'listing_submitted':False}
         if action=='verify-booth' and set(body)=={'action','character'}:
             character = character_name(body['character'])
@@ -456,16 +482,42 @@ class UnifiedUI:
                 raise ValueError('Invalid request ID')
             self.runtime.handoff = body['request_id']
             return {'requested':body['request_id'],'ready':self.safe_to_yield()}
-        if action=='handoff-grant' and set(body)=={'action','request_id','revision','expires_at','safe'}:
+        if action=='handoff-grant' and set(body) in ({'action','request_id','revision','expires_at','safe'},
+                {'action','request_id','revision','expires_at','safe','scope','visit_id'}):
+            market=body.get('scope')=='market_visit'
+            control=self.app.control.snapshot()
+            if 'scope' in body and not market:raise ValueError('Unknown handoff scope')
             if (body['request_id'] != self.runtime.handoff or body['safe'] is not True
-                    or body['revision'] != self.app.control.snapshot()['revision']
+                    or body['revision'] != control['revision'] or control['enabled'] or control.get('paused')
                     or type(body['expires_at']) not in (int,float)
-                    or not 0 < body['expires_at']-time.time() <= 15):
-                raise ValueError('Farmer must explicitly grant a current safe handoff (maximum 15 seconds)')
+                    or not 0 < body['expires_at']-time.time() <= (60 if market else 15)):
+                raise ValueError('Farmer must explicitly grant a current bounded safe handoff')
+            visit=None
+            if market:
+                from conquest.merchants.service_visit import validate_grant
+                visit=validate_grant(self,body)
+            fence=getattr(self,'grant_fence',None)
+            if fence:
+                from conquest.merchants.service_visit import farmer_id
+                fence.activate(body['request_id'],body['revision'],body['expires_at'],
+                    scope='market_visit' if market else 'hunting',farmer_profile_id=farmer_id())
             self.grant = dict(body)
+            if visit:
+                self.grant['town_visit_id']=visit.get('town_visit_id')
+                self.grant['farmer_profile_id']=visit['farmer_profile_id']
+                for refill in getattr(self.runtime,'refills',{}).values():
+                    if refill.state().get('pending'):
+                        refill.start(visit_id=visit['visit_id'],town_visit_id=visit.get('town_visit_id'),
+                                     operation_id=body['request_id'])
             self.runtime.work_deadline = body['expires_at']
             return {'granted':True}
         if action=='handoff-release' and set(body)=={'action','request_id'}:
+            fence=getattr(self,'grant_fence',None)
+            if fence and body['request_id'] in fence.requests:
+                released=fence.revoke(body['request_id'])
+                if body['request_id']!=self.runtime.handoff:return released
+                self.grant=None
+                if not released['released']:return released
             if body['request_id'] != self.runtime.handoff:
                 raise ValueError('Handoff request mismatch')
             self.grant = None
@@ -840,7 +892,10 @@ class UnifiedUI:
                         raise ValueError('Activate the selected login client before continuing')
                 return
         done,result = threading.Event(),{}
-        self.ui_requests.put((lambda:self.show_merchant(character),done,result))
+        callback=lambda:self.show_merchant(character)
+        fence=getattr(self,'grant_fence',None)
+        if fence:callback=fence.guard_callback(fence.capture(),callback)
+        self.ui_requests.put((callback,done,result))
         if not done.wait(5):
             # The UI queue checks this before running a timed-out request.
             result['expired'] = True
@@ -853,7 +908,10 @@ class UnifiedUI:
 
     def release_input(self, character):
         if not is_farmer_owner(character):
-            self.ui_requests.put((lambda:self.restore_input(character),None,{}))
+            callback=lambda:self.restore_input(character)
+            fence=getattr(self,'grant_fence',None)
+            if fence:callback=fence.guard_callback(fence.capture(),callback)
+            self.ui_requests.put((callback,None,{}))
 
     def restore_input(self, character):
         bookmark = self.input_bookmarks.pop(character,None)
@@ -882,6 +940,13 @@ class UnifiedUI:
         gap = round((now-self.last_ui_tick)*1000)
         self.ui_health = {'last_gap_ms':gap,'max_gap_ms':max(gap,self.ui_health['max_gap_ms'])}
         self.last_ui_tick = now
+        fence=getattr(self,'grant_fence',None)
+        if fence:
+            control=self.app.control.snapshot()
+            marker=(control['revision'],bool(self.app.mouse_priority.active()))
+            if marker!=getattr(self,'input_revision_marker',marker):
+                fence.invalidate()
+            self.input_revision_marker=marker
         while True:
             try:
                 callback,done,result = self.ui_requests.get_nowait()

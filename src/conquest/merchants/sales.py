@@ -3,6 +3,7 @@ import json
 import time
 from conquest.merchants.controller import identities
 from conquest.merchants.journal import CHARACTERS, character_name
+from conquest.character_context import trusted_delivery
 
 
 RECEIPT_WINDOW = 5
@@ -22,6 +23,15 @@ def net_bounds(items):
 def missing_stock(before, current):
     present = {i['uid'] for i in current['booth'] + current['inventory']}
     return [i for i in before['booth'] if i['uid'] not in present]
+
+
+def unrelated_request(character,snapshot):
+    request=snapshot.get('request')
+    if not request:return True
+    participant=request.get('participant');uid=request.get('participant_uid')
+    return (isinstance(participant,str) and bool(participant.strip())
+            and (uid is None or type(uid) is int and uid>0)
+            and not trusted_delivery(character,participant,uid,require_uid=False))
 
 
 def observe(journal, snapshot):
@@ -49,7 +59,12 @@ def observe(journal, snapshot):
                     (character,'sales_observation_gap',json.dumps({'from':before['timestamp'],'to':at}),at))
             busy = db.execute("SELECT 1 FROM transactions WHERE character=? AND created<=? AND updated>=? LIMIT 1",
                               (character,at,before['timestamp'])).fetchone()
-            stable = (not gap and not busy and not before['request'] and not current['request']
+            # An unrelated incoming request cannot move stock or silver. Treat
+            # it as context, while a trusted delivery request or any open trade
+            # still makes the causal receipt ambiguous.
+            foreign_request = bool(before['request'] or current['request'])
+            stable = (not gap and not busy
+                    and unrelated_request(character,before) and unrelated_request(character,current)
                     and not before['trade'] and not current['trade']
                     and identities(before['inventory']) == inventory
                     and all(uid in old and old[uid]['price']==i['price']
@@ -66,17 +81,36 @@ def observe(journal, snapshot):
                 current['_sales_pending_since'] = pending_since
             elif missing:
                 note = 'Booth removal and net silver gain after 3% deduction verified' if verified else 'Stock disappeared without an unambiguous silver receipt'
-                items = [{k:i[k] for k in ('uid','name','quantity','price')} for i in missing]
+                items = [{k:i[k] for k in
+                          ('uid','name','type_id','plus','gem1','gem2','quantity','bound','price')}
+                         for i in missing]
                 db.execute('INSERT INTO sales(character,observed_at,phase,items,silver,note) VALUES(?,?,?,?,?,?)',
                     (character,at,'verified' if verified else 'unconfirmed',json.dumps(items),gain if verified else 0,note))
                 db.execute('INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)',
                     (character,'sale_verified' if verified else 'sale_unconfirmed',
-                     json.dumps({'items':items,'silver':gain if verified else None,'note':note,
-                         'before_silver':before['silver'],'after_silver':current['silver'],
-                         'from':before['timestamp'],'gross':sum(i['price'] for i in missing),
-                         'net_bounds':[low,high],'deduction':sum(i['price'] for i in missing)-gain if verified else None}),at))
+                      json.dumps({'items':items,'silver':gain if verified else None,'note':note,
+                          'before_silver':before['silver'],'after_silver':current['silver'],
+                          'from':before['timestamp'],'gross':sum(i['price'] for i in missing),
+                          'net_bounds':[low,high],'deduction':sum(i['price'] for i in missing)-gain if verified else None,
+                          'foreign_request_observed':foreign_request}),at))
         db.execute('INSERT OR REPLACE INTO sales_baseline VALUES(?,?,?)',
                    (character,json.dumps(current),row['started_at'] if row else at))
+
+
+def qualified_delivery_receipts(journal,intent,merchant):
+    """Return exact verified sale receipts wholly inside one delivery interval."""
+    character=character_name(merchant['character'])
+    started=max(intent['farmer']['timestamp'],intent['merchant']['timestamp'])
+    ended=merchant['timestamp']
+    if ended<started:return []
+    with journal.db() as db:
+        if db.execute("SELECT 1 FROM events WHERE character=? AND event='sales_observation_gap' AND timestamp>? AND timestamp<=? LIMIT 1",
+                      (character,started,ended)).fetchone():
+            raise ValueError('Sales observation gap overlaps delivery reconciliation')
+        rows=list(db.execute("SELECT id,observed_at,phase,items,silver FROM sales WHERE character=? AND phase='verified' AND observed_at>? AND observed_at<=? ORDER BY id",
+                             (character,started,ended)))
+    return [{'id':row['id'],'observed_at':row['observed_at'],'phase':row['phase'],
+             'items':json.loads(row['items']),'silver':row['silver']} for row in rows]
 
 
 def summary(journal, *, now=None, since=None):

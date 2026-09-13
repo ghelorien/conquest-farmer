@@ -122,6 +122,8 @@ def trip(loop,plan,*,before_submit=None):
             after=loop.town('supplies')
             if before['silver']-after['silver']!=plan['fare']:raise ValueError('Meteor route fare was not verified')
             loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),fresh['map_id'])
+            from conquest.merchants.service_visit import MarketVisit
+            MarketVisit().departed(fresh['map_id'])
             return
         time.sleep(.1)
     raise ValueError('Meteor route arrival unverified; no repeat payment issued')
@@ -229,6 +231,8 @@ def resume(loop):
     loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),world)
     if world==state['origin'] and state['phase']=='returning':
         if carried(loop):raise ValueError('Protected valuables unexpectedly carried after Market return')
+        from conquest.merchants.service_visit import MarketVisit
+        MarketVisit().departed(world)
         open_warehouse(loop);save(state,'completed',completed_at=time.time())
         loop.record('meteor_loop_complete',activity='Market banking complete; checking Phoenix supplies before farming')
         return True

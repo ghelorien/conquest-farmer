@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 import threading
 import sqlite3
+import hashlib
+from contextlib import nullcontext
 from conquest.discord_notify import read_json
 from conquest.merchants.journal import Journal,character_name
-from conquest.merchants.delivery import DeliveryTransaction,prepare
+from conquest.merchants.delivery import (DeliveryTransaction,prepare,reconciliation_outcome,
+    ReconciliationBlocked,exact_items)
 from conquest.merchants.farmer_trade import FarmerTradeDriver
 
 JOURNAL=Path(state_path('reports/banking/merchant-deliveries.sqlite3'))
@@ -24,38 +27,103 @@ def guard_reload():
 def status(journal,key):
     with journal.db() as db:
         row=db.execute('SELECT * FROM transactions WHERE id=?',(key,)).fetchone()
-    if not row:return None
+    if not row:
+        admission=journal.delivery_admission(key)
+        if not admission:return None
+        items=json.loads(admission['items_json']) if admission['items_json'] else []
+        origin=json.loads(admission['origin_json'])
+        reason=admission['reason'] or 'Admission was interrupted before any delivery worker or input'
+        proof=hashlib.sha256(json.dumps({'request_id':key,'character':admission['character'],
+            'uids':json.loads(admission['uids_json']),'items':items,'origin':origin,
+            'phase':admission['phase']},sort_keys=True).encode()).hexdigest()
+        return {'request_id':key,'character':admission['character'],'phase':'aborted',
+                'operation_id':origin.get('operation_id',key),
+                'town_visit_id':origin.get('town_visit_id'),'visit_id':origin.get('visit_id'),
+                'farmer_profile_id':origin.get('farmer_profile_id'),
+                'uids':json.loads(admission['uids_json']),'items':items,
+                'outcome':'retryable_before_input','evidence_outcome':'admission_rejected',
+                'reason':reason,'next_action':'release_route','proof_digest':proof,
+                'cleanup_pending':[],'sale_receipts':[],'delivered':[],'remaining':items,
+                'action_trace_initialized':False,'last_action_stage':None}
     before=json.loads(row['before_json'])
+    result=(json.loads(row['result_json']) if row['result_json'] else {}) or {}
+    trace=journal.trace(key)
+    evidence_outcome=result.get('outcome')
+    if row['phase']=='verified':evidence_outcome=evidence_outcome or 'delivered'
+    elif row['phase']=='aborted':evidence_outcome=evidence_outcome or 'aborted'
+    outcome=({'delivered':'transferred','no_transfer':'no_transfer',
+              'not_started':'retryable_before_input','partial_transfer':'deferred'}
+             .get(evidence_outcome))
+    if outcome is None:
+        outcome='unresolved' if row['phase'] in ('submitted','uncertain') else 'deferred'
+    reason=result.get('reason') or {
+        'delivered':'Exact bilateral ownership proves the selected items transferred',
+        'no_transfer':'Exact bilateral ownership proves no selected item transferred',
+        'partial_transfer':'Exact bilateral ownership proves only part of the selected batch transferred',
+        'not_started':'The worker was rejected before any gameplay input',
+        'aborted':'The operation has a durable terminal abort receipt',
+    }.get(evidence_outcome,'Exact bilateral reconciliation is still required')
+    cleanup_pending=result.get('cleanup_pending') or []
+    cleanup_verified=any(s['stage'] in ('cleanup','cleanup_trade') and s['status']=='observed' for s in trace)
+    receiver_verified=any(s['stage']=='receiver_receipt' and s['status']=='observed' for s in trace)
+    if row['phase'] in ('verified','aborted') and cleanup_pending and not cleanup_verified:
+        next_action='cleanup_trade_modal'
+    elif row['phase']=='verified' and not receiver_verified:
+        next_action='finalize_receiver_receipt'
+    elif row['phase']=='aborted' and evidence_outcome=='partial_transfer':
+        next_action='replan_remaining_delivery'
+    elif row['phase']=='aborted' and evidence_outcome=='no_transfer':
+        next_action='retry_delivery'
+    elif row['phase'] in ('verified','aborted'):
+        next_action='release_route'
+    elif any(s['stage']=='action_trace' and s['status']=='initialized' for s in trace):
+        next_action='reconcile_bilateral_ownership'
+    else:
+        next_action='explicit_exact_reconciliation'
     return {'request_id':key,'character':row['character'],'phase':row['phase'],
-            'uids':[item['uid'] for item in before['items']]}
+            'operation_id':before.get('operation_id',key),
+            'town_visit_id':before.get('town_visit_id'),'visit_id':before.get('visit_id'),
+            'farmer_profile_id':before.get('farmer_profile_id'),
+            'uids':[item['uid'] for item in before['items']],
+            'items':[{name:item.get(name) for name in
+                      ('uid','type_id','plus','gem1','gem2','quantity','bound')}
+                     for item in before['items']],
+            'outcome':outcome,'evidence_outcome':evidence_outcome or 'unknown',
+            'reason':reason,
+            'next_action':next_action,'proof_digest':result.get('proof_digest'),
+            'cleanup_pending':cleanup_pending if not cleanup_verified else [],
+            'sale_receipts':result.get('sale_receipts',[]),
+            'delivered':result.get('delivered'),
+            'remaining':result.get('remaining'),
+            'action_trace_initialized':any(s['stage']=='action_trace' and s['status']=='initialized' for s in trace),
+            'last_action_stage':next((s['stage'] for s in reversed(trace)
+                                      if s['status']=='before_action'),None)}
 
 
-def dispatch(ui,body):
-    if body=={'action':'delivery-readiness'}:
-        from conquest.merchants.delivery_readiness import describe
-        return describe(ui,FarmerTradeDriver)
-    action=body.get('action');expected={'action','request_id'}
-    if action in ('delivery-start','delivery-test'):expected|={'character','uids'}
-    if action not in ('delivery-start','delivery-test','delivery-status') or set(body)!=expected:
-        raise ValueError('Unsupported native delivery command')
-    key=body['request_id']
-    if not isinstance(key,str) or not 1<=len(key)<=100:raise ValueError('Invalid delivery request ID')
-    journal=Journal(JOURNAL)
-    if not hasattr(ui,'delivery_workers'):
-        ui.delivery_workers={};ui.delivery_errors={}
-    old=status(journal,key)
-    worker=ui.delivery_workers.get(key)
-    running=bool(worker and worker.is_alive())
-    if action=='delivery-status':
-        return {'request_id':key,'running':running,'receipt':old,'error':ui.delivery_errors.get(key)}
-    character=character_name(body['character']);uids=body['uids']
-    if (not isinstance(uids,list) or not 1<=len(uids)<=20
-            or any(type(uid) is not int or uid<=0 for uid in uids) or len(set(uids))!=len(uids)):
-        raise ValueError('Select distinct delivery item UIDs')
-    if old and (old['character']!=character or sorted(old['uids'])!=sorted(uids)):
-        raise ValueError('Delivery request ID reused for another batch')
-    if running:return {'request_id':key,'running':True,'receipt':old}
-    if not old:
+def reject_worker_admission(journal,key):
+    """Close a prepared source intent when its captured grant expires pre-input."""
+    current=status(journal,key)
+    if (not current or current['phase']!='prepared'
+            or current['action_trace_initialized']):
+        return current
+    journal.step(key,'worker_admission','rejected',{
+        'outcome':'not_started','reason':'input_grant_rejected'})
+    journal.transition(key,'aborted',{'outcome':'not_started',
+        'reason':'input_grant_rejected','next_action':'release_route',
+        'cleanup_pending':[]})
+    return status(journal,key)
+
+
+def saved_intent(journal,key):
+    with journal.db() as db:
+        row=db.execute('SELECT before_json FROM transactions WHERE id=?',(key,)).fetchone()
+    if not row:raise ValueError('Unknown farmer delivery')
+    return json.loads(row[0])
+
+
+def prepare_new(ui,journal,key,character,uids,action,origin):
+    """Qualify and persist a full intent after an admission receipt exists."""
+    try:
         window=getattr(getattr(ui,'runtime',None),'delivery_window',None)
         if window and window!=key:
             raise ValueError('Delivery request ID must match its reserved work window')
@@ -74,35 +142,156 @@ def dispatch(ui,body):
         if receiver is None:raise ValueError('Delivery recipient is not connected')
         receiver.driver.require_qualified('trade_request')
         receiver.driver.require_qualified('trade')
-        f,m=driver.read_pair(character)
-        items=[item for item in f['inventory'] if item['uid'] in uids]
+        farmer,merchant=driver.read_pair(character)
+        items=[item for item in farmer['inventory'] if item['uid'] in uids]
         if len(items)!=len(uids):raise ValueError('Selected delivery items are not carried')
-        intent=prepare(f,m,items)
-        # Persist before returning an accepted asynchronous request. A crash
-        # before the worker starts cannot authorize blind re-entry.
-        if not journal.begin(key,character,'farmer_delivery',intent):
+        journal.update_delivery_admission(key,'admitted',items=items)
+        intent=prepare(farmer,merchant,items);intent.update(origin)
+        if not journal.begin(key,character,'farmer_delivery',intent,admission=True):
             raise ValueError('Delivery is already prepared; poll its status before recovery')
+        return driver,intent
+    except Exception as error:
+        if status(journal,key) and not journal.pending(character):
+            journal.update_delivery_admission(key,'rejected',reason=(
+                str(error) if isinstance(error,(ValueError,OSError)) else 'Delivery admission failed'))
+        raise
+
+
+def dispatch(ui,body):
+    if body=={'action':'delivery-readiness'}:
+        from conquest.merchants.delivery_readiness import describe
+        return describe(ui,FarmerTradeDriver)
+    action=body.get('action');expected={'action','request_id'}
+    if action in ('delivery-start','delivery-test'):
+        expected|={'character','uids'}
+    valid=(set(body)==expected or action in ('delivery-start','delivery-test')
+           and set(body)==expected|{'items'})
+    if action not in ('delivery-start','delivery-test','delivery-status','delivery-reconcile','delivery-cleanup') or not valid:
+        raise ValueError('Unsupported native delivery command')
+    key=body['request_id']
+    if not isinstance(key,str) or not 1<=len(key)<=100:raise ValueError('Invalid delivery request ID')
+    journal=Journal(JOURNAL)
+    if not hasattr(ui,'delivery_workers'):
+        ui.delivery_workers={};ui.delivery_errors={}
+    if not hasattr(ui,'delivery_admissions'):
+        ui.delivery_admissions=set()
+    old=status(journal,key)
+    worker=ui.delivery_workers.get(key)
+    running=bool(worker and worker.is_alive()) or key in ui.delivery_admissions
+    if action=='delivery-status':
+        return {'request_id':key,'running':running,'receipt':old,'error':ui.delivery_errors.get(key)}
+    if action in ('delivery-reconcile','delivery-cleanup'):
+        if old is None:raise ValueError('Unknown farmer delivery')
+        if running:return {'request_id':key,'running':True,'receipt':old}
+        if action=='delivery-cleanup' and old['next_action']!='cleanup_trade_modal':
+            raise ValueError('Delivery has no verified empty trade cleanup pending')
+        if action=='delivery-reconcile' and (old['phase']=='aborted'
+                or (old['phase']=='verified' and old['next_action']=='release_route')):
+            return {'request_id':key,'running':False,'receipt':old}
+        character=old['character'];uids=old['uids']
+    else:
+        character=character_name(body['character']);uids=body['uids']
+    if (not isinstance(uids,list) or not 1<=len(uids)<=20
+            or any(type(uid) is not int or uid<=0 for uid in uids) or len(set(uids))!=len(uids)):
+        raise ValueError('Select distinct delivery item UIDs')
+    if old and action!='delivery-reconcile' and (old['character']!=character or sorted(old['uids'])!=sorted(uids)):
+        raise ValueError('Delivery request ID reused for another batch')
+    if old and action in ('delivery-start','delivery-test'):
+        raise ValueError('Delivery already exists; use delivery-reconcile for read-only recovery')
+    if running:return {'request_id':key,'running':True,'receipt':old}
+    if not old:
+        from conquest.character_context import current,farmer_name
+        context=current();grant=getattr(ui,'grant',None) or {}
+        origin={'operation_id':key,'town_visit_id':grant.get('town_visit_id'),
+                'visit_id':grant.get('visit_id'),
+                'farmer_profile_id':grant.get('farmer_profile_id') or
+                    (context.profile.id if context else farmer_name())}
+        requested=body.get('items')
+        if requested is not None:
+            if (not isinstance(requested,list) or sorted(exact_items(requested))!=sorted(uids)):
+                raise ValueError('Delivery item fingerprints do not match requested UIDs')
+        # A start response can be lost while synchronous qualification is
+        # still running. Keep status non-terminal until either the durable
+        # source transaction exists or admission is explicitly rejected.
+        ui.delivery_admissions.add(key)
+        try:
+            journal.admit_delivery(key,character,uids,origin,requested)
+            driver,intent=prepare_new(ui,journal,key,character,uids,action,origin)
+        finally:
+            ui.delivery_admissions.discard(key)
     else:
         from types import SimpleNamespace
         from conquest.merchants.delivery_bridge import pair
         driver=SimpleNamespace(read_pair=lambda name:pair(ui,name))
     ui.delivery_errors.pop(key,None)
+    fence=getattr(getattr(ui,'coordinator',None),'fence',None)
+    token=fence.capture() if fence is not None else None
+    if action=='delivery-cleanup' and (token is None or token.request_id is None
+            or token.scope!='market_visit'):
+        raise ValueError('Delivery cleanup requires a current Market visit input grant')
+    if action=='delivery-cleanup':
+        cleanup_origin=saved_intent(journal,key)
+        if (token.request_id!=key
+                or token.farmer_profile_id!=cleanup_origin.get('farmer_profile_id')
+                or (getattr(ui,'grant',None) or {}).get('visit_id')!=cleanup_origin.get('visit_id')
+                or (getattr(ui,'grant',None) or {}).get('town_visit_id')!=cleanup_origin.get('town_visit_id')):
+            raise ValueError('Delivery cleanup grant does not match the saved operation origin')
     def work():
-        transaction=DeliveryTransaction(journal,driver)
+        binding=(fence.bind_worker(token,action_capable=action=='delivery-cleanup' or not bool(old))
+                 if fence is not None else nullcontext())
         try:
-            if old:transaction.recover(key)
-            else:transaction.execute(key,character,intent)
-            if hasattr(driver,'report'):driver.report('Transfer to '+character+' verified; ready to continue the route','complete')
-            attention=ui.runtime.journal.get(character,'attention',{}) or {}
-            if attention.get('kind')=='farmer_delivery' and attention.get('request_id')==key:
-                ui.runtime.journal.set(character,'attention',None)
+            with binding:
+                from conquest.merchants.sales import qualified_delivery_receipts
+                options={'sale_receipts':lambda intent,farmer,merchant:
+                         qualified_delivery_receipts(ui.runtime.journal,intent,merchant)}
+                if fence is not None:options['mark_read_only']=fence.mark_read_only
+                transaction=DeliveryTransaction(journal,driver,**options)
+                if action=='delivery-cleanup':
+                    transaction.key=key;cleanup_intent=saved_intent(journal,key)
+                    from conquest.merchants.delivery_bridge import pair
+                    farmer,merchant=pair(ui,character)
+                    sales=transaction.sale_receipts(cleanup_intent,farmer,merchant)
+                    result=reconciliation_outcome(cleanup_intent,farmer,merchant,
+                        trace=transaction.trace(key),sale_receipts=sales)
+                    if (result['outcome']!=old['evidence_outcome']
+                            or not result['cleanup_pending']):
+                        raise ReconciliationBlocked('Terminal delivery cleanup evidence changed')
+                    from conquest.merchants.delivery_cleanup import cleanup_empty_trade
+                    cleanup_empty_trade(ui,character,{'farmer':farmer,'merchant':merchant},
+                                        operation=transaction,check=ui.coordinator.check)
+                    if fence is not None:fence.mark_read_only()
+                    if old['phase']=='verified':transaction.finish_receiver(key,cleanup_intent)
+                elif old:transaction.recover(key)
+                else:transaction.execute(key,character,intent)
+                receipt=status(journal,key)
+                if hasattr(driver,'report'):
+                    ready=receipt['next_action']=='release_route'
+                    activity=('Transfer to '+character+' verified; ready to continue the route'
+                              if ready and receipt['outcome']=='transferred' else
+                              'Transfer to '+character+' reconciled as '+receipt['outcome'].replace('_',' ')
+                              +'; next action: '+receipt['next_action'].replace('_',' '))
+                    driver.report(activity,'complete' if ready else 'attention')
+                if receipt['next_action']=='release_route':
+                    attention=ui.runtime.journal.get(character,'attention',{}) or {}
+                    if attention.get('kind')=='farmer_delivery' and attention.get('request_id')==key:
+                        ui.runtime.journal.set(character,'attention',None)
         except Exception as error:
+            from conquest.capture import CaptureUnavailable
+            current=status(journal,key)
+            if (isinstance(error,CaptureUnavailable) and current
+                    and current['phase']=='prepared' and not current['action_trace_initialized']):
+                current=reject_worker_admission(journal,key)
             note=str(error) if isinstance(error,(ValueError,OSError)) else 'Native delivery failed; reconcile before retrying'
             ui.delivery_errors[key]=note
+            if current and current['outcome']=='retryable_before_input':
+                if hasattr(driver,'report'):
+                    driver.report('Transfer to '+character+' did not start; it is safe to retry','attention')
+                ui.runtime.journal.event(character,'delivery_not_started',request_id=key,
+                                         note='Captured input grant changed before worker entry')
+                return
             if hasattr(driver,'report'):
                 driver.report('Transfer to '+character+' paused: '+note+'. Checking the saved transaction before continuing.','attention')
-            from conquest.capture import CaptureUnavailable
-            if not isinstance(error,CaptureUnavailable):
+            if not (isinstance(error,CaptureUnavailable) and current and current['phase']=='aborted'):
                 ui.runtime.journal.set(character,'attention',{'kind':'farmer_delivery','request_id':key,'note':note})
             ui.runtime.journal.event(character,'delivery_needs_reconciliation',request_id=key,note=note)
     worker=threading.Thread(target=work,daemon=True,name='farmer-delivery')

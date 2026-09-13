@@ -5,6 +5,7 @@ import math
 import time
 import uuid
 import json
+import hashlib
 from conquest.merchants.journal import CHARACTERS
 from conquest.merchants.controller import identities
 from conquest.valuables import SPECIAL_LOOT_TYPES, DRAGONBALL_TYPES, storage_only
@@ -23,12 +24,214 @@ def eligible(item, reserved=()):
 
 
 def exact_items(items):
+    """UID keyed ownership including every value-bearing item attribute."""
     result=identities(items)
     for item in items:
         if type(item.get('bound')) is not bool:
             raise ValueError('Item binding is unknown')
         result[item['uid']]=(*result[item['uid']],item['bound'])
     return result
+
+
+def exact_listings(items):
+    result=exact_items(items)
+    return {uid:(*details,next(item.get('price') for item in items if item['uid']==uid))
+            for uid,details in result.items()}
+
+
+class ReconciliationBlocked(ValueError):
+    """Exact bilateral ownership cannot yet prove a terminal disposition."""
+    def __init__(self,message,*,code='evidence_unavailable'):
+        super().__init__(message);self.code=code
+
+
+def _empty_pair_trade(snapshot, other):
+    trade=snapshot.get('trade')
+    if not trade:return True
+    return (trade.get('participant')==other['character']
+        and trade.get('participant_uid')==other['character_uid']
+        and not trade.get('own_items') and not trade.get('items')
+        and trade.get('own_silver')==0 and trade.get('other_silver')==0
+        and trade.get('accepted') is False and trade.get('other_accepted') is False)
+
+
+def _trace_ready(trace):
+    return any(step.get('stage')=='action_trace' and step.get('status')=='initialized'
+               for step in (trace or ()))
+
+
+SETTLEMENT_WINDOW = 5
+
+
+def ownership_digest(intent, farmer, merchant, sale_receipts=()):
+    """Stable digest for repeated read-only ownership observations."""
+    return _proof_digest(intent,farmer,merchant,(),sale_receipts)
+
+
+def _negative_outcome_proven(trace, digest, now):
+    actions=[step for step in (trace or ()) if step.get('status')=='before_action']
+    if not actions:
+        # The instrumented driver records immediately before every possible
+        # input. An initialized trace with no boundary proves this worker never
+        # attempted gameplay input.
+        return True
+    terminal=[step for step in (trace or ())
+              if step.get('stage')=='trade_session' and step.get('status')=='terminal'
+              and step.get('payload',{}).get('outcome') in ('rejected','cancelled_unaccepted')
+              and step.get('payload',{}).get('ownership_digest')==digest]
+    if terminal:return True
+    if any(step.get('stage')=='farmer_confirm' for step in actions):
+        return False
+    observations=[]
+    for step in trace or ():
+        payload=step.get('payload') or {}
+        if (step.get('stage')=='reconciliation_observation' and step.get('status')=='observed'
+                and payload.get('ownership_digest')==digest
+                and type(payload.get('observed_at')) in (int,float)
+                and payload['observed_at']<=now):
+            observations.append(payload['observed_at'])
+    return bool(observations and max(observations)-min(observations)>=SETTLEMENT_WINDOW)
+
+
+def _proof_digest(intent, farmer, merchant, trace, sale_receipts=()):
+    durable=[];observations={}
+    for step in trace or ():
+        record={k:step.get(k) for k in ('stage','status','payload')}
+        if step.get('stage')=='reconciliation_observation':
+            payload=step.get('payload') or {};digest=payload.get('ownership_digest')
+            if isinstance(digest,str):observations.setdefault(digest,[]).append(record)
+        elif (step.get('stage')=='action_trace' or step.get('status') in
+              ('before_action','observed','terminal') and step.get('stage') not in
+              ('failure','cleanup','cleanup_trade','receiver_receipt')):
+            durable.append(record)
+    # Bind the minimum stable observation window. Later idempotent recovery
+    # polls must not change an already committed disposition digest.
+    action_attempted=any(row['status']=='before_action' for row in durable)
+    for records in observations.values() if action_attempted else ():
+        records.sort(key=lambda row:(row.get('payload') or {}).get('observed_at',0))
+        if records:
+            durable.append(records[0]);start=records[0]['payload']['observed_at']
+            second=next((row for row in records[1:]
+                         if row['payload']['observed_at']-start>=SETTLEMENT_WINDOW),None)
+            if second is not None:durable.append(second)
+    proof={'operation':{name:intent.get(name) for name in
+                        ('operation_id','town_visit_id','visit_id','farmer_profile_id')},
+           'operation_items':exact_items(intent['items']),
+           'farmer':{'identity':farmer['identity'],'character_uid':farmer['character_uid'],
+                     'silver':farmer['silver'],'inventory':exact_items(farmer['inventory']),
+                     'booth':exact_listings(farmer.get('booth',[])),
+                     'trade':farmer.get('trade'),'request':farmer.get('request')},
+           'merchant':{'identity':merchant['identity'],'character_uid':merchant['character_uid'],
+                       'silver':merchant['silver'],'inventory':exact_items(merchant['inventory']),
+                       'booth':exact_listings(merchant.get('booth',[])),
+                       'trade':merchant.get('trade'),'request':merchant.get('request')},
+           'sale_receipts':sale_receipts,
+           'trace':durable}
+    return hashlib.sha256(json.dumps(proof,sort_keys=True).encode()).hexdigest()
+
+
+def _sale_adjustment(intent,merchant,receipts):
+    original=exact_listings(intent['merchant'].get('booth',[]));sold={};canonical=[]
+    from conquest.merchants.sales import net_bounds
+    for receipt in receipts or ():
+        if (type(receipt.get('id')) is not int or receipt['id']<=0
+                or receipt.get('phase')!='verified'
+                or type(receipt.get('observed_at')) not in (int,float)
+                or not max(intent['farmer']['timestamp'],intent['merchant']['timestamp'])
+                    < receipt['observed_at'] <= merchant['timestamp']
+                or type(receipt.get('silver')) is not int or receipt['silver']<0):
+            raise ReconciliationBlocked('Sale receipt is not qualified for this operation')
+        items=receipt.get('items')
+        try:listed=exact_listings(items)
+        except (ValueError,KeyError,TypeError) as error:
+            raise ReconciliationBlocked('Sale receipt lacks exact item attributes') from error
+        if (not listed or set(listed)&set(sold)
+                or any(original.get(uid)!=details for uid,details in listed.items())):
+            raise ReconciliationBlocked('Sale receipt stock does not match the original booth')
+        low,high=net_bounds(items)
+        if not low<=receipt['silver']<=high:
+            raise ReconciliationBlocked('Sale receipt currency does not match exact listing value')
+        sold.update(listed)
+        canonical.append({'id':receipt['id'],'observed_at':receipt['observed_at'],
+                          'items':[{name:item.get(name) for name in
+                                    ('uid','type_id','plus','gem1','gem2','quantity','bound','price')}
+                                   for item in items],
+                          'silver':receipt['silver']})
+    current_inventory=exact_items(merchant['inventory'])
+    if set(sold)&set(current_inventory):
+        raise ReconciliationBlocked('Sold booth stock is present in merchant inventory')
+    expected_booth={uid:details for uid,details in original.items() if uid not in sold}
+    return expected_booth,sum(row['silver'] for row in canonical),canonical
+
+
+def reconciliation_outcome(intent, farmer, merchant, *, trace=None, sale_receipts=(), now=None):
+    """Classify exact bilateral ownership without authorizing any new input.
+
+    A legacy transaction without an initialized action trace may still prove a
+    completed delivery, but it cannot be automatically declared a no-transfer
+    or partial disposition.
+    """
+    now=time.time() if now is None else now
+    try:
+        source=validate_snapshot(farmer,farmer_name(),now)
+        destination=validate_snapshot(merchant,intent['merchant']['character'],now)
+        expected_booth,sale_silver,sales=_sale_adjustment(intent,merchant,sale_receipts)
+        cleanup=[]
+        for role,current,other in (('farmer',farmer,merchant),('merchant',merchant,farmer)):
+            before=intent[role]
+            expected_silver=before['silver']+(sale_silver if role=='merchant' else 0)
+            booth=(expected_booth if role=='merchant' else exact_listings(before.get('booth',[])))
+            if (current['identity']!=before['identity']
+                    or current['character_uid']!=before['character_uid']
+                    or current['silver']!=expected_silver
+                    or exact_listings(current.get('booth',[]))!=booth):
+                raise ReconciliationBlocked('Participant identity, currency or booth stock changed')
+            if not _empty_pair_trade(current,other):
+                raise ReconciliationBlocked('A non-empty or unrelated trade remains active')
+            if current.get('trade'):cleanup.append(current['character'])
+        if farmer.get('request'):
+            raise ReconciliationBlocked('A farmer request remains active')
+        request=merchant.get('request')
+        if request and (request.get('participant')==farmer['character']
+                or request.get('participant_uid')==farmer['character_uid']):
+            raise ReconciliationBlocked('The reserved farmer request remains active')
+        wanted=exact_items(intent['items'])
+        before_source=exact_items(intent['farmer']['inventory'])
+        before_destination=exact_items(intent['merchant']['inventory'])
+        moved={uid:details for uid,details in wanted.items()
+               if uid not in source and destination.get(uid)==details}
+        remaining={uid:details for uid,details in wanted.items()
+                   if source.get(uid)==details and uid not in destination}
+        if set(moved)|set(remaining)!=set(wanted) or set(moved)&set(remaining):
+            raise ReconciliationBlocked('Reserved items have ambiguous ownership')
+        if source!={uid:details for uid,details in before_source.items() if uid not in moved}:
+            raise ReconciliationBlocked('Farmer surrounding inventory changed')
+        if destination!={**before_destination,**moved}:
+            raise ReconciliationBlocked('Merchant surrounding inventory changed')
+        if not remaining:
+            outcome='delivered'
+        elif not moved:
+            outcome='no_transfer'
+        else:
+            outcome='partial_transfer'
+        if outcome!='delivered':
+            if not _trace_ready(trace):
+                raise ReconciliationBlocked('Legacy transaction lacks an explicit action trace')
+            if cleanup:
+                raise ReconciliationBlocked('The attempted trade session is still open')
+            digest=ownership_digest(intent,farmer,merchant,sales)
+            if not _negative_outcome_proven(trace,digest,now):
+                raise ReconciliationBlocked('The attempted trade lacks stable terminal settlement evidence',
+                                            code='settlement_pending')
+        return {'outcome':outcome,'delivered':[i for i in intent['items'] if i['uid'] in moved],
+                'remaining':[i for i in intent['items'] if i['uid'] in remaining],
+                'sale_receipts':sales,
+                'cleanup_pending':cleanup,'farmer':farmer,'merchant':merchant,
+                'proof_digest':_proof_digest(intent,farmer,merchant,trace,sales),'reconciled_at':now}
+    except ReconciliationBlocked:
+        raise
+    except (ValueError,KeyError,TypeError) as error:
+        raise ReconciliationBlocked(str(error) or 'Bilateral ownership is unavailable') from error
 
 
 def validate_snapshot(snapshot, character, now):
@@ -140,32 +343,50 @@ def validate_offers(intent, farmer, merchant, *, now=None):
 
 
 def reconcile(intent, farmer, merchant, *, now=None):
-    now=time.time() if now is None else now
     try:
-        source=validate_snapshot(farmer,farmer_name(),now)
-        destination=validate_snapshot(merchant,intent['merchant']['character'],now)
-        for role,current in (('farmer',farmer),('merchant',merchant)):
-            before=intent[role]
-            if (current['character_uid']!=before['character_uid'] or current['silver']!=before['silver']
-                    or current.get('trade') or current.get('request')
-                    or exact_items(current.get('booth',[]))!=exact_items(before.get('booth',[]))):
-                return False
-        offered=exact_items(intent['items'])
-        expected_source={uid:detail for uid,detail in exact_items(intent['farmer']['inventory']).items() if uid not in offered}
-        expected_destination={**exact_items(intent['merchant']['inventory']),**offered}
-        return source==expected_source and destination==expected_destination
-    except (ValueError,KeyError,TypeError):
+        return reconciliation_outcome(intent,farmer,merchant,now=now)['outcome']=='delivered'
+    except ReconciliationBlocked:
         return False
 
 
 class DeliveryTransaction:
     """Driver input is live-qualified separately; this journal survives crashes."""
-    def __init__(self, journal, driver, peer=None):
+    def __init__(self, journal, driver, peer=None, *, mark_read_only=None,
+                 sale_receipts=None, clock=None, monotonic=None, sleep=None):
         self.journal,self.driver=journal,driver
         if peer is None:
             from conquest.merchants.delivery_peer import DeliveryPeer
             peer=DeliveryPeer()
         self.peer=peer
+        self.key=None
+        self.mark_read_only=mark_read_only or (lambda:None)
+        self.sale_receipts=sale_receipts or (lambda intent,farmer,merchant:())
+        self.clock,self.monotonic,self.sleep=(clock or time.time,monotonic or time.monotonic,
+                                             sleep or time.sleep)
+        setter=getattr(driver,'set_operation',None)
+        self.trace_enabled=callable(setter)
+        if self.trace_enabled:setter(self)
+
+    def before_action(self, stage):
+        if self.key is None:raise ValueError('Delivery operation is not active')
+        self.journal.step(self.key,stage,'before_action',terminal=stage=='cleanup_trade')
+
+    def action_observed(self, stage, evidence=None):
+        if self.key is None:raise ValueError('Delivery operation is not active')
+        self.journal.step(self.key,stage,'observed',evidence,terminal=stage=='cleanup_trade')
+
+    def finish_receiver(self,key,intent):
+        receipt=self.peer.finish(key,intent)
+        self.journal.step(key,'receiver_receipt','observed',{
+            'phase':receipt.get('phase') if isinstance(receipt,dict) else 'verified'},terminal=True)
+        return receipt
+
+    def trace(self, key):
+        result=[]
+        for step in self.journal.trace(key):
+            if step['stage']=='transaction':continue
+            result.append({**step,'payload':json.loads(step['payload'])})
+        return result
 
     def run(self, merchant, items, *, request_id=None):
         self.driver.require_qualified('farmer_delivery')
@@ -179,7 +400,10 @@ class DeliveryTransaction:
 
     def execute(self,key,merchant,intent):
         """Execute a newly prepared operation owned by this process once."""
+        self.key=key
         items=intent['items']
+        if self.trace_enabled:
+            self.journal.step(key,'action_trace','initialized',{'version':1})
         try:
             self.peer.reserve(key,intent)
             self.driver.open_trade(intent)
@@ -195,27 +419,84 @@ class DeliveryTransaction:
             # farmer's confirmation and deadlock both accounts.
             self.peer.ready(key,intent)
             farmer,receiver=self.driver.wait_pair(merchant)
-            if not reconcile(intent,farmer,receiver):
+            sales=self.sale_receipts(intent,farmer,receiver)
+            result=reconciliation_outcome(intent,farmer,receiver,trace=self.trace(key),sale_receipts=sales)
+            if result['outcome']!='delivered':
                 raise ValueError('Delivery result is uncertain; both inventories must reconcile')
-            self.journal.transition(key,'verified',{'items':items,'farmer':farmer,'merchant':receiver})
-        except Exception:
-            self.journal.transition(key,'uncertain')
-            raise
+            self.journal.transition(key,'verified',{**result,'items':items})
+            self.mark_read_only()
+        except Exception as error:
+            self.journal.step(key,'failure','caught',{'error_type':type(error).__name__,
+                'reason':str(error) if isinstance(error,(ValueError,OSError)) else 'Delivery operation failed'})
+            self.journal.transition(key,'uncertain',{'outcome':'unknown','reason':
+                str(error) if isinstance(error,(ValueError,OSError)) else 'Delivery operation failed',
+                'next_action':'reconcile_bilateral_ownership'})
+            self.mark_read_only()
+            try:return self.recover(key,mark=False)
+            except ReconciliationBlocked:raise error
         # A lost release acknowledgement cannot undo a verified transfer.
         # Retrying this read-only command after restart must never send items.
-        self.peer.finish(key,intent)
+        self.finish_receiver(key,intent)
         return key
 
-    def recover(self,key):
+    def recover(self,key,*,mark=True):
+        self.key=key
+        if mark:self.mark_read_only()
         with self.journal.db() as db:
             row=db.execute('SELECT * FROM transactions WHERE id=?',(key,)).fetchone()
         if not row or row['kind']!='farmer_delivery' or row['phase']=='aborted':
             raise ValueError('Unknown recoverable farmer delivery')
         intent=json.loads(row['before_json'])
-        if row['phase']!='verified':
-            farmer,merchant=self.driver.read_pair(row['character'])
-            if not reconcile(intent,farmer,merchant):
-                raise ValueError('Delivery remains uncertain; no new input is authorized')
-            self.journal.transition(key,'verified',{'items':intent['items'],'farmer':farmer,'merchant':merchant})
-        self.peer.finish(key,intent)
+        saved=(json.loads(row['result_json']) if row['result_json'] else {}) or {}
+        if row['phase']=='verified':
+            if saved.get('cleanup_pending'):
+                farmer,merchant=self.driver.read_pair(row['character'])
+                sales=self.sale_receipts(intent,farmer,merchant)
+                result=reconciliation_outcome(intent,farmer,merchant,trace=self.trace(key),sale_receipts=sales)
+                if result['outcome']!='delivered' or result['cleanup_pending']:
+                    raise ReconciliationBlocked('Verified delivery still has native trade cleanup pending')
+                self.journal.step(key,'cleanup','observed',{'proof_digest':result['proof_digest']},terminal=True)
+            self.finish_receiver(key,intent)
+            return key
+        def observe():
+            farmer,merchant=self.driver.read_pair(row['character']);trace=self.trace(key)
+            sales=self.sale_receipts(intent,farmer,merchant)
+            if _trace_ready(trace):
+                self.journal.step(key,'reconciliation_observation','observed',{
+                    'ownership_digest':ownership_digest(intent,farmer,merchant,sales),
+                    'observed_at':self.clock()})
+            return farmer,merchant,sales
+        farmer,merchant,sales=observe()
+        try:result=reconciliation_outcome(intent,farmer,merchant,trace=self.trace(key),
+                                          sale_receipts=sales,now=self.clock())
+        except ReconciliationBlocked as error:
+            trace=self.trace(key)
+            confirm_attempted=any(s.get('stage')=='farmer_confirm' and s.get('status')=='before_action'
+                                  for s in trace)
+            if error.code=='settlement_pending' and not confirm_attempted:
+                deadline=self.monotonic()+SETTLEMENT_WINDOW+.5
+                while self.monotonic()<deadline:
+                    self.sleep(min(.1,max(0,deadline-self.monotonic())))
+                    farmer,merchant,sales=observe()
+                    try:
+                        result=reconciliation_outcome(intent,farmer,merchant,
+                            trace=self.trace(key),sale_receipts=sales,now=self.clock())
+                        break
+                    except ReconciliationBlocked as current:
+                        error=current
+                else:
+                    raise ReconciliationBlocked('Delivery remains uncertain; no new input is authorized: '+str(error)) from error
+            else:
+                raise ReconciliationBlocked('Delivery remains uncertain; no new input is authorized: '+str(error)) from error
+        if result['outcome']=='delivered':
+            self.journal.transition(key,'verified',{'items':intent['items'],'farmer':farmer,
+                'merchant':merchant,**result})
+            self.finish_receiver(key,intent)
+        else:
+            acknowledgement=self.peer.disposition(key,intent,result['outcome'])
+            if (acknowledgement.get('request_id')!=key
+                    or acknowledgement.get('outcome')!=result['outcome']
+                    or acknowledgement.get('proof_digest')!=result['proof_digest']):
+                raise ReconciliationBlocked('Receiver disposition acknowledgement is missing or changed')
+            self.journal.transition(key,'aborted',result)
         return key

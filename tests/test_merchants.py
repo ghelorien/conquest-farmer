@@ -274,6 +274,20 @@ def test_durable_intent_has_one_receipt_and_blocks_other_transactions(journal):
     assert restarted.pending('Spiritual')==[]
 
 
+def test_transaction_phase_cas_rejects_illegal_and_stale_transitions(journal):
+    state=snapshot();journal.begin('one','Spiritual','delivery',state)
+    with pytest.raises(ValueError,match='Illegal'):
+        journal.transition('one','prepared',{})
+    journal.transition('one','submitted',expected='prepared')
+    with pytest.raises(ValueError,match='phase changed'):
+        journal.transition('one','uncertain',expected='prepared')
+    journal.transition('one','verified',{'receipt':'kept'},expected='submitted')
+    journal.transition('one','verified',{'receipt':'discarded'})
+    with journal.db() as db:
+        assert json.loads(db.execute('SELECT result_json FROM transactions WHERE id=?',('one',)).fetchone()[0])=={'receipt':'kept'}
+    assert [row['status'] for row in journal.trace('one') if row['stage']=='transaction']==['prepared','submitted','verified']
+
+
 def test_scan_duplicate_coalescing_and_pause_persist(journal):
     journal.set('Dutch','enabled',False)
     first = journal.request_scan('Dutch','a',1)
@@ -547,6 +561,22 @@ def test_preflight_focus_denial_has_no_transaction_to_reconcile(journal,tmp_path
     with pytest.raises(CaptureUnavailable,match='foreground'):control.apply_price(plan)
     assert not journal.pending('Spiritual') and not driver.inputs
     with journal.db() as db:assert db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0]==0
+
+
+def test_listing_failure_before_confirm_is_immediately_verified_aborted(journal,tmp_path):
+    from conquest.merchants.controller import identities,ListingNotSubmitted
+    before=snapshot();before.update(trade=None,windows=[])
+    after=copy.deepcopy(before)
+    control,driver=controller(journal,tmp_path,[before,after])
+    driver.list_item=lambda *args:(_ for _ in ()).throw(ListingNotSubmitted('Focus changed before confirmation'))
+    plan={'uid':1,'price':99,'old_price':None,'observed_at':time.time(),
+          'attributes':list(identities(before['inventory'])[1])}
+    assert control.apply_price(plan) is None and not journal.pending('Spiritual')
+    with journal.db() as db:
+        row=db.execute("SELECT phase,result_json FROM transactions WHERE kind='listing'").fetchone()
+    result=json.loads(row['result_json'])
+    assert row['phase']=='aborted' and result['outcome']=='not_submitted'
+    assert result['confirmation_attempted'] is False
 
 
 def test_missing_booth_calibration_is_verified_before_listing_intent(journal,tmp_path,monkeypatch):

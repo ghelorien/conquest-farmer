@@ -4,9 +4,12 @@ from ctypes import wintypes
 from pathlib import Path
 import subprocess
 from conquest.character_context import context_arguments
+from conquest.legacy_startup import configure
 
 
 def start_arguments(root, profile, calibration, *, launch_client=False, embed_client=None):
+    startup=configure([])
+    legacy=['--legacy-data-root',str(startup.legacy_root)] if startup.legacy_root else []
     action = '--launch-client' if launch_client else ('--calibrate' if calibration else '--start')
     selected = []
     if embed_client is not None:
@@ -16,7 +19,7 @@ def start_arguments(root, profile, calibration, *, launch_client=False, embed_cl
         selected = [value for name,number in zip(('--client-pid','--client-started','--client-hwnd'),embed_client)
                     for value in (name,str(number))]
     return [str(Path(root)/'scripts/start_desktop_app.py'), '--profile',
-            str(Path(profile).resolve()),action,*selected,*context_arguments()]
+            str(Path(profile).resolve()),action,*selected,*context_arguments(),*legacy]
 
 
 def elevated_start(hwnd, root, profile, calibration=False, *, launch_client=False, embed_client=None):

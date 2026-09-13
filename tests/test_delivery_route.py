@@ -20,6 +20,9 @@ def snapshot(name,uid,items=(),position=(10,10)):
 def rig(monkeypatch,tmp_path):
     from conquest import safe_reload
     from conquest.merchants import handoff
+    from conquest.merchants import service_visit
+    original_visit=service_visit.MarketVisit
+    monkeypatch.setattr(service_visit,'MarketVisit',lambda:original_visit(tmp_path/'visit.json'))
     monkeypatch.setattr(safe_reload,'clear_observation',lambda h:True)
     monkeypatch.setattr(route,'WorkWindows',lambda:handoff.WorkWindows(tmp_path/'windows.json'))
     write_json(route.POLICY,{'enabled':True,'parity_verified':True})
@@ -29,7 +32,7 @@ def rig(monkeypatch,tmp_path):
     events=[];receipts={};health={'target':{'pid':1},'embedded_controls':{
         'life':{'map_id':1036},'control':{'enabled':False,'revision':1}}}
     loop=NS(health=lambda:copy.deepcopy(health),living=lambda:copy.deepcopy(health),
-        terrain=NS(travel_path=lambda a,b:[a,b]),check_stop=lambda:None,
+        terrain=NS(travel_path=lambda a,b:[a,b],walkable=lambda p:p[0]>=0 and p[1]>=0),check_stop=lambda:None,
         town=lambda action,**fields:events.append((action,fields)),
         focus=lambda h:events.append(('focus',None)),
         record=lambda event,**fields:events.append((event,fields)))
@@ -44,6 +47,15 @@ def rig(monkeypatch,tmp_path):
         action=body['action']
         for snap in (f,d,s):snap['timestamp']=time.time()
         if action=='delivery-readiness':return {'qualified':True}
+        if action=='delivery-target':
+            from conquest.viewport import clear_scene
+            m=d if body['character']=='Dutch' else s
+            dx,dy=m['position'][0]-f['position'][0],m['position'][1]-f['position'][1]
+            point=[700+(dx-dy)*32,350+(dx+dy)*16]
+            viewport=[1416,850]
+            return {'ready':max(abs(dx),abs(dy))<=12 and clear_scene(point,viewport),
+                    'farmer_position':f['position'],'merchant_position':m['position'],
+                    'point':point,'viewport':viewport,'reason':'outside_client','occupied_tiles':[]}
         if action=='status':return {'characters':{m['character']:{'ready':True} for m in (d,s)}}
         if action=='delivery-pair':return {'farmer':copy.deepcopy(f),'merchant':copy.deepcopy(d if body['character']=='Dutch' else s)}
         if action=='delivery-start':
@@ -55,7 +67,11 @@ def rig(monkeypatch,tmp_path):
                 moved=[i for i in f['inventory'] if i['uid'] in body['uids']]
                 target['inventory']+=moved
                 f['inventory']=[i for i in f['inventory'] if i not in moved]
-                receipts[key]={'request_id':key,'phase':'verified','character':body['character'],'uids':body['uids']}
+                receipts[key]={'request_id':key,'phase':'verified','character':body['character'],'uids':body['uids'],
+                               'items':moved,'delivered':moved,'remaining':[],
+                               'outcome':'transferred','next_action':'release_route','proof_digest':'test-proof'}
+                saved=read_json(route.STATE)['active']
+                receipts[key].update({k:saved.get(k) for k in ('visit_id','town_visit_id','farmer_profile_id')})
             return {'running':False,'receipt':receipts[key]}
         if action=='delivery-status':return {'running':False,'receipt':receipts.get(body['request_id'])}
         if action=='handoff-release':return {'released':True}
@@ -83,6 +99,19 @@ def test_full_merchants_do_not_cause_travel(rig):
     rig.d['inventory'].append(item(900));rig.s['inventory'].append(item(901))
     assert route.market_storage(rig.loop,send=rig.send)==[]
     assert not any(e=='travel' for e,_ in rig.events)
+
+
+def test_unreachable_first_merchant_defers_to_second_without_repeated_approach(rig,monkeypatch):
+    visits=[]
+    original=route.approach_merchant
+    def approach(loop,plan,send,**kw):
+        visits.append(plan['merchant'])
+        return False if plan['merchant']=='Dutch' else original(loop,plan,send,**kw)
+    monkeypatch.setattr(route,'approach_merchant',approach)
+    result=route.market_storage(rig.loop,send=rig.send)
+    assert [r['merchant'] for r in result]==['Spiritual']
+    assert visits==['Dutch','Spiritual']
+    assert [i['uid'] for i in rig.f['inventory']]==[101,102,103]
 
 
 def test_full_warehouse_can_continue_with_no_loot_and_ready_merchant_capacity(rig):
@@ -141,19 +170,17 @@ def test_missing_readiness_uses_warehouse_without_travel(rig):
     assert route.market_storage(rig.loop,send=send)==[]
 
 
-def test_lost_start_response_preserves_journal_and_restart_reconciles(rig):
+def test_lost_start_response_reconciles_natively_without_repeating_start(rig):
     def lost(body):
         result=rig.send(body)
         if body['action']=='delivery-start':raise OSError('response lost')
         return result
-    with pytest.raises(OSError):route.market_storage(rig.loop,send=lost)
-    key=read_json(route.STATE)['active']['request_id']
-    assert key in rig.receipts
-    write_json(route.POLICY,{'enabled':False})
-    route.market_storage(rig.loop,send=rig.send)
+    assert len(route.market_storage(rig.loop,send=lost))==2
     assert not read_json(route.STATE)['active']
     assert len(rig.d['inventory'])==40
     assert route.receipt_for(100,130009)
+    starts=[b['request_id'] for e,b in rig.events if e=='delivery-start']
+    assert len(starts)==len(set(starts))==2
 
 
 def test_unknown_submission_never_falls_through_to_warehouse(rig):
@@ -197,7 +224,7 @@ def test_delivery_window_respects_global_stop_and_independent_refill_permission(
     ui.coordinator.stopped=False
     assert UnifiedUI.dispatch(ui,body)=={'requested':'test-window'}
     assert runtime.handoff==runtime.delivery_window=='test-window'
-    assert calls==['Dutch']
+    assert calls==[]  # Delivery has priority; refill begins only after reconciliation.
 
 
 def test_delivery_window_retry_does_not_reset_refill_or_replace_another_window():
@@ -215,7 +242,7 @@ def test_delivery_window_retry_does_not_reset_refill_or_replace_another_window()
     assert runtime.handoff=='existing' and not calls
 
 
-def test_failed_delivery_timer_write_leaves_exact_window_releasable():
+def test_delivery_window_has_no_refill_write_and_remains_releasable():
     import threading
     from conquest.merchants.ui import UnifiedUI
     def fail():raise OSError('Journal write failed')
@@ -224,8 +251,7 @@ def test_failed_delivery_timer_write_leaves_exact_window_releasable():
                refills={name:NS(start=fail) for name in ('Dutch','Spiritual')},handoff=None,
                finish_handoff=lambda:finished.append(True))
     ui=NS(runtime=runtime,grant=None,coordinator=NS(lock=threading.RLock(),owner=None,stopped=False))
-    with pytest.raises(OSError,match='Journal'):
-        UnifiedUI.dispatch(ui,{'action':'delivery-window','request_id':'failed-window'})
+    UnifiedUI.dispatch(ui,{'action':'delivery-window','request_id':'failed-window'})
     assert ui.grant is None and runtime.handoff==runtime.delivery_window=='failed-window'
     assert UnifiedUI.dispatch(ui,{'action':'handoff-release','request_id':'failed-window'})=={'released':True}
     assert runtime.handoff is runtime.delivery_window is runtime.refill_window is None
@@ -264,7 +290,8 @@ def test_refill_phase_requires_both_delivery_receipts(tmp_path,monkeypatch,verif
     monkeypatch.setattr(op,'Journal',lambda path:None)
     monkeypatch.setattr(op,'status',lambda journal,key:{'phase':'verified','character':'Dutch'})
     runtime=NS(delivery_window='batch',handoff='batch',journal=NS(get=lambda *a:{
-        'request_id':'batch','phase':'verified' if verified else 'offer_ready'}))
+        'request_id':'batch','phase':'verified' if verified else 'offer_ready'}),
+        refill_enabled=lambda c:False)
     ui=NS(runtime=runtime,grant={'request_id':'batch','expires_at':1234},safe_to_yield=lambda:True,
           coordinator=InputCoordinator(lambda:True,path=tmp_path/'input.lock'))
     if verified:
@@ -282,11 +309,19 @@ def test_merchant_already_in_trade_range_does_not_move(rig):
     assert not any(e=='travel' for e,_ in rig.events)
 
 
-def test_merchant_approach_stops_at_first_checked_in_range_tile(rig):
+def test_merchant_approach_requires_visible_reachable_tile(rig):
     rig.f['position']=[10,10];rig.d['position']=[40,10]
-    rig.loop.terrain.travel_path=lambda a,b:[(x,10) for x in range(10,41)]
-    route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[40,10]},rig.send)
-    assert rig.f['position']==[28,10]
+    assert route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[40,10]},rig.send)
+    assert rig.send({'action':'delivery-target','character':'Dutch'})['ready']
+    assert rig.f['position']!=rig.d['position']
+
+
+def test_current_dutch_diagonal_in_range_is_not_clickable(rig):
+    rig.f['position']=[252,221];rig.d['position']=[264,210]
+    assert not rig.send({'action':'delivery-target','character':'Dutch'})['ready']
+    assert route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[264,210]},rig.send)
+    assert rig.send({'action':'delivery-target','character':'Dutch'})['ready']
+    assert any(e=='travel' for e,_ in rig.events)
 
 
 def test_booth_stock_counts_against_delivery_capacity(rig):

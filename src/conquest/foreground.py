@@ -106,7 +106,8 @@ def require_click_position(snapshot, hwnd, expected_size, expected_point):
 
 @coordinated_input
 def foreground_click(target, x, y, expected_size, button="left", control=False,
-                     require_foreground=False, expected_origin=None,diagnostics=None,before_press=None):
+                     require_foreground=False, expected_origin=None,diagnostics=None,
+                     before_press=None,layout_guard=None):
     if button not in ("left", "right"):
         raise ValueError("Unsupported mouse button")
     if type(control) is not bool:
@@ -185,6 +186,9 @@ def foreground_click(target, x, y, expected_size, button="left", control=False,
             key_state = bind(user, "GetAsyncKeyState", [c.c_int], c.c_short)
             if key_state(0x7B) & 0x8000:
                 raise ValueError("Emergency stop before click")
+            if layout_guard:
+                layout_guard()
+                require_click_position(target.snapshot(),foreground_hwnd,expected_size,(point.x,point.y))
             if before_press:
                 before_press()
                 require_click_position(target.snapshot(),foreground_hwnd,expected_size,(point.x,point.y))
@@ -201,7 +205,8 @@ def foreground_click(target, x, y, expected_size, button="left", control=False,
 
 
 @coordinated_input
-def foreground_drag(target, source, destination, expected_size,*,before_press=None):
+def foreground_drag(target, source, destination, expected_size,*,before_press=None,
+                    layout_guard=None,before_release=None):
     """One bounded client-local drag for explicit shortcut calibration."""
     require_idle()
     state = target.snapshot()
@@ -233,14 +238,21 @@ def foreground_drag(target, source, destination, expected_size,*,before_press=No
     time.sleep(.1)
     require_click_position(target.snapshot(),target.hwnd,expected_size,(a.x,a.y))
     try:
+        if layout_guard:
+            layout_guard()
+            require_click_position(target.snapshot(),target.hwnd,expected_size,(a.x,a.y))
         if before_press:
             before_press()
             require_click_position(target.snapshot(),target.hwnd,expected_size,(a.x,a.y))
         mouse(0x2)
         time.sleep(.15)
         for step in range(1,9):
+            if layout_guard:layout_guard()
             move(round(a.x+(b.x-a.x)*step/8),round(a.y+(b.y-a.y)*step/8))
             time.sleep(.04)
+        require_click_position(target.snapshot(),target.hwnd,expected_size,(b.x,b.y))
+        if layout_guard:layout_guard()
+        if before_release:before_release()
         require_click_position(target.snapshot(),target.hwnd,expected_size,(b.x,b.y))
         time.sleep(.1)
     finally:

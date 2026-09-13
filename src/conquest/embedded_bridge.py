@@ -87,7 +87,24 @@ class EmbeddedBridge:
                                     raise ValueError('Town input must expire within five seconds')
                                 if bridge.snapshot()['control']['enabled']:
                                     raise ValueError('Stop farming before town input')
-                            result = bridge.on_town({k:v for k,v in body.items() if k!='expires_at'})
+                            read_only=body.get('action') in ('supplies','shop','gear','vendor-status','ground-items','service-locate','service-dialog','warehouse-items')
+                            town=bridge.on_town
+                            previous=getattr(town,'check_input',None)
+                            revision=bridge.snapshot()['control'].get('revision') if not read_only else None
+                            def check_town_input():
+                                from conquest.capture import CaptureUnavailable
+                                current=bridge.snapshot()['control']
+                                if (bridge.stop.is_set() or time.time()>=body['expires_at'] or type(revision) is not int
+                                        or current.get('revision')!=revision or current['enabled'] or current.get('paused')
+                                        or active()):
+                                    raise CaptureUnavailable('Town input permission changed; reobserve before continuing')
+                                if previous:previous()
+                            attach_guard=not read_only and hasattr(town,'__dict__')
+                            try:
+                                if attach_guard:town.check_input=check_town_input
+                                result = town({k:v for k,v in body.items() if k!='expires_at'})
+                            finally:
+                                if attach_guard:town.check_input=previous
                         elif operation=='sample-npcs':
                             if body or bridge.on_sample_npcs is None:
                                 raise ValueError('Vendor reader is unavailable or has unsupported arguments')

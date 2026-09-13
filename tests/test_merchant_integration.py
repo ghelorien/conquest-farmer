@@ -163,6 +163,9 @@ def test_native_tabs_bridge_authentication_handoff_and_global_stop(tmp_path,monk
         control['enabled'] = True
         assert not unified.safe_to_yield()
         request({'action':'handoff-request','request_id':'safe1'})
+        with pytest.raises(ValueError):
+            request({'action':'handoff-grant','request_id':'safe1','safe':True,'revision':1,'expires_at':time.time()+10})
+        control['enabled'] = False
         request({'action':'handoff-grant','request_id':'safe1','safe':True,'revision':1,'expires_at':time.time()+10})
         assert unified.safe_to_yield()
         control['revision'] += 1
@@ -285,6 +288,31 @@ def test_one_time_batch_never_accepts_incoming_trades(tmp_path):
         runtime.step('Dutch')
     assert not calls
     assert journal.get('Dutch','scan')['pending']
+
+
+def test_runtime_reconciles_submitted_request_decline_after_modal_disappears(tmp_path,monkeypatch):
+    from conquest.merchants.runtime import MerchantRuntime
+    journal=Journal(tmp_path/'journal.sqlite3')
+    runtime=MerchantRuntime(object(),InputCoordinator(lambda:True),journal=journal)
+    journal.set('Dutch','enabled',True)
+    journal.set('Dutch','unrelated_request_decline',{'phase':'submitted'})
+    snapshot={'character':'Dutch','identity':{'pid':7},'timestamp':time.time(),
+              'inventory':[],'booth':[],'silver':100,'capacity':40,
+              'request':None,'trade':None,'booth_open':True}
+    runtime.observers['Dutch']=SimpleNamespace(
+        adapter=SimpleNamespace(assert_identity=lambda:None),lock=threading.RLock())
+    controller=SimpleNamespace(driver=SimpleNamespace(read=lambda:snapshot),reconcile=lambda state:None)
+    runtime.controllers['Dutch']=controller
+    runtime.disconnected=lambda character:False
+    calls=[]
+    def reconcile_decline(actual_controller,state,*,operations_enabled):
+        calls.append((actual_controller,state.get('request'),operations_enabled))
+        journal.set('Dutch','unrelated_request_decline',{'phase':'verified'})
+        return True
+    monkeypatch.setattr('conquest.merchants.unrelated_request.decline_unrelated_request',reconcile_decline)
+    runtime.step('Dutch')
+    assert calls==[(controller,None,True)]
+    assert journal.get('Dutch','unrelated_request_decline')['phase']=='verified'
 
 
 def test_delivery_window_holds_unreserved_stock_but_allows_reserved_request(tmp_path,monkeypatch):

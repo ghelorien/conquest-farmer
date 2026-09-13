@@ -567,17 +567,18 @@ def test_town_travel_tracks_actual_progress_instead_of_lifetime_failures(monkeyp
     loop.care=SimpleNamespace(check=lambda h:None,session=None)
     loop.record=lambda *a,**k:None
     def step(destination,expected_position):
-        clock[0]+=30
+        clock[0]+=30 if progress else 5
         if progress:position[0]+=1
         return {'reached':False}
     loop.stepper=SimpleNamespace(step_to=step)
+    loop.focus=lambda h:True
     if progress:
         loop.travel((18,10))
         assert position==[18,10] and clock[0]>240
     else:
-        with pytest.raises(ValueError,match='no position progress'):
+        with pytest.raises(ValueError,match='no improving progress'):
             loop.travel((18,10))
-        assert clock[0]==90
+        assert clock[0]==15
 
 
 
@@ -638,6 +639,32 @@ def test_town_handoff_cancels_old_death_return_before_new_travel(tmp_path,monkey
     monkeypatch.setattr(overnight,'request',request)
     loop.stop_farm()
     assert calls==[{'enabled':False},{'route_id':'bandit'}]
+
+
+def test_non_market_typed_stall_keeps_survival_and_recovery_active(monkeypatch):
+    from conquest.merchants import delivery_route
+    from conquest.travel_progress import TravelStalled
+    monkeypatch.setattr(delivery_route,'pending',lambda:False)
+    calls=[];loop=OvernightLoop.__new__(OvernightLoop)
+    loop.living=lambda:(calls.append('living') or
+        {'embedded_controls':{'life':{'map_id':1002,'position':[300,200]}}})
+    loop.protect_during_movement_retry=lambda:calls.append('protect')
+    loop.recover_travel_stall(TravelStalled('stalled'))
+    assert calls==['living','protect']
+
+
+@pytest.mark.parametrize('reason,map_id,pending',[
+    ('service_deadline',1002,False),('no_progress',1036,False),('no_progress',1002,True)])
+def test_market_deadline_or_unresolved_trade_cannot_enter_route_retry(monkeypatch,reason,map_id,pending):
+    from conquest.merchants import delivery_route
+    from conquest.travel_progress import TravelStalled
+    monkeypatch.setattr(delivery_route,'pending',lambda:pending)
+    loop=OvernightLoop.__new__(OvernightLoop);calls=[]
+    loop.living=lambda:{'embedded_controls':{'life':{'map_id':map_id}}}
+    loop.protect_during_movement_retry=lambda:calls.append('protect')
+    error=TravelStalled('stalled',code=reason)
+    with pytest.raises(TravelStalled) as raised:loop.recover_travel_stall(error)
+    assert raised.value is error and calls==[]
 
 def test_warehouse_travel_finishes_before_exact_approach_tile():
     loop=OvernightLoop.__new__(OvernightLoop)

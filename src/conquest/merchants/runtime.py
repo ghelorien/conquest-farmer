@@ -69,15 +69,15 @@ class MerchantRuntime:
         self.handoff = None
         self.work_deadline = None
 
-    def can_start_work(self):
-        return self.work_deadline is None or time.time() < self.work_deadline
+    def can_start_work(self,minimum_seconds=0):
+        return self.work_deadline is None or time.time()+minimum_seconds < self.work_deadline
 
     def finish_handoff(self):
         # Submitted actions reconcile independently before any later input.
-        # End the capacity round even if its priced queue did not fit the budget.
+        # Expiry is not a completed capacity check. Keep its durable queue.
         for refill in self.refills.values():
             if refill.state().get('pending'):
-                refill.complete('work_budget_finished')
+                refill.pause_budget()
         self.work_deadline = None
 
     def start(self):
@@ -391,6 +391,12 @@ class MerchantRuntime:
         one_time = scan.get('pending') and scan.get('one_time')
         if one_time and (snapshot.get('request') or snapshot.get('trade')):
             raise CaptureUnavailable('One-time listing waits for the trade window to close; no trade will be accepted')
+        # A submitted unrelated-request decline is reconciled from the absent
+        # modal on the next memory observation. Invoke the helper even when no
+        # request remains so an acknowledgement lost after the click cannot
+        # strand the durable attempt forever.
+        from conquest.merchants.unrelated_request import decline_unrelated_request
+        if decline_unrelated_request(controller,snapshot,operations_enabled=operations_enabled):return
         if snapshot.get('request'):
             if operations_enabled:controller.accept_request(snapshot)
             elif refill_due:raise CaptureUnavailable('Inventory refill waits for the trade request to close')
@@ -409,7 +415,10 @@ class MerchantRuntime:
             new_stock = True
         refill_due = refill_due and not one_time
         if refill_due and (not marker['inventory'] or marker['booth_count']>=32):
-            refill.complete('no_stock' if not marker['inventory'] else 'booth_full')
+            saved=refill.state()
+            refill.complete('no_stock' if not marker['inventory'] else 'booth_full',
+                            listed=saved.get('listed',0) if saved.get('pending') else 0,
+                            deferred=len(marker['inventory']))
             refill_due = False
         if not scan.get('pending') and not new_stock and not refill_due:
             return
@@ -440,6 +449,7 @@ class MerchantRuntime:
                                 owned_snapshots=owned_snapshots,history=history.quotes())
         self.journal.set(character,'comparisons',plans)
         changed = 0
+        prior_listed=refill.state().get('listed',0) if refill_due else 0
         booth_count = len(snapshot['booth'])
         progress=None
         if scan.get('pending') and not refill_due:
@@ -451,9 +461,15 @@ class MerchantRuntime:
         if refill_due and any(p['price'] is not None for p in plans) and not self.coordinator.safe_to_yield():
             with self.lock:
                 if self.handoff is None:self.handoff=f'merchant-refill:{character}:{int(time.time()*1000)}'
-        for plan in plans:
-            if not self.can_start_work():
+        budget_exhausted=False
+        if refill_due:
+            refill.checkpoint([p['uid'] for p in plans])
+        for index,plan in enumerate(plans):
+            if not self.can_start_work(3):
+                budget_exhausted=True
                 break
+            if refill_due:
+                refill.checkpoint([p['uid'] for p in plans[index:]],listed=prior_listed+changed)
             if plan['price'] is not None and plan['price'] != plan.get('old_price'):
                 if plan.get('old_price') is None and booth_count>=32:
                     continue
@@ -462,6 +478,8 @@ class MerchantRuntime:
                 after = self.apply_refill(character,controller,plan) if refill_due else controller.apply_price(plan)
                 if after:
                     changed += 1
+                    if refill_due:
+                        refill.checkpoint([p['uid'] for p in plans[index+1:]],listed=prior_listed+changed)
                     if progress is not None:
                         progress.update(changed=progress['changed']+1,remaining=max(0,progress['remaining']-1))
                         self.journal.set(character,'batch_progress',progress)
@@ -484,7 +502,11 @@ class MerchantRuntime:
         self.journal.set(character,'stock_marker',{'inventory':carried,'booth_count':len(current['booth'])})
         self.journal.set(character,'new_stock',False)
         if refill_due:
-            refill.complete('completed',listed=changed,deferred=len(deferred))
+            if budget_exhausted:
+                refill.checkpoint(queued,listed=prior_listed+changed,deferred=len(deferred))
+                refill.pause_budget()
+            else:
+                refill.complete('completed',listed=prior_listed+changed,deferred=len(deferred))
         elif scan.get('pending'):
             self.journal.complete_scan(character,scan['request_id'],changed=progress['changed'] if progress else changed,deferred=len(deferred))
             if progress is not None:
@@ -493,7 +515,10 @@ class MerchantRuntime:
     def run(self, character):
         while not self.stop_event.is_set():
             try:
-                self.step(character)
+                from contextlib import nullcontext
+                fence=getattr(self.coordinator,'fence',None)
+                with fence.bind_worker(fence.capture()) if fence else nullcontext():
+                    self.step(character)
                 with self.lock:
                     self.errors.pop(character,None)
             except (ValueError,OSError,CaptureUnavailable) as error:
@@ -566,7 +591,8 @@ class MerchantRuntime:
                     result[character]['activity']=doing+'; earlier recovery incident remains unresolved'
                 result[character]['market_refresh']=self.market_worker.state(character)
                 result[character]['batch_progress']=self.journal.get(character,'batch_progress',{})
-            return result
+            projection=getattr(self,'status_projection',None)
+            return projection(result) if projection else result
 
     def close(self):
         # Stop on close, preserve pause/resume intent for the next app launch.

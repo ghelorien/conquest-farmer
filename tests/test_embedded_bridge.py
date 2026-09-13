@@ -60,6 +60,23 @@ def test_town_input_requires_off_and_fresh_expiry_but_supply_reads_do_not(bridge
     assert not calls
 
 
+def test_town_final_press_rechecks_manual_control_revision(bridge):
+    from conquest.capture import CaptureUnavailable
+    service,info,calls,control=bridge
+    control['revision']=2
+    class Town:
+        check_input=None
+        def __call__(self,body):
+            self.check_input()
+            control['revision']+=1
+            self.check_input()
+            pytest.fail('Stale input was allowed')
+    town=Town();service.on_town=town
+    with pytest.raises(ValueError,match='permission changed'):
+        request(info,'town',{'action':'service-close-panel','window':'Inventory','expires_at':time.time()+3})
+    assert town.check_input is None
+
+
 @pytest.mark.parametrize('operation',['foreground-click','foreground-key','shutdown','scan'])
 def test_bridge_does_not_expose_unneeded_worker_operations(bridge,operation):
     service,info,calls,control = bridge

@@ -20,21 +20,28 @@ class WorkWindows:
     def due(self):
         return self.clock() >= self.state().get('next_check', 0)
 
-    def reserve(self, request_id, *, town=False, urgent=False):
+    def reserve(self, request_id, *, town=False, urgent=False, visit=None):
         if not town and not urgent and not self.due():
             return False
         now = self.clock()
+        old=self.state()
+        if visit and (not town or not now<visit['deadline']<=now+60):
+            return False
+        same_visit=visit and old.get('visit_id')==visit['visit_id']
         # Reserve before parking/input: crashes or failed safe-spot searches
         # cannot generate repeated interruptions of the hunting loop.
-        write_json(self.path, {'request_id':request_id, 'last_check':now,
-            'next_check':now+INTERVAL, 'phase':'preparing', 'town':town})
+        state={'request_id':request_id, 'last_check':old.get('last_check',now) if same_visit else now,
+            'next_check':old['next_check'] if same_visit else now+INTERVAL,
+            'phase':'preparing', 'town':town,'last_attempt_at':old.get('last_attempt_at',now) if same_visit else now}
+        if visit:state.update(visit_id=visit['visit_id'],deadline=visit['deadline'],
+                              farmer_profile_id=visit['farmer_profile_id'],scope='market_visit')
+        write_json(self.path,state)
         return True
 
     def started(self):
         state = self.state()
         now = self.clock()
-        state.update(phase='working', last_check=now, next_check=now+INTERVAL,
-                     deadline=now+WORK_SECONDS)
+        state.update(phase='working',deadline=state.get('deadline',now+WORK_SECONDS))
         write_json(self.path, state)
         return state['deadline']
 
@@ -64,7 +71,7 @@ def service_candidate(character):
 def service_window(loop, *, town=False):
     """Run on the existing route controller, retaining its exclusive ownership."""
     policy = read_json(POLICY)
-    if not policy.get('parity_verified') or not policy.get('hunting_handoffs_enabled'):
+    if not policy.get('parity_verified') or (not town and not policy.get('hunting_handoffs_enabled')):
         return False
     from conquest.merchants.bridge import request as merchant
     from conquest.worker import request
@@ -78,6 +85,16 @@ def service_window(loop, *, town=False):
     urgent = urgent_recovery(status)
     if not town and not urgent and not windows.due():
         return False
+    before = loop.health()
+    control = before['embedded_controls']['control']
+    if before['embedded_controls'].get('manual_mouse'):
+        return False
+    visit = None
+    if town and (before['embedded_controls'].get('life') or {}).get('map_id') == 1036:
+        from conquest.merchants.service_visit import MarketVisit, parent_visit
+        visit = MarketVisit().begin(parent=parent_visit())
+        if time.time() >= visit['deadline']:
+            return False  # A refill-only entry cannot renew a used delivery visit.
     if town and any(c.get('connected') for c in status.get('characters',{}).values()):
         request_id='restock-refill:'+str(time.time_ns())
         merchant({'action':'refill-check','request_id':request_id})
@@ -85,11 +102,7 @@ def service_window(loop, *, town=False):
         request_id = status.get('handoff_requested')
     if not request_id or not any(service_candidate(c) for c in status.get('characters',{}).values()):
         return False
-    before = loop.health()
-    control = before['embedded_controls']['control']
-    if before['embedded_controls'].get('manual_mouse'):
-        return False
-    if not windows.reserve(request_id, town=town, urgent=urgent):
+    if not windows.reserve(request_id, town=town, urgent=urgent, visit=visit):
         return False
     was_enabled, phase = control['enabled'], loop.phase
     loop.stop_farm()
@@ -100,6 +113,8 @@ def service_window(loop, *, town=False):
     released = True
     manually_cancelled = False
     original_check = loop.check_stop
+    previous_deadline = getattr(loop, 'market_service_deadline', None)
+    if visit:loop.market_service_deadline = visit['deadline']
 
     def check():
         nonlocal manually_cancelled
@@ -122,7 +137,11 @@ def service_window(loop, *, town=False):
         loop.phase='merchant_handoff'
         loop.record('merchant_safe_spot', activity='Finding a safe spot for merchant refill')
         try:
-            parked=park(loop,Cancellation(),lambda _:None,seconds=12,allow_town_retreat=False)
+            seconds=min(12,max(0,visit['deadline']-time.time())) if visit else 12
+            if seconds<=0:
+                windows.finish('paused_budget')
+                return False
+            parked=park(loop,Cancellation(),lambda _:None,seconds=seconds,allow_town_retreat=False)
         except ValueError:
             windows.finish('unsafe_deferred')
             return False
@@ -131,10 +150,17 @@ def service_window(loop, *, town=False):
             windows.finish('unsafe_deferred')
             return False
         deadline=windows.started()
-        merchant({'action':'handoff-grant','request_id':request_id,'revision':revision,
-                  'expires_at':deadline,'safe':True})
+        if deadline<=time.time():
+            windows.finish('paused_budget')
+            return False
+        command={'action':'handoff-grant','request_id':request_id,'revision':revision,
+                 'expires_at':deadline,'safe':True}
+        if visit:command.update(scope='market_visit',visit_id=visit['visit_id'])
+        # A lost acknowledgement may still have granted input. Revoke in finally.
         granted=True
-        loop.record('merchant_work_started',activity='Safe merchant refill · up to 15 seconds',deadline=deadline)
+        merchant(command)
+        loop.record('merchant_work_started',activity=('Safe merchant refill within this Market visit'
+                    if visit else 'Safe merchant refill · up to 15 seconds'),deadline=deadline)
         while time.time()<deadline:
             check()
             health=loop.health()
@@ -144,10 +170,11 @@ def service_window(loop, *, town=False):
             if not status.get('handoff_requested'):
                 break
             time.sleep(.2)
-        windows.finish('completed')
+        windows.finish('paused_budget' if time.time()>=deadline else 'released')
         return True
     finally:
         loop.check_stop=original_check
+        loop.market_service_deadline=previous_deadline
         if granted:
             # Revocation blocks further input. Read-only reconciliation can
             # finish before the input lease is released; never race the farmer.
