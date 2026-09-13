@@ -156,6 +156,33 @@ def test_moving_during_memory_sample_retries_without_input_or_switching_off(monk
     assert control.snapshot()['enabled']
 
 
+@pytest.mark.parametrize('outcome',['verified','before_input','uncertain'])
+def test_healing_cleanup_does_not_mask_receipt_or_repeat_uncertain_input(monkeypatch,outcome):
+    from conquest.town_trade import TownObservationUnavailable
+    supervisor,control,life,_=setup(monkeypatch)
+    life.dead_candidate=False
+    calls=[]
+    def trade(body):
+        calls.append(body['action'])
+        if body['action']=='close':raise ValueError('Life state changed during observation')
+        if outcome=='before_input':raise TownObservationUnavailable('Life state changed during observation')
+        if outcome=='uncertain':raise ValueError('Healing consumption unverified; no repeat input issued')
+        return {'consumed':True,'remaining':4}
+    supervisor.observer.town_trade=trade
+    if outcome=='verified':assert supervisor.heal_potion(42)['consumed']
+    elif outcome=='before_input':
+        with pytest.raises(CaptureUnavailable,match='reobserving'):supervisor.heal_potion(42)
+    else:
+        with pytest.raises(ValueError,match='consumption unverified'):supervisor.heal_potion(42)
+    assert calls==['consume-healing','close']
+    assert supervisor.supply_panel_pending and control.snapshot()['enabled']
+    supervisor.recovery.step=lambda *args:None
+    supervisor.observer.town_trade=lambda body:calls.append(body['action'])
+    supervisor.observe()
+    assert calls==['consume-healing','close','close']
+    assert not supervisor.supply_panel_pending
+
+
 def test_stationary_damage_enters_defense_and_expires_after_damage_stops(monkeypatch):
     supervisor,_,life,_=setup(monkeypatch)
     now=[100.0]

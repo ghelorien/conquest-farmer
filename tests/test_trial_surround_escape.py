@@ -61,12 +61,12 @@ def test_surround_interrupts_unfinished_attack_without_waiting_for_damage_or_tim
     assert result['confirmed_kills']==1  # In-flight hit after escape remains counted.
 
 
-@pytest.mark.parametrize('adaptive',[False,True])
-def test_scatter_keeps_casting_on_survivors_before_looting_or_patrolling(tmp_path,monkeypatch,adaptive):
+@pytest.mark.parametrize('adaptive,jump_scatter',[(False,False),(True,False),(True,True)])
+def test_scatter_keeps_casting_on_survivors_before_looting_or_patrolling(tmp_path,monkeypatch,adaptive,jump_scatter):
     import win32api
     now=[10.];calls=[];counter=[0]
     config=yaml.safe_load(open('profiles/pheasant-foreground-trial.yaml'))
-    config.update(observation_mode='memory_only',kite_when_surrounded=True,attack_button='right',adaptive_scatter=adaptive,
+    config.update(observation_mode='memory_only',kite_when_surrounded=True,attack_button='right',adaptive_scatter=adaptive,jump_scatter=jump_scatter,
         route=[],healing_enabled=False,loot_allowlist=[],attack_progress_timeout=5,
         interval=.15,client_size=[1036,793],player_anchor=[518,396])
     path=tmp_path/'profile.yaml';path.write_text(yaml.safe_dump(config))
@@ -75,6 +75,7 @@ def test_scatter_keeps_casting_on_survivors_before_looting_or_patrolling(tmp_pat
     monkeypatch.setattr(win32api,'GetAsyncKeyState',lambda _:0)
     def forbidden(*a,**k):pytest.fail('Live survivors must get Scatter before looting or visual reads')
     monkeypatch.setattr(trial.cv2,'imread',forbidden)
+    monkeypatch.setattr('conquest.scatter_movement.scatter_landing',lambda *a,**kw:None)
     class Session:
         def request(self,operation,body=None):
             if operation=='health':return {'input_revision':7,'window':{'hwnd':1}}

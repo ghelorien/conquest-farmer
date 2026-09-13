@@ -25,11 +25,28 @@ def test_market_warehouse_reachability_uses_actual_click_point():
     from conquest.memory_npcs import NpcObservation
     from conquest.town_trade import TownTrade
     trade=object.__new__(TownTrade)
+    trade.observer=None
     # Old -32 offset reports reachable at the failed approach (186,188).
     trade.vendor=lambda kind:NpcObservation(123,456,0,'Warehouseman',1036,(182,180),(638,185))
     result=trade.execute({'action':'vendor-status','vendor_type':0})
     assert result['point']==(638,121)
     assert result['reachable'] is False
+
+
+@pytest.mark.parametrize('size,draw,reachable',[
+    ((2056,1236),(1092,490),True),
+    ((1036,793),(1092,490),False),
+    ((2056,1236),(2020,490),False),
+    ((2056,1236),(1028,1150),False),
+])
+def test_vendor_reachability_uses_current_viewport_and_hud(size,draw,reachable):
+    from types import SimpleNamespace as NS
+    from conquest.memory_npcs import NpcObservation
+    from conquest.town_trade import TownTrade
+    trade=object.__new__(TownTrade)
+    trade.observer=NS(adapter=NS(viewport_size=lambda:size))
+    trade.vendor=lambda kind:NpcObservation(123,456,0,'Warehouseman',1011,(227,246),draw)
+    assert trade.execute({'action':'vendor-status','vendor_type':0})['reachable']==reachable
 
 
 class Replay:

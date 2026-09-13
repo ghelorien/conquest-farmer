@@ -121,10 +121,21 @@ class NativeFarmSupervisor:
 
     def heal_potion(self,uid):
         def consume():
+            from conquest.town_trade import TownObservationUnavailable
             with logical_coordinates():
                 trade=self.observer.town_trade
-                try:return trade({'action':'consume-healing','uid':uid})
-                finally:trade({'action':'close','window':'Inventory'})
+                self.supply_panel_pending=True
+                try:
+                    try:return trade({'action':'consume-healing','uid':uid})
+                    except TownObservationUnavailable as error:
+                        raise CaptureUnavailable('Healing: reobserving before item use: '+str(error)) from error
+                finally:
+                    # Cleanup is reversible and retried separately. Never mask
+                    # a verified receipt or an uncertain consumption error.
+                    try:
+                        trade({'action':'close','window':'Inventory'})
+                        self.supply_panel_pending=False
+                    except (ValueError,OSError):pass
         return self.dispatch(consume)
 
     def attack_strategy(self):
@@ -216,6 +227,12 @@ class NativeFarmSupervisor:
             focused=window['foreground']==window['root_hwnd'] and not window['minimized']
             status=self.recovery.step({**asdict(life),'dead_candidate':life.dead_candidate},focused)
             waiting=not intent['enabled'] or not focused or life.dead_candidate or bool(status)
+            if not waiting and getattr(self,'supply_panel_pending',False):
+                try:
+                    self.dispatch(lambda:self.observer.town_trade({'action':'close','window':'Inventory'}))
+                    self.supply_panel_pending=False
+                except (ValueError,OSError) as error:
+                    raise CaptureUnavailable('Waiting to close healing inventory: '+str(error)) from error
             if getattr(self,'runback_watch',None):
                 self.runback_watch.observe({**asdict(life),'dead_candidate':life.dead_candidate},paused=waiting)
             if waiting:

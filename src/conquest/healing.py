@@ -53,10 +53,15 @@ def consume_inventory_potion(trade,uid):
         trade.verified_read(lambda:trade.shop.gui.read('Inventory'),bool,'Inventory opening unverified')
     grid=trade.shop.gui.read('Inventory/##ItemGrid_')
     if grid.size!=(407.,175.) or grid.scroll!=(0.,0.):raise ValueError('Healing inventory grid differs')
-    fresh=trade.life(any_map=True)
-    if (fresh.object_address!=life.object_address or trade.inventory.read().items!=before.items
-            or trade.shop.gui.read('Inventory/##ItemGrid_')!=grid):
-        raise ValueError('Healing item or character changed before input')
+    from conquest.town_trade import TownObservationUnavailable,transient_observation
+    try:
+        fresh=trade.life(any_map=True)
+        if (fresh.object_address!=life.object_address or trade.inventory.read().items!=before.items
+                or trade.shop.gui.read('Inventory/##ItemGrid_')!=grid):
+            raise TownObservationUnavailable('Healing item or character changed before input')
+    except ValueError as error:
+        if transient_observation(error):raise TownObservationUnavailable(str(error)) from error
+        raise
     if fresh.current_hp>=fresh.max_hp:return {'consumed':False,'reason':'already_full_health'}
     point=(round(grid.position[0]+20+40*(item.slot%10)),round(grid.position[1]+20+40*(item.slot//10)))
     trade.input_attempted=True

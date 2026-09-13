@@ -705,14 +705,23 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                 strategy=None
                 if supervisor and config.adaptive_scatter:
                     strategy=supervisor.attack_strategy()
+                if supervisor:
+                    # These targets are a NEW memory observation, taken after
+                    # healing/skill/equipment checks. Age them from the start of
+                    # this scan, not the earlier geometry-only frame marker.
+                    origin=camera.geometry()
+                    if origin!=frame.origin:
+                        raise CaptureUnavailable('Game origin changed before target scan')
+                    frame=Frame(time.monotonic(),None,origin)
                 observed = (supervisor.memory_targets(config.client_size) if supervisor else
                             targets(frame.image, template, config.target_threshold, config.monster))
+                if supervisor and time.monotonic()-frame.timestamp>.35:
+                    raise CaptureUnavailable('Target scan expired; reobserving before attack or patrol')
                 if strategy:strategy.observe(observed,time.monotonic())
                 from conquest.attack_strategy import nearby_group_size
                 isolated=(config.single_isolated_targets and
                           nearby_group_size(observed,(x,y),config.attack_range_tiles)<2)
                 def mode(name):
-                    if config.jump_scatter:return 'right'
                     return 'left' if isolated else strategy.button(name)
                 attack_button=mode(config.monster) if strategy else config.attack_button
                 attack_range=config.single_attack_range_tiles if strategy and attack_button=='left' else config.attack_range_tiles
@@ -800,7 +809,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     if close:
                         target=min(close,key=lambda t:math.dist((t.x,t.y),config.player_anchor))
                 scatter_destination=None
-                if (supervisor and config.jump_scatter and (scatter_jump_due or target is None)
+                if (supervisor and config.jump_scatter and attack_button=='right' and (scatter_jump_due or target is None)
                         and not approaching and not defending and not observe_only
                         and time.monotonic()-last_action>=config.interval):
                     from conquest.scatter_movement import scatter_landing,wounded_group_in_range
@@ -943,7 +952,8 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                 continue
     except (ValueError, OSError, RuntimeError) as error:
         reason = "observation_or_input_failure"
-        event("trial_error", detail=str(error))
+        import traceback
+        event("trial_error", detail=str(error),traceback=traceback.format_exc())
     except KeyboardInterrupt:
         reason = "interrupt"
     finally:
