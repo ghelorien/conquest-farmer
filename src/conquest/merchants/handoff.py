@@ -53,6 +53,13 @@ def resumable(health, proof, revision):
         and not control.get('enabled') and not control.get('paused'))
 
 
+def service_candidate(character):
+    """Recovery needs an input window before it can produce a fresh snapshot."""
+    return bool(character.get('connected') or (
+        character.get('enabled') and character.get('credentials_saved')
+        and character.get('qualification', {}).get('login')))
+
+
 def service_window(loop, *, town=False):
     """Run on the existing route controller, retaining its exclusive ownership."""
     policy = read_json(POLICY)
@@ -74,7 +81,7 @@ def service_window(loop, *, town=False):
         merchant({'action':'refill-check','request_id':request_id})
     else:
         request_id = status.get('handoff_requested')
-    if not request_id or not any(c.get('connected') for c in status.get('characters',{}).values()):
+    if not request_id or not any(service_candidate(c) for c in status.get('characters',{}).values()):
         return False
     before = loop.health()
     control = before['embedded_controls']['control']

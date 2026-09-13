@@ -43,7 +43,8 @@ def test_manual_stop_pause_and_identity_changes_prevent_resume():
 
 
 @pytest.mark.parametrize('pause', [False,True])
-def test_native_window_releases_before_resume_and_honors_f11(tmp_path,monkeypatch,pause):
+@pytest.mark.parametrize('connected', [False,True])
+def test_native_window_releases_before_resume_and_honors_f11(tmp_path,monkeypatch,pause,connected):
     from conquest.merchants import handoff,bridge
     from conquest import worker,safe_reload
     from conquest.overnight import OvernightStopped
@@ -64,7 +65,7 @@ def test_native_window_releases_before_resume_and_honors_f11(tmp_path,monkeypatc
     monkeypatch.setattr(worker,'request',farm)
     def merchant(body):
         action=body['action'];calls.append(action)
-        if action=='status':return {'handoff_requested':'window:1','characters':{'Dutch':{'connected':True}}}
+        if action=='status':return {'handoff_requested':'window:1','characters':{'Dutch':{'connected':connected,'enabled':True,'credentials_saved':True,'qualification':{'login':True}}}}
         if action=='handoff-grant':
             assert body['expires_at']-now[0]==15
             return {'granted':True}
@@ -88,3 +89,15 @@ def test_native_window_releases_before_resume_and_honors_f11(tmp_path,monkeypatc
         assert calls.index('handoff-release')<calls.index('resume')
         assert windows.state()['next_check']==1900
         assert 1015<=now[0]<1016
+
+
+def test_recovery_handoff_requires_operations_credentials_and_qualified_login():
+    from conquest.merchants.handoff import service_candidate
+    disconnected={'connected':False,'enabled':True,'credentials_saved':True,'qualification':{'login':True}}
+    assert service_candidate(disconnected)
+    for field in ('enabled','credentials_saved'):
+        assert not service_candidate({**disconnected,field:False})
+    assert not service_candidate({**disconnected,'qualification':{'login':False}})
+    assert not service_candidate({})
+    # A connected merchant may refill with trading paused; login cannot.
+    assert service_candidate({'connected':True,'enabled':False})

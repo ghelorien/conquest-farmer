@@ -68,3 +68,18 @@ live merchant configuration. The updated route/handoff/refill suites passed
 163 tests in the live source and 165 in the publication checkout. The changed
 runtime was loaded through a safe reload; actual refill posting remains under
 live observation rather than being inferred from these tests.
+
+
+### Disconnected merchant handoff regression
+
+A simultaneous disconnect exposed a recovery deadlock: the native handoff
+required a fresh connected merchant snapshot, while merchant login needed
+that same safe handoff. Permit a disconnected candidate only when merchant
+operations are enabled, credentials are saved and login input is qualified.
+The existing safe-position proof, manual Stop, exclusive lease and 15-second
+expiry still apply; a refill-only permission cannot authorize login.
+
+Regression coverage exercises disconnected and connected candidates, F11,
+release before farmer resume, and missing credentials/qualification/operations.
+All 47 handoff/refill tests pass in both live and publication trees. Live
+merchant recovery and actual listing remain under observation.
