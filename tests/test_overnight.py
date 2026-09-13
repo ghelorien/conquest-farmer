@@ -869,3 +869,30 @@ def test_input_handoff_during_travel_reobserves_or_honors_stop(monkeypatch,manua
  else:
   loop.travel((14,10));assert position==[14,10] and len(steps)==2
  assert stops
+
+
+def test_initial_blacksmith_open_failure_still_completes_storage_when_stocked(monkeypatch):
+    from conquest import equipment,banking,overnight
+    monkeypatch.setattr(overnight.time,'sleep',lambda _:None)
+    monkeypatch.setattr(equipment,'EquipmentReview',lambda loop:SimpleNamespace(visit=lambda vendor:None))
+    stored=[]
+    monkeypatch.setattr(banking,'after_shopping',lambda loop:stored.append(True))
+    loop=OvernightLoop.__new__(OvernightLoop)
+    loop.route=RouteLibrary().load('poltergeist');loop.cycles=0
+    calls=[];events=[]
+    def town(action,**fields):
+        calls.append((action,fields))
+        if action=='open' and fields['vendor_type']==5:
+            raise ValueError('Shop opening was not verified; no repeat input issued')
+        if action=='supplies':
+            return {'items':[{'type_id':1050000,'amount':1600},{'type_id':1000020,'amount':15}],
+                    'capacity':40,'silver':10000}
+        return {}
+    loop.town=town;loop.travel=lambda p:None
+    loop.sell_junk=lambda v:None;loop.recycle_small_arrows=lambda:None
+    loop.record=lambda event,**fields:events.append(event)
+    loop.restock()
+    assert stored==[True] and loop.cycles==1
+    assert 'optional_arrow_refill_deferred' in events
+    assert events[-1]=='restock_complete'
+    assert not any(action=='buy' for action,fields in calls)

@@ -325,7 +325,12 @@ class OvernightLoop:
                     else:path = planner(source,tuple(destination),avoid=avoided)
                     cached_path=path;cached_avoid=frozenset(avoided)
                 except ValueError:
-                    if not avoided:raise
+                    if not avoided:
+                        from conquest.town_corner import recover_corner
+                        if recover_corner(self,destination):
+                            cached_path=None;cached_avoid=None
+                            continue
+                        raise
                     # Temporary failed steps can cut the only town corridor.
                     # Revalidate the actual terrain and retry with short runs.
                     path = planner(source,tuple(destination))
@@ -590,27 +595,27 @@ class OvernightLoop:
             self.town('close',window='Shop')
             self.town('close',window='Inventory')
         self.travel(tuple(services['blacksmith']))
-        self.town('open',vendor_type=5)
-        self.sell_junk(5)
-        self.recycle_small_arrows()
-        self.shopping_space(5,services['blacksmith'])
         from conquest.equipment import EquipmentReview
         review=EquipmentReview(self)
-        review.visit(5)
-        for _ in range(16):
-            counts = supply_counts(self.town('supplies'),self.route)
-            if counts['arrows'] >= self.route.supplies.arrows_restock_to:
-                break
-            if (counts['free_slots'] <= self.route.supplies.minimum_free_slots
-                    and counts['arrows'] >= self.route.supplies.arrows_return_below):
-                break
-            # Equipping upgraded arrows closes Shop. An optional equipment
-            # review may then defer before reopening it; verify the vendor
-            # again before the required refill's price read or purchase.
-            if not self.open_arrow_refill():
-                break
-            if not self.buy_supply(5,self.route.supplies.arrow_type):
-                break
+        if self.open_arrow_refill():
+            self.sell_junk(5)
+            self.recycle_small_arrows()
+            self.shopping_space(5,services['blacksmith'])
+            review.visit(5)
+            for _ in range(16):
+                counts = supply_counts(self.town('supplies'),self.route)
+                if counts['arrows'] >= self.route.supplies.arrows_restock_to:
+                    break
+                if (counts['free_slots'] <= self.route.supplies.minimum_free_slots
+                        and counts['arrows'] >= self.route.supplies.arrows_return_below):
+                    break
+                # Equipping upgraded arrows closes Shop. An optional equipment
+                # review may then defer before reopening it; verify the vendor
+                # again before the required refill's price read or purchase.
+                if not self.open_arrow_refill():
+                    break
+                if not self.buy_supply(5,self.route.supplies.arrow_type):
+                    break
         self.town('close',window='Shop')
         self.town('close',window='Inventory')
         from conquest.savings import savings_plan
