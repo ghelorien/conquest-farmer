@@ -88,12 +88,15 @@ def dispatch(ui,body):
         try:
             if old:transaction.recover(key)
             else:transaction.execute(key,character,intent)
-            attention=ui.runtime.journal.get(character,'attention',{})
+            if hasattr(driver,'report'):driver.report('Transfer to '+character+' verified; ready to continue the route','complete')
+            attention=ui.runtime.journal.get(character,'attention',{}) or {}
             if attention.get('kind')=='farmer_delivery' and attention.get('request_id')==key:
                 ui.runtime.journal.set(character,'attention',None)
         except Exception as error:
             note=str(error) if isinstance(error,(ValueError,OSError)) else 'Native delivery failed; reconcile before retrying'
             ui.delivery_errors[key]=note
+            if hasattr(driver,'report'):
+                driver.report('Transfer to '+character+' paused: '+note+'. Checking the saved transaction before continuing.','attention')
             from conquest.capture import CaptureUnavailable
             if not isinstance(error,CaptureUnavailable):
                 ui.runtime.journal.set(character,'attention',{'kind':'farmer_delivery','request_id':key,'note':note})

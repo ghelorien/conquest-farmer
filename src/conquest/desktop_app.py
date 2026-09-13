@@ -29,7 +29,7 @@ from conquest.memory_entities import EntityLayout
 from conquest.desktop_launch import elevated_start
 from conquest.client_wrapper import ClientCatalog, LaunchWatch, pinned_client
 from conquest.nearby_monsters import NearbyMonsters
-from conquest.farm_telemetry import PickupHistory,pickup_values,activity_text,item_label,pause_message,farm_stats
+from conquest.farm_telemetry import PickupHistory,pickup_values,activity_text,automation_status,item_label,pause_message,farm_stats
 from conquest.routes import RouteLibrary
 from conquest.reconnect import Reconnector,login_screen,submit_login
 from conquest.focus_recovery import AutoRefocuser,activate_client
@@ -513,7 +513,8 @@ class DesktopApp:
         if getattr(self,'reload_cancel',None):self.reload_cancel.set()
         from conquest.safe_reload import RESUME
         RESUME.unlink(missing_ok=True)
-        self.control.update({'enabled':False})
+        stopped=self.control.update({'enabled':False})
+        self.record(manual_stop_revision=stopped['revision'])
         (self.output/'stop.request').write_text('Stop requested from desktop app')
         self.state_text.set('Stopping…' if self.thread and self.thread.is_alive() else 'Off')
 
@@ -888,6 +889,7 @@ class DesktopApp:
                 if enabled:raise ValueError('Reload preparation owns input; Stop cancels it')
                 self.reload_cancel.set()
             current = self.control.update({'enabled':enabled})
+            self.record(manual_stop_revision=None if enabled else current['revision'])
             self.update_kill_metrics('begin' if enabled else 'stop')
             if enabled and self.host.saved:
                 self.start_embedded_farm()
@@ -1184,7 +1186,9 @@ class DesktopApp:
                         'memory_pickup_attempt':('Picking up '+item_label(fields)) if event=='memory_pickup_attempt' else ''}
             if event in activity:
                 self.last.update(activity=activity[event],activity_at=time.time())
-            if event=='control_intent':
+            if event=='automation_work':
+                self.record(automation_work=fields)
+            elif event=='control_intent':
                 self.record(control_intent=fields)
                 if not fields['enabled']:self.record(kills_per_hour=0)
             elif event=='route_selected':
@@ -1315,7 +1319,11 @@ class DesktopApp:
                 except (OSError,ValueError) as error:
                     self.record(route_controller_error=str(error))
             life=self.runtime.snapshot().get('life') if self.runtime else None
-            self.activity_text.set(activity_text(self.route_status,self.last,control,life))
+            execution,activity=automation_status(self.route_status,self.last,control,life)
+            self.state_text.set(execution)
+            self.activity_text.set(activity)
+            if self.last.get('automation_status')!=execution:
+                self.record(automation_status=execution)
             if self.last.get('current_activity') != self.activity_text.get():
                 self.record(current_activity=self.activity_text.get())
         if self.thread and not self.thread.is_alive():

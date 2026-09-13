@@ -917,7 +917,7 @@ class UnifiedUI:
             statuses = data['characters']
             self.update_header(statuses)
             control = self.app.control.snapshot()
-            self.rows['Farmer'].set(f'{"Enabled" if control["enabled"] else "Stopped"} · {self.app.state_text.get()} · {self.app.stats_text.get()}')
+            self.rows['Farmer'].set(f'{self.app.state_text.get()} · {self.app.activity_text.get()}\n{self.app.stats_text.get()}')
             self.input_note.set(f'Input owner: {self.coordinator.owner or "none"}. '
                 + ('Farmer handoff available.' if self.safe_to_yield() else 'Waiting for the farmer to stop or explicitly grant a safe handoff.'))
             events = data['events']

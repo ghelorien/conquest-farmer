@@ -90,6 +90,11 @@ def trip(loop,plan,*,before_submit=None):
     market_exit = life['map_id']==1036 and plan['destination_map']!=1036
     if market_exit:
         current=loop.living()['embedded_controls']['life']['position']
+        if current[0]>=239 and current[1]<200:
+            # Merchant booths occupy the northeast diagonal to the exit.
+            # The central aisle was traversed during the delivery qualification.
+            loop.travel((225,206),activity='Leaving merchant booths through the central Market aisle',arrival_radius=2)
+            current=loop.living()['embedded_controls']['life']['position']
         if max(abs(a-b) for a,b in zip(current,plan['approach']))>4:
             waypoints=plan.get('waypoints',[])
             if waypoints:

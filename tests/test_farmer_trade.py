@@ -111,3 +111,67 @@ def test_receiver_memory_rejects_unqualified_projection_before_observation(draw_
     observer=NS(adapter=None,entities=None)
     with pytest.raises(ValueError,match='projection format is not qualified'):
         recipient_record(observer,{'recipient':spec},{},targeting=True)
+
+def test_delivery_waits_for_receiver_to_release_input_without_replaying_body(monkeypatch):
+    from contextlib import contextmanager,nullcontext
+    from conquest.merchants import farmer_trade as module
+    from conquest import desktop_runtime,focus_recovery
+    calls=[]
+    @contextmanager
+    def lease(name):
+        calls.append('lease')
+        if calls.count('lease')==1:raise CaptureUnavailable('Waiting for input owner')
+        yield
+    class Queue:
+        def put(self,item):item[1].set()
+    d=FarmerTradeDriver.__new__(FarmerTradeDriver)
+    d.require_qualified=lambda:{};d.check=lambda:None
+    d.ui=NS(runtime=NS(enabled=lambda _:True),coordinator=NS(lease=lease),
+            app=NS(show_game=lambda:None),ui_requests=Queue())
+    d.driver=NS(target=NS(hwnd=1),observer=NS(adapter=NS(identity={})))
+    monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
+    monkeypatch.setattr(focus_recovery,'activate_client',lambda *a:True)
+    monkeypatch.setattr(module.time,'sleep',lambda _:None)
+    with d.action({'merchant':{'character':'Spiritual'}}):calls.append('body')
+    assert calls==['lease','lease','body']
+
+
+def test_expired_delivery_grant_cannot_use_idle_farmer_fallback():
+    state={'enabled':False,'paused':False,'revision':2}
+    d=FarmerTradeDriver.__new__(FarmerTradeDriver);d.revision=2;d.recipient=None
+    d.ui=NS(coordinator=NS(check=lambda:None),closed=False,grant={'expires_at':time.time()-1},
+            app=NS(control=NS(snapshot=lambda:state)),safe_to_yield=lambda:True)
+    with pytest.raises(CaptureUnavailable,match='window expired'):d.check()
+
+
+@pytest.mark.parametrize('failure_stage',['acquire_timeout','transaction_body'])
+def test_delivery_contention_retry_is_bounded_and_never_replays_transaction(monkeypatch,failure_stage):
+    from contextlib import contextmanager,nullcontext
+    from conquest.merchants import farmer_trade as module
+    from conquest import desktop_runtime,focus_recovery
+    calls=[];clock=[0.0]
+    @contextmanager
+    def lease(name):
+        calls.append('lease')
+        if failure_stage=='acquire_timeout':
+            raise CaptureUnavailable('Waiting for input owner')
+        yield
+    class Queue:
+        def put(self,item):item[1].set()
+    d=FarmerTradeDriver.__new__(FarmerTradeDriver)
+    d.require_qualified=lambda:{};d.check=lambda:None
+    d.ui=NS(runtime=NS(enabled=lambda _:True),coordinator=NS(lease=lease),
+            app=NS(show_game=lambda:None),ui_requests=Queue())
+    d.driver=NS(target=NS(hwnd=1),observer=NS(adapter=NS(identity={})))
+    monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
+    monkeypatch.setattr(focus_recovery,'activate_client',lambda *a:True)
+    monkeypatch.setattr(module.time,'monotonic',lambda:clock[0])
+    monkeypatch.setattr(module.time,'sleep',lambda _:clock.__setitem__(0,clock[0]+1))
+    with pytest.raises(CaptureUnavailable,match='Waiting for input owner'):
+        with d.action({'merchant':{'character':'Spiritual'}}):
+            calls.append('body')
+            raise CaptureUnavailable('Waiting for input owner')
+    if failure_stage=='acquire_timeout':
+        assert calls==['lease']*4 and clock[0]==3
+    else:
+        assert calls==['lease','body'] and clock[0]==0

@@ -327,3 +327,27 @@ def test_verified_return_rebanks_new_carried_valuable(route):
     write_json(m.JOURNAL,{'phase':'returning','origin':1011,'scroll_uid':99,'market_verified_at':123})
     assert m.resume(loop)
     assert events.index(('warehouse-deposit',100))<events.index(('trip',1011))
+
+
+@pytest.mark.parametrize('start,uses_aisle',[((240,175),True),((239,199),True),((238,199),False),((239,200),False)])
+def test_market_return_leaves_northeast_booths_via_clear_aisle(start,uses_aisle):
+    from types import SimpleNamespace
+    position=list(start);calls=[]
+    class ReachedService(Exception):pass
+    def town(action,**kwargs):
+        if action=='supplies':return {'items':[]}
+        if action=='service-locate':raise ReachedService
+        raise AssertionError(action)
+    def travel(point,**kwargs):
+        calls.append((point,kwargs));position[:]=point
+    loop=SimpleNamespace(
+        living=lambda:{'embedded_controls':{'life':{'map_id':1036,'position':position.copy()}}},
+        terrain=SimpleNamespace(map_id=1036),town=town,travel=travel,record=lambda *a,**kw:None)
+    plan={'source_map':1036,'destination_map':1011,'activity':'Returning to Phoenix',
+          'approach':[300,250],'npc':'Mark.Controller','waypoints':[[225,206],[260,230]]}
+    with pytest.raises(ReachedService):m.trip(loop,plan)
+    aisle=[(point,kwargs) for point,kwargs in calls if 'central Market aisle' in kwargs['activity']]
+    assert bool(aisle)==uses_aisle
+    if uses_aisle:
+        assert calls[0][0]==(225,206) and calls[0][1]['arrival_radius']==2
+    assert calls[-1][0]==(300,250)

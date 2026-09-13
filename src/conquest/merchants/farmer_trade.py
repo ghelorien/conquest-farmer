@@ -3,7 +3,7 @@
 No control coordinates or remote-player layout are guessed here. A qualified
 profile must supply them for the pinned client before this adapter can act.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager,ExitStack
 from pathlib import Path
 import struct
 import threading
@@ -101,6 +101,10 @@ class FarmerTradeDriver:
         self.revision=ui.app.control.snapshot()['revision']
         self.recipient=None
 
+    def report(self,activity,state='running'):
+        self.ui.app.messages.put(('automation_work',{'state':state,'activity':activity,
+            'revision':self.revision,'at':time.time()}))
+
     def require_qualified(self,capability='farmer_delivery'):
         profile=self.driver.require_qualified(capability)
         for key in ('recipient','target_mode','gui_size','controls'):
@@ -115,6 +119,9 @@ class FarmerTradeDriver:
     def check(self):
         self.ui.coordinator.check()
         state=self.ui.app.control.snapshot()
+        grant=getattr(self.ui,'grant',None)
+        if grant and grant['expires_at']<=time.time():
+            raise CaptureUnavailable('Merchant delivery work window expired; reconcile before further input')
         if (self.ui.closed or state['enabled'] or state.get('paused')
                 or state['revision']!=self.revision or not self.ui.safe_to_yield()):
             raise CaptureUnavailable('Farmer delivery input permission changed or expired')
@@ -130,11 +137,25 @@ class FarmerTradeDriver:
     @contextmanager
     def action(self,intent):
         self.recipient=intent['merchant']['character']
-        self.require_qualified();self.check()
+        self.require_qualified()
         if not self.ui.runtime.enabled(intent['merchant']['character']):
             raise CaptureUnavailable('Merchant trading is paused')
         from conquest.desktop_runtime import physical_coordinates
-        with self.ui.coordinator.lease('Farmer'),physical_coordinates():
+        with ExitStack() as stack:
+            # The receiver can still be releasing its request-acceptance lease.
+            # Wait only for ownership; never replay a click or transaction body.
+            deadline=time.monotonic()+3
+            while True:
+                try:
+                    self.check()
+                    stack.enter_context(self.ui.coordinator.lease('Farmer'))
+                    break
+                except CaptureUnavailable as error:
+                    if (str(error) not in ('Another character owns game input','Waiting for input owner',
+                                          'Waiting for the current input action','Another app owns merchant input')
+                            or time.monotonic()>=deadline):raise
+                    time.sleep(.03)
+            stack.enter_context(physical_coordinates())
             done=threading.Event();result={}
             self.ui.ui_requests.put((self.ui.app.show_game,done,result))
             if not done.wait(3):
@@ -166,6 +187,7 @@ class FarmerTradeDriver:
             before_press=lambda:wait_hover_validation(before,self.check))
 
     def open_trade(self,intent):
+        self.report('Requesting a trade with '+intent['merchant']['character'])
         from conquest.foreground import foreground_click
         def unchanged(f,m):
             prepare(f,m,intent['items'])
@@ -188,6 +210,7 @@ class FarmerTradeDriver:
         self.wait_until(m['character'],lambda f,m:partial_offer(intent,f,m)==[])
 
     def place_item(self,intent,item):
+        self.report('Placing '+item['name']+' in the trade with '+intent['merchant']['character'])
         from conquest.foreground import foreground_drag
         with self.action(intent):
             f,m=self.read_pair(intent['merchant']['character']);placed=partial_offer(intent,f,m)
@@ -222,6 +245,7 @@ class FarmerTradeDriver:
         self.wait_until(m['character'],lambda f,m:item['uid'] in exact_items(partial_offer(intent,f,m)))
 
     def confirm(self,intent):
+        self.report('Confirming the exact item transfer to '+intent['merchant']['character'])
         with self.action(intent):
             f,m=self.read_pair(intent['merchant']['character']);validate_offers(intent,f,m)
             self.button(intent,'confirm_trade',lambda f,m:validate_offers(intent,f,m))
@@ -238,5 +262,6 @@ class FarmerTradeDriver:
         raise ValueError('Trade result unverified; reconcile before retrying input')
 
     def wait_pair(self,merchant):
+        self.report('Verifying both inventories after transfer to '+merchant)
         return self.wait_until(merchant,lambda f,m:not f.get('trade') and not m.get('trade')
                                and not f.get('request') and not m.get('request'))

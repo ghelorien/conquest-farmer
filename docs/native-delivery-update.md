@@ -26,3 +26,22 @@ setting, exact live participants and exclusive input ownership.
 Automatic delivery policy and reconnect qualification remain gated. This update
 does not enable them or distribute machine-local credentials, control profiles,
 transaction journals or live memory evidence. Warehouse fallback is retained.
+
+
+## Activity and Market return follow-up
+
+The Farmer and Overview tabs now show execution state and the current activity
+separately from the combat switch. Restocking, travel and transfer steps remain
+visible while combat is off. Explicit Stop/Off takes priority over older route
+and transfer messages; stale travel reports no longer claim confirmed movement.
+
+Delivery input acquisition waits up to three seconds for the receiver to release
+ownership, while continuing to check permission and handoff expiry. Only lease
+acquisition is retried: a submitted click or transaction body is never replayed.
+Trade completion and reconciliation failures report their specific activity.
+
+The Market return route leaves northeast merchant booths through the central
+aisle before approaching the exit controller. The reverse aisle and subsequent
+Phoenix arrival were verified live. A Meteor transfer was reconciled in both
+inventories after supervised recovery; this is not a completed unattended
+production-path qualification. Automatic delivery policy remains gated.

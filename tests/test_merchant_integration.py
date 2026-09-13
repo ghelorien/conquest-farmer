@@ -106,7 +106,7 @@ def test_native_tabs_bridge_authentication_handoff_and_global_stop(tmp_path,monk
     app = SimpleNamespace(root=root,sidebar=ttk.Frame(root),pane=tk.Frame(root),closing=False,
         mouse_priority=SimpleNamespace(active=lambda:False),catalog=object(),thread=None,
         control=SimpleNamespace(snapshot=lambda:dict(control)),state_text=tk.StringVar(value='Off'),
-        stats_text=tk.StringVar(value=''),stop=stop)
+        stats_text=tk.StringVar(value=''),activity_text=tk.StringVar(value='Returning from Market'),stop=stop)
     route_picker = ttk.Combobox(app.sidebar,values=['Bandit'],state='readonly')
     route_picker.pack(fill='x')
     unified = UnifiedUI(app)
@@ -138,6 +138,7 @@ def test_native_tabs_bridge_authentication_handoff_and_global_stop(tmp_path,monk
         root.withdraw()
         assert unified.presentation.ready.wait(2)
         unified.poll()
+        assert 'Returning from Market' in unified.rows['Farmer'].get()
         assert unified.header.master == root
         assert 'Net silver earned:' in unified.silver_text.get()
         assert 'Discord #shops (4h):' in unified.timer_text.get()

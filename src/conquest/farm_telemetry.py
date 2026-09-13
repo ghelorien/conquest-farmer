@@ -110,6 +110,42 @@ def activity_text(route,app,control,life,*,now=None):
             'Paused â€” waiting for Conquer':'Waiting for Conquer to regain focus'}.get(state,state or 'Hunting')
 
 
+def automation_status(route,app,control,life,*,now=None):
+    """Describe execution separately from the combat On/Off switch."""
+    now=time.time() if now is None else now
+    phase=route.get('phase')
+    manual_revision=app.get('manual_stop_revision')
+    if type(manual_revision) is int and manual_revision==control.get('revision') and not control.get('enabled'):
+        return 'Stopped', 'Stopped by you; press F10 or Farming On to start'
+    fresh=0<=now-route.get('updated_at',0)<12
+    work=app.get('automation_work') or {}
+    current_work=(work.get('revision')==control.get('revision')
+                  and 0<=now-work.get('at',0)<120)
+    if control.get('paused'):
+        return 'Paused', 'Paused with F11; press F11 to resume'
+    if current_work and work.get('state') in ('running','attention'):
+        return ('Running' if work['state']=='running' else 'Stopped · needs attention',work['activity'])
+    if app.get('state')=='Reconnect needs attention':
+        return 'Stopped · needs attention',activity_text(route,app,control,life,now=now)
+    if app.get('state')=='Reconnecting':
+        return 'Recovering',activity_text(route,app,control,life,now=now)
+    if phase=='needs_attention' and not control.get('enabled'):
+        return 'Stopped · needs attention',activity_text(route,app,control,life,now=now)
+    route_work=phase in ('restocking','changing_route','recovering_route','visiting_town','merchant_handoff','reloading','starting')
+    if route_work and not fresh:
+        return 'Waiting · status unavailable','No recent route update; current movement is not confirmed'
+    if route_work or app.get('reload_preparing'):
+        return 'Running',activity_text(route,app,control,life,now=now)
+    if not control.get('enabled'):
+        return 'Stopped', 'Farming is off; press F10 or Farming On to start'
+    activity=activity_text(route,app,control,life,now=now)
+    if life and life.get('dead_candidate'):
+        return 'Recovering',activity
+    if control.get('execution_state') not in (None,'farming','off') or app.get('navigation_blocked'):
+        return 'Waiting · automatic recovery',activity
+    return 'Running',activity
+
+
 
 def farm_stats(app,enabled,*,now=None):
     import math
