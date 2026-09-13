@@ -128,3 +128,27 @@ def test_login_focus_failure_precedes_loading_credentials(monkeypatch):
     with pytest.raises(CaptureUnavailable,match='verified focus'):
         reconnect.submit_login(NS(hwnd=7),session=session)
     assert calls==['identity',(7,{'pid':2})]
+
+
+@pytest.mark.parametrize('occupied',[False,True])
+def test_stall_approach_rechecks_vacancy_before_moving(monkeypatch,occupied):
+    s={'identity':{'pid':1},'map_id':1036,'position':[200,190],'silver':1,
+       'inventory':[],'booth':[],'booth_open':False,'own_booth_uid':0}
+    flag={'uid':10,'position':[208,190]};reads=[0];moves=[]
+    def flags(*args):
+        reads[0]+=1
+        return [] if occupied and reads[0]>1 else [flag]
+    monkeypatch.setattr('conquest.merchants.stalls.vacant_flags',flags)
+    monkeypatch.setattr('conquest.navigation.read_terrain',lambda *a:object())
+    monkeypatch.setattr('conquest.merchants.return_driver.stall_approach',lambda *a:(7,(206,190)))
+    driver=NS(memory=NS(read=lambda:dict(s)),observer=object(),require_qualified=lambda cap:{'shop_setup':{}})
+    def move(*a):
+        moves.append(a[1]);s['position']=[206,190];return s
+    travel=NS(read=lambda:s,move=move)
+    if occupied:
+        with pytest.raises(CaptureUnavailable,match='occupied'):
+            connect.approach_vacant_flag(driver,travel,lambda:None)
+        assert not moves
+    else:
+        assert connect.approach_vacant_flag(driver,travel,lambda:None)==10
+        assert moves==[(206,190)]

@@ -79,11 +79,11 @@ def reconcile_manual_setup(driver,journal,record,snapshot):
     return record
 
 
-def inspect_flag(driver,travel,journal,check):
+def inspect_flag(driver,travel,journal,check,*,flag_uid=None):
     character=driver.observer.character;s=driver.observer.adapter
     previous=journal.get(character,'stall_probe',{})
     if previous.get('phase')=='submitted':
-        raise ValueError('Previous stall interaction needs reconciliation before another click')
+        return confirm_observed_flag(driver,travel,journal,previous,check)
     check();before=driver.memory.read()
     panel_close=None
     if before.get('booth_open') and before.get('own_booth_uid'):
@@ -109,10 +109,13 @@ def inspect_flag(driver,travel,journal,check):
     reopening=bool(before.get('own_booth_uid'))
     flags=[owned_booth(driver.observer,before)] if reopening else [f for f in vacant_flags(driver.observer,spec)
            if max(abs(a-b) for a,b in zip(f['position'],before['position']))<=3]
+    if flag_uid is not None:
+        flags=[f for f in flags if f['uid']==flag_uid]
     if len(flags)!=1:raise ValueError('Stand beside exactly one memory-verified unattended stall flag')
     flag=flags[0]
-    target=owned_booth_target(driver.observer,flag) if reopening else None
-    point=target['point'] if target else (flag['draw_position'][0],flag['draw_position'][1]-32)
+    from conquest.merchants.flag_target import flag_target,CONTROL as FLAG_CONTROL
+    target=owned_booth_target(driver.observer,flag) if reopening else flag_target(driver.observer,flag)
+    point=target['point']
     width,height=driver.memory.gui.viewport_size()
     if not (80<point[0]<width-80 and 170<point[1]<height-160):
         raise ValueError('Stall flag is outside the qualified scene')
@@ -135,6 +138,8 @@ def inspect_flag(driver,travel,journal,check):
         if match!=flag:raise ValueError('Stall was occupied or changed before inspection')
         if reopening and owned_booth_target(driver.observer,match)!=target:
             raise ValueError('Owned booth tile target changed before inspection')
+        if not reopening and flag_target(driver.observer,match)!=target:
+            raise ValueError('Vacant flag collision target changed before inspection')
         inv=driver.memory.inventory.read()
         if inv.items!=inventory.items or inv.silver!=inventory.silver:
             raise ValueError('Inventory changed before stall inspection')
@@ -145,15 +150,14 @@ def inspect_flag(driver,travel,journal,check):
     def prepare_press():
         nonlocal press_pending
         unchanged()
-        if reopening:
-            from conquest.scene_pointer import wait_scene_pointer
-            wait_scene_pointer(s,point,unchanged)
+        from conquest.scene_pointer import wait_scene_pointer
+        wait_scene_pointer(s,point,unchanged)
         press_pending=True
         record['press_pending']=True
         journal.set(character,'stall_probe',record)
     record={'phase':'submitted','submitted_at':time.time(),'flag':flag,
             'operation':'open_owned_panel' if reopening else 'inspect_vacant_flag',
-            'control':dict(CONTROL) if reopening else None,
+            'control':dict(CONTROL if reopening else FLAG_CONTROL),
             'target':target,
             'panel_close':panel_close,
             'own_booth_uid_before':before.get('own_booth_uid',0),
@@ -181,9 +185,15 @@ def inspect_flag(driver,travel,journal,check):
         except ValueError as error:
             if str(error)!='NPC dialog is absent':raise
             records=[]
+        if not reopening and any(w['name']=='Open Booth###Confirm' for w in driver.memory.gui.windows()):
+            return confirm_observed_flag(driver,travel,journal,record,check)
         if raw[12] or records or (own and own!=before.get('own_booth_uid',0)):
             if raw[12] and (not own or struct.unpack_from('<I',raw,0x4c)[0]!=own):
                 raise ValueError('Stall response opened a foreign booth; no qualification')
+            if not reopening and own:
+                claimed=owned_booth(driver.observer,driver.memory.read())
+                if claimed['position']!=[flag['position'][0]+3,flag['position'][1]]:
+                    raise ValueError('Claimed booth belongs to another flag')
             record.update(phase='observed',observed_at=time.time(),position=list(life.position),
                           own_booth_uid=own,displayed_booth_uid=struct.unpack_from('<I',raw,0x4c)[0],
                           booth_open=bool(raw[12]),dialog=records,inventory_unchanged=True,
@@ -192,3 +202,33 @@ def inspect_flag(driver,travel,journal,check):
             return record
         time.sleep(.1)
     raise ValueError('No qualified stall response; do not repeat without reconciliation')
+
+
+def confirm_observed_flag(driver,travel,journal,record,check):
+    from conquest.merchants.booth_confirmation import submit,CONTROL as CONFIRM_CONTROL
+    if record.get('operation')!='inspect_vacant_flag':
+        raise ValueError('Previous stall interaction needs reconciliation before another click')
+    check();before=driver.memory.read()
+    if (any(before[k]!=record[k] for k in ('identity','silver'))
+            or before['inventory']!=record.get('inventory_before') or before['booth']!=record.get('booth_before')):
+        raise ValueError('Stall confirmation differs from journaled flag interaction')
+    if record.get('confirmation_submitted'):
+        if before['map_id']!=1036 or not before.get('own_booth_uid'):
+            raise ValueError('Submitted booth confirmation needs reconciliation; no repeated confirmation')
+        booth=owned_booth(driver.observer,before)
+        if booth['position']!=[record['flag']['position'][0]+3,record['flag']['position'][1]]:
+            raise ValueError('Claimed booth belongs to another flag')
+        after=before
+    else:
+        if before['position']!=record['position']:
+            raise ValueError('Merchant moved before booth confirmation')
+        def submitted():
+            record.update(confirmation_submitted=True,confirmation_at=time.time(),confirmation_control=dict(CONFIRM_CONTROL))
+            journal.set(driver.observer.character,'stall_probe',record)
+        after=submit(driver,travel,before,record['flag'],check,submitted)
+    record.update(phase='observed',observed_at=time.time(),position=after['position'],
+                  own_booth_uid=after['own_booth_uid'],displayed_booth_uid=after['own_booth_uid'] if after['booth_open'] else 0,
+                  booth_open=after['booth_open'],inventory_unchanged=True,dialog=[],native_confirmation=True,
+                  claim_verified=True)
+    journal.set(driver.observer.character,'stall_probe',record)
+    return record

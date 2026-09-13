@@ -72,3 +72,14 @@ def test_restart_never_switches_to_another_client_or_reused_pid():
     catalog.windows = lambda:[client(5,30),client(6,20,hwnd=100)]
     with pytest.raises(ValueError,match='closed or changed'):
         pinned_client(catalog,selected.key)
+
+
+def test_catalog_waits_for_real_login_window_after_loading_splash():
+    identity=client().identity
+    current=[dict(hwnd=1,title='ClassicConquer Loading',visible=True,client_size=[1400,868])]
+    backend=SimpleNamespace(processes=lambda exe:[{'pid':5}],identity=lambda pid:identity,
+                            windows=lambda pid:current)
+    catalog=ClientCatalog(backend)
+    assert catalog.windows()==[]
+    current[:]=[dict(hwnd=2,title='[ClassicConquer]',visible=True,client_size=[1400,868])]
+    assert [w.hwnd for w in catalog.windows()]==[2]

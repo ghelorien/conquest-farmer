@@ -12,7 +12,8 @@ from pathlib import Path
 import yaml
 from conquest.addressing import PlayerLayout, resolve_player, checked_address
 from conquest.memory_inventory import InventoryLayout, MemoryInventoryReader
-from conquest.memory_life import CLIENT_SHA256, read_life
+from conquest.memory_life import CLIENT_SHA256
+from conquest.merchants.transit_life import stable_life as read_life
 from conquest.equipment import item_details
 from conquest.merchants.pricing import ItemKey, quality, socket_name
 

@@ -169,6 +169,22 @@ class UnifiedUI:
 
     def dispatch(self, body):
         action = body.get('action')
+        if action=='start-account-diagnostic' and set(body)=={'action','character'}:
+            import subprocess,sys
+            character=character_name(body['character'])
+            path=Path('.runtime')/f'account-diagnostic-{character.lower()}.json'
+            if path.exists():
+                from conquest.worker import request as worker_request
+                result=worker_request(path,'health')
+                if not result.get('read_only'):raise ValueError('Diagnostic worker is not read-only')
+                return {'existing':True,'read_only':True}
+            process=subprocess.Popen([sys.executable,'-m','conquest.merchants.diagnostic_worker',character],
+                cwd=Path.cwd(),creationflags=subprocess.CREATE_NO_WINDOW,
+                stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            return {'starting':True,'read_only':True,'pid':process.pid}
+        if action=='test-merchant-recovery' and set(body)=={'action','character'}:
+            from conquest.merchants.recovery_trial import start
+            return start(self,body['character'])
         if action=='probe-delivery-request' and set(body)=={'action','character'}:
             from conquest.merchants.delivery_probe import start
             return start(self,body['character'])
@@ -598,6 +614,15 @@ class UnifiedUI:
         if self.closed or probe_busy(self):
             return
         try:
+            host=self.hosts.get(character)
+            if host and host.saved and not host.is_alive():
+                # A lost process is recovery work, not a user Pause command.
+                # Forget only the verified stale HWND; never touch its replacement.
+                host.detach()
+                self.render_sizes.pop(character,None)
+                self.layout_status[character]={'native_visible':False,'selected':False}
+                self.calibration_results[character]={'verified':False,'note':'Client closed; waiting for reconnect'}
+                return
             self.resize_merchant(character)
             host=self.hosts.get(character)
             if host and host.saved:
@@ -712,7 +737,16 @@ class UnifiedUI:
                 # its activation handler must not compete with an owned host.
                 from conquest.focus_recovery import activate_client
                 if not activate_client(observer.operations.target.hwnd,observer.adapter.identity):
-                    raise ValueError('Activate the selected login client before continuing')
+                    # The standalone login has no wrapper owner yet. Activate
+                    # our already-owned safe farmer via the verified Conquest
+                    # caption, then request the login window from that input queue.
+                    farmer=getattr(self.app,'observer',None)
+                    self.coordinator.check()
+                    if farmer and self.safe_to_yield():
+                        from conquest.window_host import HostApi
+                        HostApi().activate_owned_caption(farmer.operations.target.hwnd,farmer.adapter.identity)
+                    if not activate_client(observer.operations.target.hwnd,observer.adapter.identity):
+                        raise ValueError('Activate the selected login client before continuing')
                 return
         done,result = threading.Event(),{}
         self.ui_requests.put((lambda:self.show_merchant(character),done,result))

@@ -56,6 +56,8 @@ class ClientCatalog:
                 size = window.get('client_size') or [0,0]
                 if not window['visible'] or size[0]<200 or size[1]<150:
                     continue
+                if window['title'].strip()=='ClassicConquer Loading':
+                    continue  # Transient splash HWND is replaced by the login shell.
                 if self.title_prefix and not window['title'].startswith(self.title_prefix):
                     continue
                 result.append(ClientWindow(identity,window['hwnd'],window['title']))
