@@ -668,6 +668,11 @@ class OvernightLoop:
             raise ValueError('Urgent valuables remain carried; farming will not resume')
         self.record('urgent_banking_complete',activity='Valuables banked; returning to monsters')
         if needs_town(supply_counts(bag,self.route),self.route):self.restock()
+        else:
+            # Valuables are already verified in storage. Use this required
+            # safe town visit for the bounded refill window without shopping.
+            from conquest.merchants.handoff import service_window
+            service_window(self,town=True)
 
     def hunt(self):
         self.phase = 'hunting'

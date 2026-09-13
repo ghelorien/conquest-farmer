@@ -48,3 +48,23 @@ approach that never repeats a deposit or currency transfer.
 
 Runtime journals, credentials, diagnostic memory snapshots and tokens remain
 local and are not included in this report or the source publication.
+
+## Follow-up: deferred handoffs and town refill opportunities
+
+Live hunting handoffs correctly deferred twice when no quiet spot was verified
+within twelve seconds. They granted no merchant input and resumed hunting,
+while retaining the next fifteen-minute deadline. Spiritual subsequently had
+one free slot following a sale; refill remained pending until a safe opportunity.
+
+A temporary "Waiting for a safe farmer handoff" no longer hides a connected,
+qualified merchant's available delivery capacity. Transaction failures and
+manual merchant pause still block readiness, and planning itself grants no input.
+After urgent valuables are verified in storage, an already-required town visit
+now offers the same bounded refill window as a regular restock visit. It does
+not purchase unneeded supplies or perform merchant work before storage succeeds.
+
+The handoff policy path is isolated in unit tests, preventing tests from using
+live merchant configuration. The updated route/handoff/refill suites passed
+163 tests in the live source and 165 in the publication checkout. The changed
+runtime was loaded through a safe reload; actual refill posting remains under
+live observation rather than being inferred from these tests.

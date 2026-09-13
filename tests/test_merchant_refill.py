@@ -312,3 +312,17 @@ def test_full_combined_ownership_still_refills_an_existing_empty_booth_slot(setu
     assert available_slots(x.state)==0
     assert {i['uid'] for k in ('inventory','booth') for i in x.state[k]}==before
     assert x.refill.state()['listed']==1
+
+
+@pytest.mark.parametrize('note,ready',[
+    ('Waiting for a safe farmer handoff',True),
+    ('Delivery result is uncertain',False),
+    ('Another trade needs reconciliation',False)])
+def test_delivery_readiness_distinguishes_handoff_wait_from_transaction_errors(setup,note,ready):
+    x=setup;x.runtime.latest['Dutch']=x.read()
+    x.runtime.errors['Dutch']={'note':note}
+    status=x.runtime.status()['Dutch']
+    assert status['ready'] is ready
+    assert not x.calls  # Readiness never grants input or posts an item.
+    x.runtime.enable('Dutch',False)
+    assert x.runtime.status()['Dutch']['ready'] is False

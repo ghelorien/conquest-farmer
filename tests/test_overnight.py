@@ -817,6 +817,8 @@ def test_optional_arrow_panel_failure_requires_unchanged_stock(monkeypatch,failu
 @pytest.mark.parametrize('still_carried',[False,True])
 def test_urgent_bank_deposits_before_hunting_without_supply_shopping(monkeypatch,still_carried):
     from conquest import banking,return_scroll,world_travel
+    from conquest.merchants import handoff
+    monkeypatch.setattr(handoff,'service_window',lambda loop,**kw:calls.append(('refill',kw)))
     calls=[];item={'uid':123,'type_id':500003,'plus':2,'slot':0,'amount':1}
     bag={'items':[item],'capacity':40,'silver':200,'equipped_ammo':{'type_id':1050001,'amount':900}}
     def town(action,**kw):
@@ -836,6 +838,8 @@ def test_urgent_bank_deposits_before_hunting_without_supply_shopping(monkeypatch
     else:OvernightLoop.bank_urgent_valuables(loop)
     assert calls.index('travel')<calls.index('deposit')
     assert 'buy' not in calls
+    if still_carried:assert not any(isinstance(c,tuple) and c[0]=='refill' for c in calls)
+    else:assert calls[-1]==('refill',{'town':True})
 
 
 @pytest.mark.parametrize('manual_stop',[False,True])

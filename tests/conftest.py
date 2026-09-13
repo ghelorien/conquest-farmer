@@ -3,6 +3,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def isolate_live_session_plan(tmp_path,monkeypatch):
+    from conquest.merchants import handoff
+    monkeypatch.setattr(handoff,'POLICY',tmp_path/'merchant-deliveries.json')
     from conquest.merchants import delivery_route
     monkeypatch.setattr(delivery_route,'POLICY',tmp_path/'merchant-deliveries.json')
     monkeypatch.setattr(delivery_route,'STATE',tmp_path/'merchant-route.json')

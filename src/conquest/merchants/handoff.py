@@ -6,6 +6,7 @@ from conquest.discord_notify import read_json, write_json
 
 INTERVAL = 900
 WORK_SECONDS = 15
+POLICY = Path('profiles/merchant-deliveries.json')
 STATE = Path(state_path('.runtime/merchant-handoff.json'))
 
 
@@ -54,7 +55,7 @@ def resumable(health, proof, revision):
 
 def service_window(loop, *, town=False):
     """Run on the existing route controller, retaining its exclusive ownership."""
-    policy = read_json('profiles/merchant-deliveries.json')
+    policy = read_json(POLICY)
     if not policy.get('parity_verified') or not policy.get('hunting_handoffs_enabled'):
         return False
     from conquest.merchants.bridge import request as merchant

@@ -526,7 +526,7 @@ class MerchantRuntime:
                         if returning and self.enabled(character) else 'Ready' if self.enabled(character) else 'Paused'),
                     'snapshot':snapshot if fresh else None,'error':error,'scan':scan,
                     'capacity':available_slots(snapshot) if fresh else None,
-                    'ready':fresh and self.enabled(character) and not returning and not error and available_slots(snapshot)>0
+                    'ready':fresh and self.enabled(character) and not returning and (not error or error.get('note')=='Waiting for a safe farmer handoff') and available_slots(snapshot)>0
                         and qualification['trade_request'] and qualification['trade'] and not self.journal.pending(character),
                     'qualification':qualification,
                     'credentials_saved':credential_path(character).exists(),
