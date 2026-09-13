@@ -25,8 +25,10 @@ def item_details(session,address,base):
     name=(raw[0x18:0x28] if capacity<=15 else session.read_block(checked_address(struct.unpack_from('<Q',raw,0x18)[0]),length))[:length].decode('utf-8')
     latest=session.read_block(address,0x78)
     if any(raw[a:b]!=latest[a:b] for a,b in ((0,0x74),)):raise ValueError('Equipment changed during observation')
+    # Pinned tooltip RVA b1730 counts +67/+68; 255 is an empty socket.
+    # +69/+6a are other attributes, not gems. See socket-memory-mapping.md.
     return dict(uid=uid,type_id=kind,name=name,level=raw[0x3a],profession=raw[0x38],sex=raw[0x3b],
-        plus=raw[0x6b] if raw[0x6b]<=12 else None,gem1=raw[0x69],gem2=raw[0x6a],
+        plus=raw[0x6b] if raw[0x6b]<=12 else None,gem1=raw[0x67],gem2=raw[0x68],
         attack_min=struct.unpack_from('<H',raw,0x52)[0],attack_max=struct.unpack_from('<H',raw,0x50)[0],
         defense=struct.unpack_from('<H',raw,0x54)[0],dodge=struct.unpack_from('<H',raw,0x58)[0])
 

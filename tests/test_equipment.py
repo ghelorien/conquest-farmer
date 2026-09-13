@@ -4,6 +4,51 @@ import pytest
 from conquest.equipment import upgrade_candidate,choose_upgrades,equip_receipt
 from conquest.memory_inventory import Item
 
+
+@pytest.mark.parametrize('gems',[(255,0),(0,0),(255,255),(13,23)])
+def test_socket_fields_follow_client_tooltip_and_merchant_comparison(gems):
+    import struct
+    from conquest.equipment import item_details
+    from conquest.merchants.memory import MerchantMemory
+    from conquest.merchants.pricing import socket_name
+    base,ptr=0x140000000,0x100000
+    raw=bytearray(0xa0)
+    struct.pack_into('<Q',raw,0,base+0x5cf220)
+    struct.pack_into('<I',raw,8,293092845)
+    struct.pack_into('<I',raw,0x10,500069)
+    raw[0x18:0x22]=b'ScarletBow'
+    struct.pack_into('<QQ',raw,0x28,10,15)
+    struct.pack_into('<H',raw,0x62,3258)
+    raw[0x67],raw[0x68]=gems
+    # Distinct unrelated fields catch the former two-byte offset mistake.
+    raw[0x69],raw[0x6a],raw[0x6b]=7,8,0
+    session=NS(read_block=lambda a,n:bytes(raw[:n]) if a==ptr else None)
+    details=item_details(session,ptr,base)
+    assert (details['gem1'],details['gem2'])==gems
+    reader=object.__new__(MerchantMemory)
+    reader.s,reader.base,reader.definitions=session,base,{500069:'Bow'}
+    stock=reader.item(ptr,0)
+    assert stock.quantity==1
+    assert stock.key().sockets==tuple(map(socket_name,gems))
+
+
+def test_socket_change_invalidates_equipment_observation():
+    import struct
+    from conquest.equipment import item_details
+    base=0x140000000
+    raw=bytearray(0x78)
+    struct.pack_into('<Q',raw,0,base+0x5cf220)
+    struct.pack_into('<I',raw,8,1)
+    struct.pack_into('<I',raw,0x10,500069)
+    raw[0x18:0x22]=b'ScarletBow'
+    struct.pack_into('<QQ',raw,0x28,10,15)
+    def read(a,n):
+        value=bytes(raw)
+        raw[0x67]=255
+        return value
+    with pytest.raises(ValueError,match='changed'):
+        item_details(NS(read_block=read),0x100000,base)
+
 def state(level=30):
     return {'level':level,'profession':41,'equipment':{'bow':{'uid':1,'type_id':500035,'level':25,
         'plus':0,'attack_min':92,'attack_max':114,'gem1':0,'gem2':0}}}

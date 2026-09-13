@@ -34,51 +34,66 @@ def wanted_drop(drop):
 
 class MemoryGroundReader:
     def __init__(self,entities):
+        from conquest.memory_life import CLIENT_SHA256
+        if entities.session.expected_sha256 != CLIENT_SHA256:
+            raise ValueError('Unqualified ground-item client')
         self.entities=entities
 
     def read(self):
         started=time.monotonic()
         e=self.entities
         s,p=e.session,e.layout
-        base,collection,trace=e._resolve()
-        header_fields=[(collection+o,'u64') for o in (p.begin_offset,p.end_offset,p.capacity_offset)]
+        base,_,trace=e._resolve()
+        # World singleton 96fc5 -> 699360; drop manager at world+170.
+        # 145200/145388 store UID, type, tile and actor/holder in its records.
+        # The scene actor's +40 (holder+50) is a RENDER COUNTER, not a UID.
+        header_fields=[(base+0x6994d8+o,'u64') for o in (0,8,16)]
         header=sample_fields(s,header_fields)
         begin,end,capacity=header
-        if not (0<begin<=end<=capacity and (end-begin)%16==0 and (capacity-begin)%16==0
+        if not (0<=begin<=end<=capacity and (begin>0 or end==capacity==0)
+                and (end-begin)%16==0 and (capacity-begin)%16==0
                 and (capacity-begin)//16<=p.max_objects):
-            raise ValueError('Ground scene vector is invalid')
-        checked_address(begin,max(1,end-begin))
-        entries=s.read_block(begin,end-begin) if end>begin else b''
-        objects=[struct.unpack_from('<Q',entries,i+8)[0] for i in range(0,len(entries),16)]
-        if len(objects)!=len(set(objects)):
-            raise ValueError('Duplicate scene objects')
-        vtables=sample_fields(s,[(checked_address(o),'u64') for o in objects])
-        candidates=[o for o,v in zip(objects,vtables) if v==base+0x5cdaf0]
-        if len(candidates)>256:
+            raise ValueError('Ground registry vector is invalid')
+        if (end-begin)//16>256:
             raise ValueError('Too many ground records')
-        result=[]
-        for obj in candidates:
+        if begin:checked_address(begin,max(1,end-begin))
+        entries=s.read_block(begin,end-begin) if end>begin else b''
+        result=[];seen_uids=set();seen_objects=set();record_checks=[]
+        for at in range(0,len(entries),16):
+            address,owner=struct.unpack_from('<QQ',entries,at)
+            checked_address(owner,0x30)
+            if address!=owner+0x10 or sample_fields(s,[(owner,'u64')])[0]!=base+0x5ccc08:
+                raise ValueError('Ground registry record ownership changed')
+            data=s.read_block(checked_address(address,0x20),0x20)
+            uid,type_id,x,y,actor,obj=struct.unpack('<4I2Q',data)
+            if (not uid or uid in seen_uids or not 0<=type_id<=100000000
+                    or not (0<=x<2048 and 0<=y<2048)):
+                raise ValueError('Ground registry identity is invalid or duplicated')
+            seen_uids.add(uid);record_checks.append((address,data,owner))
+            # The manager also permits type-zero entries with no item actor.
+            if not type_id and not actor and not obj:continue
+            checked_address(obj,0x60)
+            if actor!=obj+0x10 or obj in seen_objects:
+                raise ValueError('Ground actor ownership changed or duplicated')
+            seen_objects.add(obj)
             record=s.read_block(obj,0x60)
-            x,y=struct.unpack_from('<II',record,0x40)
-            uid,type_id=struct.unpack_from('<II',record,0x50)
             if (struct.unpack_from('<Q',record)[0]!=base+0x5cdaf0
-                    or not 1<=type_id<=100000000 or not (0<=x<2048 and 0<=y<2048)):
+                    or struct.unpack_from('<II',record,0x40)!=(x,y)
+                    or struct.unpack_from('<I',record,0x54)[0]!=type_id):
                 raise ValueError('Ground item fields changed or are invalid')
             fresh=s.read_block(obj,0x60)
-            # Render bookkeeping and animation ticks may change while a drop's
-            # identity, type and tile remain stable. Compare gameplay fields.
-            if any(fresh[start:end]!=record[start:end] for start,end in ((0,8),(0x40,0x59))):
+            # Reference counts and the animation counter may change independently
+            # of item identity. Preserve tile, creation time, type and plus checks.
+            if any(fresh[a:b]!=record[a:b] for a,b in ((0,8),(0x40,0x50),(0x54,0x5a))):
                 raise ValueError('Ground item changed during sampling')
-            # The scene retains zero-identifier records alongside qualified
-            # drops. Never click these unresolved records, but do not let one
-            # suppress every other stable drop in the scene.
-            if not uid:
-                continue
             # Scene entry points at the shared holder, 0x10 before the actor.
             # Ground-name formatter RVA 0x15e2e3 reads actor+0x48 and appends
             # "(+{:d})" (RVA 0x5cdad8). Thus holder+0x58 is the ground plus.
             plus=record[0x58] if record[0x58]<=12 else None
-            result.append(GroundItem(uid,obj,type_id,(x,y),struct.unpack_from('<I',record,0x48)[0],plus))
+            result.append(GroundItem(uid,obj,type_id,(x,y),struct.unpack_from('<Q',record,0x48)[0],plus))
+        if any(s.read_block(address,0x20)!=data or sample_fields(s,[(owner,'u64')])[0]!=base+0x5ccc08
+               for address,data,owner in record_checks):
+            raise ValueError('Ground registry item changed during sampling')
         if (sample_fields(s,header_fields)!=header
                 or (end>begin and s.read_block(begin,end-begin)!=entries)
                 or sample_fields(s,[(a,'u64') for a,_ in trace])!=[v for _,v in trace]):
@@ -86,8 +101,6 @@ class MemoryGroundReader:
         s.assert_identity()
         if time.monotonic()-started>.5:
             raise ValueError('Ground observation expired')
-        # +0x50 is a candidate identifier, not a qualified globally unique ID.
-        # The object, creation tick, type and position distinguish live records.
         return tuple(result)
 
 
