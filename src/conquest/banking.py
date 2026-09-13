@@ -49,9 +49,16 @@ def shopping_budget(route,bag,level=None):
     # take precedence and the shop price is still read before any purchase.
     pack=max(limits,default={1050000:200,1050001:1000,1050002:5000}.get(kind,0))
     if not price or not pack:raise ValueError('Arrow refill budget is not qualified')
-    from conquest.arrow_upgrades import MAX_ARROW_PACKS,arrow_pack_count
+    from conquest.arrow_upgrades import MAX_ARROW_PACKS,arrow_pack_count,NORMAL_ARROWS
+    # One/two-arrow remnants will be recycled on this required shop visit.
+    # They must not consume the budget for the replacement pack. The actual
+    # purchase cap still counts every carried pack until recycling is verified.
+    usable_bag={**bag,'items':[i for i in bag['items']
+        if i['type_id'] not in NORMAL_ARROWS or i['amount']>=3]}
+    if ammo and ammo['type_id'] in NORMAL_ARROWS and ammo['amount']<3:
+        usable_bag['equipped_ammo']=None
     packs=min(math.ceil(max(0,route.supplies.arrows_restock_to-counts['arrows'])/pack),
-              max(0,MAX_ARROW_PACKS-arrow_pack_count(bag)))
+              max(0,MAX_ARROW_PACKS-arrow_pack_count(usable_bag)))
     arrows=packs*price
     healing=max(0,route.supplies.healing_restock_to-counts['potions'])*60
     from conquest.return_scroll import POLICY,TYPE

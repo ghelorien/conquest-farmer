@@ -49,6 +49,26 @@ def test_restock_budget_does_not_fund_arrows_at_ten_partial_packs(monkeypatch):
     assert b.shopping_budget(route,bag)==200
 
 
+@pytest.mark.parametrize('remnant_location',['equipped','inventory'])
+def test_speed_refill_funds_both_packs_after_spent_remnant_recycling(monkeypatch,remnant_location):
+    from conquest.routes import RouteLibrary
+    route=RouteLibrary().load('bandit')
+    route=route.model_copy(update={'supplies':route.supplies.model_copy(update={
+        'arrow_type':1050002,'arrows_restock_to':10000,'healing_restock_to':5})})
+    remnant={'uid':1,'type_id':1050002,'amount':2,'limit':5000}
+    bag={'items':[{'type_id':1000020,'amount':5,'limit':1}],
+         'equipped_ammo':None,'capacity':40,'silver':200}
+    if remnant_location=='equipped':bag['equipped_ammo']=remnant
+    else:bag['items'].append(remnant)
+    original=b.read_json
+    catalog={'cities':{str(route.restock_map_id):{'5':{'products':[
+        {'type_id':1050002,'level':73,'price':34000}]}}}}
+    monkeypatch.setattr(b,'read_json',lambda path,*a,**kw:catalog if str(path).endswith('archer-shop-catalog.json') else original(path,*a,**kw))
+    monkeypatch.setattr(b,'transport_reserve',lambda:200)
+    assert b.shopping_budget(route,bag)==71200
+    assert remnant['amount']==2  # Budgeting cannot discard actual inventory.
+
+
 def test_restock_withdrawal_budget_is_essential_supplies_and_fares(enabled,monkeypatch):
     from conquest.routes import RouteLibrary
     route=RouteLibrary().load('poltergeist')

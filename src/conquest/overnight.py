@@ -520,6 +520,30 @@ class OvernightLoop:
         self.record('purchase',receipt=receipt)
         return True
 
+    def open_arrow_refill(self):
+        before=self.town('supplies')
+        try:
+            self.town('open',vendor_type=5)
+            return True
+        except ValueError as error:
+            if str(error)!='Shop opening was not verified; no repeat input issued':
+                raise
+            # Opening a shop does not submit a purchase. A stocked character
+            # can defer the spare, but never conceal an inventory/currency
+            # change or use this path for an uncertain transaction.
+            keys=('items','equipped_ammo','silver','capacity')
+            baseline={key:before.get(key) for key in keys}
+            for _ in range(3):
+                current=self.town('supplies')
+                if ({key:current.get(key) for key in keys}!=baseline
+                        or needs_town(supply_counts(current,self.route),self.route)):
+                    raise error
+                time.sleep(.1)
+            self.record('optional_arrow_refill_deferred',
+                supplies=supply_counts(current,self.route),detail=str(error),
+                activity='Spare arrows deferred; finishing storage before returning to hunt')
+            return False
+
     def restock(self,*,review_both_cities=True):
         self.phase = 'restocking'
         from conquest.savings import savings_plan,configure_route
@@ -575,7 +599,8 @@ class OvernightLoop:
             # Equipping upgraded arrows closes Shop. An optional equipment
             # review may then defer before reopening it; verify the vendor
             # again before the required refill's price read or purchase.
-            self.town('open',vendor_type=5)
+            if not self.open_arrow_refill():
+                break
             if not self.buy_supply(5,self.route.supplies.arrow_type):
                 break
         self.town('close',window='Shop')

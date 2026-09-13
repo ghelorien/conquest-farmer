@@ -764,6 +764,41 @@ def test_pharmacist_skipped_when_potions_full_and_only_protected_loot():
     snapshot['items'][0]['amount']=0
     assert pharmacist_needed(snapshot,route)
 
+
+@pytest.mark.parametrize('failure,change,arrows,potions,allowed',[
+    ('Shop opening was not verified; no repeat input issued',None,5000,5,True),
+    ('Shop opening was not verified; no repeat input issued','silver',5000,5,False),
+    ('Shop opening was not verified; no repeat input issued','uid',5000,5,False),
+    ('Shop opening was not verified; no repeat input issued',None,2,5,False),
+    ('Shop opening was not verified; no repeat input issued',None,5000,0,False),
+    ('Purchase was not verified; no repeat purchase issued',None,5000,5,False),
+])
+def test_optional_arrow_panel_failure_requires_unchanged_stock(monkeypatch,failure,change,arrows,potions,allowed):
+    import copy
+    from conquest import overnight
+    monkeypatch.setattr(overnight.time,'sleep',lambda _:None)
+    loop=OvernightLoop.__new__(OvernightLoop);loop.route=RouteLibrary().load('bandit')
+    bag={'items':[{'uid':2,'type_id':loop.route.supplies.healing_type,'amount':potions}],
+         'equipped_ammo':{'uid':1,'type_id':loop.route.supplies.arrow_type,'amount':arrows},
+         'capacity':40,'silver':3000}
+    calls=[];events=[]
+    def town(action,**fields):
+        calls.append(action)
+        if action=='open':raise ValueError(failure)
+        current=copy.deepcopy(bag)
+        if len(calls)>1:
+            if change=='silver':current['silver']-=1
+            if change=='uid':current['equipped_ammo']['uid']=3
+        return current
+    loop.town=town;loop.record=lambda event,**fields:events.append(event)
+    if allowed:
+        assert loop.open_arrow_refill() is False
+        assert events==['optional_arrow_refill_deferred']
+    else:
+        with pytest.raises(ValueError,match=failure):loop.open_arrow_refill()
+        assert not events
+    assert calls.count('open')==1 and 'buy' not in calls
+
 @pytest.mark.parametrize('still_carried',[False,True])
 def test_urgent_bank_deposits_before_hunting_without_supply_shopping(monkeypatch,still_carried):
     from conquest import banking,return_scroll,world_travel
