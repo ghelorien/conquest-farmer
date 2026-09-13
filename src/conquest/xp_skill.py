@@ -33,25 +33,36 @@ def fly_point(observer,state):
     # The XP popup iterates this vector (separate from the learned-skill list).
     header=s.read_block(actor+0x1998,24)
     start,end,capacity=struct.unpack('<3Q',header)
-    if end-start!=16 or not end<=capacity<=start+128*16:
-        raise ValueError('Fly popup requires the qualified single XP skill layout')
-    entry=s.read_block(checked_address(start),16)
-    pointer=checked_address(struct.unpack_from('<Q',entry)[0])
-    raw=s.read_block(pointer,0x68)
-    if (struct.unpack_from('<Q',raw)[0]!=base+0x5cff78
-            or struct.unpack_from('<I',raw,8)[0]!=1
-            or struct.unpack_from('<I',raw,0x10)[0]!=8002
+    if (not 16<=end-start<=8*16 or (end-start)%16
+            or not end<=capacity<=start+128*16 or (capacity-start)%16):
+        raise ValueError('XP skill vector bounds changed')
+    entries=s.read_block(checked_address(start,end-start),end-start)
+    pointers=[checked_address(struct.unpack_from('<Q',entries,i)[0])
+              for i in range(0,len(entries),16)]
+    if len(set(pointers))!=len(pointers):raise ValueError('Duplicate XP skill entries')
+    records=[s.read_block(pointer,0x68) for pointer in pointers]
+    if any(struct.unpack_from('<Q',raw)[0]!=base+0x5cff78
+           or struct.unpack_from('<I',raw,8)[0] not in (0,1) for raw in records):
+        raise ValueError('XP skill entry identity changed')
+    matches=[i for i,raw in enumerate(records) if struct.unpack_from('<I',raw,0x10)[0]==8002]
+    if len(matches)!=1:raise ValueError('One unambiguous Fly entry is required')
+    index=matches[0];raw=records[index]
+    if (struct.unpack_from('<I',raw,8)[0]!=1
             or raw[0x18:0x1c]!=b'Fly\0'
             or struct.unpack_from('<QQ',raw,0x28)!=(3,15)
             or struct.unpack_from('<I',raw,0x44)[0]!=2):
         raise ValueError('Ready XP entry is not the self-target Fly skill')
-    window=MemoryGui(s).read('##SkillsPopup')
-    if window.size!=(56.,56.) or window.scroll!=(0.,0.):
+    gui=MemoryGui(s);window=gui.read('##SkillsPopup')
+    # Pinned renderer 0x9b2c0 iterates every non-null entry, including disabled
+    # buttons, in vector order. 0xab610 draws 40x40 icons with 8px spacing and
+    # 8px window padding. Live Fly + ArrowRain measures 104x56 (single: 56x56).
+    if window.size!=(56.+48*(len(records)-1),56.) or window.scroll!=(0.,0.):
         raise ValueError('Fly popup geometry changed')
-    if (s.read_block(actor+0x1998,24)!=header or s.read_block(start,16)!=entry
-            or s.read_block(pointer,0x68)!=raw or read_xp(observer)!=state):
+    if (s.read_block(actor+0x1998,24)!=header or s.read_block(start,len(entries))!=entries
+            or any(s.read_block(pointer,0x68)!=raw for pointer,raw in zip(pointers,records))
+            or gui.read('##SkillsPopup')!=window or read_xp(observer)!=state):
         raise ValueError('Fly readiness changed before activation')
-    return tuple(round(p+size/2) for p,size in zip(window.position,window.size))
+    return (round(window.position[0]+28+48*index),round(window.position[1]+28))
 
 
 class XpSkill:

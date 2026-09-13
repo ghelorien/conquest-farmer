@@ -58,3 +58,48 @@ def test_unconfirmed_click_does_not_claim_flight_or_spam(monkeypatch):
         runner.step(clicks.append);now[0]+=.1
     assert len(clicks)==3
     assert not any(event=='xp_fly_verified' for event,_ in events)
+
+
+def two_skills(monkeypatch,*,fly_first=True):
+    observer,blobs,window=fixture(monkeypatch)
+    arrow=bytearray(blobs[0x300000]);struct.pack_into('<I',arrow,0x10,8030)
+    arrow[0x18:0x28]=b'ArrowRain\0'.ljust(16,b'\0')
+    struct.pack_into('<QQ',arrow,0x28,9,15);struct.pack_into('<I',arrow,0x44,0)
+    blobs[0x400000]=arrow
+    pointers=[0x300000,0x400000] if fly_first else [0x400000,0x300000]
+    blobs[0x100000+0x1998]=struct.pack('<3Q',0x200000,0x200020,0x200020)
+    blobs[0x200000]=struct.pack('<4Q',pointers[0],0,pointers[1],0)
+    window.size=(104.,56.)
+    return observer,blobs,window
+
+
+@pytest.mark.parametrize('fly_first',[True,False])
+def test_fly_with_arrow_rain_uses_its_own_button(monkeypatch,fly_first):
+    observer,blobs,_=two_skills(monkeypatch,fly_first=fly_first)
+    # Disabled neighbors still occupy a button in the renderer.
+    struct.pack_into('<I',blobs[0x400000],8,0)
+    assert xp.fly_point(observer,xp.read_xp(observer))==((518 if fly_first else 566),641)
+
+
+@pytest.mark.parametrize('change',['duplicate_fly','duplicate_pointer','null_pointer','disabled_fly','wrong_size','scroll'])
+def test_ambiguous_or_unqualified_multi_popup_never_clicks(monkeypatch,change):
+    observer,blobs,window=two_skills(monkeypatch)
+    if change=='duplicate_fly':struct.pack_into('<I',blobs[0x400000],0x10,8002)
+    elif change=='duplicate_pointer':blobs[0x200000]=struct.pack('<4Q',0x300000,0,0x300000,0)
+    elif change=='null_pointer':blobs[0x200000]=struct.pack('<4Q',0x300000,0,0,0)
+    elif change=='disabled_fly':struct.pack_into('<I',blobs[0x300000],8,0)
+    elif change=='wrong_size':window.size=(122.,56.)
+    else:window.scroll=(1.,0.)
+    assert not xp.XpSkill(observer,lambda *args:None).step(lambda p:pytest.fail('Unexpected click'))
+
+
+def test_reordered_vector_before_click_is_rejected(monkeypatch):
+    observer,blobs,_=two_skills(monkeypatch);read=observer.adapter.read_block;calls=[0]
+    def changing(address,size):
+        if address==0x200000:
+            calls[0]+=1
+            if calls[0]>1:return struct.pack('<4Q',0x400000,0,0x300000,0)
+        return read(address,size)
+    observer.adapter.read_block=changing
+    with pytest.raises(ValueError,match='readiness changed'):
+        xp.fly_point(observer,xp.read_xp(observer))
