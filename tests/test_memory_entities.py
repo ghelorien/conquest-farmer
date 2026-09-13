@@ -159,3 +159,66 @@ def test_restart_resolves_new_scene_addresses(setup):
         memory.values[0x900000 + offset] = memory.values[0x400000 + offset]
     del memory.values[0x400000]
     assert reader.read().monsters[0].entity_id == 450000
+
+
+@pytest.mark.parametrize('changed',['none','uid','missing','moving','membership'])
+def test_selected_refresh_only_reads_target_but_preserves_identity_guards(setup,changed):
+    memory,layout,reader=setup
+    if changed=='uid':memory.values[0x600000+layout.id_offset]+=1
+    if changed=='missing':memory.values[0x500008]=0x700000
+    if changed in ('moving','membership'):
+        def mutate(m):
+            if m.read_counts.get(0x600000+layout.position_offset,0)>=2:
+                if changed=='moving':m.values[0x600000+layout.position_offset]=(681,570)
+                else:m.values[0x500008]=0x700000
+        memory.mutate=mutate
+    if changed=='none':
+        snapshot=reader.read(selected=(450000,0x600000))
+        assert len(snapshot.monsters)==1 and snapshot.monsters[0].entity_id==450000
+        assert 0x800000+layout.position_offset not in memory.read_counts
+        assert 0x600000+layout.position_offset in memory.read_counts
+    else:
+        with pytest.raises(ValueError):reader.read(selected=(450000,0x600000))
+
+
+@pytest.mark.parametrize('change',[None,'id','position','draw','name','hp','level','membership','short','exit'])
+def test_packed_records_preserve_stability_identity_and_membership_guards(setup,change):
+    import struct
+    memory,layout,reader=setup
+    expected=reader.read()
+    calls=[]
+    def block(address,size):
+        data=bytearray(size)
+        for location,value in memory.values.items():
+            if not address<=location<address+size:continue
+            if isinstance(value,str):encoded=value.encode()+b'\0'
+            elif isinstance(value,tuple):encoded=struct.pack('<II',*value)
+            else:encoded=int(value).to_bytes(4,'little',signed=value<0)
+            offset=location-address;data[offset:offset+len(encoded)]=encoded
+        calls.append((address,size))
+        if len(calls)==1:
+            offset={'id':layout.id_offset,'position':layout.position_offset,
+                'draw':layout.draw_position_offset,'name':layout.name_offset,
+                'hp':layout.max_hp_offset,'level':layout.level_offset}.get(change)
+            if offset is not None:
+                value=memory.values[0x600000+offset]
+                memory.values[0x600000+offset]=(681,570) if change=='position' else 'Changed' if change=='name' else value+1
+            elif change=='membership':memory.values[0x500008]=0x800000
+            elif change=='exit':memory.exited=True
+        return bytes(data[:-1] if change=='short' else data)
+    memory.read_block=block
+    if change is None:
+        actual=reader.read(packed=True)
+        assert actual.monsters==expected.monsters
+        assert len(calls)==2 and all(size<=4096 for _,size in calls)
+    else:
+        with pytest.raises((ValueError,OSError)):
+            reader.read(packed=True)
+
+
+def test_packed_record_span_is_bounded():
+    from types import SimpleNamespace
+    from conquest.memory_entities import record_values
+    def forbidden(*args):pytest.fail('Oversized records must not be read')
+    with pytest.raises(ValueError,match='bounded'):
+        record_values(SimpleNamespace(read_block=forbidden),[0x600000],[(0,'u32'),(4096,'u32')],packed=True)

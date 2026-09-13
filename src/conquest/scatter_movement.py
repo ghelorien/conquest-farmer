@@ -40,6 +40,7 @@ def wounded_group_in_range(supervisor,targets,position,radius):
 
 def scatter_landing(supervisor, targets, position, boundary, radius,minimum_count=1,*,anchor=(518,396)):
     terrain=supervisor.recovery.terrain
+    fast=getattr(getattr(supervisor,'combat_speed',None),'fast_scatter_planning',False)
     viewport=size_for(getattr(supervisor,'observer',None))
     observed=getattr(supervisor,'scatter_scene_targets',()) or targets
     x,y=position;left,top,right,bottom=boundary
@@ -66,9 +67,9 @@ def scatter_landing(supervisor, targets, position, boundary, radius,minimum_coun
             if any(abs(px-t.x)<=24 and -40<=py-t.y<=10 for t in observed
                    if hasattr(t,'x') and hasattr(t,'y')):continue
             steps=max(abs(dx),abs(dy))*4
-            if any((round(x+dx*i/steps),round(y+dy*i/steps)) in blocked for i in range(1,steps+1)):continue
+            if (blocked or not fast) and any((round(x+dx*i/steps),round(y+dy*i/steps)) in blocked for i in range(1,steps+1)):continue
             count=sum(max(abs(p[0]-point[0]),abs(p[1]-point[1]))<=radius for p in live)
-            if count<minimum_count or not clear_jump(terrain,position,point):continue
+            if count<minimum_count or (not fast and not clear_jump(terrain,position,point)):continue
             # Keep dense ordinary groups; do not deliberately land beside bosses.
             from conquest.routes import boss_name
             if any(boss_name(m.name) and max(abs(m.position[0]-point[0]),abs(m.position[1]-point[1]))<=2
@@ -78,6 +79,13 @@ def scatter_landing(supervisor, targets, position, boundary, radius,minimum_coun
                             if max(abs(p[0]-point[0]),abs(p[1]-point[1]))<=radius)
             candidates.append(((count,-repeated,centrality,distance),point))
     if not candidates:return None
-    destination=max(candidates,key=lambda row:row[0])[1]
+    if fast:
+        # Stable ordering preserves the original tie-break. Check terrain in
+        # score order and stop at the same highest-ranked clear destination.
+        destination=next((point for _,point in sorted(candidates,key=lambda row:row[0],reverse=True)
+                          if clear_jump(terrain,position,point)),None)
+        if destination is None:return None
+    else:
+        destination=max(candidates,key=lambda row:row[0])[1]
     supervisor.scatter_landings=recent+[(position,now)]
     return destination

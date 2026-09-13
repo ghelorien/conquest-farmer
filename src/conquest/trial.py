@@ -323,7 +323,11 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     reason = "map_changed"
                     break
                 x, y = fields["position"]
-                if supervisor and hasattr(supervisor,"player_anchor"):
+                if supervisor and speed.coherent_projection and hasattr(supervisor,'player_projection'):
+                    (x,y),anchor=supervisor.player_projection()
+                    fields['position']=[x,y]
+                    config=config.model_copy(update={'player_anchor':anchor})
+                elif supervisor and hasattr(supervisor,"player_anchor"):
                     config=config.model_copy(update={"player_anchor":supervisor.player_anchor((x,y))})
                 l, t, r, b = config.boundary
                 if approaching and l <= x <= r and t <= y <= b:
@@ -441,10 +445,13 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     attack_failures=0
                     last_action=0
 
+                escape_observation=None
+                escape_observed_at=None
                 if (supervisor and config.kite_when_surrounded and not observe_only
                         and time.monotonic()>=escape_settle_until
                         and time.monotonic()>=getattr(supervisor,'escape_ready_at',0)):
-                    supervisor.memory_targets(config.client_size)
+                    escape_observed_at=time.monotonic()
+                    escape_observation=supervisor.memory_targets(config.client_size)
                     escape=supervisor.ranged_escape((x,y),(l,t,r,b))
                     if escape is not None:
                         dx,dy=escape[0]-x,escape[1]-y
@@ -672,27 +679,34 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     if supervisor and jumped and math.dist((x,y),before_position)<.5:
                         settle=min(settle,.8)
                     if approaching and getattr(getattr(supervisor,'runback_watch',None),'urgent',False):settle=min(settle,.5)
-                    if time.monotonic() - issued < settle:
-                        time.sleep(.05)
-                        continue
                     changed = math.dist((x,y), before_position) > .5
-                    if changed and supervisor and hasattr(supervisor,'movement_succeeded'):
-                        supervisor.movement_succeeded(before_position,(x,y),arrived=bool(arrived))
-                    movement_failures = 0 if changed else movement_failures + 1
-                    event("movement_verified" if changed else "movement_stuck", position=[x,y],
-                          arrived=bool(arrived), elapsed=time.monotonic()-issued)
-                    moving = None
-                    if not changed and supervisor:
-                        if getattr(supervisor,'runback_watch',None):supervisor.runback_watch.recovery()
-                        supervisor.movement_failed((x,y),expected_position)
-                        event('movement_recovery',position=[x,y],blocked_landing=list(expected_position),
-                              failures=movement_failures,activity='Blocked movement; taking another path')
-                        # Keep healing, defense and fresh target observations active.
-                        # The next movement is planned around the failed segment.
-                        continue
-                    if movement_failures >= 3 and not supervisor:
-                        reason = "movement_failure_limit"
-                        break
+                    inflight_cast = (speed.scatter_during_jump and config.jump_scatter and jumped
+                        and changed and not arrived and not approaching and not defending
+                        and speed.jump_attack_guard_seconds<=time.monotonic()-issued<settle)
+                    # A short/redirected landing still completes this movement.
+                    # Mid-jump casting must not suppress verification forever.
+                    if not inflight_cast:
+                        if time.monotonic() - issued < settle:
+                            time.sleep(.05)
+                            continue
+                        changed = math.dist((x,y), before_position) > .5
+                        if changed and supervisor and hasattr(supervisor,'movement_succeeded'):
+                            supervisor.movement_succeeded(before_position,(x,y),arrived=bool(arrived))
+                        movement_failures = 0 if changed else movement_failures + 1
+                        event("movement_verified" if changed else "movement_stuck", position=[x,y],
+                              arrived=bool(arrived), elapsed=time.monotonic()-issued)
+                        moving = None
+                        if not changed and supervisor:
+                            if getattr(supervisor,'runback_watch',None):supervisor.runback_watch.recovery()
+                            supervisor.movement_failed((x,y),expected_position)
+                            event('movement_recovery',position=[x,y],blocked_landing=list(expected_position),
+                                  failures=movement_failures,activity='Blocked movement; taking another path')
+                            # Keep healing, defense and fresh target observations active.
+                            # The next movement is planned around the failed segment.
+                            continue
+                        if movement_failures >= 3 and not supervisor:
+                            reason = "movement_failure_limit"
+                            break
                 if time.monotonic()<escape_settle_until:
                     time.sleep(.05)
                     continue
@@ -727,15 +741,18 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                 strategy=None
                 if supervisor and config.adaptive_scatter:
                     strategy=supervisor.attack_strategy()
+                # Reuse only a successful same-iteration scan with its original age.
+                reuse_scene=(supervisor and speed.scene_reuse_seconds>0
+                    and escape_observation is not None and escape_observed_at is not None
+                    and getattr(supervisor,'targets_observation_available',False)
+                    and 0<=time.monotonic()-escape_observed_at<=speed.scene_reuse_seconds)
                 if supervisor:
-                    # These targets are a NEW memory observation, taken after
-                    # healing/skill/equipment checks. Age them from the start of
-                    # this scan, not the earlier geometry-only frame marker.
                     origin=camera.geometry()
                     if origin!=frame.origin:
                         raise CaptureUnavailable('Game origin changed before target scan')
-                    frame=Frame(time.monotonic(),None,origin)
-                observed = (supervisor.memory_targets(config.client_size) if supervisor else
+                    frame=Frame(escape_observed_at if reuse_scene else time.monotonic(),None,origin)
+                observed = (escape_observation if reuse_scene else
+                            supervisor.memory_targets(config.client_size) if supervisor else
                             targets(frame.image, template, config.target_threshold, config.monster))
                 if supervisor and time.monotonic()-frame.timestamp>.35:
                     raise CaptureUnavailable('Target scan expired; reobserving before attack or patrol')
@@ -832,7 +849,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         target=min(close,key=lambda t:math.dist((t.x,t.y),config.player_anchor))
                 scatter_destination=None
                 if (supervisor and config.jump_scatter and attack_button=='right' and (scatter_jump_due or target is None)
-                        and not approaching and not defending and not observe_only
+                        and not approaching and not defending and not observe_only and not moving
                         and time.monotonic()-last_action>=config.interval):
                     from conquest.scatter_movement import scatter_landing,wounded_group_in_range
                     if not (target and attack_button=='right' and
@@ -879,6 +896,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         if search:
                             search.attacked(issued)
                         event("attack_attempt", number=attempts, point=[target.x, target.y],button=attack_button,
+                              during_jump=bool(moving), movement_elapsed=time.monotonic()-moving[1] if moving else None,
                               ability="Scatter" if attack_button=="right" else "Single attack",
                               entity_id=target.entity_id,object_address=target.object_address,
                               world_position=target.world_position,target_hp=target.current_hp,
@@ -889,7 +907,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         if attempts >= config.maximum_actions:
                             reason = "action_limit"
                             break
-                    elif (config.route or approaching or scatter_destination) and not observe_only:
+                    elif (config.route or approaching or scatter_destination) and not observe_only and not moving:
                         if scatter_destination:
                             destination=scatter_destination
                         elif approaching:

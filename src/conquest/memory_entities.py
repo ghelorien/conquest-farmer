@@ -5,6 +5,7 @@ observations deliberately do not authorize combat until current HP is mapped.
 """
 from dataclasses import asdict, dataclass
 import time
+import struct
 from typing import Literal, Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -90,6 +91,31 @@ def sample_fields(session, fields):
     return values
 
 
+def record_values(session, actors, specs, *, packed=False):
+    if not packed:
+        return sample_fields(session, [(obj+offset,kind) for obj in actors for offset,kind in specs])
+    formats={'u32':'<I','i32':'<i','xy_u32':'<II'}
+    sizes={kind:struct.calcsize(fmt) for kind,fmt in formats.items()}
+    sizes['utf8']=64
+    begin=min(offset for offset,kind in specs)
+    end=max(offset+sizes[kind] for offset,kind in specs)
+    if not 0<end-begin<=4096:
+        raise ValueError('Monster record span exceeds bounded read')
+    values=[]
+    for obj in actors:
+        data=session.read_block(checked_address(obj+begin,end-begin),end-begin)
+        if len(data)!=end-begin:raise ValueError('Incomplete monster record')
+        for offset,kind in specs:
+            relative=offset-begin
+            if kind=='utf8':
+                value=data[relative:relative+64].split(b'\0',1)[0].decode('utf-8',errors='replace')
+            else:
+                decoded=struct.unpack_from(formats[kind],data,relative)
+                value=decoded if kind=='xy_u32' else decoded[0]
+            values.append(value)
+    return values
+
+
 class MemoryEntityReader:
     def __init__(self, session, layout, *, clock=time.monotonic):
         if session.expected_sha256 != layout.expected_sha256:
@@ -118,7 +144,11 @@ class MemoryEntityReader:
             raise ValueError("Scene pointer path changed")
         return module["base"], address, trace
 
-    def read(self):
+    def read(self, *, selected=None, packed=False):
+        if selected is not None:
+            uid,address=selected
+            if type(uid) is not int or uid<=0:raise ValueError("Invalid selected monster ID")
+            checked_address(address)
         started = self.clock()
         s, p = self.session, self.layout
         module, collection, trace = self._resolve()
@@ -138,9 +168,12 @@ class MemoryEntityReader:
         objects = sample_fields(s, entries)
         if len(set(objects)) != len(objects):
             raise ValueError("Duplicate scene object pointers")
-        vtable_fields = [(checked_address(obj), "u64") for obj in objects]
+        if selected is not None and objects.count(selected[1])!=1:
+            raise ValueError('Selected monster is not a unique scene member')
+        inspected=objects if selected is None else [selected[1]]
+        vtable_fields = [(checked_address(obj), "u64") for obj in inspected]
         vtables = sample_fields(s, vtable_fields)
-        typed = [obj for obj, vtable in zip(objects, vtables) if vtable == module + p.monster_vtable_rva]
+        typed = [obj for obj, vtable in zip(inspected, vtables) if vtable == module + p.monster_vtable_rva]
         kind_fields = [(obj + p.kind_offset, "u32") for obj in typed]
         kinds = sample_fields(s, kind_fields)
         accepted_types = set(p.monster_type_ids or (p.monster_kind,))
@@ -150,11 +183,10 @@ class MemoryEntityReader:
         specs = [(p.id_offset, "u32"), (p.kind_offset, "u32"), (p.name_offset, "utf8"),
                  (p.position_offset, "xy_u32"), (p.draw_position_offset, "i32"),
                  (p.draw_position_offset + 4, "i32"), (p.max_hp_offset, "u32"), (p.level_offset, "u32")]
-        fields = [(obj + offset, kind) for obj in actors for offset, kind in specs]
-        values = sample_fields(s, fields)
+        values = record_values(s, actors, specs, packed=packed)
         # Re-read complete records: moving/recycled entities cannot yield mixed
         # IDs and coordinates. The caller may retry on the next observation.
-        if sample_fields(s, fields) != values:
+        if record_values(s, actors, specs, packed=packed) != values:
             raise ValueError("Monster changed during observation")
         if (sample_fields(s, entries) != objects or sample_fields(s, vtable_fields) != vtables
                 or sample_fields(s, kind_fields) != kinds
@@ -178,6 +210,8 @@ class MemoryEntityReader:
             monsters.append(MonsterObservation(obj, uid, name, position, (draw_x, draw_y), max_hp, level,type_id=kind))
         if len({m.entity_id for m in monsters}) != len(monsters):
             raise ValueError("Duplicate monster IDs")
+        if selected is not None and (len(monsters)!=1 or monsters[0].entity_id!=selected[0]):
+            raise ValueError('Selected monster identity changed')
         return EntitySnapshot(started, finished, tuple(monsters), len(objects))
 
     def report(self):

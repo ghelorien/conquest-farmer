@@ -120,3 +120,39 @@ def test_finish_wounded_group_requires_fresh_same_identities_in_range(monkeypatc
     assert not sm.wounded_group_in_range(supervisor,targets,(30,30),10)
     now[0]=104
     assert not sm.wounded_group_in_range(supervisor,targets,(50,50),10)
+
+
+@pytest.mark.parametrize('seed',range(30))
+def test_fast_planning_preserves_exact_landing_with_obstacles_and_ties(seed,monkeypatch):
+    from conquest import scatter_movement as sm
+    from conquest.farmer_profile import CombatSpeed
+    monkeypatch.setattr(sm.time,'monotonic',lambda:100.)
+    rng=np.random.default_rng(seed)
+    blocked=np.zeros((100,100),dtype=bool)
+    for y,x in rng.integers(35,66,size=(seed%8,2)):blocked[y,x]=True
+    terrain=TerrainMap(1011,100,100,blocked,'',(),())
+    targets=[target(int(x),int(y)) for x,y in rng.integers(30,71,size=(1+seed,2))]
+    common=dict(recovery=SimpleNamespace(terrain=terrain),scatter_landings=[((58,50),95.)],
+        movement_obstructions={(1011,(42,50)):120.},
+        escape_monsters=[SimpleNamespace(name='BanditKing',position=(60,50))])
+    old=SimpleNamespace(**common,combat_speed=CombatSpeed())
+    fast=SimpleNamespace(**common,combat_speed=CombatSpeed(fast_scatter_planning=True))
+    expected=scatter_landing(old,targets,(50,50),(20,20,80,80),12)
+    assert scatter_landing(fast,targets,(50,50),(20,20,80,80),12)==expected
+    assert fast.scatter_landings==old.scatter_landings
+
+
+def test_fast_planning_avoids_checking_lower_ranked_terrain(monkeypatch):
+    from conquest import scatter_movement as sm
+    from conquest.farmer_profile import CombatSpeed
+    original=sm.clear_jump;calls=[]
+    def counted(*args):calls.append(args[-1]);return original(*args)
+    monkeypatch.setattr(sm,'clear_jump',counted)
+    terrain=TerrainMap(1011,100,100,np.zeros((100,100),dtype=bool),'',(),())
+    targets=[target(60+i%5,50+i//5) for i in range(25)]
+    old=SimpleNamespace(recovery=SimpleNamespace(terrain=terrain))
+    expected=scatter_landing(old,targets,(50,50),(20,20,80,80),12)
+    original_count=len(calls);calls.clear()
+    fast=SimpleNamespace(recovery=SimpleNamespace(terrain=terrain),combat_speed=CombatSpeed(fast_scatter_planning=True))
+    assert scatter_landing(fast,targets,(50,50),(20,20,80,80),12)==expected
+    assert len(calls)==1 and original_count>50

@@ -5,5 +5,11 @@ combat_speed:
   scatter_receipt_seconds: 0.2
   jump_arrival_seconds: 0.25
   jump_attack_guard_seconds: 0.28
+  scatter_during_jump: true
+  coherent_projection: true
+  selected_target_refresh: true
+  packed_monster_records: true
+  fast_scatter_planning: true
+  scene_reuse_seconds: 0.15
   torn_life_attempts: 3
   moving_observation_retry_seconds: 0.01

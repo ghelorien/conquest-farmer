@@ -865,3 +865,15 @@ def test_fast_torn_life_retry_is_parasite_only(monkeypatch,character,expected):
     else:
         with pytest.raises(CaptureUnavailable):supervisor.read_life()
     assert len(calls)==expected
+
+
+@pytest.mark.parametrize('changed',['none','dead','ghost','map'])
+def test_coherent_projection_keeps_fresh_position_and_life_guards(monkeypatch,changed):
+    supervisor,control,life,_=setup(monkeypatch)
+    life.dead_candidate=False;life.position=(21,22)
+    if changed=='dead':life.dead_candidate=True
+    if changed=='ghost':life.ghost_candidate=True
+    if changed=='map':life.map_id=1036
+    if changed=='none':assert supervisor.player_projection()==((21,22),(518,396))
+    else:
+        with pytest.raises(CaptureUnavailable):supervisor.player_projection()

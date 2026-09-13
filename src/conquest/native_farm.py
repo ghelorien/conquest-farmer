@@ -158,6 +158,17 @@ class NativeFarmSupervisor:
                 pass  # A failed gear read must not reset an established decision.
         return self._attack_strategy
 
+    def player_projection(self):
+        """Pair fresh position and camera geometry from one verified life sample."""
+        from conquest.scene_input import memory_player_anchor
+        with self.observer.lock:
+            life=self.read_life()
+            if life.dead_candidate or life.ghost_candidate or life.map_id!=self.map_id:
+                raise CaptureUnavailable('Life or map changed before projection')
+            try:anchor=memory_player_anchor(self.observer,life)
+            except ValueError as error:raise CaptureUnavailable(str(error)) from error
+            return tuple(life.position),anchor
+
     def player_anchor(self,position):
         from conquest.scene_input import memory_player_anchor
         with self.observer.lock:
@@ -282,7 +293,12 @@ class NativeFarmSupervisor:
     def match_targets(self,targets,*,refresh=False):
         with self.observer.lock:
             try:
-                monsters=self.observer.entities.read().monsters
+                targeted=(refresh and len(targets)==1
+                    and getattr(getattr(self,'combat_speed',None),'selected_target_refresh',False)
+                    and targets[0].entity_id is not None and targets[0].object_address is not None)
+                options={'packed':True} if getattr(getattr(self,'combat_speed',None),'packed_monster_records',False) else {}
+                monsters=(self.observer.entities.read(**options,selected=(targets[0].entity_id,targets[0].object_address)).monsters
+                          if targeted else self.observer.entities.read(**options).monsters)
             except ValueError:
                 return []
             intent=self.control.snapshot()
@@ -325,7 +341,8 @@ class NativeFarmSupervisor:
             self.scatter_scene_targets=()
             self.targets_observation_available=False
             try:
-                monsters=self.observer.entities.read().monsters
+                options={'packed':True} if getattr(getattr(self,'combat_speed',None),'packed_monster_records',False) else {}
+                monsters=self.observer.entities.read(**options).monsters
             except ValueError:
                 return []
             self.targets_observation_available=True

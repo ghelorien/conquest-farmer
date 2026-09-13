@@ -11,6 +11,12 @@ class CombatSpeed(BaseModel):
     scatter_receipt_arrows:int=Field(default=3,ge=2,le=3)
     jump_arrival_seconds:float=Field(default=.4,ge=.15,le=2)
     jump_attack_guard_seconds:float=Field(default=.44,ge=.15,le=2)
+    scatter_during_jump:bool=False
+    coherent_projection:bool=False
+    selected_target_refresh:bool=False
+    packed_monster_records:bool=False
+    fast_scatter_planning:bool=False
+    scene_reuse_seconds:float=Field(default=0,ge=0,le=.15)
     torn_life_attempts:int=Field(default=1,ge=1,le=3)
     moving_observation_retry_seconds:float=Field(default=.1,ge=.01,le=.5)
 
