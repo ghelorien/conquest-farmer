@@ -247,3 +247,60 @@ def test_urgent_banking_only_carried_dragonballs_and_plus_two(kind,plus,slot,wan
     item={'uid':123,'type_id':kind,'plus':plus,'slot':slot}
     assert bool(b.urgent_valuables([item])) is wanted
     assert bool(b.urgent_valuables([NS(**item)])) is wanted
+
+
+@pytest.mark.parametrize('changed', [None,'silver','stored_silver','items','equipped_ammo','capacity'])
+def test_money_layout_retry_requires_unchanged_balances_and_inventory(monkeypatch,tmp_path,changed):
+    bank={'silver':298,'stored_silver':5000}
+    bag={'silver':298,'items':[],'equipped_ammo':None,'capacity':40}
+    reopened=[];attempts=[];notes=[]
+    def town(action,**fields):
+        if action=='warehouse-money':return dict(bank)
+        if action=='supplies':
+            value=dict(bag)
+            if reopened and changed in ('items','equipped_ammo','capacity'):
+                value[changed]='changed'
+            return value
+        assert action=='warehouse-money-deposit'
+        attempts.append(fields)
+        if len(attempts)==1:raise ValueError('Warehouse money control geometry differs from renderer profile')
+        return {'verified':True,'direction':'deposit','amount':98,'silver':200,'stored_silver':5098}
+    def open_bank(loop):
+        reopened.append(True);value=dict(bank)
+        if changed in ('silver','stored_silver'):value[changed]+=1
+        return value
+    monkeypatch.setattr(b,'open_warehouse',open_bank)
+    monkeypatch.setattr(b,'close_warehouse',lambda loop:None)
+    monkeypatch.setattr(b,'LEDGER',tmp_path/'ledger.jsonl')
+    monkeypatch.setattr(b,'STATUS',tmp_path/'status.json')
+    loop=NS(town=town,record=lambda event,**fields:notes.append(event))
+    if changed:
+        with pytest.raises(ValueError,match='state changed'):b.transfer(loop,'deposit',98)
+        assert len(attempts)==1 and not b.LEDGER.exists()
+    else:
+        assert b.transfer(loop,'deposit',98)['verified']
+        assert len(attempts)==2 and len(b.LEDGER.read_text(encoding='utf-8').splitlines())==1
+    assert notes[0]=='warehouse_money_layout_retry'
+
+
+@pytest.mark.parametrize('error', ['Warehouse money transfer unverified; no repeat input issued',
+                                  'Warehouse input lost focus'])
+def test_uncertain_money_submission_is_never_retried(monkeypatch,error):
+    def town(action,**fields):
+        if action in ('warehouse-money','supplies'):return {}
+        raise ValueError(error)
+    monkeypatch.setattr(b,'close_warehouse',lambda loop:pytest.fail('No recovery input after uncertain submission'))
+    with pytest.raises(ValueError,match=error):b.transfer(NS(town=town),'deposit',98)
+
+
+def test_money_layout_retry_is_bounded_to_one_reopen(monkeypatch):
+    calls=[]
+    def town(action,**fields):
+        if action in ('warehouse-money','supplies'):return {}
+        calls.append(action)
+        raise ValueError('Warehouse money control geometry differs from renderer profile')
+    monkeypatch.setattr(b,'close_warehouse',lambda loop:None)
+    monkeypatch.setattr(b,'open_warehouse',lambda loop:{})
+    with pytest.raises(ValueError,match='geometry differs'):
+        b.transfer(NS(town=town,record=lambda *a,**kw:None),'deposit',98)
+    assert len(calls)==2

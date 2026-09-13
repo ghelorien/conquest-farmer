@@ -126,7 +126,24 @@ def close_warehouse(loop):
 
 
 def transfer(loop,direction,amount):
-    receipt=loop.town('warehouse-money-'+direction,amount=amount)
+    before=loop.town('warehouse-money')
+    bag=loop.town('supplies')
+    try:
+        receipt=loop.town('warehouse-money-'+direction,amount=amount)
+    except ValueError as error:
+        # money_points raises this only before the transfer button is pressed.
+        # Reopening resets transient grid/font state; it never authorizes a
+        # retry after an uncertain money submission.
+        if str(error)!='Warehouse money control geometry differs from renderer profile':raise
+        loop.record('warehouse_money_layout_retry',
+            activity='Refreshing warehouse controls before silver banking')
+        close_warehouse(loop)
+        fresh=open_warehouse(loop)
+        current=loop.town('supplies')
+        if (any(fresh.get(k)!=before.get(k) for k in ('silver','stored_silver'))
+                or any(current.get(k)!=bag.get(k) for k in ('items','equipped_ammo','capacity','silver'))):
+            raise ValueError('Warehouse state changed during layout recovery; no transfer retried')
+        receipt=loop.town('warehouse-money-'+direction,amount=amount)
     if receipt.get('verified') is not True:raise ValueError('Bank transfer receipt is unverified')
     event={'time':time.time(),**receipt}
     LEDGER.parent.mkdir(parents=True,exist_ok=True)
