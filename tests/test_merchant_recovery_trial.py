@@ -43,7 +43,7 @@ def test_automatic_recovery_uses_launch_or_login_surface_not_embedded_booth(monk
         return ['client.exe'],root
     monkeypatch.setattr('conquest.merchants.client_launch.installed_client',installed)
     driver=NS(require_qualified=lambda c:None,target=object(),observer=NS(adapter=object()))
-    r=NS(enabled=lambda c:True,coordinator=NS(lease=lease),discovery_lock=threading.Lock(),
+    r=NS(enabled=lambda c:True,coordinator=NS(lease=lease,safe_to_yield=lambda:True),discovery_lock=threading.Lock(),
         launch_owner=None,launches={},catalog=object(),controllers={'Dutch':NS(driver=driver)},
         recoveries={'Dutch':NS(attempt=lambda action:action() or True)})
     MerchantRuntime.recover(r,'Dutch',crashed=crashed)
@@ -195,3 +195,21 @@ def test_periodic_ui_poll_does_not_pause_a_dead_client(monkeypatch):
     UnifiedUI.poll(u)
     assert calls==['detach']
     assert state['enabled'] is True
+
+
+def test_disconnected_recovery_recreates_one_handoff_before_input(monkeypatch,tmp_path):
+    from conquest.merchants import runtime
+    from conquest.capture import CaptureUnavailable
+    path=tmp_path/'credentials';path.write_bytes(b'encrypted fixture')
+    monkeypatch.setattr(runtime,'credential_path',lambda c:path)
+    r=NS(enabled=lambda c:True,coordinator=NS(safe_to_yield=lambda:False),
+         lock=threading.Lock(),handoff=None)
+    with pytest.raises(CaptureUnavailable,match='safe farmer handoff'):
+        MerchantRuntime.recover(r,'Dutch')
+    key=r.handoff
+    assert key.startswith('merchant-recovery:Dutch:')
+    with pytest.raises(CaptureUnavailable):MerchantRuntime.recover(r,'Spiritual')
+    assert r.handoff==key
+    r.enabled=lambda c:False;r.handoff=None
+    with pytest.raises(CaptureUnavailable,match='Paused'):MerchantRuntime.recover(r,'Dutch')
+    assert r.handoff is None

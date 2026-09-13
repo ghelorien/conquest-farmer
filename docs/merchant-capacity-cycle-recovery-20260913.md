@@ -83,3 +83,5 @@ Regression coverage exercises disconnected and connected candidates, F11,
 release before farmer resume, and missing credentials/qualification/operations.
 All 47 handoff/refill tests pass in both live and publication trees. Live
 merchant recovery and actual listing remain under observation.
+
+Reconnect now also recreates a single pending safe-handoff request after restart, before any login input or recovery attempt. Existing requests are preserved. Paused operations cannot enqueue recovery. All 100 handoff, refill, reconnect-trial and connect-to-Market tests pass in each tree.

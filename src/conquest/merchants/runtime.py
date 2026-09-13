@@ -250,6 +250,11 @@ class MerchantRuntime:
             raise CaptureUnavailable('Paused; recovery will not change manual intent')
         if not credential_path(character).exists():
             raise ValueError('Configure this merchant’s encrypted credentials locally')
+        if not self.coordinator.safe_to_yield():
+            with self.lock:
+                if self.handoff is None:
+                    self.handoff=f'merchant-recovery:{character}:{int(time.time()*1000)}'
+            raise CaptureUnavailable('Waiting for a safe farmer handoff')
         if crashed:
             from conquest.client_wrapper import LaunchWatch
             with self.discovery_lock:
