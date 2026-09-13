@@ -66,3 +66,10 @@ Reconciliation preserves the old observations and explicitly leaves original
 inventory results and automatic input qualification unverified. It never
 retries a claim or grants a recovery capability. Current stock is checked for
 stability before recording the manual resolution.
+
+Spiritual's older flag probe was reconciled against its recorded manual setup
+and current owned booth `103064` on September 12. The original inventory result
+and automatic input qualification remain unverified. No game input was sent.
+The read-only diagnostic launcher now includes hidden embedded clients and
+validates both merchants before starting either server; a missing second client
+no longer abruptly terminates a first daemon worker and leaves stale metadata.
