@@ -357,6 +357,23 @@ class MerchantRuntime:
             # The farmer reserves its exact batch after the safe grant. Do
             # not race that reservation by listing or moving merchant stock.
             return
+        # Preserve the operator's explicit merchant permission before an old
+        # shop-return incident can narrow the rest of this cycle to held-stock
+        # refill. That internal mode may still clear an unrelated prompt, but
+        # a real refill-only window, pause or Global Stop never may.
+        decline_enabled=(not refill_only and not self.coordinator.stopped
+                         and self.journal.get(character,'enabled',False) is True)
+        pending_scan=self.journal.get(character,'scan',{})
+        if (decline_enabled and pending_scan.get('pending') and pending_scan.get('one_time')
+                and (snapshot.get('request') or snapshot.get('trade'))):
+            raise CaptureUnavailable('One-time listing waits for the trade window to close; no trade will be accepted')
+        decline_state=self.journal.get(character,'unrelated_request_decline') or {}
+        if (decline_enabled and (snapshot.get('request') or decline_state.get('phase')=='submitted')
+                and not self.coordinator.safe_to_yield()):
+            with self.lock:
+                if self.handoff is None:self.handoff=f'merchants:{int(time.time()*1000)}'
+        from conquest.merchants.unrelated_request import decline_unrelated_request
+        if decline_unrelated_request(controller,snapshot,operations_enabled=decline_enabled):return
         from conquest.merchants.held_stock_refill import allowed as held_refill_allowed
         held_refill = returning and held_refill_allowed(self,character,snapshot)
         if refill_only and ((returning and not held_refill) or snapshot.get('trade') or snapshot.get('request')
@@ -389,14 +406,6 @@ class MerchantRuntime:
                     self.handoff = f'merchants:{int(time.time()*1000)}'
         scan = self.journal.get(character,'scan',{}) if operations_enabled else {}
         one_time = scan.get('pending') and scan.get('one_time')
-        if one_time and (snapshot.get('request') or snapshot.get('trade')):
-            raise CaptureUnavailable('One-time listing waits for the trade window to close; no trade will be accepted')
-        # A submitted unrelated-request decline is reconciled from the absent
-        # modal on the next memory observation. Invoke the helper even when no
-        # request remains so an acknowledgement lost after the click cannot
-        # strand the durable attempt forever.
-        from conquest.merchants.unrelated_request import decline_unrelated_request
-        if decline_unrelated_request(controller,snapshot,operations_enabled=operations_enabled):return
         if snapshot.get('request'):
             if operations_enabled:controller.accept_request(snapshot)
             elif refill_due:raise CaptureUnavailable('Inventory refill waits for the trade request to close')

@@ -45,8 +45,8 @@ canonically, while retaining rich metadata as transaction evidence. The related
 188 tests passed; an independent 50-test review also passed. The complete source
 release was safely loaded while all three characters remained in Market.
 
-The expired 60-second visit must not be reset in place. Verified
-departure/reentry and subsequent controlled transfers are outstanding.
+The expired 60-second visit must not be reset in place. Its actual departure
+and reentry are now verified; subsequent controlled transfers remain outstanding.
 Review also identified missing per-step layout and overlapping-panel guards in
 the existing warehouse deposit drag. Source now checks physical geometry,
 topmost hovered grids, manual input and the destination at the actual input
@@ -61,16 +61,24 @@ with the farmer. Warehouse and Inventory panels closed after verification.
 The immutable completion evidence is retained locally with SHA-256
 `f7620711edc564650c88426f38d2199df134aff98d3741b4909cda9702083394`.
 
-The saved Phoenix/Market round-trip check subsequently stopped at its initial
-focus/preflight boundary, before funding, fares, movement, or a transit attempt.
-The original expired visit and its evidence remain unchanged. This is an
-unresolved qualification failure, not a successful route cycle.
+The saved Phoenix/Market round-trip check initially stopped at its
+focus/preflight boundary before input. After the focus fix, the native saved
+Market-to-Phoenix and Phoenix-to-Market routes completed. A read-only recovery
+reconciled the first arrival after the operator helper queried a Market-only
+endpoint in Phoenix. No fare or travel input was replayed. The return used the
+verified 100-silver fare and left 200 silver with the farmer. Inventory,
+equipment and equipped ammunition were conserved. The old service visit is
+recorded as departed; no new service budget was created. This assisted check
+does not qualify as an uninterrupted route cycle.
 
 The Show/focus path now uses the existing native activation recovery, verifies
 the exact hosted client and final foreground ownership, and checks input
 ownership again before keyboard focus. It refreshes the current Farmer pane
 geometry after a tab switch. The 39 focused tests and 67 related window,
-handoff, and trial-focus tests passed. Live retry remains required.
+handoff, and trial-focus tests passed. The subsequent controlled transit used
+this focus recovery successfully. A further fix compares actual Farming intent
+instead of changing observation telemetry when verifying an idle focus request;
+manual control and coordinator checks remain enforced.
 
 A separate controlled retrieval command binds two selected test items to their
 immutable, fully verified deposit receipts. It compares complete item ownership,
@@ -81,14 +89,47 @@ Unresolved retrievals block reload, Farming On, route startup and new deliveries
 manual Stop and read-only observations remain available. The associated source
 and readiness tests passed independent review before deployment.
 
+The controlled retrieval produced exact, separate outcomes: the selected +1
+CloudCap moved from the warehouse into the farmer's inventory, while the +1
+LeatherArmor remained in the warehouse with a terminal `no_transfer` receipt
+and no attempted input. Neither operation may be replayed. The farmer remains
+in Market with the CloudCap; the other seven previously banked valuables remain
+stored. A diagnostic fix now preserves the original exception stage, type,
+reason and timestamp when reconciliation proves no input occurred or leaves an
+ambiguous result blocked. It does not add retry authority. The existing
+LeatherArmor failure predates that fix, so its original cause is unavailable.
+
+## Merchant inventory refill restored
+
+Both merchants' refill permissions had been paused for controlled qualification.
+Their independent native refill switches are now enabled again; general merchant
+operations remain paused. Spiritual posted four items and Dutch posted eleven.
+Every new listing receipt matched the current booth's exact item identity and
+price, and each merchant listed in descending verified value order.
+
+Both booths reached 32 of 32 slots, with four items remaining in each inventory.
+Both refill checks completed with no pending transaction or current error. The
+next check is persisted 900 seconds after completion; remaining stock waits for
+capacity and qualified prices. These are native held-inventory refills, not proof
+of a new farmer delivery or a complete hunting cycle.
+
+A related source fix allows explicitly enabled merchant operations to decline
+a qualified unrelated request before an old shop-return incident restricts the
+remaining cycle to held-stock refill. Paused operations, refill-only grants and
+Global Stop do not gain decline authority. Owned transactions and reservations
+are checked again immediately before input. Live decline qualification remains
+outstanding: the observed unrelated request disappeared externally, without an
+automation decline.
+
 ## Unattended qualification remains outstanding
 
 No new two-hour uninterrupted run has started. Farmer intent remains Off during
-these controlled checks. Merchant operation/refill permissions are temporarily
-paused; their open booths and connected Market clients are preserved.
+these controlled checks. General merchant operations remain paused, while both
+independent refill schedules are enabled. Their open booths and connected
+Market clients are preserved.
 
 Required remaining evidence includes verified lower-value delivery and refill
-to both recipients, exact storage fallback, relevant geometry faults, and a
+to both recipients, relevant geometry faults, and a
 natural native hunt/town/delivery/refill/return cycle within the two-hour run.
 The rate must include all downtime and reach at least 40 verified kills/minute,
 with 50 as the stretch target. Assisted checks and reloads cannot count toward

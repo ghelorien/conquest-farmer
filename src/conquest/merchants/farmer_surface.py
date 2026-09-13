@@ -2,6 +2,13 @@
 import time
 
 
+def _intent(snapshot):
+    """Exclude observation/execution telemetry that does not authorize input."""
+    return (snapshot.get('enabled'),snapshot.get('paused'),snapshot.get('revision'),
+            tuple(snapshot.get('target_ids',())),tuple(snapshot.get('target_type_ids',())),
+            snapshot.get('input_mode'))
+
+
 def focus_idle_farmer(ui, *, queued_at):
     if time.monotonic()-queued_at>2.5:
         raise ValueError('Farmer focus request expired')
@@ -14,6 +21,7 @@ def focus_idle_farmer(ui, *, queued_at):
     if not ui.app.show_game():
         raise ValueError('Farmer surface could not receive focus')
     after=ui.app.control.snapshot()
-    if after!=before:
+    ui.coordinator.check()
+    if _intent(after)!=_intent(before):
         raise ValueError('Farmer intent changed during focus preparation')
     return {'focused':True,'farming_enabled':False}

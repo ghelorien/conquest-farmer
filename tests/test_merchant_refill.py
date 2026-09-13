@@ -208,6 +208,59 @@ def test_delivery_refill_window_cannot_reconnect_or_accept_trade(setup):
     assert not x.calls
 
 
+def test_unrelated_request_clears_before_historical_held_stock_mode(setup,monkeypatch):
+    x=setup;incident={'phase':'needs_attention','note':'Preserved historical incident'}
+    x.j.set('Dutch','shop_return',incident)
+    x.state.update(request={'participant':'Stranger','message':'Stranger wishes to trade with you.'},
+                   own_booth_uid=123)
+    x.runtime.returns['Dutch']=SimpleNamespace(state=lambda:copy.deepcopy(incident),
+                                               remember=lambda snapshot:None,
+                                               step=lambda *a:pytest.fail('Historical return must remain stopped'))
+    x.runtime.controllers['Dutch'].driver.memory=SimpleNamespace(read=lambda recovery:x.read())
+    calls=[]
+    monkeypatch.setattr('conquest.merchants.held_stock_refill.allowed',
+                        lambda runtime,character,snapshot:True)
+    monkeypatch.setattr('conquest.merchants.unrelated_request.decline_unrelated_request',
+                        lambda controller,snapshot,operations_enabled:
+                            calls.append(operations_enabled) or True)
+    x.runtime.step('Dutch')
+    assert calls==[True]
+    assert x.j.get('Dutch','shop_return')==incident
+    assert not x.calls
+
+
+@pytest.mark.parametrize('mode',['paused','global_stop','refill_window'])
+def test_historical_request_decline_preserves_explicit_input_blocks(setup,monkeypatch,mode):
+    x=setup;incident={'phase':'needs_attention','note':'Preserved historical incident'}
+    x.j.set('Dutch','shop_return',incident)
+    x.state.update(request={'participant':'Stranger','message':'Stranger wishes to trade with you.'},
+                   own_booth_uid=123)
+    x.runtime.returns['Dutch']=SimpleNamespace(state=lambda:copy.deepcopy(incident),
+                                               remember=lambda snapshot:None)
+    x.runtime.controllers['Dutch'].driver.memory=SimpleNamespace(read=lambda recovery:x.read())
+    if mode=='paused':x.j.set('Dutch','enabled',False)
+    elif mode=='global_stop':x.guard.stopped=True
+    else:
+        x.runtime.refill_window='delivery';x.runtime.recoveries['Dutch'].verified()
+    calls=[]
+    monkeypatch.setattr('conquest.merchants.unrelated_request.decline_unrelated_request',
+                        lambda controller,snapshot,operations_enabled:
+                            calls.append(operations_enabled) or False)
+    x.runtime.step('Dutch')
+    assert calls==[False]
+    assert x.j.get('Dutch','shop_return')==incident
+
+
+def test_delivery_reservation_blocks_unrelated_decline(setup,monkeypatch):
+    from conquest.merchants import delivery_reservation
+    x=setup;x.state['request']={'participant':'Stranger','message':'Stranger wishes to trade with you.'}
+    monkeypatch.setattr(delivery_reservation,'active',lambda *a:{'request_id':'reserved'})
+    monkeypatch.setattr('conquest.merchants.unrelated_request.decline_unrelated_request',
+                        lambda *a,**k:pytest.fail('Reservation must block unrelated decline'))
+    x.runtime.controllers['Dutch'].accept_request=lambda snapshot:None
+    x.runtime.step('Dutch')
+
+
 @pytest.mark.parametrize('window',['delivery_window','refill_window'])
 def test_preplanned_listing_cannot_take_focus_during_dedicated_window(setup,monkeypatch,window):
     from conquest.merchants import delivery_reservation

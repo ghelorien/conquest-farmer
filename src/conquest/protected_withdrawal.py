@@ -481,13 +481,17 @@ class ProtectedWithdrawal:
             raise ValueError('Protected item point is outside the warehouse grid')
         return point
 
-    def reconcile(self,state,plan,selected,*,observation=None):
+    def reconcile(self,state,plan,selected,*,observation=None,failure=None):
         if state['phase'] in TERMINAL:return self._result(state)
         try:current=observation or self._observe()
         except Exception as error:
             if state['phase']!='blocked':
+                changes={'error':'Protected withdrawal ownership observation unavailable',
+                         'observation_failure':{'error_type':type(error).__name__,
+                                                'reason':str(error),'at':self.clock()}}
+                if failure is not None:changes['failure']=failure
                 state=self.journal.transition(state['operation_id'],state['phase'],'blocked',
-                    error='Protected withdrawal ownership observation unavailable')
+                                              **changes)
             return self._result(state)
         before=state['intent']['before'];item=selected['item']
         if _withdrawn(before,current,item):
@@ -497,14 +501,21 @@ class ProtectedWithdrawal:
                          'after_digest':_digest(_plain_observation(current)),'verified_at':self.clock(),
                          'verified_in_inventory':True,'verified_absent_from_warehouse':True})
         elif state['phase']=='prepared' and _same_ownership(before,current):
+            receipt={'operation_id':state['operation_id'],'plan_id':state['plan_id'],'item':item,
+                     'before_digest':_digest(before),'observed_digest':_digest(_plain_observation(current)),
+                     'verified_at':self.clock(),'input_attempted':False}
+            changes={'receipt':receipt}
+            if failure is not None:
+                receipt['preinput_failure']=failure
+                changes.update(error=failure['reason'],failure=failure)
             state=self.journal.transition(state['operation_id'],'prepared','no_transfer',
-                receipt={'operation_id':state['operation_id'],'plan_id':state['plan_id'],'item':item,
-                         'before_digest':_digest(before),'observed_digest':_digest(_plain_observation(current)),
-                         'verified_at':self.clock(),'input_attempted':False})
+                                          **changes)
         elif state['phase']!='blocked':
+            changes={'error':'Protected withdrawal result is ambiguous; no repeat input is permitted',
+                     'observation_digest':_digest(_plain_observation(current))}
+            if failure is not None:changes['failure']=failure
             state=self.journal.transition(state['operation_id'],state['phase'],'blocked',
-                error='Protected withdrawal result is ambiguous; no repeat input is permitted',
-                observation_digest=_digest(_plain_observation(current)))
+                                          **changes)
         return self._result(state)
 
     @staticmethod
@@ -590,9 +601,11 @@ class ProtectedWithdrawal:
                 before_press=before_press,layout_guard=input_guard)
             state=self.journal.transition(operation_id,'input_maybe_sent','reconciling',
                                           click_returned_at=self.clock())
-        except Exception:
+        except Exception as error:
             state=self.journal.get(operation_id)
-            return self.reconcile(state,plan,selected)
+            failure={'stage':'pre_input' if state['phase']=='prepared' else 'input_maybe_sent',
+                     'error_type':type(error).__name__,'reason':str(error),'at':self.clock()}
+            return self.reconcile(state,plan,selected,failure=failure)
         end=time.monotonic()+3
         while time.monotonic()<end:
             try:current=self._observe()

@@ -37,6 +37,12 @@ def _reconcile_pending(controller,snapshot,pending):
     return True
 
 
+def _require_no_owned_work(controller):
+    from conquest.merchants.delivery_reservation import active as reserved
+    if reserved(controller.journal,controller.character) or controller.journal.pending(controller.character):
+        raise CaptureUnavailable('Incoming request waits for transaction reconciliation')
+
+
 def _shared_profile(observer):
     build=observer.adapter.expected_sha256
     paths=[Path(state_path('.runtime/merchants/farmer-delivery-qualified.json'))]
@@ -117,14 +123,15 @@ def _cancel_control(driver,snapshot,name):
 def decline_unrelated_request(controller,snapshot,*,operations_enabled):
     """Return True only after one unrelated request is durably cleared."""
     if not operations_enabled or not controller.active():return False
+    if (snapshot.get('map_id')!=1036 or type(snapshot.get('hp')) is not int
+            or snapshot['hp']<=0):
+        return False
     key='unrelated_request_decline';pending=controller.journal.get(controller.character,key)
     if pending and pending.get('phase')=='submitted':
         return _reconcile_pending(controller,snapshot,pending)
     request=snapshot.get('request')
     if not request or snapshot.get('trade'):return False
-    from conquest.merchants.delivery_reservation import active as reserved
-    if reserved(controller.journal,controller.character) or controller.journal.pending(controller.character):
-        raise CaptureUnavailable('Incoming request waits for transaction reconciliation')
+    _require_no_owned_work(controller)
     name=request.get('participant')
     if not isinstance(name,str) or not name or request.get('message')!=f'{name} wishes to trade with you.':
         return False  # Incomplete observations are never input authority.
@@ -140,7 +147,7 @@ def decline_unrelated_request(controller,snapshot,*,operations_enabled):
     from conquest.foreground import foreground_click
     from conquest.merchants.driver import wait_hover_validation
     with controller.coordinator.lease(controller.character,purpose='decline_request'),physical_coordinates():
-        controller.check();fresh=driver.read()
+        controller.check();_require_no_owned_work(controller);fresh=driver.read()
         if fresh['identity']!=snapshot['identity'] or fresh.get('trade') or fresh.get('request')!=request:
             raise ValueError('Incoming request changed before decline')
         if requester_identity(driver.observer,name)!=identity:raise ValueError('Incoming requester changed before decline')
@@ -163,7 +170,7 @@ def decline_unrelated_request(controller,snapshot,*,operations_enabled):
         point=tuple(round(value*native/logical) for value,native,logical in
                     zip(logical_point,size,gui_size))
         def before():
-            controller.check();current=driver.read()
+            controller.check();_require_no_owned_work(controller);current=driver.read()
             if current['identity']!=fresh['identity'] or current.get('trade') or current.get('request')!=request:
                 raise ValueError('Incoming request changed before decline press')
             if (requester_identity(driver.observer,name)!=identity

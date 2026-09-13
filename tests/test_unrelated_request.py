@@ -16,6 +16,7 @@ def item(uid,price=None):
 
 def state(request=True):
     return {'character':'Dutch','identity':{'pid':7,'creation':8},'silver':100,
+            'map_id':1036,'hp':100,
             'inventory':[item(11)],'booth':[item(22,900)],'trade':None,
             'request':({'participant':'Stranger','participant_uid':44,
                         'message':'Stranger wishes to trade with you.'} if request else None),
@@ -100,3 +101,34 @@ def test_pending_decline_rejects_changed_identity_or_booth(tmp_path,monkeypatch)
     restarted,_=rig(tmp_path,changed,changed);restarted.journal=Journal(controller.journal.path)
     with pytest.raises(CaptureUnavailable,match='stock, booth, or silver'):
         decline_unrelated_request(restarted,changed,operations_enabled=True)
+
+
+@pytest.mark.parametrize('change',({'map_id':1002},{'hp':0}))
+def test_decline_requires_living_market_snapshot(tmp_path,monkeypatch,change):
+    before=state();before.update(change);controller,_=rig(tmp_path,before,before)
+    patches(monkeypatch,lambda *a,**k:pytest.fail('No decline input is allowed'))
+    assert decline_unrelated_request(controller,before,operations_enabled=True) is False
+
+
+def test_pending_asset_transaction_blocks_decline_before_input(tmp_path,monkeypatch):
+    before=state();controller,_=rig(tmp_path,before,before)
+    controller.journal.begin('unfinished','Dutch','sale',{'item':item(11)})
+    patches(monkeypatch,lambda *a,**k:pytest.fail('No decline input is allowed'))
+    with pytest.raises(CaptureUnavailable,match='transaction reconciliation'):
+        decline_unrelated_request(controller,before,operations_enabled=True)
+
+
+def test_reservation_created_during_hover_blocks_decline_press(tmp_path,monkeypatch):
+    from conquest.merchants import unrelated_request as module
+    before=state();controller,_=rig(tmp_path,before,state(False));checks=[0]
+    patches(monkeypatch,lambda target,x,y,size,**kwargs:kwargs['before_press']())
+    original=module._require_no_owned_work
+    def changed(current):
+        checks[0]+=1
+        if checks[0]==3:
+            raise CaptureUnavailable('Incoming request waits for transaction reconciliation')
+        return original(current)
+    monkeypatch.setattr(module,'_require_no_owned_work',changed)
+    with pytest.raises(CaptureUnavailable,match='transaction reconciliation'):
+        decline_unrelated_request(controller,before,operations_enabled=True)
+    assert controller.journal.get('Dutch','unrelated_request_decline') is None

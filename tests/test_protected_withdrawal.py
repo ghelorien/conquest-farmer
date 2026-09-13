@@ -177,6 +177,14 @@ def test_preinput_rejection_with_exact_nochange_is_no_transfer(tmp_path,monkeypa
     work,journal,approved,calls=operation(tmp_path,monkeypatch,[before,before],click='before')
     result=work._run('plan-one','withdraw-one',1)
     assert result['phase']=='no_transfer' and result['input_attempted'] is False
+    assert result['reason']=='focus rejected before marker'
+    assert result['receipt']['preinput_failure']=={
+        'stage':'pre_input','error_type':'ValueError',
+        'reason':'focus rejected before marker','at':200}
+    saved=journal.get('withdraw-one')
+    assert saved['failure']==result['receipt']['preinput_failure']
+    payload=json.loads(journal.history('withdraw-one')[-1]['payload'])
+    assert payload['failure']==result['receipt']['preinput_failure']
     assert [row['phase'] for row in journal.history('withdraw-one')]==['prepared','no_transfer']
 
 
@@ -185,6 +193,9 @@ def test_attempted_unchanged_state_blocks_and_restart_never_clicks(tmp_path,monk
     work,journal,approved,calls=operation(tmp_path,monkeypatch,[before,before,before],click='after')
     result=work._run('plan-one','withdraw-one',1)
     assert result['phase']=='blocked' and result['next_action']=='reconcile_read_only'
+    assert journal.get('withdraw-one')['failure']=={
+        'stage':'input_maybe_sent','error_type':'OSError',
+        'reason':'lost click acknowledgement','at':200}
     work._observe=lambda:deepcopy(before)
     assert work._run('plan-one','withdraw-one',1)['phase']=='blocked'
     assert calls==['click']
