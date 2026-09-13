@@ -46,6 +46,8 @@ def test_automatic_recovery_uses_launch_or_login_surface_not_embedded_booth(monk
     r=NS(enabled=lambda c:True,coordinator=NS(lease=lease,safe_to_yield=lambda:True),discovery_lock=threading.Lock(),
         launch_owner=None,launches={},catalog=object(),controllers={'Dutch':NS(driver=driver)},
         recoveries={'Dutch':NS(attempt=lambda action:action() or True)})
+    from conquest.merchants.journal import Journal
+    r.journal=Journal(tmp_path/'recovery.sqlite3')
     MerchantRuntime.recover(r,'Dutch',crashed=crashed)
     assert calls==(['connect_launch','launch'] if crashed else ['connect','login'])
 
@@ -185,10 +187,11 @@ def test_periodic_ui_poll_does_not_pause_a_dead_client(monkeypatch):
         state_text=text,activity_text=text,stats_text=text),rows={'Farmer':text,'Spiritual':text},
         input_note=text,coordinator=NS(owner=None,stopped=False),safe_to_yield=lambda:True,
         background_surfaces={},batch_buttons={'Spiritual':Mock()},manage_buttons={'Spiritual':Mock()},
-        refill_buttons={'Spiritual':Mock()},hosts={'Spiritual':host},labels={'Spiritual':text},
+        refill_buttons={'Spiritual':Mock()},merchant_buttons={'Spiritual':Mock()},hosts={'Spiritual':host},labels={'Spiritual':text},
         notebook=NS(select=lambda:'Other'),frames={'Spiritual':'Spiritual'},root=Mock(),
         resize_jobs={},background_probe={},render_sizes={},layout_status={},calibration_results={},
         pause=lambda c:calls.append('pause'),resize_merchant=lambda c:calls.append('resize'))
+    monkeypatch.setattr('conquest.merchants.restore_hosts.restore',lambda ui:None)
     u.auto_show_selected=lambda:None
     u.poll=lambda:UnifiedUI.poll(u)
     u.finish_resize=lambda c:UnifiedUI.finish_resize(u,c)
@@ -204,6 +207,8 @@ def test_disconnected_recovery_recreates_one_handoff_before_input(monkeypatch,tm
     monkeypatch.setattr(runtime,'credential_path',lambda c:path)
     r=NS(enabled=lambda c:True,coordinator=NS(safe_to_yield=lambda:False),
          lock=threading.Lock(),handoff=None)
+    from conquest.merchants.journal import Journal
+    r.journal=Journal(tmp_path/'recovery.sqlite3')
     with pytest.raises(CaptureUnavailable,match='safe farmer handoff'):
         MerchantRuntime.recover(r,'Dutch')
     key=r.handoff

@@ -26,7 +26,8 @@ class MerchantPresentation:
         sales=(previous['sales'] if previous and time.time()-previous['sales']['at']<5
                else summary(runtime.journal))
         # Publish once, after all reads; readers only observe a complete model.
-        self.latest={'characters':statuses,'events':events,'tables':tables,'sales':sales,
+        from conquest.merchants.notification_health import describe
+        self.latest={'notification_health':describe(), 'characters':statuses,'events':events,'tables':tables,'sales':sales,
                      'reporting':runtime.sales_worker.status(),'collected_at':time.monotonic()}
         self.ready.set()
 

@@ -101,3 +101,20 @@ def test_recovery_handoff_requires_operations_credentials_and_qualified_login():
     assert not service_candidate({})
     # A connected merchant may refill with trading paused; login cannot.
     assert service_candidate({'connected':True,'enabled':False})
+
+
+def test_recovery_bypasses_refill_interval_without_catch_up(tmp_path):
+    w=WorkWindows(tmp_path/'state.json',clock=lambda:1000)
+    assert w.reserve('routine')
+    assert not w.reserve('routine-again')
+    assert w.reserve('merchant-recovery:Dutch:1',urgent=True)
+    assert not w.reserve('routine-after-recovery')
+
+
+def test_old_market_incident_cannot_bypass_refill_interval():
+    from conquest.merchants.handoff import urgent_recovery
+    s={'handoff_requested':'merchant-return:Spiritual:123','characters':{'Spiritual':{
+        'snapshot':{'map_id':1036},'shop_return':{'phase':'needs_attention'}}}}
+    assert not urgent_recovery(s)
+    s['characters']['Spiritual']['recovery_safety']={'active':True}
+    assert urgent_recovery(s)

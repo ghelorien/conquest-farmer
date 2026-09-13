@@ -277,3 +277,18 @@ def test_app_close_restores_owned_client_before_destroying_owner(restore_fails):
         assert keep_open and not destroyed and host.saved is state
     else:
         assert not keep_open and destroyed == [WRAPPER] and host.saved is None
+
+
+def test_taller_farmer_view_preserves_width_and_does_not_compound(monkeypatch):
+    import win32api
+    api, state = owned_api()
+    api.gui.screen_origin = (502,123)
+    api.height_scale = 1.12
+    monkeypatch.setattr(win32api,'MonitorFromWindow',lambda h:1)
+    monkeypatch.setattr(win32api,'GetMonitorInfo',lambda h:{'Work':(0,0,1920,1032)})
+    api.resize_owned(state,PANE,1416,907)
+    assert api.gui.rect == (502,14,1918,1030)
+    count = len(api.gui.calls)
+    api.resize_owned(state,PANE,1416,907)
+    assert api.gui.rect == (502,14,1918,1030)
+    assert len(api.gui.calls) == count

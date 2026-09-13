@@ -185,6 +185,8 @@ class MerchantController:
         for item in ([] if inventory_only else snapshot['booth'])+snapshot['inventory']:
             try:
                 require_marketable(item)
+                if item['type_id'] == 1088001:
+                    raise ValueError('Hold loose Meteors for ten-Meteor consolidation; list scrolls only')
                 if item['bound']:
                     raise ValueError('Bound item')
                 key = market.key_for(item)
@@ -231,6 +233,8 @@ class MerchantController:
                 raise ValueError('Stock changed before pricing')
             item = found[0]
             require_marketable(item)
+            if item['type_id'] == 1088001:
+                raise ValueError('Hold loose Meteors for ten-Meteor consolidation; list scrolls only')
             if (not 0 <= self.clock()-plan.get('observed_at',0) <= 900
                     or list(identities([item])[uid]) != plan.get('attributes')):
                 raise ValueError('Comparison expired or item changed; scan again')

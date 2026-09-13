@@ -229,9 +229,16 @@ def stash_valuables(loop,*,deliver=False):
         while consolidate(loop,loop.town('warehouse-items')):
             loop.overflow_bank_changed=True
     if deliver:
+        deposit_stash_items(loop,only_meteors=True)
         from conquest.merchants.delivery_journey import start
         start(loop)
+    deposit_stash_items(loop)
+
+
+def deposit_stash_items(loop,*,only_meteors=False):
+    from conquest.town_trade import stash_candidate
     for item in loop.town('supplies')['items']:
+        if only_meteors and item['type_id']!=1088001:continue
         if not stash_candidate(item):continue
         from conquest.storage_overflow import handle,POLICY
         if read_json(POLICY).get('overflow_enabled'):

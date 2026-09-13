@@ -444,15 +444,16 @@ class TownTrade:
                     return {'closed':True}
                 raise
             self.input_attempted = True
-            self.click((round(window.position[0]+window.size[0]-18),round(window.position[1]+18)))
-            time.sleep(.15)
-            try:
-                self.shop.gui.read(body['window'])
-            except ValueError as error:
-                if 'not active' in str(error):
-                    return {'closed':True}
-                raise
-            raise ValueError('Town panel close was not verified')
+            from conquest.panel_close import click_close
+            click_close(self,body['window'])
+            def closed():
+                try:self.shop.gui.read(body['window'])
+                except ValueError as error:
+                    if 'not active' in str(error) or 'absent' in str(error):return True
+                    raise
+                return False
+            self.verified_read(closed,bool,'Town panel close was not verified',timeout=2)
+            return {'closed':True}
         if action == 'buy' and set(body) == {'action','vendor_type','type_id'}:
             if body['type_id'] not in (1000020,1050000,1050001,1050002,1060020):
                 raise ValueError('Unsupported healing or normal archer ammunition')

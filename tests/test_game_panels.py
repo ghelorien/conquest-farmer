@@ -116,3 +116,16 @@ def test_changing_gui_registry_defers_cleanup_without_stopping_farmer(rig,monkey
  with pytest.raises(CaptureUnavailable,match='GUI observation changed'):
   panels.close_one(trade)
  assert events==[]
+
+
+def test_unconfirmed_panel_close_rechecks_but_is_bounded(monkeypatch):
+    from conquest.travel_care import TravelCare,TravelStateChanged
+    care=object.__new__(TravelCare);care.info='worker';care.notify=lambda e:None
+    health={'embedded_controls':{'control':{'enabled':False},'life':{'dead_candidate':False}}}
+    def fail(*a,**k):raise ValueError('Town panel close was not verified')
+    monkeypatch.setattr('conquest.travel_care.request',fail)
+    for attempt in range(2):
+        care.next_panel_check=0
+        with pytest.raises(TravelStateChanged,match='Rechecking'):care.check(health)
+    care.next_panel_check=0
+    with pytest.raises(ValueError,match='Town panel close was not verified'):care.check(health)

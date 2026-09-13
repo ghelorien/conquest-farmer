@@ -292,7 +292,7 @@ def test_click_requires_verified_activation_before_sending_input(tmp_path, monke
         assert calls==['activate']
 
 
-def test_resizing_pauses_before_geometry_change_without_destroying_evidence(tmp_path):
+def test_resizing_preserves_user_intent_and_geometry_evidence(tmp_path):
     from conquest.merchants.ui import UnifiedUI
     path = tmp_path/'qualification.json'
     path.write_text(json.dumps({'capabilities':{'booth_input':True,'trade':True}}))
@@ -306,7 +306,7 @@ def test_resizing_pauses_before_geometry_change_without_destroying_evidence(tmp_
         runtime=SimpleNamespace(invalidate_refill=lambda c:calls.append(('invalidate',c)),
                                 controllers={'Dutch':SimpleNamespace(driver=SimpleNamespace(qualification=path))}))
     UnifiedUI.resize_merchant(ui,'Dutch')
-    assert calls==[('invalidate','Dutch'),('pause','Dutch'),('resize',(1400,900))]
+    assert calls==[('resize',(1400,900))]
     assert json.loads(path.read_text())['capabilities']=={'booth_input':True,'trade':True}
     assert ui.calibration_results['Dutch']['verified'] is False
     assert not ui.calibration_results['Dutch']['verified']
@@ -371,3 +371,16 @@ def test_tab_visibility_refresh_is_immediate_and_coalesced():
     assert len(pending)==1 and not updated
     pending[0]()
     assert updated==['Spiritual','Dutch'] and ui.visibility_job is None
+
+
+def test_resize_defers_during_delivery_without_pausing_permissions():
+    from conquest.merchants.ui import UnifiedUI
+    calls=[]
+    ui=SimpleNamespace(hosts={'Dutch':SimpleNamespace(saved=True,resize=lambda *a:calls.append(a))},
+        client_panes={'Dutch':SimpleNamespace(winfo_width=lambda:1400,winfo_height=lambda:900,winfo_ismapped=lambda:True)},
+        render_sizes={'Dutch':(1036,793)},calibration_results={},coordinator=SimpleNamespace(owner='Dutch'),
+        runtime=SimpleNamespace(delivery_window='reserved'))
+    UnifiedUI.resize_merchant(ui,'Dutch')
+    assert not calls and ui.render_sizes['Dutch']==(1036,793)
+    UnifiedUI.resize_merchant(ui,'Dutch',automatic=True)
+    assert calls==[(1400,900)]

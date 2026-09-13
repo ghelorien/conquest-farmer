@@ -12,6 +12,8 @@ from conquest.valuables import SPECIAL_LOOT_TYPES, DRAGONBALL_TYPES, storage_onl
 
 def eligible(item, reserved=()):
     kind, plus, slot = item.get('type_id'), item.get('plus'), item.get('slot')
+    if kind == 1088001:
+        return False  # Bank loose Meteors; transfer only scrolls.
     if (item.get('uid') in reserved or item.get('bound') is not False
             or type(slot) is not int or not 0<=slot<40 or storage_only(item)):
         return False
@@ -85,7 +87,7 @@ def plan_deliveries(farmer, merchants, *, reserved=(), now=None):
             plans.append({'merchant':name,'items':batch,'merchant_identity':snapshot['identity'],
                 'merchant_uid':snapshot['character_uid'],'verified_travel_distance':distance})
     return {'deliveries':plans,'warehouse':[i for i in farmer['inventory']
-        if storage_only(i) and i.get('slot') is not None]+items}
+        if (storage_only(i) or i.get('type_id')==1088001) and i.get('slot') is not None]+items}
 
 
 def prepare(farmer, merchant, items, *, now=None):

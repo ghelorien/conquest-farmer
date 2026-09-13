@@ -4,7 +4,7 @@ import pytest
 from conquest.merchants.delivery_recovery import partial_result
 
 def setup():
-    def item(uid):return dict(uid=uid,type_id=1088001,plus=0,gem1=0,gem2=0,quantity=1,bound=False,slot=0)
+    def item(uid):return dict(uid=uid,type_id=720027,plus=0,gem1=0,gem2=0,quantity=1,bound=False,slot=0)
     def snap(name,uid,items):return dict(character=name,character_uid=uid,identity={'pid':uid},
         server='America',timestamp=time.time(),map_id=1036,hp=100,silver=100,capacity=40,
         inventory=items,booth=[],trade=None,request=None)

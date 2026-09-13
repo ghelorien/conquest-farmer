@@ -20,8 +20,8 @@ class WorkWindows:
     def due(self):
         return self.clock() >= self.state().get('next_check', 0)
 
-    def reserve(self, request_id, *, town=False):
-        if not town and not self.due():
+    def reserve(self, request_id, *, town=False, urgent=False):
+        if not town and not urgent and not self.due():
             return False
         now = self.clock()
         # Reserve before parking/input: crashes or failed safe-spot searches
@@ -57,7 +57,8 @@ def service_candidate(character):
     """Recovery needs an input window before it can produce a fresh snapshot."""
     return bool(character.get('connected') or (
         character.get('enabled') and character.get('credentials_saved')
-        and character.get('qualification', {}).get('login')))
+        and (character.get('qualification', {}).get('login') or
+             (character.get('recovery_safety') or {}).get('active'))))
 
 
 def service_window(loop, *, town=False):
@@ -70,11 +71,12 @@ def service_window(loop, *, town=False):
     from conquest.safe_reload import park, clear_observation
     from conquest.overnight import OvernightStopped
     windows = WorkWindows()
-    if not town and not windows.due():
-        return False
     try:
         status = merchant({'action':'status'})
     except (OSError, ValueError):
+        return False
+    urgent = urgent_recovery(status)
+    if not town and not urgent and not windows.due():
         return False
     if town and any(c.get('connected') for c in status.get('characters',{}).values()):
         request_id='restock-refill:'+str(time.time_ns())
@@ -87,7 +89,7 @@ def service_window(loop, *, town=False):
     control = before['embedded_controls']['control']
     if before['embedded_controls'].get('manual_mouse'):
         return False
-    if not windows.reserve(request_id, town=town):
+    if not windows.reserve(request_id, town=town, urgent=urgent):
         return False
     was_enabled, phase = control['enabled'], loop.phase
     loop.stop_farm()
@@ -167,3 +169,14 @@ def service_window(loop, *, town=False):
             loop.focus(current)
             request(loop.info,'controls',{'enabled':True})
             loop.record('merchant_work_finished',activity='Hunting resumed after merchant work')
+
+
+def urgent_recovery(status):
+    request=str(status.get('handoff_requested',''))
+    if not request.startswith(('merchant-recovery:', 'merchant-return:')):return False
+    parts=request.split(':')
+    state=status.get('characters',{}).get(parts[1] if len(parts)>1 else '',{})
+    if (state.get('recovery_safety') or {}).get('active'):return True
+    returning=state.get('shop_return') or {}
+    return bool(returning.get('phase') not in (None,'complete','needs_attention')
+                and (state.get('snapshot') or {}).get('map_id')!=1036)

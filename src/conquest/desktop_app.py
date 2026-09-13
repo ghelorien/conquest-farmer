@@ -51,6 +51,8 @@ class DesktopApp:
     def __init__(self, root, profile, *, catalog=None, launch_watch=None, observer_factory=None, output=None, requires_elevation=True):
         self.root, self.profile = root, Path(profile)
         self.backend, self.host = WindowsBackend(), EmbeddedWindow(mode='owned')
+        from conquest.discord_notify import read_json
+        self.host.api.height_scale = float(read_json('.runtime/farmer-view.json').get('height_scale',1.0))
         self.messages, self.thread = queue.Queue(), None
         self.requires_elevation = requires_elevation
         from conquest.character_context import current

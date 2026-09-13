@@ -492,7 +492,11 @@ class NativeFarmSupervisor:
                 self.last_loot_error=str(error)
             if self.pending_loot and now-self.pending_loot[2]>=2:
                 drop,_,_=self.pending_loot
-                self.loot_cooldowns[(drop.uid,drop.object_address)]=now+60
+                delay=60 if drop.silver else 1
+                self.loot_cooldowns[(drop.uid,drop.object_address)]=now+delay
+                if not drop.silver:
+                    self.loot_wait_until=max(self.loot_wait_until,now+delay)
+                    self.close_loot_retry=(drop.uid,drop.object_address)
                 self.pending_loot=None
             return bool(self.pending_loot) or now<self.loot_wait_until
         if self.last_loot_error is not None:
@@ -515,11 +519,15 @@ class NativeFarmSupervisor:
                     self.notify('memory_pickup_verified',fields)
                 self.pending_loot=None
                 if money_only:return False
-            elif now-issued<1.5:
+            elif now-issued<(1.5 if drop.silver else 3.0):
                 return True
             else:
                 self.notify('memory_pickup_unverified',{'uid':drop.uid,'type_id':drop.type_id})
-                self.loot_cooldowns[(drop.uid,drop.object_address)]=now+60
+                delay=60 if drop.silver else 1
+                self.loot_cooldowns[(drop.uid,drop.object_address)]=now+delay
+                if not drop.silver:
+                    self.loot_wait_until=max(self.loot_wait_until,now+delay)
+                    self.close_loot_retry=(drop.uid,drop.object_address)
                 self.pending_loot=None
         self.loot_cooldowns={k:v for k,v in self.loot_cooldowns.items() if v>now}
         candidates=[];approaches=[];deferred=[];anchor=None
@@ -554,7 +562,8 @@ class NativeFarmSupervisor:
             if anchor is None:anchor=self.player_anchor(position)
             point=(anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16)
             rank=(drop.type_id not in SPECIAL_LOOT_TYPES,not bool(drop.plus),dx*dx+dy*dy)
-            if distance>max_distance or not clear_scene(point,viewport):
+            retry_close=getattr(self,'close_loot_retry',None)==(drop.uid,drop.object_address)
+            if distance>max_distance or retry_close and distance>1 or not clear_scene(point,viewport):
                 approaches.append((rank,drop))
                 continue
             candidates.append((rank,drop,point))

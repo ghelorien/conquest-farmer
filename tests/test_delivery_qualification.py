@@ -9,7 +9,7 @@ from conquest.merchants.delivery_qualification import promote
 
 
 def evidence():
-    item=dict(uid=10,type_id=1088001,plus=0,gem1=0,gem2=0,quantity=1,bound=False,slot=0)
+    item=dict(uid=10,type_id=720027,plus=0,gem1=0,gem2=0,quantity=1,bound=False,slot=0)
     def account(name,uid,items):
         return dict(character=name,character_uid=uid,identity={'pid':uid,'created':100},server='America',
             timestamp=100,map_id=1036,hp=100,silver=200,capacity=40,inventory=items,booth=[],

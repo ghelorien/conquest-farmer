@@ -74,3 +74,6 @@ The projected pace is labeled separately; both windows include all downtime.
 Historical windows are retained even when user Stop clears the UI session rate.
 
 Safe app reload preparation has a dedicated reloading phase and persistent UI override: Moving to a safe spot for app reload. Discord announces preparation once and announces resumed farming only after fresh live farming is confirmed. Intermediate healing/Fly events cannot masquerade as town restocking.91 notification/UI/reload/controller tests passed.
+
+
+Merchant UI: Pause / Resume merchant pauses both activities without disconnecting, then restores their previous permissions. Settings & details retains independent trading/repricing and refill controls. Overview shows notification monitor health for both channels. Saving the encrypted shops webhook starts its alert monitor immediately; shops messages use only that hook.

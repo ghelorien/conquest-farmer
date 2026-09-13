@@ -878,3 +878,17 @@ def test_coherent_projection_keeps_fresh_position_and_life_guards(monkeypatch,ch
     if changed=='none':assert supervisor.player_projection()==((21,22),(518,396))
     else:
         with pytest.raises(CaptureUnavailable):supervisor.player_projection()
+
+
+def test_unconfirmed_meteor_retries_instead_of_patrolling_away_for_a_minute(monkeypatch):
+    from conquest.memory_ground import GroundItem
+    s,_,_,notes=setup(monkeypatch)
+    now=[100.0];monkeypatch.setattr(native_farm.time,'monotonic',lambda:now[0])
+    drop=GroundItem(1,1000,1088001,(11,10));s.ground_items=lambda:(drop,)
+    bag=SimpleNamespace(silver=0,items=(),capacity=40);clicks=[]
+    click=lambda *a,**kw:clicks.append(kw)
+    assert s.loot_step(bag,(10,10),click)
+    now[0]=102;assert s.loot_step(bag,(10,10),click) and len(clicks)==1
+    now[0]=103.1;assert s.loot_step(bag,(10,10),click) and len(clicks)==1
+    assert s.loot_cooldowns[(1,1000)]==104.1
+    now[0]=104.2;assert s.loot_step(bag,(10,10),click) and len(clicks)==2

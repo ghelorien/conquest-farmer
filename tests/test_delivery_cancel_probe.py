@@ -14,7 +14,7 @@ def participants(farmer='Parasite'):
         return dict(character=name,character_uid=uid,identity={'pid':uid},server='America',
             timestamp=time.time(),map_id=1036,hp=100,silver=200,capacity=40,
             position=[10,10],inventory=items,booth=[],trade=None,request=None)
-    item=dict(uid=10,type_id=1088001,plus=0,gem1=0,gem2=0,quantity=1,bound=False,slot=0)
+    item=dict(uid=10,type_id=720027,plus=0,gem1=0,gem2=0,quantity=1,bound=False,slot=0)
     f=snapshot(farmer,1,[item]);m=snapshot('Spiritual',2,[])
     intent=deepcopy({'farmer':f,'merchant':m,'items':[item]})
     m['request']={'participant':farmer,'message':farmer+' wishes to trade with you.'}
@@ -80,3 +80,14 @@ def test_cancel_click_is_guarded_and_result_must_reconcile(monkeypatch,tmp_path,
         assert len(presses)==(1 if case.startswith('after_') else 0)
         assert state['phase']!='cancel_verified'
     assert not ui.calibrating
+
+
+def test_replaced_request_reconciliation_preserves_foreign_request():
+    from conquest.merchants.cancel_reserved_request import prove_request_replaced
+    intent,f,m=participants()
+    with pytest.raises(ValueError):prove_request_replaced(intent,f,m)
+    m['request']={'participant':'OtherPlayer','message':'OtherPlayer wishes to trade with you.'}
+    assert prove_request_replaced(intent,f,m)['outcome']=='original_request_absent_no_transfer'
+    assert m['request']['participant']=='OtherPlayer'
+    f['inventory']=[]
+    with pytest.raises(ValueError):prove_request_replaced(intent,f,m)

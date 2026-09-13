@@ -51,7 +51,15 @@ class TravelCare:
             raise TravelStateChanged('Waiting for living route position')
         if now>=getattr(self,'next_panel_check',0):
             self.next_panel_check=now+1
-            result=request(self.info,'town',{'action':'clear-travel-panels','expires_at':time.time()+4})
+            try:
+                result=request(self.info,'town',{'action':'clear-travel-panels','expires_at':time.time()+4})
+            except ValueError as error:
+                if str(error)!='Town panel close was not verified':raise
+                self.panel_close_failures=getattr(self,'panel_close_failures',0)+1
+                if self.panel_close_failures>=3:raise
+                self.next_panel_check=now+.25
+                raise TravelStateChanged('Rechecking an unconfirmed town panel close') from error
+            self.panel_close_failures=0
             if result.get('closed_panel'):
                 self.notify({'event':'travel_panel_closed','panel':result['closed_panel'],
                              'activity':'Closed '+result['closed_panel']+' panel; continuing travel'})

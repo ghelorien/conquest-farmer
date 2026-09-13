@@ -7,6 +7,9 @@ from conquest.merchants.delivery_probe import JOURNAL
 
 
 def start(ui,stage):
+    if stage=='cancel-reserved-request':
+        from conquest.merchants.cancel_reserved_request import start
+        return start(ui)
     if stage not in ('accept','offer','confirm','cancel'):raise ValueError('Unknown delivery qualification stage')
     if getattr(ui,'delivery_probe_thread',None) and ui.delivery_probe_thread.is_alive():
         raise ValueError('Delivery qualification is running')

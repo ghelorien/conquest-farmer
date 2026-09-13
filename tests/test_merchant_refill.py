@@ -326,3 +326,13 @@ def test_delivery_readiness_distinguishes_handoff_wait_from_transaction_errors(s
     assert not x.calls  # Readiness never grants input or posts an item.
     x.runtime.enable('Dutch',False)
     assert x.runtime.status()['Dutch']['ready'] is False
+
+
+def test_loose_meteor_is_held_without_blocking_priced_equipment(setup):
+    x=setup
+    x.state['inventory'].append(stock(9,1088001))
+    x.mark()
+    x.runtime.step('Dutch')
+    assert (2,900000) in x.calls
+    assert all(uid != 9 for uid,price in x.calls)
+    assert any(i['uid']==9 for i in x.state['inventory'])

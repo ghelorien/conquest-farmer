@@ -83,6 +83,10 @@ class MerchantRuntime:
     def start(self):
         if self.threads:
             return
+        from conquest.merchants.market_guard import MarketGuard
+        self.market_guard = MarketGuard(self)
+        guard = threading.Thread(target=self.market_guard.run, daemon=True, name='merchant-market-safety')
+        self.threads.append(guard); guard.start()
         for character in CHARACTERS:
             thread = threading.Thread(target=self.run,args=(character,),daemon=True,name=f'merchant-{character}')
             self.threads.append(thread);thread.start()
@@ -93,7 +97,9 @@ class MerchantRuntime:
         self.threads.append(thread);thread.start()
 
     def enabled(self, character):
-        return self.journal.get(character,'enabled',False) and not self.coordinator.stopped
+        from conquest.merchants.recovery_safety import active
+        recovering = active(self,character) and not self.journal.get(character,'connect_hold',False)
+        return (self.journal.get(character,'enabled',False) or recovering) and not self.coordinator.stopped
 
     def refill_enabled(self, character):
         return self.journal.get(character,'refill_enabled',True) and not self.coordinator.stopped
@@ -246,6 +252,8 @@ class MerchantRuntime:
         return login_screen(observer.operations.target.hwnd)
 
     def recover(self, character, *, crashed=False):
+        from conquest.merchants.recovery_safety import arm, submitted
+        arm(self,character)
         if not self.enabled(character):
             raise CaptureUnavailable('Paused; recovery will not change manual intent')
         if not credential_path(character).exists():
@@ -275,6 +283,7 @@ class MerchantRuntime:
                 command,cwd=installed_client(merchant_installation(character))
                 watch = LaunchWatch(self.catalog,command,cwd=cwd)
                 with self.coordinator.lease(character,purpose='connect_launch'):
+                    submitted(self,character)
                     if self.recoveries[character].attempt(watch.start):
                         self.launches[character],self.launch_owner = watch,character
             return
@@ -282,6 +291,7 @@ class MerchantRuntime:
         driver.require_qualified('login')
         from conquest.reconnect import submit_login
         with self.coordinator.lease(character,purpose='connect'):
+            submitted(self,character)
             self.recoveries[character].attempt(lambda:submit_login(driver.target,
                 credential_path(character),session=driver.observer.adapter))
 
@@ -347,17 +357,22 @@ class MerchantRuntime:
             # The farmer reserves its exact batch after the safe grant. Do
             # not race that reservation by listing or moving merchant stock.
             return
-        if refill_only and (returning or snapshot.get('trade') or snapshot.get('request')
-                            or self.recoveries[character].state()['state']!='connected'):
+        from conquest.merchants.held_stock_refill import allowed as held_refill_allowed
+        held_refill = returning and held_refill_allowed(self,character,snapshot)
+        if refill_only and ((returning and not held_refill) or snapshot.get('trade') or snapshot.get('request')
+                            or (self.recoveries[character].state()['state']!='connected' and not held_refill)):
             return
         self.returns[character].remember(snapshot)
-        if returning:
+        if held_refill: refill_only = True
+        if returning and not held_refill:
+            if (self.returns[character].state() or {}).get('phase')=='needs_attention':
+                return  # Historical incidents cannot request repeated recovery handoffs.
             if not self.coordinator.safe_to_yield() and self.enabled(character):
                 with self.lock:
                     if self.handoff is None:self.handoff=f'merchant-return:{character}:{int(time.time()*1000)}'
             if not self.returns[character].step(snapshot,controller,self.return_drivers[character]):
                 return
-        if self.recoveries[character].state()['state'] != 'connected':
+        if not held_refill and self.recoveries[character].state()['state'] != 'connected':
             if not snapshot['booth_open']:
                 raise ValueError('Open and verify the merchant booth before resuming recovery')
             self.recoveries[character].verified()
@@ -516,6 +531,9 @@ class MerchantRuntime:
                 controller = self.controllers.get(character)
                 return_state=self.returns[character].state()
                 returning=bool(return_state and return_state['phase']!='complete')
+                from conquest.merchants.held_stock_refill import market_ready
+                current_market_ready=market_ready(self,character,snapshot)
+                historical_error=bool(error and return_state and error.get('note')==return_state.get('note'))
                 for capability in ('trade_request','trade','booth_input','login','market_return','booth_setup',
                                    'booth_panel','inventory_panel'):
                     try:
@@ -531,17 +549,21 @@ class MerchantRuntime:
                         if returning and self.enabled(character) else 'Ready' if self.enabled(character) else 'Paused'),
                     'snapshot':snapshot if fresh else None,'error':error,'scan':scan,
                     'capacity':available_slots(snapshot) if fresh else None,
-                    'ready':fresh and self.enabled(character) and not returning and (not error or error.get('note')=='Waiting for a safe farmer handoff') and available_slots(snapshot)>0
+                    'ready':fresh and self.enabled(character) and (not returning or current_market_ready) and (not error or error.get('note')=='Waiting for a safe farmer handoff' or current_market_ready and historical_error) and available_slots(snapshot)>0
                         and qualification['trade_request'] and qualification['trade'] and not self.journal.pending(character),
                     'qualification':qualification,
                     'credentials_saved':credential_path(character).exists(),
                     'needs_attention':self.journal.get(character,'attention'),
                     'pending':self.journal.pending(character),'recovery':self.recoveries[character].state(),
+                    'recovery_safety':self.journal.get(character,'recovery_safety'),
                     'shop_return':self.returns[character].state()}
                 result[character]['connect_market']=self.journal.get(character,'connect_market')
                 result[character]['profile_id']=getattr(character,'profile_id',None)
                 result[character]['attachment']=self.attachments[character].snapshot()
                 result[character]['refill'] = {**self.refills[character].state(),'enabled':self.refill_enabled(character)}
+                if current_market_ready and (not error or historical_error):
+                    doing='Refilling current inventory' if character in self.refilling else 'Current inventory ready'
+                    result[character]['activity']=doing+'; earlier recovery incident remains unresolved'
                 result[character]['market_refresh']=self.market_worker.state(character)
                 result[character]['batch_progress']=self.journal.get(character,'batch_progress',{})
             return result

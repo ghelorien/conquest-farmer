@@ -33,3 +33,23 @@ def test_route_progress_watchdog_keeps_care_active_and_does_not_interrupt_moveme
     else:
         assert result['reached']
         assert now[0]-10>= (2.8 if mode=='moving' else .1)
+
+
+@pytest.mark.parametrize('note',['Closed a shop panel; rechecking the route','Mouse control is yours; waiting for idle'])
+def test_panel_after_movement_triggers_replanning_but_manual_pause_still_propagates(monkeypatch,note):
+    from conquest.travel_care import TravelStateChanged
+    calls=[]
+    life={'position':[10,10],'map_id':1036,'current_hp':100}
+    def request(info,operation,body=None):
+        if operation=='route-jump':calls.append(operation);return {'movement':'run'}
+        return {'embedded_controls':{'life':life}}
+    def care(health):
+        if calls:raise TravelStateChanged(note)
+    monkeypatch.setattr('conquest.worker.request',request)
+    stepper=route_input.BridgeJumpStepper('unused',on_life=care)
+    if note.startswith('Closed'):
+        result=stepper.step_to((20,10))
+        assert not result['reached'] and 'intercepted' in result['error']
+    else:
+        with pytest.raises(TravelStateChanged):stepper.step_to((20,10))
+    assert calls==['route-jump']

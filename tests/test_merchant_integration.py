@@ -134,6 +134,15 @@ def test_native_tabs_bridge_authentication_handoff_and_global_stop(tmp_path,monk
         assert enlarged_size[0]>initial_size[0]+350 and enlarged_size[1]>initial_size[1]+200
         unified.labels['Dutch'].set('Status\n'+('Long diagnostic line\n'*6))
         root.update()
+        # Status expands to keep diagnostics visible; the game keeps usable space.
+        status_label=next(child for parent in unified.frames['Dutch'].winfo_children()
+            for child in parent.winfo_children() if isinstance(child,ttk.Label)
+            and str(child.cget('textvariable'))==str(unified.labels['Dutch']))
+        assert status_label.winfo_height()>=status_label.winfo_reqheight()
+        assert pane.winfo_width()==enlarged_size[0]
+        assert 400<=pane.winfo_height()<enlarged_size[1]
+        unified.labels['Dutch'].set('Connecting…')
+        root.update()
         assert (pane.winfo_width(),pane.winfo_height())==enlarged_size
         root.withdraw()
         assert unified.presentation.ready.wait(2)

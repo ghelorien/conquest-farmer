@@ -182,6 +182,15 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action=='farmer-view-height' and set(body)=={'action','scale'}:
+            scale = float(body['scale'])
+            if not 1 <= scale <= 1.15: raise ValueError('Height scale must be between 1 and 1.15')
+            if self.app.control.snapshot()['enabled']: raise ValueError('Stop farming before resizing')
+            from conquest.discord_notify import write_json
+            write_json('.runtime/farmer-view.json', {'height_scale':scale})
+            from conquest.farmer_view import apply
+            self.ui_requests.put((lambda:apply(self.app),None,{}))
+            return {'height_scale':scale,'queued':True}
         if action=='disconnect-merchant' and set(body)=={'action','character'}:
             from conquest.merchants.disconnect import disconnect
             return disconnect(self.runtime,body['character'])
@@ -484,6 +493,8 @@ class UnifiedUI:
         ttk.Button(row,text='How shop controls work',command=self.shop_help).pack(side='left',padx=8)
         ttk.Button(row,text='Configure Discord #shops',command=self.configure_shops).pack(side='left',padx=8)
         ttk.Button(row,text='Stop all (including farmer)',command=self.global_stop).pack(side='right')
+        self.discord_note=tk.StringVar(value='Checking Discord notification services...')
+        ttk.Label(frame,textvariable=self.discord_note,wraplength=900).pack(anchor='w',padx=20,pady=6)
         self.input_note = tk.StringVar()
         ttk.Label(frame,textvariable=self.input_note,wraplength=900).pack(anchor='w',padx=20,pady=10)
 
@@ -495,6 +506,8 @@ class UnifiedUI:
         if value:
             try:
                 save_webhook(value)
+                from conquest.merchants.alerts import ensure_monitor
+                ensure_monitor()
                 messagebox.showinfo('Discord #shops','Saved locally. Scheduled sales reports will use this webhook.',parent=self.root)
             except ValueError:
                 messagebox.showerror('Discord #shops','Enter a valid Discord channel webhook URL.',parent=self.root)
@@ -502,26 +515,32 @@ class UnifiedUI:
     def build_merchant(self, character):
         frame = self.frames[character]
         text = tk.StringVar(value='Connecting…');self.labels[character] = text
-        status = ttk.Frame(frame,height=120)
-        status.pack(fill='x',padx=12,pady=(8,4));status.pack_propagate(False)
+        status = ttk.Frame(frame)
+        status.pack(fill='x',padx=12,pady=(8,4))
         status_label=ttk.Label(status,textvariable=text,wraplength=950,anchor='nw',justify='left')
         status_label.pack(fill='x')
         status.bind('<Configure>',lambda event:status_label.configure(wraplength=max(200,event.width)))
         controls = ttk.Frame(frame);controls.pack(fill='x',padx=12)
         self.batch_buttons=getattr(self,'batch_buttons',{})
-        self.manage_buttons=getattr(self,'manage_buttons',{})
-        self.refill_buttons=getattr(self,'refill_buttons',{})
-        for index,(label,callback,buttons) in enumerate((
-            ('Update shop now',lambda:self.list_once(character),self.batch_buttons),
-            ('Enable auto-manage',lambda:self.toggle_manage(character),self.manage_buttons),
-            ('Pause auto-refill',lambda:self.toggle_refill(character),self.refill_buttons))):
-            button=ttk.Button(controls,text=label,command=callback)
-            button.grid(row=0,column=index,sticky='ew',padx=(0,6),pady=2)
-            buttons[character]=button
-            controls.columnconfigure(index,weight=1)
-        more=ttk.Menubutton(controls,text='More / help')
+        self.merchant_buttons=getattr(self,'merchant_buttons',{})
+        primary=ttk.Button(controls,text='Pause merchant',command=lambda:self.toggle_merchant(character))
+        primary.grid(row=0,column=0,sticky='ew',padx=(0,6),pady=2)
+        self.merchant_buttons[character]=primary
+        update=ttk.Button(controls,text='Update shop now',command=lambda:self.list_once(character))
+        update.grid(row=0,column=1,sticky='ew',padx=(0,6),pady=2)
+        self.batch_buttons[character]=update
+        controls.columnconfigure(0,weight=1)
+        controls.columnconfigure(1,weight=1)
+        more=ttk.Menubutton(controls,text='Settings & details')
         menu=tk.Menu(more,tearoff=False);more.configure(menu=menu)
+        self.permission_menus=getattr(self,'permission_menus',{})
+        self.permission_menus[character]=menu
         menu.add_command(label='How shop controls work',command=self.shop_help)
+        menu.add_command(label='Full status details',command=lambda:self.show_merchant_details(character))
+        menu.add_separator()
+        menu.add_command(label='Toggle trading & repricing permission',command=lambda:self.toggle_manage(character))
+        menu.add_command(label='Toggle automatic refill permission',command=lambda:self.toggle_refill(character))
+        menu.add_separator()
         from conquest.portable_ui import copy_diagnostics
         menu.add_command(label='Copy attachment diagnostics',command=lambda:copy_diagnostics(self,character))
         menu.add_command(label='Download prices only (no shop changes)',command=lambda:self.scan(character))
@@ -533,9 +552,9 @@ class UnifiedUI:
             ('Retry reconnect',lambda:self.runtime.recoveries[character].retry()),
             ('Set up automatic login',lambda:self.credentials(character))):
             menu.add_command(label=label,command=callback)
-        more.grid(row=0,column=3,padx=(0,6),pady=2)
-        ttk.Button(controls,text='Stop all (including farmer)',command=self.global_stop).grid(row=0,column=4,pady=2)
-        ttk.Label(frame,text='Update shop now: download prices, list inventory and update shop prices once.',
+        more.grid(row=0,column=2,padx=(0,6),pady=2)
+        ttk.Button(controls,text='Stop all (including farmer)',command=self.global_stop).grid(row=0,column=3,pady=2)
+        ttk.Label(frame,text='Pause merchant stops both activities without closing the game. Settings keeps separate permissions.',
                   wraplength=950).pack(anchor='w',padx=12,pady=(3,0))
         tabs = ttk.Notebook(frame);tabs.pack(fill='both',expand=True,padx=12,pady=12)
         self.detail_tabs[character] = tabs
@@ -575,6 +594,7 @@ class UnifiedUI:
 
     def shop_help(self):
         messagebox.showinfo('Shop controls',
+            'Pause / Resume merchant\nPauses both trading and refill without closing the game. Resume restores your previous permissions. Change individual permissions under Settings & details.\n\n'
             'Update shop now\nDownloads current prices, lists eligible inventory and updates existing shop prices. '
             'Runs once, then stops. Auto-refill keeps its own setting.\n\n'
             'Download prices only (under More / help)\nUpdates saved market data without changing your shop. '
@@ -586,6 +606,17 @@ class UnifiedUI:
             'Waiting items\nItems that need a safe price, free shop space or safe input. '
             'Each item has a reason in the Waiting items tab. Unknown prices are never guessed.\n\n'
             'Stop all (including farmer)\nStops farming, merchant actions and auto-refill.',parent=self.root)
+
+    def toggle_merchant(self, character):
+        from conquest.merchants.simple_controls import toggle
+        toggle(self,character)
+
+    def show_merchant_details(self, character):
+        from conquest.merchants.dashboard import merchant_text
+        data=self.presentation.latest
+        if not data:return
+        messagebox.showinfo(character+' status',merchant_text(data['characters'][character],now=time.time(),
+            waiting_items=data['tables'][character]['deferred'],global_stopped=self.coordinator.stopped),parent=self.root)
 
     def toggle_manage(self, character):
         if self.runtime.enabled(character):self.pause(character)
@@ -686,10 +717,12 @@ class UnifiedUI:
                 raise
         previous = self.render_sizes.get(character)
         if pane.winfo_ismapped() and min(size)>1 and previous!=size:
-            # Stop before changing the surface that any in-flight input targets.
-            if not automatic:
-                self.runtime.invalidate_refill(character)
-                self.pause(character)
+            # A layout event is not a user Pause. Defer it while input or a
+            # reserved delivery owns the surface; explicit input preparation
+            # may resize before the driver validates its current geometry.
+            if not automatic and (getattr(getattr(self,'coordinator',None),'owner',None)
+                    or getattr(self.runtime,'delivery_window',None)):
+                return
             self.render_sizes[character] = size
             # Display never waits on process memory/calibration or rewrites its
             # evidence. Drivers still verify native + GUI dimensions before input.
@@ -998,11 +1031,16 @@ class UnifiedUI:
         self.timer_text.set(self.header_status['timers'])
         self.silver_text.set(self.header_status['silver'])
         self.on_sale_text.set(self.header_status['on_sale'])
+        if hasattr(self,'discord_note'):
+            self.discord_note.set(data.get('notification_health','Checking Discord notification services...'))
 
     def poll(self):
         if self.app.closing:
             self.close();return
         try:
+            if not probe_busy(self):
+                from conquest.merchants.restore_hosts import restore
+                restore(self)
             self.auto_show_selected()
             data=self.presentation.latest
             if data is None:return
@@ -1026,11 +1064,14 @@ class UnifiedUI:
                 self.batch_buttons[character].configure(text='Updating shop…' if active_batch and state['enabled'] else
                     'Resume shop update' if active_batch else 'Update shop now',
                     state='disabled' if active_batch and state['enabled'] else 'normal')
-                self.manage_buttons[character].configure(text=(
-                    'Pause shop update' if active_batch and state['scan'].get('one_time') else 'Pause auto-manage')
-                    if state['enabled'] else 'Enable auto-manage',
-                    state='disabled' if active_batch and not state['enabled'] else 'normal')
-                self.refill_buttons[character].configure(text='Pause auto-refill' if state['refill']['enabled'] else 'Enable auto-refill')
+                self.merchant_buttons[character].configure(text='Pause merchant' if
+                    state['enabled'] or state['refill']['enabled'] else 'Resume merchant')
+                if character in getattr(self,'permission_menus',{}):
+                    menu=self.permission_menus[character]
+                    menu.entryconfigure(3,label=('Pause' if state['enabled'] else 'Enable')+' trading & repricing')
+                    menu.entryconfigure(4,label=('Pause' if state['refill']['enabled'] else 'Enable')+' automatic refill')
+                from conquest.merchants.simple_controls import summary
+                note=summary(state,now=time.time(),global_stopped=self.coordinator.stopped)
                 host = self.hosts.get(character)
                 if host and host.saved:
                     # Share the verified dead-client handling with resize events.

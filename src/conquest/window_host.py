@@ -131,6 +131,13 @@ class HostApi:
                 self.show_async(state.hwnd,0)
             return
         x,y = self.gui.ClientToScreen(parent,(0,0))
+        factor = getattr(self, 'height_scale', 1.0)
+        if 1 < factor <= 1.15:
+            import win32api
+            work = win32api.GetMonitorInfo(win32api.MonitorFromWindow(state.hwnd))['Work']
+            taller = min(round(height * factor), work[3] - work[1])
+            y = max(work[1], y + height - taller)
+            height = taller
         if self.gui.GetWindowRect(state.hwnd)!=(x,y,x+width,y+height):
             self.gui.SetWindowPos(state.hwnd,0,x,y,width,height,0x4000 | 0x10 | 0x4 | 0x20)
         if not self.gui.IsWindowVisible(state.hwnd):

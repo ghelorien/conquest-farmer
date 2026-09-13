@@ -46,12 +46,12 @@ def test_prefers_capacity_then_verified_distance_and_splits():
 
 def test_preserves_supplies_equipped_and_storage_only_loot():
     rows=[item(10,1050002),item(11,1000020),item(12,1090000),item(13,130008),
-          item(14,2000031),item(15,130009),item(16,1088001),item(17,130003,2)]
+          item(14,2000031),item(15,130009),item(16,1088001),item(17,130003,2),item(18,720027)]
     rows[5]['slot']=None
     f=snapshot('Parasite',1,rows);m=snapshot('Dutch',2)
     plan=plan_deliveries(f,[dict(character='Dutch',snapshot=m,ready=True,verified_travel_distance=1)],reserved=[17],now=100)
-    assert [i['uid'] for i in plan['deliveries'][0]['items']]==[16]
-    assert [i['uid'] for i in plan['warehouse']]==[14]
+    assert [i['uid'] for i in plan['deliveries'][0]['items']]==[18]
+    assert [i['uid'] for i in plan['warehouse']]==[14,16]
 
 
 @pytest.mark.parametrize('change', ['recipient','currency','extra_item','missing_item','capacity','supplies','identity'])

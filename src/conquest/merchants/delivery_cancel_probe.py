@@ -29,7 +29,7 @@ def cancelled(intent,farmer,merchant):
     participants_unchanged(intent,farmer,merchant)
     return not any(s.get('trade') or s.get('request') for s in (farmer,merchant))
 
-def run(ui,state):
+def run(ui,state,*,output_path=JOURNAL):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_click
     character=state['character'];intent=state['intent'];revision=ui.app.control.snapshot()['revision']
@@ -54,14 +54,14 @@ def run(ui,state):
                 check();a,b=pair(ui,character);unchanged(intent,a,b)
                 if control(driver,b)!=(w,accept):raise ValueError('Request dialog moved')
                 driver.memory.gui.assert_hovered(w,'Cancel')
-            state.update(phase='cancel_submitted',cancel_point=point);write_json(JOURNAL,state)
+            state.update(phase='cancel_submitted',cancel_point=point);write_json(output_path,state)
             foreground_click(driver.target,*point,tuple(size),require_foreground=False,
                 before_press=lambda:wait_hover_validation(guard,check))
             until=time.monotonic()+3
             while time.monotonic()<until:
                 a,b=pair(ui,character)
                 if cancelled(intent,a,b):
-                    state.update(phase='cancel_verified',farmer_after=a,merchant_after=b,verified_at=time.time());write_json(JOURNAL,state);return
+                    state.update(phase='cancel_verified',farmer_after=a,merchant_after=b,verified_at=time.time());write_json(output_path,state);return
                 time.sleep(.05)
             raise ValueError('Request cancellation unverified')
     finally:ui.calibrating.discard(character)

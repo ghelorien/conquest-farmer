@@ -156,3 +156,22 @@ patrols: the current comparison alternates this route with northern fields for
 two complete samples each, then validates the selected route. Do not treat the
 initial shakedown or a single good spawn wave as a qualified winner. The existing
 efficiency heartbeat coordinates stages and reports the completed comparison.
+
+# Merchant safety and recovery (latest user clarification)
+
+Never initiate a manual or routine merchant disconnect without explicit approval.
+After an unexpected crash/disconnect, reconnect and return immediately to Market.
+Recovery bypasses routine fifteen-minute refill scheduling, retaining exclusive
+input and safe farmer parking. If recovery makes no verified progress for five
+seconds (stalled movement, failed NPC interaction, or unreadable recovery state),
+the user authorizes a protective disconnect. Stop automatic retries afterward.
+Track real improving movement toward the Conductress, not clicks or oscillation.
+Arrival in Market ends the unsafe-transit watchdog; booth restoration remains a
+separate recovery step. Do not apply this disconnect exception to a normally
+connected merchant manually positioned outside Market. Preserve trade journals.
+
+# Meteor deliveries (latest user instruction)
+
+Do not deliver loose Meteors to merchants. Bank them, consolidate verified batches
+of ten into MeteorScrolls, and deliver scrolls. Bank leftovers before departing
+for merchant delivery. Preserve all pickup eligibility and warehouse fallback.
