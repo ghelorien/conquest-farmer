@@ -51,6 +51,19 @@ def resume_leveling():
     write_json(PLAN,data)
 
 
+def follow_manual_route(route):
+    """An explicit UI selection supersedes a hold on a different route."""
+    data=read_json(PLAN)
+    if not data.get('active') or data.get('route_id')==route.id:
+        return
+    if data.get('mode')=='hold_route':
+        write_json(PLAN,{'active':True,'mode':'hold_route','route_id':route.id,
+            'upgrade_maps':[route.restock_map_id],'started_at':time.time()})
+    else:
+        # Savings/equipment circuit policies must not transfer to another area.
+        resume_leveling()
+
+
 def upgrade_tier(level):return max(tier for tier in UPGRADE_LEVELS if tier<=level)
 
 

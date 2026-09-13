@@ -82,6 +82,9 @@ class Text:
 
 
 def test_ui_route_selection_persists_group_but_never_starts_farming(tmp_path):
+    from conquest import session_plan
+    session_plan.write_json(session_plan.PLAN,{'active':True,'mode':'hold_route',
+        'route_id':'pheasant','upgrade_maps':[1002],'started_at':123})
     app=DesktopApp.__new__(DesktopApp)
     app.route_library=RouteLibrary(tmp_path/'routes')
     app.route_library.save(definition())
@@ -98,6 +101,9 @@ def test_ui_route_selection_persists_group_but_never_starts_farming(tmp_path):
     selected=app.control.snapshot()
     assert not selected['enabled'] and selected['target_ids']==[]
     assert selected['target_type_ids']==[1]
+    held=session_plan.read_json(session_plan.PLAN)
+    assert held['active'] and held['mode']=='hold_route' and held['route_id']=='test'
+    assert held['upgrade_maps']==[app.selected_route.restock_map_id]
     app.selected_route=None
     app.restore_route()
     assert app.selected_route.id=='test'

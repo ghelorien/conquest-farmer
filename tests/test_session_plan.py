@@ -9,6 +9,28 @@ from conquest.routes import RouteLibrary
 def plan():return {'active':True,'route_id':'bandit','upgrade_maps':[1002,1011],'started_at':123}
 
 
+def test_manual_bandit_selection_retargets_beginner_hold():
+    p.write_json(p.PLAN,{'active':True,'mode':'hold_route','route_id':'pheasant',
+        'upgrade_maps':[1002],'started_at':123})
+    p.follow_manual_route(RouteLibrary().load('bandit'))
+    held=p.active_plan()
+    assert held['route_id']=='bandit' and held['upgrade_maps']==[1011]
+    assert held['mode']=='hold_route'
+    p.follow_manual_route(RouteLibrary().load('bandit'))
+    assert p.active_plan()==held
+
+
+def test_manual_route_does_not_transfer_special_circuit_policy():
+    p.write_json(p.PLAN,plan())
+    p.follow_manual_route(RouteLibrary().load('pheasant'))
+    assert p.active_plan() is None
+
+
+def test_manual_route_keeps_automatic_leveling_when_no_hold_exists():
+    p.follow_manual_route(RouteLibrary().load('bandit'))
+    assert not p.PLAN.exists()
+
+
 def test_hold_survives_restart_until_explicit_resume(tmp_path,monkeypatch):
     monkeypatch.setattr(p,'PLAN',tmp_path/'plan.json')
     p.write_json(p.PLAN,plan())

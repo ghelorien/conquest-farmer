@@ -895,6 +895,9 @@ class DesktopApp:
             if self.thread and self.thread.is_alive():
                 raise ValueError('Stop the foreground run before changing routes')
             self.control.update({'enabled':False,'target_type_ids':list(route.monster_type_ids),'target_ids':[]})
+            from conquest.session_plan import follow_manual_route,plan_note
+            follow_manual_route(route)
+            if hasattr(self,'session_note'):self.session_note.set(plan_note())
             temporary=self.route_selection_path.with_suffix('.tmp')
             temporary.write_text(json.dumps({'route_id':route.id}),encoding='utf-8')
             temporary.replace(self.route_selection_path)
