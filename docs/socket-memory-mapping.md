@@ -104,3 +104,44 @@ gem1=255, gem2=0. Its `town/ground-items` reader returned a valid empty ground
 snapshot at (131,233), map 1036. Farming remained Off. This confirms deployment
 and the equipped socket fix; it does not claim a live pickup or ground socket
 qualification. The safe reload did not restart the game.
+
+## Controlled before-pickup comparison
+
+The user subsequently authorized and performed a brief drop of the same Super
+ScarletBow. A bounded diagnostic only read memory; it sent no game input. An
+initial missing-life observation stopped the first diagnostic attempt. The
+capture was rearmed using the already recorded, process-matched before state;
+the completed capture contained no read errors.
+
+| Stage | Observed result |
+| --- | --- |
+| Before drop | Equipped UID 293092845, type 500069, plus 0, sockets 255/0 |
+| On ground | Ground UID 2068190997, type 500069, tile (54,139), plus 0 |
+| Ground display flag | 0, despite the known empty socket |
+| While dropped | Original item UID absent from both inventory and equipment |
+| After user retrieval | Equipped UID 293092845, type 500069, sockets still 255/0; no ground drops |
+
+Capture time was Unix 1789265895.0141802. The ground holder address was
+1388649296 and registry record address 1450574208. Registry ownership, actor
+type, position, plus, creation timestamp and process identity were rechecked.
+The render counter advanced independently, as expected. The running app marked
+the drop wanted because its type is Super; this is not socket detection.
+
+The user was told immediately after capture to retrieve the bow. A subsequent
+read at Unix 1789265929.581559 confirmed that it was safely equipped with its
+socket intact, silver was 207, and Farming remained Off. These manual drop and
+retrieval observations do not qualify autonomous pickup input.
+
+Result: **before-pickup socket identification remains unqualified**. The known
+ground instance fields do not provide a socket count for this known one-socket
+item, and the Legendary display flag is not a reliable socket-presence test.
+This does not prove no other client data path could expose sockets. No socket
+count is inferred from a previously owned item's cached metadata, since that
+would not work for a newly dropped monster item. No loot policy changed: Super
+remains eligible independently of sockets; an Elite +0 item cannot currently
+be selected solely for a socket from this ground reader.
+
+Local evidence: `socket-drop-live.json` and `socket-drop-retrieval.json` in the
+same diagnostics directory described above. The full before/ground/after
+records are retained there; no further valuable-item drop is required to
+repeat the conclusion from this captured comparison.
