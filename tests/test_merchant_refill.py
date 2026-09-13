@@ -296,3 +296,19 @@ def test_rare_dragonball_never_refills_or_reprices(setup,kind):
     assert not x.calls
     deferred=x.j.get('Dutch','deferred')
     assert deferred[0]['price'] is None and 'storage-only' in deferred[0]['reason']
+
+
+def test_full_combined_ownership_still_refills_an_existing_empty_booth_slot(setup):
+    from conquest.merchants.capacity import available_slots
+    x=setup
+    x.state['booth']=[stock(100+i,500009,price=100) for i in range(31)]
+    x.state['inventory'] += [stock(300+i,500009) for i in range(7)]
+    x.mark()
+    assert available_slots(x.state)==0
+    before={i['uid'] for k in ('inventory','booth') for i in x.state[k]}
+    x.runtime.step('Dutch')
+    assert x.calls==[(2,900000)]
+    assert len(x.state['booth'])==32 and len(x.state['inventory'])==8
+    assert available_slots(x.state)==0
+    assert {i['uid'] for k in ('inventory','booth') for i in x.state[k]}==before
+    assert x.refill.state()['listed']==1
