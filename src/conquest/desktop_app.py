@@ -77,7 +77,7 @@ class DesktopApp:
         self.farming_on_key_down=False
         from conquest.mouse_priority import install
         self.mouse_priority=install()
-        self.last = {'state':'Off', 'kills':0, 'attempts':0}
+        self.last = {'state':'Off', 'kills':0, 'attempts':0, 'app_started_at':time.time()}
         from conquest.session_kills import SessionKills
         self.kill_session=SessionKills(self.output)
         self.last.update(self.kill_session.snapshot())

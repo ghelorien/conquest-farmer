@@ -68,6 +68,16 @@ def pickup_values(row):
             item_label(row)+(' (recovered; time unknown)' if row.get('source')=='recovered_inventory' else ''),f"+{row['increase']}" if row.get('silver') else f"×{row['increase']}")
 
 
+def previous_route_failure(route,app):
+    """A saved failure predating this verified attachment is historical."""
+    started=app.get('app_started_at')
+    return (route.get('phase')=='needs_attention'
+            and isinstance(started,(int,float))
+            and isinstance(route.get('updated_at'),(int,float))
+            and route['updated_at']<started
+            and (app.get('attachment') or {}).get('automation_ready') is True)
+
+
 def activity_text(route,app,control,life,*,now=None):
     now=time.time() if now is None else now
     if life and life.get('dead_candidate'):
@@ -84,7 +94,7 @@ def activity_text(route,app,control,life,*,now=None):
         return 'Moving to a safe spot for app reload'
     if phase=='merchant_handoff' and fresh:
         return route.get('activity','Safe merchant refill · up to 15 seconds')
-    if phase=='needs_attention' and not control.get('enabled'):
+    if phase=='needs_attention' and not control.get('enabled') and not previous_route_failure(route,app):
         return 'Route stopped: '+route.get('detail','Needs attention')
     if phase in ('restocking','changing_route','recovering_route','visiting_town'):
         if not fresh:
@@ -130,7 +140,7 @@ def automation_status(route,app,control,life,*,now=None):
         return 'Stopped · needs attention',activity_text(route,app,control,life,now=now)
     if app.get('state')=='Reconnecting':
         return 'Recovering',activity_text(route,app,control,life,now=now)
-    if phase=='needs_attention' and not control.get('enabled'):
+    if phase=='needs_attention' and not control.get('enabled') and not previous_route_failure(route,app):
         return 'Stopped · needs attention',activity_text(route,app,control,life,now=now)
     route_work=phase in ('restocking','changing_route','recovering_route','visiting_town','merchant_handoff','reloading','starting')
     if route_work and not fresh:

@@ -38,3 +38,15 @@ def test_explicit_stop_overrides_fresh_travel_and_trade_status():
 
 def test_runner_f11_event_is_shown_as_manual_pause():
  assert automation_status({}, {'state':'Paused with F11'}, {'enabled':True},None,now=100)[0]=='Paused'
+
+
+@pytest.mark.parametrize('ready,failed_at,expected',[(True,80,'Stopped'),
+    (True,95,'Stopped · needs attention'),(False,80,'Stopped · needs attention')])
+def test_previous_worker_failure_is_history_only_after_new_attachment(ready,failed_at,expected):
+ route={'phase':'needs_attention','updated_at':failed_at,'detail':'No such file: old-worker.json'}
+ app={'app_started_at':90,'attachment':{'automation_ready':ready}}
+ label,detail=automation_status(route,app,{'enabled':False},None,now=100)
+ assert label==expected
+ if expected=='Stopped':assert 'old-worker' not in detail
+ else:assert 'old-worker' in detail
+ assert route['detail']=='No such file: old-worker.json'
