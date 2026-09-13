@@ -543,6 +543,7 @@ def existing_city_visit(monkeypatch):
 def test_empty_travel_potions_do_not_strand_character_before_town():
     from conquest.travel_care import TravelCare
     care=TravelCare.__new__(TravelCare);care.pending=None;care.last_heal=-float('inf')
+    care.next_panel_check=float('inf')  # This fixture isolates potion behavior.
     care.inventory=SimpleNamespace(read=lambda:SimpleNamespace(count=lambda type_id:0))
     events=[];care.notify=events.append;care.xp_step=lambda health:None
     health={'embedded_controls':{'control':{'enabled':False},'life':dict(dead_candidate=False,current_hp=100,max_hp=500)}}
@@ -696,6 +697,7 @@ def test_travel_healing_focus_race_retries_without_marking_unsent_potion_used(mo
     from types import SimpleNamespace as NS
     from conquest import travel_care as t
     care=t.TravelCare.__new__(t.TravelCare)
+    care.next_panel_check=float('inf')  # This fixture isolates potion behavior.
     care.info='worker';care.session=None;care.layout=None;care.pending=None
     care.last_heal=-float('inf');care.notify=lambda e:None
     care.inventory=NS(read=lambda:NS(count=lambda item:3))
@@ -715,6 +717,7 @@ def test_travel_healing_uncertain_input_failure_is_not_blindly_retried(monkeypat
     from types import SimpleNamespace as NS
     from conquest import travel_care as t
     care=t.TravelCare.__new__(t.TravelCare)
+    care.next_panel_check=float('inf')  # This fixture isolates potion behavior.
     care.info='worker';care.session=None;care.layout=None;care.pending=None
     care.last_heal=-float('inf');care.notify=lambda e:None
     care.inventory=NS(read=lambda:NS(count=lambda item:3))
@@ -730,6 +733,7 @@ def test_travel_heals_at_seventy_percent_and_does_not_stop_when_damage_masks_pot
     from types import SimpleNamespace as NS
     from conquest import travel_care as t
     care=t.TravelCare.__new__(t.TravelCare)
+    care.next_panel_check=float('inf')  # This fixture isolates potion behavior.
     care.info='worker';care.session=None;care.layout=None;care.pending=None
     care.last_heal=-float('inf');events=[];care.notify=events.append
     count=[3];care.inventory=NS(read=lambda:NS(count=lambda item:count[0]))

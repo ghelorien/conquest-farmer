@@ -170,6 +170,9 @@ class TownTrade:
         raise ValueError(failure)
 
     def execute(self, body):
+        if body=={'action':'clear-travel-panels'}:
+            from conquest.game_panels import close_one
+            return {'closed_panel':close_one(self)}
         if body.get('action','').startswith('service-'):
             from conquest.market_services import execute
             result=execute(self,body)

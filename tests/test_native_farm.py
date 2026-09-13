@@ -21,13 +21,14 @@ class Life:
 
 
 def setup(monkeypatch):
-    from conquest import monster_health
+    from conquest import monster_health,game_panels
+    monkeypatch.setattr(game_panels,'close_one',lambda trade:None)
     monkeypatch.setattr(monster_health,'read_monster_health',lambda *args:81)
     life=Life()
     monkeypatch.setattr(native_farm,'logical_coordinates',nullcontext)
     monkeypatch.setattr(native_farm,'read_life',lambda *args:life)
     monkeypatch.setattr('conquest.scene_input.memory_player_anchor',lambda *args:(518,396))
-    observer=SimpleNamespace(lock=threading.RLock(),adapter=None,health_layout=None,character='Parasite',
+    observer=SimpleNamespace(lock=threading.RLock(),adapter=None,health_layout=None,character='Parasite',town_trade=object(),
         operations=SimpleNamespace(target=SimpleNamespace(snapshot=lambda:{'foreground':1,'root_hwnd':1,'minimized':False})))
     control=FarmingControl()
     control.update({'enabled':True,'target_type_ids':[1]})
@@ -758,3 +759,22 @@ def test_arrow_panel_open_failure_retries_but_uncertain_equip_does_not(monkeypat
     with pytest.raises(CaptureUnavailable if retryable else ValueError):
         supervisor.reload_arrows(inventory,1050001)
     assert calls==[{'action':'equip-arrows','uid':123},{'action':'close','window':'Inventory'}]
+
+
+def test_panel_cleanup_defers_combat_until_next_observation(monkeypatch):
+    from conquest import game_panels
+    supervisor,control,life,notifications=setup(monkeypatch)
+    life.dead_candidate=False;life.current_hp=213
+    supervisor.recovery.step=lambda *args:None
+    calls=[]
+    def close(trade):
+        assert trade is supervisor.observer.town_trade
+        calls.append('close');return 'Booth'
+    monkeypatch.setattr(game_panels,'close_one',close)
+    assert supervisor.observe()['waiting']
+    assert calls==['close']
+    assert notifications[-1][0]=='shop_panel_closed'
+    monkeypatch.setattr(game_panels,'close_one',lambda trade:None)
+    supervisor.next_panel_check=0
+    assert not supervisor.observe()['waiting']
+    assert supervisor.dispatch(lambda:'attack')=='attack'

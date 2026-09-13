@@ -1186,6 +1186,8 @@ class DesktopApp:
                         'memory_pickup_attempt':('Picking up '+item_label(fields)) if event=='memory_pickup_attempt' else ''}
             if event in activity:
                 self.last.update(activity=activity[event],activity_at=time.time())
+            if event=='shop_panel_closed':
+                self.last.update(activity=fields['activity'],activity_at=time.time())
             if event=='automation_work':
                 self.record(automation_work=fields)
             elif event=='control_intent':

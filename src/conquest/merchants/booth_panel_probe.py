@@ -15,7 +15,7 @@ CLOSE_CODE = {
 }
 
 
-def close_point(driver, snapshot):
+def close_point(driver, snapshot, *, display_only=False):
     """Pinned custom #CLOSE button, distinct from the booth shutdown operation."""
     gui = driver.memory.gui
     s, base = gui.session, gui.base
@@ -25,7 +25,7 @@ def close_point(driver, snapshot):
             raise ValueError('Native booth close control changed')
     model = gui.model(25, 0x5c27f8)
     if (unpack(s, model + 0xc, '<B')[0] != 1
-            or unpack(s, model + 0x4c, '<I')[0] != snapshot.get('own_booth_uid')
+            or (not display_only and unpack(s, model + 0x4c, '<I')[0] != snapshot.get('own_booth_uid'))
             or unpack(s, base + 0x5c27f8 + 0x18, '<Q')[0] != base + 0x75e20
             or unpack(s, base + 0x5c27f8 + 0x70, '<Q')[0] != base + 0x732b0):
         raise ValueError('Booth close control is not the owned panel')

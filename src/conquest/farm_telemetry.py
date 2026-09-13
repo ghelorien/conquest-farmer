@@ -105,7 +105,7 @@ def activity_text(route,app,control,life,*,now=None):
     if now-app.get('activity_at',0)<3 and app.get('activity'):
         return app['activity']
     state=app.get('state')
-    return {'Farming':'Attacking selected monsters','Patrolling':'Patrolling for monsters',
+    return {'Running':'Hunting selected monsters','Farming':'Attacking selected monsters','Patrolling':'Patrolling for monsters',
             'Travelling to hunting area':'Heading back to the hunting area',
             'Paused â€” waiting for Conquer':'Waiting for Conquer to regain focus'}.get(state,state or 'Hunting')
 

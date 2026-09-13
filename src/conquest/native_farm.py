@@ -207,6 +207,13 @@ class NativeFarmSupervisor:
             focused=window['foreground']==window['root_hwnd'] and not window['minimized']
             status=self.recovery.step({**asdict(life),'dead_candidate':life.dead_candidate},focused)
             waiting=not intent['enabled'] or not focused or life.dead_candidate or bool(status)
+            if not waiting and time.monotonic()>=getattr(self,'next_panel_check',0):
+                self.next_panel_check=time.monotonic()+1
+                from conquest.game_panels import close_one
+                panel=self.dispatch(lambda:close_one(self.observer.town_trade))
+                if panel:
+                    self.notify('shop_panel_closed',{'panel':panel,'activity':'Closed '+panel+' panel; resuming combat'})
+                    return {'waiting':True,'health_ratio':life.current_hp/life.max_hp}
             if getattr(self,'runback_watch',None):
                 self.runback_watch.observe({**asdict(life),'dead_candidate':life.dead_candidate},paused=waiting)
             if waiting:

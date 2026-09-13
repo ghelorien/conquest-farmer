@@ -45,3 +45,14 @@ aisle before approaching the exit controller. The reverse aisle and subsequent
 Phoenix arrival were verified live. A Meteor transfer was reconciled in both
 inventories after supervised recovery; this is not a completed unattended
 production-path qualification. Automatic delivery policy remains gated.
+
+
+## Clear panels before farming and travel
+
+The farmer checks for blocking display panels at most once per second during
+combat and travel, including another seller's open Booth view. It closes one
+identified panel and reobserves before continuing. The native Booth close uses
+pinned code, current geometry and the exact #CLOSE hover identity; it does not
+shut down a merchant's shop. Merchant clients are excluded. Trade, listing and
+confirmation dialogs stop cleanup for reconciliation instead. Ordinary shopping
+actions do not run this periodic cleanup.

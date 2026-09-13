@@ -48,6 +48,13 @@ class TravelCare:
                 self.last_revive=now
                 self.notify({'event':'travel_revive','death_position':life['position']})
             raise TravelStateChanged('Waiting for living route position')
+        if now>=getattr(self,'next_panel_check',0):
+            self.next_panel_check=now+1
+            result=request(self.info,'town',{'action':'clear-travel-panels','expires_at':time.time()+4})
+            if result.get('closed_panel'):
+                self.notify({'event':'travel_panel_closed','panel':result['closed_panel'],
+                             'activity':'Closed '+result['closed_panel']+' panel; continuing travel'})
+                raise TravelStateChanged('Closed a shop panel; rechecking the route')
         if self.pending:
             before,hp,issued=self.pending
             after=self.inventory.read()
