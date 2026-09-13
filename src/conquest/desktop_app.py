@@ -1124,7 +1124,10 @@ class DesktopApp:
             'hunting_anchor':route.hunting_anchor,'boundary':route.hunting_boundary,'patrol_search':route.patrol_search,'route':route.patrol,'approach_route':approach,
             'approach_boundary':path_boundary(path,(terrain.width,terrain.height)),'loot_allowlist':(),
             'maximum_actions':1000})
-        config=config.model_copy(update={'ammo_type':ammo_type,'target_threshold':.84,'interval':.15,'attack_progress_timeout':1.2})
+        from conquest.farmer_profile import load_combat_speed
+        speed=load_combat_speed(config.character)
+        config=config.model_copy(update={'ammo_type':ammo_type,'target_threshold':.84,'interval':speed.action_interval,
+                                         'combat_speed':speed,'attack_progress_timeout':1.2})
         # Town Off can arrive while path planning runs. Commit the startup
         # under the same lock as bridge commands, without switching Off back On.
         from conquest.character_context import apply_overrides

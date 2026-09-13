@@ -1,0 +1,9 @@
+character: Parasite
+combat_speed:
+  action_interval: 0.15
+  scatter_recast_seconds: 0.8
+  scatter_receipt_seconds: 0.2
+  jump_arrival_seconds: 0.25
+  jump_attack_guard_seconds: 0.28
+  torn_life_attempts: 3
+  moving_observation_retry_seconds: 0.01
