@@ -88,6 +88,10 @@ def open_warehouse(loop):
         loop.travel(target,activity='Heading to Warehouseman for silver banking',vendor_type=0)
     loop.town('warehouse-locate')  # Re-identify the current NPC ID at arrival.
     for attempt in range(3):
+        # A nearby shop can cover the bank's projected target and intercept
+        # mouse motion. Closing Shop is memory-verified and does not submit
+        # any sale; leave an already-open Warehouse/Inventory pair intact.
+        loop.town('close',window='Shop')
         try:
             loop.town('open-bank')
             break
@@ -98,6 +102,11 @@ def open_warehouse(loop):
             # checks fresh memory and sends no click if it is already open.
             loop.record('warehouse_open_retry',attempt=attempt+1,
                         activity='Rechecking Warehouseman interaction')
+            # The failed NPC click can open a neighbouring shop. Remove its
+            # panels before the alternate bank target, not after 80 attempts
+            # to observe a scene pointer hidden behind the shop UI.
+            loop.town('close',window='Shop')
+            loop.town('close',window='Inventory')
             if attempt==0 and life['map_id']==1036:
                 # At the crowded Market frontage, the higher click can select
                 # the nearby surgeon. The lower NPC click was verified against

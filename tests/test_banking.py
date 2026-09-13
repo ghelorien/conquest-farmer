@@ -96,7 +96,31 @@ def test_warehouse_approach_uses_live_reachability(reachable):
     travel=[fields for action,fields in calls if action=='travel']
     assert bool(travel) is not reachable
     if travel:assert travel[0]['vendor_type']==0
-    assert [action for action,fields in calls][-3:]==['warehouse-locate','open-bank','warehouse-money']
+    assert [action for action,fields in calls][-4:]==['warehouse-locate','close','open-bank','warehouse-money']
+
+
+def test_market_bank_removes_intercepting_shop_before_alternate_target(monkeypatch):
+    monkeypatch.setattr(b.time,'sleep',lambda _:None)
+    panels={'Shop'};calls=[];attempts=[0]
+    def town(action,**fields):
+        calls.append((action,fields))
+        if action=='vendor-status':return {'reachable':True}
+        if action=='warehouse-locate':return {'position':[182,180]}
+        if action=='close':panels.discard(fields['window'])
+        if action=='open-bank':
+            assert 'Shop' not in panels
+            attempts[0]+=1
+            if attempts[0]==1:
+                panels.update(('Shop','Inventory'))
+                raise ValueError('Warehouse opening unverified; no repeat input issued')
+        if action=='warehouse-open':
+            assert not panels
+        return {}
+    loop=NS(living=lambda:{'embedded_controls':{'life':{'map_id':1036,'position':[195,176]}}},
+            town=town,record=lambda *a,**kw:None)
+    b.open_warehouse(loop)
+    assert sum(action=='warehouse-open' for action,_ in calls)==1
+    assert not any(action in ('buy','sell','warehouse-deposit') for action,_ in calls)
 
 def test_warehouse_panel_open_timeout_rechecks_without_repeating_transfer(monkeypatch):
     monkeypatch.setattr(b.time,'sleep',lambda _:None)
