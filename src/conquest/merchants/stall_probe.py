@@ -40,6 +40,16 @@ def inspect_flag(driver,travel,journal,check):
     if previous.get('phase')=='submitted':
         raise ValueError('Previous stall interaction needs reconciliation before another click')
     check();before=driver.memory.read()
+    panel_close=None
+    if before.get('booth_open') and before.get('own_booth_uid'):
+        from conquest.merchants.booth_panel_probe import close_owned_panel
+        driver.require_qualified('stall_occupancy')
+        owned_booth_target(driver.observer,owned_booth(driver.observer,before))
+        panel_close=close_owned_panel(driver,travel,journal,check)
+        before=driver.memory.read()
+        from conquest.merchants.qualification import stock
+        if stock(before)!=stock(panel_close['before']):
+            raise ValueError('Booth stock changed between panel close and reopen')
     if before['map_id']!=1036 or before['booth_open'] or before.get('trade') or before.get('request'):
         raise ValueError('Stall inspection requires Market, a closed booth and no trade')
     from conquest.conductress import read_dialog
@@ -100,6 +110,7 @@ def inspect_flag(driver,travel,journal,check):
             'operation':'open_owned_panel' if reopening else 'inspect_vacant_flag',
             'control':dict(CONTROL) if reopening else None,
             'target':target,
+            'panel_close':panel_close,
             'own_booth_uid_before':before.get('own_booth_uid',0),
             'identity':before['identity'],'position':before['position'],
             'silver':inventory.silver,'inventory_uids':[i.uid for i in inventory.items],

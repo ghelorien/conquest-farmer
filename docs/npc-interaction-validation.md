@@ -40,5 +40,21 @@ camera transform. Both the owned-panel qualification probe and recovery use
 this target, revalidate before mouse-down, and wait for the native pointer.
 Recovery requires the new `native_booth_tiles` qualification; a legacy fixed
 offset receipt cannot authorize it. A successful live panel-open receipt with
-matching owned/displayed booth IDs is still required. Empty-flag claim input,
-merchant disconnect recovery and actual owned-panel reopening remain unverified.
+matching owned/displayed booth IDs is still required. Empty-flag claim input
+and merchant disconnect recovery remain unverified.
+
+On September 12, Dutch completed the live owned-panel test through the normal
+authenticated bridge and exclusive input coordinator. The custom native
+`#CLOSE` control closed only the view: owned booth UID `103060`, exact stock and
+silver stayed unchanged. The native tile point then reopened that same booth,
+and its displayed UID matched its owned UID. Both transitions have durable
+receipts. The test used no visual observations, confirmed no listings or trades,
+and resumed the farmer after releasing input. Dutch's `booth_panel` capability
+is now qualified; Spiritual's is still pending.
+
+`booth_panel_probe.py` pins the custom header's close-button call and cleanup
+path, requires its native hover ID before mouse-down, and journals before
+submission. The probe rejects pending closes, foreign booths, changed stock,
+manual Stop and missing hover. Its entry through `inspect-market-stall` has a
+15-second input deadline. Closing a panel does not establish disconnect recovery
+or vacant-stall claim qualification.

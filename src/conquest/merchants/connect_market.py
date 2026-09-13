@@ -90,6 +90,7 @@ def run(ui,character,cancel,revision,selected=None,market_trial=False,stall_insp
     started=time.monotonic()
     def allowed():
         return (not cancel.is_set() and not guard.stopped and not ui.closed
+                and (not stall_inspection or time.monotonic()-started<15)
                 and ui.app.control.snapshot()['revision']==revision and ui.safe_to_yield())
     runtime.connect_checks[character]=allowed
     def check():
