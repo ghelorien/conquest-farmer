@@ -43,7 +43,7 @@ def test_selected_client_shows_without_reading_shop_state_or_verifying(released,
     assert ui.embed_client.call_count==int(expected)
 
 
-def test_driver_still_rejects_changed_live_size_with_saved_evidence(tmp_path):
+def test_driver_preserves_saved_evidence_across_ordinary_live_resize(tmp_path):
     import json
     from conquest.merchants.driver import MerchantDriver
     path=tmp_path/'qualification.json'
@@ -53,8 +53,10 @@ def test_driver_still_rejects_changed_live_size_with_saved_evidence(tmp_path):
         adapter=SimpleNamespace(expected_sha256='test'),character='Dutch'),
         target=SimpleNamespace(snapshot=lambda:{'client_size':[1400,900]}),
         memory=SimpleNamespace(gui=SimpleNamespace(viewport_size=lambda:[1400,900])))
-    with pytest.raises(ValueError,match='size changed'):
-        MerchantDriver.require_qualified(driver,'booth_input')
+    evidence=MerchantDriver.require_qualified(driver,'booth_input')
+    assert evidence['client_size']==[1036,793]
+    assert driver.target.snapshot()['client_size']==[1400,900]
+    assert driver.memory.gui.viewport_size()==[1400,900]
 
 
 @pytest.mark.parametrize('mode',['delayed','covered','behind_wrapper','wrong_size','stop'])

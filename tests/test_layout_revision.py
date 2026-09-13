@@ -45,3 +45,35 @@ def test_manual_input_and_offscreen_native_window_are_not_actionable():
         manual_active=lambda:False)
     with pytest.raises(LayoutChanged,match='offscreen'):
         manager.read()
+
+
+def test_cached_qualification_waits_only_after_structural_change():
+    now=[0.0]
+    state={'hwnd':7,'root_hwnd':7,'client_size':[1000,800],
+           'foreground':7,'minimized':False,'cursor':[1,2]}
+    manager=SharedLayoutRevision(SimpleNamespace(hwnd=7),native_reader=native(state),
+        manual_active=lambda:False,clock=lambda:now[0],sleep=lambda seconds:now.__setitem__(0,now[0]+seconds))
+    first=manager.qualified()
+    after_first=now[0]
+    assert after_first>=.25
+    state['cursor']=[500,400]
+    assert manager.qualified().structural_key==first.structural_key
+    assert now[0]==after_first  # Actor/camera/pointer activity does not requalify layout.
+    state['client_size']=[1200,800]
+    changed=manager.qualified()
+    assert changed.client_size==(1200,800)
+    assert now[0]>=after_first+.25
+
+
+def test_structural_mismatch_invalidates_cache_even_if_layout_returns_to_old_value():
+    now=[0.0]
+    state={'hwnd':7,'root_hwnd':7,'client_size':[1000,800],
+           'foreground':7,'minimized':False}
+    manager=SharedLayoutRevision(SimpleNamespace(hwnd=7),native_reader=native(state),
+        manual_active=lambda:False,clock=lambda:now[0],sleep=lambda seconds:now.__setitem__(0,now[0]+seconds))
+    revision=manager.qualified();qualified_at=now[0]
+    state['client_size']=[1200,800]
+    with pytest.raises(LayoutChanged):manager.assert_current(revision)
+    state['client_size']=[1000,800]
+    manager.qualified()
+    assert now[0]>=qualified_at+.25

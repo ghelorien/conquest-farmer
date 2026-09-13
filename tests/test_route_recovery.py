@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pytest
 
 from conquest.control import FarmingControl
 from conquest.navigation import TerrainMap
@@ -169,13 +170,18 @@ def test_recovery_input_dispatches_bounded_corner_runs_with_life_and_focus_guard
     monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
     monkeypatch.setattr(scene_input,'memory_player_anchor',lambda *args:(524,457))
     calls=[]
-    monkeypatch.setattr(foreground,'foreground_click',lambda *a,**kw:calls.append((a,kw)))
+    def click(*args,**kwargs):
+        kwargs['layout_guard']();kwargs['before_press']();calls.append((args,kwargs))
+    monkeypatch.setattr(foreground,'foreground_click',click)
     monkeypatch.chdir(tmp_path);(tmp_path/'reports').mkdir()
     target=SimpleNamespace(snapshot=lambda:dict(client_size=[1036,793],foreground=1,root_hwnd=1,minimized=False))
+    revision=SimpleNamespace(client_size=(1036,793),gui_size=(1036,793),
+                             client_origin=(0,0),panels=())
+    layout=SimpleNamespace(target=target,qualified=lambda:revision,assert_current=lambda expected:expected)
     observer=SimpleNamespace(adapter=None,health_layout=None,character='Parasite',
         bridge=SimpleNamespace(operations=SimpleNamespace(target=target)),focus_client=lambda:None)
     terrain=TerrainMap(1002,40,40,np.zeros((40,40),dtype=bool),'',(),())
-    send=EmbeddedRecoveryInput(observer,None,terrain=terrain)
+    send=EmbeddedRecoveryInput(observer,None,terrain=terrain,layout=layout)
     observed=vars(life)
     send.send('run',(12,12),observed)
     assert len(calls)==1 and not calls[0][1]['control']
@@ -193,6 +199,50 @@ def test_recovery_input_dispatches_bounded_corner_runs_with_life_and_focus_guard
     with pytest.raises(CaptureUnavailable,match='Life state changed'):
         send.send('run',(12,12),vars(life))
     assert len(calls)==2
+
+
+@pytest.mark.parametrize('race',['position','projection','layout','panel','anchor_transient'])
+def test_recovery_input_rechecks_layout_life_and_projection_at_final_press(monkeypatch,tmp_path,race):
+    from conquest.route_recovery import EmbeddedRecoveryInput
+    from conquest import memory_life,desktop_runtime,foreground,scene_input
+    from conquest.capture import CaptureUnavailable
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    initial=SimpleNamespace(position=(10,10),map_id=1002,ghost_candidate=False,
+        current_hp=100,max_hp=100,status=512)
+    fresh=SimpleNamespace(**vars(initial))
+    if race=='position':fresh.position=(11,10)
+    reads=[initial,fresh]
+    monkeypatch.setattr(memory_life,'read_life',lambda *args:reads.pop(0))
+    monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
+    anchors=[(524,457),(525,457) if race=='projection' else (524,457)]
+    if race=='anchor_transient':anchors[1]=ValueError('Player projection changed during observation')
+    def anchor(*args):
+        result=anchors.pop(0)
+        if isinstance(result,Exception):raise result
+        return result
+    monkeypatch.setattr(scene_input,'memory_player_anchor',anchor)
+    monkeypatch.chdir(tmp_path);(tmp_path/'reports').mkdir()
+    target=SimpleNamespace(snapshot=lambda:dict(client_size=[1036,793],foreground=1,
+        root_hwnd=1,minimized=False))
+    revision=SimpleNamespace(client_size=(1036,793),gui_size=(1036,793),
+                             client_origin=(0,0),panels=())
+    covered=SimpleNamespace(**{**vars(revision),
+        'panels':(('Inventory',1,(500,500,100,100),(0,0)),)})
+    def current(expected):
+        if race=='layout':raise CaptureUnavailable('layout moved')
+        return covered if race=='panel' else expected
+    layout=SimpleNamespace(target=target,qualified=lambda:revision,assert_current=current)
+    observer=SimpleNamespace(adapter=None,health_layout=None,character='Parasite',
+        bridge=SimpleNamespace(operations=SimpleNamespace(target=target)),focus_client=lambda:None)
+    pressed=[]
+    def click(*args,**kwargs):
+        kwargs['layout_guard']();kwargs['before_press']();pressed.append(True)
+    monkeypatch.setattr(foreground,'foreground_click',click)
+    terrain=TerrainMap(1002,40,40,np.zeros((40,40),dtype=bool),'',(),())
+    sender=EmbeddedRecoveryInput(observer,None,terrain=terrain,layout=layout)
+    with pytest.raises(CaptureUnavailable):sender.send('run',(12,12),vars(initial))
+    assert not pressed
 
 
 def test_town_revive_preinput_focus_race_retries_without_spending_attempt(monkeypatch):

@@ -152,8 +152,30 @@ class RouteRecovery:
 
 
 class EmbeddedRecoveryInput:
-    def __init__(self,observer,control,*,terrain=None):
+    def __init__(self,observer,control,*,terrain=None,layout=None):
         self.observer,self.control,self.terrain=observer,control,terrain
+        self._layout=layout
+
+    def layout_revision(self,target):
+        if self._layout is None or self._layout.target is not target:
+            from conquest.layout_revision import SharedLayoutRevision
+            from conquest.merchants.memory import GuiReader
+            gui=GuiReader(self.observer.adapter)
+            self._layout=SharedLayoutRevision(target,windows=gui.windows,
+                                               gui_size=gui.viewport_size)
+        return self._layout
+
+    def read_life(self):
+        from conquest.memory_life import read_life
+        try:
+            return read_life(self.observer.adapter,self.observer.health_layout,
+                             self.observer.character)
+        except ValueError as error:
+            if str(error) in ('Life state changed during observation',
+                              'Player pointer changed during life observation','Life observation expired',
+                              'Health fields or pointer topology changed during sampling'):
+                raise CaptureUnavailable(str(error)) from error
+            raise
 
     def __call__(self,kind,destination,observed,revision):
         # Match the bridge's lock order: memory/lifetime before control intent.
@@ -161,18 +183,10 @@ class EmbeddedRecoveryInput:
             return self.control.dispatch_recovery(revision,lambda:self.send(kind,destination,observed))
 
     def send(self,kind,destination,observed):
-        from conquest.memory_life import read_life
         from conquest.desktop_runtime import physical_coordinates
         from conquest.foreground import foreground_click
         observer=self.observer
-        try:
-            life=read_life(observer.adapter,observer.health_layout,observer.character)
-        except ValueError as error:
-            if str(error) in ('Life state changed during observation',
-                              'Player pointer changed during life observation','Life observation expired',
-                              'Health fields or pointer topology changed during sampling'):
-                raise CaptureUnavailable(str(error)) from error
-            raise
+        life=self.read_life()
         if (life.map_id!=observed['map_id'] or tuple(life.position)!=tuple(observed['position'])
                 or life.ghost_candidate!=observed['ghost_candidate']):
             raise CaptureUnavailable('Character changed before recovery input')
@@ -187,6 +201,15 @@ class EmbeddedRecoveryInput:
         from conquest.mouse_priority import require_idle
         require_idle()
         observer.focus_client()  # Ctrl must reach the client, not the Tk sidebar.
+        def player_anchor(current_life):
+            from conquest.scene_input import memory_player_anchor
+            try:
+                return memory_player_anchor(observer,current_life)
+            except ValueError as error:
+                if str(error) in ('Player draw position is unavailable or changed',
+                                  'Player projection changed during observation'):
+                    raise CaptureUnavailable(str(error)) from error
+                raise
         if kind=='revive':
             if not life.revive_ready_candidate:
                 raise ValueError('Revive is not ready')
@@ -207,21 +230,57 @@ class EmbeddedRecoveryInput:
                     raise ValueError('Return jump crosses blocked terrain')
             if kind=='jump' and max(abs(dx),abs(dy))<8:
                 raise ValueError('Short return segments must use running')
-            from conquest.scene_input import memory_player_anchor
-            anchor=memory_player_anchor(observer,life)
+            anchor=player_anchor(life)
             point=(anchor[0]+(dx-dy)*32,anchor[1]+(dx+dy)*16)
             if not clear_scene(point,viewport):
                 raise ValueError('Projected route tile is outside the clear scene')
         else:
             raise ValueError('Unknown recovery action')
+        def current_point():
+            fresh=self.read_life()
+            fresh_viewport=size_for(observer)
+            if (fresh.map_id!=life.map_id or tuple(fresh.position)!=tuple(life.position)
+                    or fresh.ghost_candidate!=life.ghost_candidate
+                    or fresh_viewport!=viewport):
+                raise CaptureUnavailable('Character or viewport changed before recovery input')
+            if kind=='revive':
+                if not fresh.revive_ready_candidate:
+                    raise CaptureUnavailable('Revive state changed before recovery input')
+                return revive_point(observer.adapter,fresh_viewport)
+            if fresh.ghost_candidate or fresh.status&0x420 or fresh.current_hp<=0:
+                raise CaptureUnavailable('Life state changed before route movement')
+            fresh_anchor=player_anchor(fresh)
+            dx,dy=destination[0]-fresh.position[0],destination[1]-fresh.position[1]
+            fresh_point=(fresh_anchor[0]+(dx-dy)*32,fresh_anchor[1]+(dx+dy)*16)
+            if not clear_scene(fresh_point,fresh_viewport):
+                raise CaptureUnavailable('Projected route tile left the clear scene')
+            return fresh_point
+
         with physical_coordinates():
-            size=target.snapshot()['client_size']
+            layout=self.layout_revision(target)
+            revision=layout.qualified()
+            if revision.gui_size!=viewport:
+                raise CaptureUnavailable('Recovery viewport changed while qualifying layout')
+            size=list(revision.client_size)
+            def route_actionability(route_point,layout_state):
+                from conquest.target_actionability import require_target_actionable
+                windows=[{'name':panel[0],'geometry':panel[2]}
+                         for panel in layout_state.panels]
+                require_target_actionable(route_point,viewport,size,windows)
+            if kind!='revive':route_actionability(point,revision)
             physical=[round(point[0]*size[0]/viewport[0]),round(point[1]*size[1]/viewport[1])]
             diagnostics={'action':kind,'source':list(life.position),'destination':destination,
                          'issued_at':time.time(),'point':point}
+            def before_press():
+                fresh_point=current_point()
+                if fresh_point!=point:
+                    raise CaptureUnavailable('Recovery projection changed before button press')
+                if kind!='revive':route_actionability(fresh_point,layout.assert_current(revision))
             try:
                 diagnostics['input']=foreground_click(target,*physical,size,control=kind=='jump',
-                    require_foreground=True,diagnostics=diagnostics)
+                    require_foreground=True,expected_origin=revision.client_origin,
+                    diagnostics=diagnostics,before_press=before_press,
+                    layout_guard=lambda:layout.assert_current(revision))
             except Exception as error:
                 diagnostics['error']=str(error)
                 raise

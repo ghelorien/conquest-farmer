@@ -292,3 +292,16 @@ def test_taller_farmer_view_preserves_width_and_does_not_compound(monkeypatch):
     api.resize_owned(state,PANE,1416,907)
     assert api.gui.rect == (502,14,1918,1030)
     assert len(api.gui.calls) == count
+
+
+def test_unified_farmer_view_clamps_taller_preference_to_observed_pane_bounds(monkeypatch):
+    import win32api
+    api,state=owned_api()
+    api.gui.screen_origin=(502,123)
+    api.height_scale=1.12
+    api.constrain_owned_to_parent=True
+    monkeypatch.setattr(win32api,'MonitorFromWindow',lambda h:1)
+    monkeypatch.setattr(win32api,'GetMonitorInfo',lambda h:{'Work':(0,0,1920,1032)})
+    api.resize_owned(state,PANE,1416,907)
+    assert api.height_scale==1.12  # The standalone preference remains saved in memory.
+    assert api.gui.rect==(502,123,1918,1030)

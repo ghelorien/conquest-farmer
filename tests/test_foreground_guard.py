@@ -106,3 +106,56 @@ def test_scroll_layout_change_after_pointer_move_sends_no_wheel(monkeypatch):
         foreground.foreground_scroll.__wrapped__(target,(50,50),-2,(100,100),
                                                 layout_guard=layout_guard)
     assert events==[0xC001]
+
+
+@pytest.mark.parametrize('race',['origin','foreground','emergency_stop'])
+def test_click_rechecks_client_geometry_and_focus_after_final_callbacks(monkeypatch,race):
+    import ctypes as c
+    from types import SimpleNamespace
+    from conquest import foreground,window_host
+    from conquest.capture import CaptureUnavailable
+    offset=[0];cursor=[0,0];events=[];control_held=[False];foreground_hwnd=[7];stopped=[False]
+    def to_screen(hwnd,pointer):
+        point=c.cast(pointer,c.POINTER(foreground.w.POINT))[0]
+        point.x+=offset[0]
+        return True
+    def send(count,pointer,size):
+        event=c.cast(pointer,c.POINTER(foreground.Input))[0]
+        if event.type==0:
+            flags=event.data.mi.dwFlags;events.append(('mouse',flags))
+            if flags&1:
+                cursor[:]=[round(event.data.mi.dx*100/65535),round(event.data.mi.dy*100/65535)]
+        else:
+            events.append(('key',event.data.ki.dwFlags))
+            control_held[0]=not bool(event.data.ki.dwFlags&2)
+        return 1
+    def key_state(key):
+        if key==0x7B and stopped[0]:return 0x8000
+        return 0x8000 if control_held[0] and key in (0x11,0xa2) else 0
+    functions={'SetForegroundWindow':lambda hwnd:True,'ClientToScreen':to_screen,
+        'GetSystemMetrics':lambda index:{76:0,77:0,78:101,79:101}[index],
+        'SendInput':send,'GetAsyncKeyState':key_state}
+    monkeypatch.setattr(foreground,'bind',lambda user,name,*args:functions[name])
+    monkeypatch.setattr(foreground,'guarded_send',lambda value:value)
+    monkeypatch.setattr(foreground,'require_idle',lambda:None)
+    monkeypatch.setattr(foreground.time,'sleep',lambda seconds:None)
+    monkeypatch.setattr(window_host,'HostApi',lambda:SimpleNamespace(thread_info=lambda hwnd:(1,
+        SimpleNamespace(hwndFocus=7,hwndActive=7))))
+    backend=SimpleNamespace(user=object(),foreground=lambda:foreground_hwnd[0],error=lambda name:OSError(name))
+    target=SimpleNamespace(hwnd=7,backend=backend,snapshot=lambda:{'foreground':foreground_hwnd[0],
+        'root_hwnd':7,'client_size':[100,100],'minimized':False,'cursor':list(cursor)})
+    def before_press():
+        if race=='origin':offset[0]=25
+    layout_checks=[]
+    def layout_guard():
+        layout_checks.append(1)
+        if race=='foreground' and len(layout_checks)==2:foreground_hwnd[0]=8
+        if race=='emergency_stop' and len(layout_checks)==2:stopped[0]=True
+    message={'origin':'Game moved before click','foreground':'lost focus before click',
+             'emergency_stop':'Emergency stop before click'}[race]
+    with pytest.raises((CaptureUnavailable,ValueError),match=message):
+        foreground.foreground_click.__wrapped__(target,50,60,(100,100),control=True,
+            require_foreground=True,expected_origin=(0,0),before_press=before_press,
+            layout_guard=layout_guard)
+    assert ('mouse',0x2) not in events
+    assert events[-1]==('key',10) and not control_held[0]

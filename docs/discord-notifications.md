@@ -13,8 +13,9 @@ activity, level, fresh HP, verified kills in the preceding 900 seconds and suppl
 stale readings are omitted or labeled. Offline summaries coalesce to the latest.
 The kill total reads verified increments from the read-only trial database across
 session rollovers. Missing or unreadable history is unavailable, never zero.
-Summaries also show verified kills in the last 60 seconds against the user's
-30-kills-per-minute target; this is a measured count, not attack attempts.
+Summaries also show verified kills in the last 60 seconds against the current
+route policy: 40 kills per minute minimum and 50 as the stretch target. This is
+a measured count, not attack attempts.
 Restocking start/completion are consumed from the durable route event log, with
 a persistent byte cursor and partial-line handling. Existing historical trips
 are not replayed. Critical failures take priority over queued routine messages.
@@ -69,7 +70,8 @@ is explicitly labeled with verification time when the pickup time is unknown.
 Equipment durability is never treated as pickup quantity.
 
 Quarter-hour summaries also report actual verified kills in the last 3,600
-seconds against 1,800/hour, plus the last-15-minute pace multiplied by four.
+seconds against the current policy (2,400/hour minimum), plus the last-15-minute
+pace multiplied by four.
 The projected pace is labeled separately; both windows include all downtime.
 Historical windows are retained even when user Stop clears the UI session rate.
 
@@ -77,3 +79,10 @@ Safe app reload preparation has a dedicated reloading phase and persistent UI ov
 
 
 Merchant UI: Pause / Resume merchant pauses both activities without disconnecting, then restores their previous permissions. Settings & details retains independent trading/repricing and refill controls. Overview shows notification monitor health for both channels. Saving the encrypted shops webhook starts its alert monitor immediately; shops messages use only that hook.
+
+When an existing farmer notifier first adopts the merchant event stream, it
+saves the current journal cursor instead of replaying historical events. A
+saved cursor survives updates and restarts. Repeated identical merchant
+failures advance the cursor without sending another alert; verified recovery
+clears that incident so a later recurrence can notify again. Journals and
+pickup receipts are preserved.

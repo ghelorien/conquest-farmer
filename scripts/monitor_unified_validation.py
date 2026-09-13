@@ -10,6 +10,8 @@ from conquest.discord_notify import read_json,write_json
 ROOT=Path.cwd()
 CONFIG=ROOT/'reports/performance/unified-validation.json'
 OUT=ROOT/'reports/performance/unified-validation-status.json'
+RELEASE_DIRECTORIES=frozenset({'src','scripts','docs','tests'})
+RELEASE_FILES=frozenset({'AGENTS.md','README.md','pyproject.toml'})
 
 
 def source_integrity(config):
@@ -24,14 +26,24 @@ def source_integrity(config):
         if value.get('version')!=1 or not value.get('files'):return False
         for relative,digest in value['files'].items():
             path=Path(relative)
-            if path.is_absolute() or '..' in path.parts:return False
-            # A manifest must not turn source validation into reading secrets.
-            if path.parts[0] not in ('src','scripts','pyproject.toml'):return False
-            target=(root/path).resolve(strict=True)
+            if path.is_absolute() or not path.parts or '..' in path.parts:return False
+            allowed=((len(path.parts)>1 and path.parts[0] in RELEASE_DIRECTORIES)
+                     or (len(path.parts)==1 and path.name in RELEASE_FILES))
+            if not allowed:return False
+            # Reject junctions/symlinks as well as lexical traversal. A
+            # release entry may never alias an allowlisted name to private
+            # runtime data, even when both paths remain beneath root.
+            candidate=root
+            for part in path.parts:
+                candidate=candidate/part
+                if (candidate.is_symlink()
+                        or getattr(candidate,'is_junction',lambda:False)()):return False
+            target=candidate.resolve(strict=True)
             if not target.is_relative_to(root):return False
+            if not target.is_file():return False
             if hashlib.sha256(target.read_bytes()).hexdigest()!=digest:return False
         return True
-    except (OSError,ValueError,KeyError,TypeError):return False
+    except (OSError,ValueError,KeyError,TypeError,AttributeError):return False
 
 
 def qualification(config,now,kills,app,route,previous):

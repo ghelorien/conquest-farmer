@@ -46,24 +46,28 @@ def test_trade_button_tracks_the_verified_items_column(monkeypatch):
     with pytest.raises(ValueError,match='not current'):controls.trade_button(gui)
 
 
-@pytest.mark.parametrize('failure',[None,'label','window','size','viewport','offscreen','slot'])
-def test_native_hud_uses_current_memory_point_and_preserves_geometry_guards(tmp_path,monkeypatch,failure):
+@pytest.mark.parametrize('variation',[None,'label','window','saved_size','resized_viewport','offscreen','slot','geometry'])
+def test_native_hud_uses_current_memory_point_and_preserves_geometry_guards(tmp_path,monkeypatch,variation):
     from conquest.merchants.driver import MerchantDriver
     import conquest.memory_shop as shop
-    native_point=(900,730) if failure=='offscreen' else (820,730)
+    native_point=(900,730) if variation=='offscreen' else (820,730)
     monkeypatch.setattr(shop,'MemoryGui',lambda adapter:object())
     monkeypatch.setattr(controls,'trade_button',lambda gui:native_point)
     spec={'mode':'native_items_trade','window':'##Control','label':'Trade','size':[930,102]}
-    if failure=='label':spec['label']='Other'
-    if failure=='window':spec['window']='Booth'
-    if failure=='size':spec['size']=[930,100]
+    if variation=='label':spec['label']='Other'
+    if variation=='window':spec['window']='Booth'
+    if variation=='saved_size':spec['size']=[930,100]
     profile={'controls':{'start_trade':spec},'gui_size':[1000,800],'client_size':[1250,1000]}
     path=tmp_path/'qualified.json';path.write_text(json.dumps(profile))
     driver=MerchantDriver.__new__(MerchantDriver)
     driver.qualification=path;driver.observer=NS(adapter=object())
-    driver.memory=NS(gui=NS(viewport_size=lambda:[1000,900] if failure=='viewport' else [1000,800]))
+    driver.target=NS(snapshot=lambda:{'client_size':[1500,1200]})
+    driver.memory=NS(gui=NS(viewport_size=lambda:[1000,900] if variation=='resized_viewport' else [1000,800]))
     state={'windows':[{'name':spec['window'],'geometry':[-50,691,930,102],'scroll':[0,0]}]}
-    if failure:
-        with pytest.raises(ValueError):driver.point(state,'start_trade',0 if failure=='slot' else None)
+    if variation=='geometry':state['windows'][0]['geometry']=[-50,691,0,102]
+    rejected={'label','window','offscreen','slot','geometry'}
+    if variation in rejected:
+        with pytest.raises(ValueError):driver.point(state,'start_trade',0 if variation=='slot' else None)
     else:
-        assert driver.point(state,'start_trade')==(1025,912)
+        expected=(1230,973) if variation=='resized_viewport' else (1230,1095)
+        assert driver.point(state,'start_trade')==expected

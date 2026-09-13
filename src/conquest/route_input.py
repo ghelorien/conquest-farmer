@@ -10,6 +10,7 @@ from conquest.route_recovery import EmbeddedRecoveryInput
 class RouteJumpInput:
     def __init__(self,observer,terrain):
         self.observer,self.terrain=observer,terrain
+        self.recovery_input=EmbeddedRecoveryInput(observer,None,terrain=terrain)
 
     def __call__(self,body):
         portal='portal_id' in body
@@ -27,6 +28,7 @@ class RouteJumpInput:
         if body['map_id']!=self.terrain.map_id:
             from conquest.navigation import read_terrain
             self.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),body['map_id'])
+            self.recovery_input.terrain=self.terrain
         dx,dy=destination[0]-source[0],destination[1]-source[1]
         distance=max(abs(dx),abs(dy))
         if not 1<=distance<=12:
@@ -54,7 +56,7 @@ class RouteJumpInput:
         if list(life.position)!=source or life.map_id!=body['map_id']:
             raise ValueError('Player left the planned route segment')
         movement='jump' if distance>=8 else 'run'
-        EmbeddedRecoveryInput(observer,None,terrain=self.terrain).send(movement,tuple(destination),asdict(life))
+        self.recovery_input.send(movement,tuple(destination),asdict(life))
         return {'source':source,'destination':destination,'movement':movement,'issued':True}
 
 

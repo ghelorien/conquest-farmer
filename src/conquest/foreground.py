@@ -154,9 +154,13 @@ def foreground_click(target, x, y, expected_size, button="left", control=False,
           round((point.y - top) * 65535 / (height - 1)))
     time.sleep(0.03 if require_foreground else 0.15)
     require_click_position(target.snapshot(), foreground_hwnd, expected_size, (point.x, point.y))
-    refreshed = w.POINT(x, y)
-    if not to_screen(target.hwnd, c.byref(refreshed)) or (refreshed.x, refreshed.y) != (point.x, point.y):
-        raise CaptureUnavailable("Game moved before click; no button pressed")
+    def require_current_client_point():
+        refreshed = w.POINT(x, y)
+        if (not to_screen(target.hwnd, c.byref(refreshed))
+                or (refreshed.x, refreshed.y) != (point.x, point.y)):
+            raise CaptureUnavailable("Game moved before click; no button pressed")
+
+    require_current_client_point()
     down, up = (0x0002, 0x0004) if button == "left" else (0x0008, 0x0010)
     control_attempted = False
     def control_key(released):
@@ -192,6 +196,17 @@ def foreground_click(target, x, y, expected_size, button="left", control=False,
             if before_press:
                 before_press()
                 require_click_position(target.snapshot(),foreground_hwnd,expected_size,(point.x,point.y))
+            # The client can move while Control settles or while a memory
+            # callback validates the intended action. Reproject immediately
+            # before mouse-down; cursor and client-size checks alone cannot
+            # detect a host-window origin change.
+            if layout_guard:
+                layout_guard()
+            require_click_position(target.snapshot(),foreground_hwnd,expected_size,(point.x,point.y))
+            key_state = bind(user, "GetAsyncKeyState", [c.c_int], c.c_short)
+            if key_state(0x7B) & 0x8000:
+                raise ValueError("Emergency stop before click")
+            require_current_client_point()
             mouse(down)
             time.sleep(0.04 if require_foreground else 0.1)
         finally:

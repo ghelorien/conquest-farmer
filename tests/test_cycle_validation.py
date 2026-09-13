@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 from pathlib import Path
+import pytest
 import runpy
 import sqlite3
 
@@ -88,18 +89,37 @@ def test_required_identity_coverage_is_explicit():
     assert result['missing_merchant_record_ids']==['Spiritual']
 
 
-def test_monitor_source_integrity_checks_only_exact_manifest_source(tmp_path):
+def test_monitor_source_integrity_accepts_complete_release_shape_and_rejects_changes(tmp_path):
     monitor=runpy.run_path(str(Path(__file__).resolve().parents[1]/'scripts/monitor_unified_validation.py'))
-    (tmp_path/'src').mkdir();source=tmp_path/'src/code.py';source.write_text('original')
+    relative_files=['src/conquest/code.py','scripts/start.py','docs/operations.md',
+                    'tests/test_code.py','AGENTS.md','README.md','pyproject.toml']
+    files={}
+    for relative in relative_files:
+        target=tmp_path/relative;target.parent.mkdir(parents=True,exist_ok=True)
+        target.write_text('original '+relative);files[relative]=hashlib.sha256(target.read_bytes()).hexdigest()
     manifest=tmp_path/'RELEASE-MANIFEST.json'
-    manifest.write_text(json.dumps({'version':1,'files':{'src/code.py':hashlib.sha256(source.read_bytes()).hexdigest()}}))
+    manifest.write_text(json.dumps({'version':1,'created_at':1,'source_commit':'abc','files':files,
+        'data_mode':'explicit_legacy','live_qualification_profiles':['Parasite','Spiritual','Dutch']}))
     config={'release_root':str(tmp_path),'release_manifest_path':str(manifest),
             'release_manifest_sha256':hashlib.sha256(manifest.read_bytes()).hexdigest()}
     assert monitor['source_integrity'](config)
+    source=tmp_path/'src/conquest/code.py'
     source.write_text('changed');assert not monitor['source_integrity'](config)
     assert not monitor['source_integrity']({})
     manifest.write_text(json.dumps({'version':1,'files':{'reports/secret.json':'anything'}}))
     config['release_manifest_sha256']=hashlib.sha256(manifest.read_bytes()).hexdigest()
+    assert not monitor['source_integrity'](config)
+
+
+@pytest.mark.parametrize('private',[
+    'reports/secret.json','.runtime/token.json','profiles/private.json','docs/../reports/secret.json'])
+def test_monitor_source_integrity_rejects_private_or_traversing_manifest_path(tmp_path,private):
+    monitor=runpy.run_path(str(Path(__file__).resolve().parents[1]/'scripts/monitor_unified_validation.py'))
+    target=tmp_path/private;target.parent.mkdir(parents=True,exist_ok=True);target.write_text('secret')
+    manifest=tmp_path/'RELEASE-MANIFEST.json'
+    manifest.write_text(json.dumps({'version':1,'files':{private:hashlib.sha256(target.read_bytes()).hexdigest()}}))
+    config={'release_root':str(tmp_path),'release_manifest_path':str(manifest),
+            'release_manifest_sha256':hashlib.sha256(manifest.read_bytes()).hexdigest()}
     assert not monitor['source_integrity'](config)
 
 

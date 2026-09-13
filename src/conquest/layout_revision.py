@@ -87,6 +87,7 @@ class SharedLayoutRevision:
         self.target=target;self.windows=windows;self.gui_size=gui_size
         self.manual_active=manual_active;self.native_reader=native_reader
         self.clock=clock;self.sleep=sleep
+        self._qualified=None
 
     def read(self):
         state,origin,dpi,monitor,desktop=self.native_reader(self.target)
@@ -123,8 +124,38 @@ class SharedLayoutRevision:
                 current=fresh;since=self.clock()
         return current
 
+    def qualified(self,minimum=.25,timeout=.75):
+        """Return immediately for an already-qualified structural revision.
+
+        Camera and actor movement are deliberately absent from structural_key,
+        so ordinary route movement does not pay another stability interval.
+        A native-window, DPI, viewport, or tracked-panel change must stabilize
+        again before it can become the new qualified revision.
+        """
+        try:
+            current=self.read()
+        except Exception:
+            self._qualified=None
+            raise
+        if (self._qualified is not None
+                and current.structural_key==self._qualified.structural_key):
+            self._qualified=current
+            return current
+        try:
+            current=self.stable(minimum,timeout)
+        except Exception:
+            self._qualified=None
+            raise
+        self._qualified=current
+        return current
+
     def assert_current(self,expected):
-        fresh=self.read()
+        try:
+            fresh=self.read()
+        except Exception:
+            self._qualified=None
+            raise
         if fresh.structural_key!=expected.structural_key:
+            self._qualified=None
             raise LayoutChanged('Game or panel layout changed; queued input was cancelled')
         return fresh

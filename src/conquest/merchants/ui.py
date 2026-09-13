@@ -68,6 +68,11 @@ def wait_for_merchant_surface(host, others, check, *, clock=time.monotonic, slee
 class UnifiedUI:
     def __init__(self, app):
         self.app,self.root = app,app.root
+        host=getattr(app,'host',None)
+        if host is not None and getattr(host,'mode',None)=='owned':
+            # Preserve the saved standalone preference, but an owned game in
+            # this shared UI must remain within its Farmer pane.
+            host.api.constrain_owned_to_parent=True
         self.closed,self.grant = False,None
         from conquest.merchants.grant_fence import GrantFence
         self.grant_fence=GrantFence()

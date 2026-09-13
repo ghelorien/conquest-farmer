@@ -132,7 +132,10 @@ class HostApi:
             return
         x,y = self.gui.ClientToScreen(parent,(0,0))
         factor = getattr(self, 'height_scale', 1.0)
-        if 1 < factor <= 1.15:
+        # An owned top-level window is above the whole wrapper and cannot be
+        # clipped by the Tk pane. Unified mode therefore keeps it inside the
+        # pane; otherwise upward expansion covers the shared header and tabs.
+        if 1 < factor <= 1.15 and not getattr(self,'constrain_owned_to_parent',False):
             import win32api
             work = win32api.GetMonitorInfo(win32api.MonitorFromWindow(state.hwnd))['Work']
             taller = min(round(height * factor), work[3] - work[1])
