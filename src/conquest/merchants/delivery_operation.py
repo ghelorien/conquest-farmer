@@ -31,6 +31,32 @@ def guard_reload():
             raise ValueError('Reconcile the pending farmer delivery before reloading')
 
 
+def clear_settled_attention(ui,key,receipt):
+    """Clear only this incident after both durable journals prove no transfer."""
+    runtime=getattr(ui,'runtime',None)
+    if (runtime is None or receipt.get('phase')!='aborted' or receipt.get('outcome')!='no_transfer'
+            or receipt.get('cleanup_pending') or receipt.get('next_action')!='retry_delivery'
+            or not receipt.get('proof_digest')):
+        return False
+    character=character_name(receipt['character'])
+    with runtime.journal.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute("SELECT value FROM state WHERE character=? AND name='delivery_reservation'",(character,)).fetchone()
+        reservation=json.loads(row[0]) if row else {}
+        if (not reservation or reservation.get('request_id')!=key
+                or reservation.get('phase')!='no_transfer_reconciled'
+                or (reservation.get('disposition') or {}).get('proof_digest')!=receipt['proof_digest']):
+            return False
+        row=db.execute("SELECT value FROM state WHERE character=? AND name='attention'",(character,)).fetchone()
+        attention=json.loads(row[0]) if row else None
+        if attention:
+            if attention.get('kind')!='farmer_delivery' or attention.get('request_id')!=key:
+                return False
+            db.execute("UPDATE state SET value='null' WHERE character=? AND name='attention' AND value=?",(character,row[0]))
+    getattr(ui,'delivery_errors',{}).pop(key,None)
+    return True
+
+
 def status(journal,key):
     with journal.db() as db:
         row=db.execute('SELECT * FROM transactions WHERE id=?',(key,)).fetchone()
@@ -196,6 +222,7 @@ def dispatch(ui,body):
             raise ValueError('Delivery has no verified empty trade cleanup pending')
         if action=='delivery-reconcile' and (old['phase']=='aborted'
                 or (old['phase']=='verified' and old['next_action']=='release_route')):
+            clear_settled_attention(ui,key,old)
             return {'request_id':key,'running':False,'receipt':old}
         character=old['character'];uids=old['uids']
     else:
@@ -273,6 +300,7 @@ def dispatch(ui,body):
                 elif old:transaction.recover(key)
                 else:transaction.execute(key,character,intent)
                 receipt=status(journal,key)
+                clear_settled_attention(ui,key,receipt)
                 if hasattr(driver,'report'):
                     ready=receipt['next_action']=='release_route'
                     activity=('Transfer to '+character+' verified; ready to continue the route'

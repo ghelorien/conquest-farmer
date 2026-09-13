@@ -6,6 +6,26 @@ from conquest.merchants import delivery_operation as operation
 from conquest.merchants.journal import Journal
 
 
+@pytest.mark.parametrize('fault',[None,'other_incident','other_reservation','unresolved','proof','cleanup'])
+def test_no_transfer_clears_only_matching_bilateral_incident(tmp_path,fault):
+    journal=Journal(tmp_path/'merchant.sqlite3')
+    attention={'kind':'farmer_delivery','request_id':'one','note':'Old unresolved error'}
+    reservation={'request_id':'one','phase':'no_transfer_reconciled','disposition':{'proof_digest':'proof'}}
+    receipt={'character':'Spiritual','phase':'aborted','outcome':'no_transfer','next_action':'retry_delivery',
+             'cleanup_pending':[],'proof_digest':'proof'}
+    if fault=='other_incident':attention['request_id']='newer'
+    if fault=='other_reservation':reservation['request_id']='newer'
+    if fault=='unresolved':receipt['phase']='uncertain'
+    if fault=='proof':reservation['disposition']['proof_digest']='different'
+    if fault=='cleanup':receipt['cleanup_pending']=['Spiritual']
+    journal.set('Spiritual','attention',attention)
+    journal.set('Spiritual','delivery_reservation',reservation)
+    ui=NS(runtime=NS(journal=journal),delivery_errors={'one':'Old error'})
+    assert operation.clear_settled_attention(ui,'one',receipt) is (fault is None)
+    assert journal.get('Spiritual','attention') == (attention if fault else None)
+    assert ('one' in ui.delivery_errors) is bool(fault)
+
+
 def test_readiness_checks_qualification_without_input_or_journal(monkeypatch):
     calls=[]
     monkeypatch.setattr(operation,'FarmerTradeDriver',lambda ui:NS(require_qualified=lambda:calls.append('qualification')))
