@@ -198,9 +198,16 @@ class TownTrade:
                     self.require_warehouse_hover(target)
                 wait_hover_validation(ready,input_guard)
             self.input_attempted = True
-            foreground_drag(self.observer.operations.target,source,destination,
-                tuple(layout_revision.client_size),before_press=before_press,
-                layout_guard=input_guard,before_release=before_release)
+            from conquest.merchants.memory import GuiObservationChanged
+            try:
+                foreground_drag(self.observer.operations.target,source,destination,
+                    tuple(layout_revision.client_size),before_press=before_press,
+                    layout_guard=input_guard,before_release=before_release)
+            except GuiObservationChanged:
+                # The drag helper releases held input on failure. It may have
+                # completed the deposit: reconcile both inventories below without
+                # another drag. Missing proof remains an uncertain transaction.
+                pass
             self.verified_read(lambda:(self.inventory.read(),reader.read()),
                 lambda pair:deposit_received(item,before,stored,*pair),
                 'Warehouse deposit was not verified; no repeat input issued',timeout=5)

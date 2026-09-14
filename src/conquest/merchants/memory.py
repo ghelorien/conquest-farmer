@@ -144,8 +144,8 @@ class GuiReader:
         raise ValueError('Client window model absent')
 
     def windows(self):
-        # Opening/hovering a modal can reorder ImGui's window registry. Discard
-        # the entire raced sample; retry reads only, never the input operation.
+        # Retry changed membership/geometry; draw-order-only changes are allowed
+        # below. No retry here sends input.
         for attempt in range(3):
             try:
                 return GuiReader._windows(self)
@@ -161,8 +161,10 @@ class GuiReader:
         if not 0 < count <= capacity <= 256:
             raise ValueError('Invalid GUI registry')
         entries = s.read_block(checked_address(array),count*8)
+        addresses=struct.unpack('<'+'Q'*count,entries)
+        if len(set(addresses))!=count:raise ValueError('Duplicate GUI registry entries')
         result = []
-        for ptr in struct.unpack('<'+'Q'*count,entries):
+        for ptr in addresses:
             # Rendering continues while a diagnostic RPC is in flight. A
             # single frame read at the start rejects every later live window
             # as being "from the future" on high-FPS clients.
@@ -182,8 +184,16 @@ class GuiReader:
             if s.read_block(ptr+0x18,16) != raw[0x18:0x28] or s.read_block(ptr+0x64,8) != raw[0x64:0x6c]:
                 raise GuiObservationChanged('GUI geometry changed')
             result.append({'name':name,'address':ptr,'geometry':geometry,'scroll':scroll})
-        if s.read_block(context+0x3e58,16) != header or s.read_block(array,count*8) != entries:
+        if (unpack(s,self.base+0x6966f0,'<Q')[0]!=context
+                or s.read_block(context+0x3e58,16) != header):
             raise GuiObservationChanged('GUI registry changed')
+        latest=struct.unpack('<'+'Q'*count,s.read_block(array,count*8))
+        # ImGui changes draw order when panels receive focus. All callers use
+        # window identity/geometry, and input additionally verifies exact hover;
+        # array order is not an input qualification. Add/remove/duplicate entries
+        # still invalidate the entire sample.
+        if len(set(latest))!=count or set(latest)!=set(addresses):
+            raise GuiObservationChanged('GUI registry membership changed')
         return result
 
     def table(self, window, label):

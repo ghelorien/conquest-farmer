@@ -101,7 +101,9 @@ def test_scatter_keeps_casting_on_survivors_before_looting_or_patrolling(tmp_pat
     strategy=AttackStrategy();strategy.set_context('level25')
     def survivor():return Target('Pheasant',600,400,1,25,1000,(427,455),100-20*len(calls))
     from conquest.farmer_profile import CombatSpeed
-    monkeypatch.setattr(trial,'load_combat_speed',lambda _:CombatSpeed(scene_reuse_seconds=0 if reuse_case=='disabled' else .15))
+    # Exercise adaptive fallback explicitly; the default now forces jump/Scatter.
+    monkeypatch.setattr(trial,'load_combat_speed',lambda _:CombatSpeed(force_jump_scatter=False,
+        scene_reuse_seconds=0 if reuse_case=='disabled' else .15))
     scans=[];escape_scans=[]
     def scan(*args):
         scans.append(now[0]);return [survivor()]

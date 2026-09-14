@@ -272,6 +272,30 @@ def test_gui_reader_accepts_live_frames_that_advance_between_rpcs():
     assert GuiReader.windows(gui)==[]
 
 
+@pytest.mark.parametrize('change',['reorder','replace','duplicate','context'])
+def test_gui_registry_distinguishes_draw_order_from_membership(change):
+    from conquest.merchants.memory import GuiObservationChanged
+    memory=Memory();context,array=0x11000,0x15000;windows=(0x16000,0x17000)
+    memory.put(0x10000,'<Q',context);memory.put(context+0x3e58,'<IIQ',2,2,array)
+    memory.put(array,'<2Q',*windows)
+    original=memory.read_block;reads=[0];contexts=[0]
+    def read(address,size):
+        if address==array:
+            reads[0]+=1
+            if reads[0]>1:
+                return struct.pack('<2Q',*(windows[::-1] if change=='reorder' else
+                    (windows[0],0x18000) if change=='replace' else
+                    (windows[0],windows[0]) if change=='duplicate' else windows))
+        if address==0x10000:
+            contexts[0]+=1
+            if change=='context' and contexts[0]>1:return struct.pack('<Q',0x12000)
+        return original(address,size)
+    memory.read_block=read;gui=SimpleNamespace(session=memory,base=0x10000-0x6966f0)
+    if change=='reorder':assert GuiReader._windows(gui)==[]
+    else:
+        with pytest.raises(GuiObservationChanged):GuiReader._windows(gui)
+
+
 def test_one_time_batch_never_accepts_incoming_trades(tmp_path):
     from conquest.merchants.runtime import MerchantRuntime
     journal = Journal(tmp_path/'journal.sqlite3')

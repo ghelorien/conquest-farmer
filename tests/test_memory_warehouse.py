@@ -93,7 +93,7 @@ def test_town_warehouse_items_rich_is_an_explicit_read_only_opt_in(monkeypatch):
     assert calls==[{'rich_item':rich_item}]
 
 
-@pytest.mark.parametrize('case',['full','unsupported','ambiguous_receipt'])
+@pytest.mark.parametrize('case',['full','unsupported','ambiguous_receipt','gui_race_ambiguous_receipt'])
 def test_deposit_guards_and_ambiguous_receipt_never_repeat_drag(monkeypatch,case):
     from conquest import town_trade as module
     item=Item(42,1088001 if case!='unsupported' else 500005,1,1,0,0)
@@ -112,16 +112,22 @@ def test_deposit_guards_and_ambiguous_receipt_never_repeat_drag(monkeypatch,case
     layout=NS(assert_current=lambda revision:None)
     trade.warehouse_layout=lambda:(layout,NS(client_size=(1036,793),gui_size=(1036,793)))
     drags=[]
-    monkeypatch.setattr(module,'foreground_drag',lambda *args,**kwargs:drags.append((args,kwargs)))
+    def drag(*args,**kwargs):
+        drags.append((args,kwargs))
+        if case=='gui_race_ambiguous_receipt':
+            from conquest.merchants.memory import GuiObservationChanged
+            raise GuiObservationChanged('GUI registry changed')
+    monkeypatch.setattr(module,'foreground_drag',drag)
     def verify(read,accept,failure,**kwargs):
         for _ in range(3):assert not accept(read())
         raise ValueError(failure)
     trade.verified_read=verify
     with pytest.raises(ValueError):trade({'action':'warehouse-deposit','uid':42})
-    assert len(drags)==(1 if case=='ambiguous_receipt' else 0)
+    assert len(drags)==(1 if 'ambiguous_receipt' in case else 0)
 
 
-def test_deposit_drag_rechecks_control_layout_and_exact_state(monkeypatch):
+@pytest.mark.parametrize('gui_race',[False,True])
+def test_deposit_drag_rechecks_control_layout_and_exact_state(monkeypatch,gui_race):
     from conquest import town_trade as module
     item=Item(42,1088001,1,1,0,0);bag=NS(items=(item,),silver=100,equipped_ammo=None)
     stash=WarehouseSnapshot((),20)
@@ -142,6 +148,9 @@ def test_deposit_drag_rechecks_control_layout_and_exact_state(monkeypatch):
         endpoints.append((args[1],args[2],args[3]))
         kwargs['layout_guard']();kwargs['before_press']()
         kwargs['layout_guard']();kwargs['before_release']()
+        if gui_race:
+            from conquest.merchants.memory import GuiObservationChanged
+            raise GuiObservationChanged('GUI registry changed')
     monkeypatch.setattr(module,'foreground_drag',drag)
     def verified(read,accept,failure,**kwargs):
         after=NS(items=(),silver=100,equipped_ammo=None)
