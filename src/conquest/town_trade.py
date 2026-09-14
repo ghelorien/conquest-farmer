@@ -68,6 +68,8 @@ class TownObservationUnavailable(ValueError):
 
 
 def transient_observation(error):
+    from conquest.merchants.memory import GuiObservationChanged
+    if isinstance(error,GuiObservationChanged):return True
     text = str(error)
     return any(part in text for part in (
         'changed during observation', 'observation expired',

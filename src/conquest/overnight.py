@@ -207,6 +207,7 @@ class OvernightLoop:
                 # An uncertain purchase/sale must never be blindly repeated.
                 retryable = action in ('supplies','shop','gear','vendor-status','service-locate','service-dialog','warehouse-items') or isinstance(error,TownObservationUnavailable)
                 if attempt == 79 or not retryable:
+                    self.record('town_action_failed',action=action,detail=str(error))
                     raise
                 if attempt in (0,19,39,59):
                     self.record('town_observation_retry',action=action,detail=str(error))
