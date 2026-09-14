@@ -208,12 +208,23 @@ def market_bank(loop,state):
         state.setdefault('receipts',[]).append(receipt);save(state)
         loop.record('valuable_stored',**receipt,plus=item.get('plus'),activity='Valuable safely stored in Market')
     scroll=state.get('scroll_uid')
-    consumed=state.get('user_confirmed_scroll_consumption',{})
+    consumed=state.get('user_confirmed_scroll_consumption') or {}
     manually_used=(consumed.get('uid')==scroll and consumed.get('confirmed') is True
                    and consumed.get('source')=='explicit user confirmation')
+    moved=state.get('user_confirmed_scroll_transfer') or {}
+    manually_moved=(moved.get('uid')==scroll and moved.get('type_id')==SCROLL
+                    and moved.get('confirmed') is True
+                    and moved.get('source')=='explicit user confirmation'
+                    and moved.get('destination')=='another_character'
+                    and not any(i['uid']==scroll for i in stored['items'])
+                    and not any(i['uid']==scroll for i in loop.town('supplies')['items']))
     delivered=receipt_for(scroll,SCROLL) if scroll else None
-    if scroll and not manually_used and not delivered and not any(i['uid']==scroll and i['type_id']==SCROLL for i in stored['items']):
+    if scroll and not manually_used and not manually_moved and not delivered and not any(i['uid']==scroll and i['type_id']==SCROLL for i in stored['items']):
         raise ValueError('Expected MeteorScroll is not in Market storage; no return issued')
+    if manually_moved:
+        # Operator testimony resolves this historical trip only. It is not a
+        # merchant receipt or proof of the other character's current inventory.
+        state['scroll_resolution']='operator_reported_external_transfer'
     save(state,'stored_in_market',market_verified_at=time.time())
     close_warehouse(loop)
 

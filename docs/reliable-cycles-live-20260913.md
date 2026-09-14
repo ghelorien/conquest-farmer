@@ -158,7 +158,8 @@ required a UID. The source fix resolves the exact name to one stable scene actor
 using the qualified remote actor layout, retaining the controller trust check
 and independent opened-trade UID check. Changed, missing, duplicate or unknown
 actors cannot authorize acceptance. The name accessor is pinned to live client
-code. This fix is not yet deployed or live-qualified.
+code. This fix was deployed in release `e34841d`; live acceptance qualification
+is still outstanding.
 
 An assisted, read-only recovery subsequently reconciled both journals as
 `no_transfer` and cleared the route's active operation. The selected +1
@@ -187,3 +188,27 @@ natural native hunt/town/delivery/refill/return cycle within the two-hour run.
 The rate must include all downtime and reach at least 40 verified kills/minute,
 with 50 as the stretch target. Assisted checks and reloads cannot count toward
 that uninterrupted result.
+
+## Current storage and operator reconciliation
+
+The corrected request reader and matching stale-attention cleanup are running
+in the native app. Both booths contain 32 listings, with three reserve items
+per merchant and five additional combined-capacity slots each. This proves
+held-stock refill, not a successful new farmer delivery.
+
+The expired Market service visit was preserved. Assisted warehouse fallback
+stored all twelve carried valuables, verifying exact UID, type, quantity, plus,
+sockets and binding against both farmer and warehouse memory after every
+deposit. Five potions and the spare arrow pack remain with Parasite. The farmer
+remained stopped and alive in Market; no transport or merchant transfer was
+submitted. Immutable before/after receipts remain in private runtime reports.
+
+The operator confirmed moving the older MeteorScroll to another character.
+The journal records this as an operator-reported external transfer, with the
+exact historical UID and fresh source absence. It does not claim a verified
+destination inventory or automated delivery. Recovery can resolve this trip
+without exchanging or paying again, while still banking all remaining carried
+valuables before departure. The focused Meteor banking/policy suite passes
+41 tests, including wrong UID/type, missing confirmation and continued local
+ownership. No uninterrupted farming validation or new merchant transfer is
+claimed by these assisted checks.

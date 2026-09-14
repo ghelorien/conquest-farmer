@@ -126,6 +126,44 @@ def test_uncertain_departure_never_pays_again(route):
     assert not any(e[0]=='trip' for e in events)
 
 
+def test_user_moved_scroll_banks_other_valuables_without_inventing_delivery(route):
+    loop,state,bag,local,market,events=route;state['map']=1036
+    bag.append(item(101))
+    write_json(m.JOURNAL,{'phase':'storing_scroll','origin':1011,'scroll_uid':99,
+        'user_confirmed_scroll_transfer':{'uid':99,'type_id':m.SCROLL,'confirmed':True,
+            'source':'explicit user confirmation','destination':'another_character'}})
+    assert m.resume(loop) and state['map']==1011
+    assert not bag and item(101) in market
+    assert events.index(('warehouse-deposit',101))<events.index(('trip',1011))
+    journal=read_json(m.JOURNAL)
+    assert journal['scroll_resolution']=='operator_reported_external_transfer'
+    assert not journal.get('user_confirmed_scroll_consumption')
+    assert not any(e[0]=='choice' for e in events)
+
+
+@pytest.mark.parametrize('change',[{'uid':98},{'type_id':m.METEOR},{'confirmed':False},
+    {'source':'inferred from missing item'},{'destination':'unknown'}])
+def test_manual_scroll_transfer_requires_exact_explicit_confirmation(route,change):
+    loop,state,bag,local,market,events=route;state['map']=1036
+    confirmation={'uid':99,'type_id':m.SCROLL,'confirmed':True,
+                  'source':'explicit user confirmation','destination':'another_character'}
+    write_json(m.JOURNAL,{'phase':'storing_scroll','origin':1011,'scroll_uid':99,
+                         'user_confirmed_scroll_transfer':{**confirmation,**change}})
+    with pytest.raises(ValueError,match='not in Market storage'):m.resume(loop)
+    assert not any(e[0]=='trip' for e in events)
+
+
+def test_scroll_still_locally_owned_is_banked_not_counted_as_manual_transfer(route):
+    loop,state,bag,local,market,events=route;state['map']=1036
+    bag.append(item(99,m.SCROLL))
+    write_json(m.JOURNAL,{'phase':'storing_scroll','origin':1011,'scroll_uid':99,
+        'user_confirmed_scroll_consumption':None,
+        'user_confirmed_scroll_transfer':{'uid':99,'type_id':m.SCROLL,'confirmed':True,
+            'source':'explicit user confirmation','destination':'another_character'}})
+    assert m.resume(loop) and item(99,m.SCROLL) in market
+    assert not read_json(m.JOURNAL).get('scroll_resolution')
+
+
 def test_exchange_receipt_resumes_without_repeating_transaction(route):
     loop,state,bag,local,market,events=route;state['map']=1036
     bag.append(item(99,m.SCROLL))
