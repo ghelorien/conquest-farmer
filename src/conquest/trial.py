@@ -92,6 +92,15 @@ def ammunition_reload_needed(inventory, config, *, proactive=False):
     return ammo is None or ammo.type_id != config.ammo_type or ammo.amount < ammunition_per_attack(config)
 
 
+def scatter_attack_mode(config, speed, strategy, isolated, name):
+    """Choose Scatter before adaptive or isolated-target decisions when enabled."""
+    if speed.force_jump_scatter and config.jump_scatter:
+        return 'right'
+    if strategy and isolated:
+        return 'left'
+    return strategy.button(name) if strategy else config.attack_button
+
+
 def supply_stop_reason(inventory, config, now):
     if not 0 <= now - inventory.started_at <= 1:
         return "stale_inventory"
@@ -779,8 +788,8 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                 isolated=(config.single_isolated_targets and
                           nearby_group_size(observed,(x,y),config.attack_range_tiles)<2)
                 def mode(name):
-                    return 'left' if isolated else strategy.button(name)
-                attack_button=mode(config.monster) if strategy else config.attack_button
+                    return scatter_attack_mode(config,speed,strategy,isolated,name)
+                attack_button=mode(config.monster)
                 attack_range=config.single_attack_range_tiles if strategy and attack_button=='left' else config.attack_range_tiles
                 targeting_config=config.model_copy(update={'attack_range_tiles':attack_range})
                 if supervisor and strategy:
@@ -895,7 +904,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                                 raise CaptureUnavailable("Attack observation expired or foreground changed; reobserving")
                             raise ValueError("Action expired or foreground changed")
                         # Defense may have selected another group from the same fresh scene.
-                        attack_button=mode(target.name) if strategy else config.attack_button
+                        attack_button=scatter_attack_mode(config,speed,strategy,isolated,target.name)
                         if attack_button=="right" and time.monotonic()-last_scatter_cast<speed.scatter_recast_seconds:
                             time.sleep(.03)
                             continue

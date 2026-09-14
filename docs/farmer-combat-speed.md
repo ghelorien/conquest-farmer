@@ -15,7 +15,14 @@ Timing parameters are `action_interval`, `scatter_recast_seconds`,
 `torn_life_attempts`, and `moving_observation_retry_seconds`. Durations are in
 seconds except arrow and attempt counts; bounds reject invalid delays and unbounded retries.
 
-Additional options are independent for each farmer and disabled by default:
+Additional options are independent for each farmer. `force_jump_scatter` is
+enabled by default for every farmer; set it to `false` in an individual profile
+only when that farmer must retain adaptive or isolated-target choices.
+
+- `force_jump_scatter`: when the route has verified `jump_scatter` enabled, keep
+  right-click Scatter selected before isolated-target or saved adaptive-left
+  decisions. It is inactive when the learned Scatter check disables that route
+  setting, preserving the existing single-attack fallback.
 
 - `scatter_during_jump`: cast during a verified progressing jump. An incomplete
   landing leaves this state at the normal 1.5-second settlement deadline;

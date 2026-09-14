@@ -23,6 +23,7 @@ class CombatSpeed(BaseModel):
     scene_reuse_seconds:float=Field(default=0,ge=0,le=.15)
     torn_life_attempts:int=Field(default=1,ge=1,le=3)
     moving_observation_retry_seconds:float=Field(default=.1,ge=.01,le=.5)
+    force_jump_scatter:bool=True
 
 class FarmerProfile(BaseModel):
     model_config=ConfigDict(extra='forbid')

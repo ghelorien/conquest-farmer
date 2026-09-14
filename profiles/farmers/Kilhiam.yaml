@@ -9,3 +9,4 @@ combat_speed:
   jump_attack_guard_seconds: 0.28
   torn_life_attempts: 3
   moving_observation_retry_seconds: 0.01
+  force_jump_scatter: true

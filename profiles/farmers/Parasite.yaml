@@ -13,6 +13,7 @@ combat_speed:
   scene_reuse_seconds: 0.15
   torn_life_attempts: 3
   moving_observation_retry_seconds: 0.01
+  force_jump_scatter: true
   cluster_lookahead: true
   regional_search_expansion: true
   counter_gap_recovery: true
