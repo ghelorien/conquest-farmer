@@ -6,18 +6,20 @@ import json
 from pathlib import Path
 import sqlite3
 import time
+import hashlib
 
 CHARACTERS = MerchantNames()
 sqlite3.register_adapter(ProfileName, lambda name: name.profile_id)
 
-TERMINAL_PHASES = ('verified', 'aborted')
+TERMINAL_PHASES = ('verified', 'aborted', 'operator_overridden')
 DELIVERY_ITEM_FIELDS = ('uid','type_id','plus','gem1','gem2','quantity','bound')
 LEGAL_TRANSITIONS = {
-    'prepared': frozenset(('submitted', 'uncertain', 'verified', 'aborted')),
-    'submitted': frozenset(('uncertain', 'verified')),
-    'uncertain': frozenset(('verified', 'aborted')),
+    'prepared': frozenset(('submitted', 'uncertain', 'verified', 'aborted', 'operator_overridden')),
+    'submitted': frozenset(('uncertain', 'verified', 'operator_overridden')),
+    'uncertain': frozenset(('verified', 'aborted', 'operator_overridden')),
     'verified': frozenset(('verified',)),
     'aborted': frozenset(('aborted',)),
+    'operator_overridden': frozenset(('operator_overridden',)),
 }
 
 
@@ -119,7 +121,7 @@ class Journal:
                 if (old['character'],old['kind'],old['before_json']) != (character,kind,encoded):
                     raise ValueError('Transaction ID reused for different work')
                 return False
-            pending = db.execute("SELECT 1 FROM transactions WHERE character=? AND phase NOT IN ('verified','aborted')", (character,)).fetchone()
+            pending = db.execute("SELECT 1 FROM transactions WHERE character=? AND phase NOT IN ('verified','aborted','operator_overridden')", (character,)).fetchone()
             if pending:
                 raise ValueError('Reconcile the previous transaction first')
             now = time.time()
@@ -166,6 +168,113 @@ class Journal:
             if phase == 'verified':
                 db.execute('INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)',
                     (row['character'],row['kind']+'_verified',json.dumps({'transaction_id':key,'result':result}),now))
+
+    def operator_override(self, key, *, operator_confirmed=False,
+                          confirmation_reference=None, operator=None,
+                          fresh_evidence=None, incident_digest=None, now=None):
+        """Close an unresolved transaction under explicit operator authority.
+
+        This is a disposition, never a successful transaction.  The original
+        before image and every pre-override step remain untouched; their digest
+        is copied into the append-only override step together with the fresh,
+        read-only observations used to replan afterwards.  Repeating the same
+        request after a restart returns the existing receipt.
+        """
+        if operator_confirmed is not True:
+            raise ValueError('Operator confirmation is required for this incident')
+        if not isinstance(confirmation_reference, str) or not confirmation_reference.strip():
+            raise ValueError('A non-empty incident confirmation reference is required')
+        if operator is not None and (not isinstance(operator, str) or not operator.strip()):
+            raise ValueError('Operator must be a non-empty string when supplied')
+        now = time.time() if now is None else now
+        fresh_evidence = fresh_evidence or {}
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM transactions WHERE id=?', (key,)).fetchone()
+            if not row:
+                raise ValueError('Transaction not found')
+            if row['phase'] == 'operator_overridden':
+                result = json.loads(row['result_json'] or '{}')
+                prior = result.get('operator_override') or {}
+                if prior.get('confirmation_reference') != confirmation_reference:
+                    raise ValueError('Incident was already overridden with a different confirmation')
+                return result
+            if row['phase'] in TERMINAL_PHASES:
+                raise ValueError('A completed transaction cannot be overridden')
+            steps = [dict(s) for s in db.execute(
+                'SELECT stage,status,payload,timestamp FROM transaction_steps WHERE transaction_id=? ORDER BY id',
+                (key,)).fetchall()]
+            # Recheck observations are a later planning snapshot, not part of
+            # the original incident.  Keep them out of this digest so a UI
+            # preview can bind confirmation to the immutable pre-override
+            # evidence even after one or more read-only rechecks.
+            original_steps=[step for step in steps if step['stage']!='operator_recheck']
+            original = {'id': key, 'character': row['character'], 'kind': row['kind'],
+                        'phase': row['phase'], 'before_json': row['before_json'],
+                        'result_json': row['result_json'], 'steps': original_steps}
+            original_digest = hashlib.sha256(json.dumps(original, sort_keys=True,
+                                                        separators=(',', ':')).encode()).hexdigest()
+            if incident_digest is not None and incident_digest != original_digest:
+                raise ValueError('Incident evidence changed; recheck before overriding')
+            override = {'operator_confirmed': True,
+                        'confirmation_reference': confirmation_reference.strip(),
+                        'operator': operator.strip() if isinstance(operator, str) else None,
+                        'confirmed_at': now, 'original_phase': row['phase'],
+                        'original_evidence_digest': original_digest,
+                        'original_evidence': original,
+                        'fresh_evidence': fresh_evidence}
+            prior_result=json.loads(row['result_json'] or '{}')
+            cleanup_pending=prior_result.get('cleanup_pending') or []
+            if not cleanup_pending and any(step['stage'] in ('cleanup','cleanup_trade')
+                                           and step['status']=='before_action' for step in steps):
+                cleanup_pending=['operator_reconciliation']
+            result = {'outcome': 'operator_overridden', 'next_action': 'release_route',
+                      'operator_override': override, 'proof_digest': original_digest,
+                      'delivered': [], 'remaining': [], 'cleanup_pending': cleanup_pending,
+                      'replan_required': True, 'known_stock_recheck_required': True}
+            encoded = json.dumps(result, sort_keys=True)
+            changed = db.execute('UPDATE transactions SET phase=?,result_json=?,updated=? '
+                                 'WHERE id=? AND phase=?',
+                                 ('operator_overridden', encoded, now, key, row['phase'])).rowcount
+            if changed != 1:
+                raise ValueError('Transaction changed before operator override')
+            db.execute('INSERT INTO transaction_steps(transaction_id,stage,status,payload,timestamp) '
+                       'VALUES(?,?,?,?,?)',
+                       (key, 'transaction', 'operator_overridden', encoded, now))
+            db.execute('INSERT INTO transaction_steps(transaction_id,stage,status,payload,timestamp) '
+                       'VALUES(?,?,?,?,?)',
+                       (key, 'operator_override', 'observed',
+                        json.dumps({'original_evidence_digest': original_digest,
+                                    'operator_override': override}, sort_keys=True), now))
+            db.execute('INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)',
+                       (row['character'], 'farmer_delivery_operator_overridden',
+                        json.dumps({'transaction_id': key,
+                                    'original_evidence_digest': original_digest}, sort_keys=True), now))
+            return result
+
+    def original_evidence_digest(self, key):
+        """Return the digest used to bind a manual override confirmation."""
+        with self.db() as db:
+            row=db.execute('SELECT * FROM transactions WHERE id=?',(key,)).fetchone()
+            if not row:raise ValueError('Transaction not found')
+            steps=[dict(s) for s in db.execute(
+                'SELECT stage,status,payload,timestamp FROM transaction_steps WHERE transaction_id=? ORDER BY id',
+                (key,)).fetchall() if s['stage']!='operator_recheck']
+        original={'id':key,'character':row['character'],'kind':row['kind'],
+                  'phase':row['phase'] if row['phase']!='operator_overridden' else
+                          (json.loads(row['result_json'] or '{}').get('operator_override') or {}).get('original_phase',row['phase']),
+                  'before_json':row['before_json'],'result_json':None if row['phase']=='operator_overridden' else row['result_json'],
+                  'steps':steps}
+        # Once overridden, the saved override result contains its original
+        # digest; reconstructing the pre-override transaction from the current
+        # terminal row is unnecessary and would be ambiguous.
+        if row['phase']=='operator_overridden':
+            return (json.loads(row['result_json'] or '{}').get('operator_override') or {}).get('original_evidence_digest')
+        return hashlib.sha256(json.dumps(original,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+    def preview_digest(self, key):
+        """Public name for the immutable incident digest shown before confirmation."""
+        return self.original_evidence_digest(key)
 
     def step(self, key, stage, status, payload=None, *, terminal=False):
         if (not isinstance(stage,str) or not 1<=len(stage)<=100 or
@@ -227,7 +336,7 @@ class Journal:
 
     def pending(self, character):
         with self.db() as db:
-            rows = db.execute("SELECT * FROM transactions WHERE character=? AND phase NOT IN ('verified','aborted') ORDER BY created", (character_name(character),)).fetchall()
+            rows = db.execute("SELECT * FROM transactions WHERE character=? AND phase NOT IN ('verified','aborted','operator_overridden') ORDER BY created", (character_name(character),)).fetchall()
         return [dict(row) for row in rows]
 
     def events(self, after=0, limit=100):
@@ -296,7 +405,7 @@ class Journal:
             old = db.execute("SELECT value FROM state WHERE character=? AND name='scan'",(character,)).fetchone()
             if old and json.loads(old[0]).get('pending'):
                 raise ValueError('Finish or pause the existing scan before requesting a different one-time batch')
-            if db.execute("SELECT 1 FROM transactions WHERE character=? AND phase NOT IN ('verified','aborted')",(character,)).fetchone():
+            if db.execute("SELECT 1 FROM transactions WHERE character=? AND phase NOT IN ('verified','aborted','operator_overridden')",(character,)).fetchone():
                 raise ValueError('Reconcile the unfinished transaction before listing once')
             state = {'request_id':request_id,'pending':True,'one_time':True,'requested_at':now}
             encoded = json.dumps(state)
@@ -315,7 +424,7 @@ class Journal:
             row=db.execute("SELECT value FROM state WHERE character=? AND name='scan'",(character,)).fetchone()
             state=json.loads(row[0]) if row else {}
             if not state.get('pending'):raise ValueError('No paused batch to resume')
-            if db.execute("SELECT 1 FROM transactions WHERE character=? AND phase NOT IN ('verified','aborted')",(character,)).fetchone():
+            if db.execute("SELECT 1 FROM transactions WHERE character=? AND phase NOT IN ('verified','aborted','operator_overridden')",(character,)).fetchone():
                 raise ValueError('Reconcile the interrupted transaction before resuming')
             state['one_time']=True
             db.execute('INSERT OR REPLACE INTO state VALUES(?,?,?)',(character,'scan',json.dumps(state)))

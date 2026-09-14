@@ -135,7 +135,8 @@ def return_from_market(loop,destination):
     if any(stash_candidate(item) for item in loop.town('supplies')['items']):
         raise ValueError('Stay in Market: store protected valuables before returning to the route')
     journal=Path(state_path('.runtime/market-route-departure.json'))
-    old=read_json(journal)
+    from conquest.recovery_override import read_recovered
+    old=read_recovered(journal)
     if old.get('phase')=='submitted':
         raise ValueError('Market departure is uncertain; reconcile arrival before retrying')
     before=loop.living()
@@ -146,3 +147,24 @@ def return_from_market(loop,destination):
     write_json(journal,{**state,'phase':'complete','completed_at':time.time()})
     loop.record('market_route_returned',activity='Returned from Market; resuming the saved farming route')
     ensure_city_visit(loop,new_arrival=True)
+
+
+def recheck_market_departure(loop):
+    """Read current farmer state for an interrupted Market departure."""
+    return {'observed_at':time.time(), 'life':loop.living()['embedded_controls']['life'],
+            'supplies':loop.town('supplies')}
+
+
+def operator_override_market_departure(loop, *, operator_confirmed=False,
+                                       confirmation_reference=None, operator=None):
+    from conquest.recovery_override import operator_override
+    journal=Path(state_path('.runtime/market-route-departure.json'))
+    try:fresh=recheck_market_departure(loop)
+    except (ValueError,OSError,KeyError,TypeError) as error:
+        fresh={'recheck_unavailable':type(error).__name__,
+               'reason':'Fresh farmer memory unavailable; resume requires a fresh replan'}
+    return operator_override(journal,pending_phases=('prepared','submitted'),
+                             operator_confirmed=operator_confirmed,
+                             confirmation_reference=confirmation_reference,
+                             operator=operator,fresh_evidence=fresh,
+                             incident='market-route-departure')

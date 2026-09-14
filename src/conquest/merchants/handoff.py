@@ -205,5 +205,5 @@ def urgent_recovery(status):
     state=status.get('characters',{}).get(parts[1] if len(parts)>1 else '',{})
     if (state.get('recovery_safety') or {}).get('active'):return True
     returning=state.get('shop_return') or {}
-    return bool(returning.get('phase') not in (None,'complete','needs_attention')
+    return bool(returning.get('phase') not in (None,'complete','operator_overridden','needs_attention')
                 and (state.get('snapshot') or {}).get('map_id')!=1036)

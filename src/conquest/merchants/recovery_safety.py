@@ -1,7 +1,65 @@
 """Five-second progress deadline only after an unexpected connection loss."""
 import time
+import copy
+import hashlib
+import json
 
 KEY = 'recovery_safety'
+
+
+def operator_override(runtime, character, *, operator_confirmed=False,
+                      confirmation_reference=None, operator=None, fresh_evidence=None,
+                      incident_digest=None):
+    if operator_confirmed is not True:
+        raise ValueError('Operator confirmation is required for this incident')
+    if not isinstance(confirmation_reference,str) or not confirmation_reference.strip():
+        raise ValueError('A non-empty incident confirmation reference is required')
+    from conquest.merchants.journal import character_name
+    character=character_name(character)
+    with runtime.journal.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT value FROM state WHERE character=? AND name=?',(character,KEY)).fetchone()
+        state=json.loads(row[0]) if row else {}
+        if state.get('phase')=='operator_overridden':
+            if (state.get('operator_override') or {}).get('confirmation_reference')!=confirmation_reference.strip():
+                raise ValueError('Incident was already overridden with a different confirmation')
+            return state
+        hold_row=db.execute("SELECT value FROM state WHERE character=? AND name='connect_hold'",(character,)).fetchone()
+        held=bool(hold_row and json.loads(hold_row[0]))
+        if not state or not (state.get('active') or held):
+            raise ValueError('No active recovery safety hold is available')
+        original=copy.deepcopy(state);digest=hashlib.sha256(json.dumps(original,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        if incident_digest is not None and incident_digest != digest:
+            raise ValueError('Incident evidence changed; recheck before overriding')
+        state.update(active=False,phase='operator_overridden',replan_required=True,
+                     operator_override={'operator_confirmed':True,'confirmation_reference':confirmation_reference.strip(),
+                      'operator':operator,'confirmed_at':time.time(),'original_phase':original.get('phase'),
+                      'original_evidence_digest':digest,'original_state':original,
+                      'fresh_evidence':fresh_evidence or {}})
+        encoded=json.dumps(state)
+        if row:
+            db.execute('UPDATE state SET value=? WHERE character=? AND name=?',(encoded,character,KEY))
+        else:
+            db.execute('INSERT INTO state VALUES(?,?,?)',(character,KEY,encoded))
+        hold=db.execute("SELECT value FROM state WHERE character=? AND name='connect_hold'",(character,)).fetchone()
+        attention=db.execute("SELECT value FROM state WHERE character=? AND name='attention'",(character,)).fetchone()
+        attention_value=json.loads(attention[0]) if attention else None
+        # Clear only the hold and attention created by this safety incident.
+        # A newer attention record remains authoritative and keeps the global
+        # connection hold in place.
+        matching_attention = (attention_value is None or
+                              isinstance(attention_value,dict) and
+                              attention_value.get('kind')=='recovery_stalled')
+        if hold and json.loads(hold[0]) is True and matching_attention:
+            db.execute("UPDATE state SET value='false' WHERE character=? AND name='connect_hold' AND value=?",
+                       (character,hold[0]))
+            if attention and attention_value is not None:
+                db.execute("UPDATE state SET value='null' WHERE character=? AND name='attention' AND value=?",
+                           (character,attention[0]))
+    runtime.journal.event(character,'recovery_safety_operator_overridden',
+                           original_evidence_digest=digest,
+                           confirmation_reference=confirmation_reference.strip())
+    return state
 
 
 def active(runtime, character):

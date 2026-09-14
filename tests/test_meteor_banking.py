@@ -32,7 +32,8 @@ def route(monkeypatch):
             events.append((action,fields['uid']))
             return {'verified_in_inventory':True,'verified_in_warehouse':True}
         pytest.fail(action)
-    def trip(loop,leg):
+    def trip(loop,leg,*,before_submit=None):
+        if before_submit:before_submit()
         if state['map']==1036:assert not m.carried(loop)
         state['map']=leg['destination_map'];state['silver']-=leg['fare'];events.append(('trip',state['map']))
     def select(loop,name,step):

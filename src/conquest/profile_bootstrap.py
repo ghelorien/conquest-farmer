@@ -88,7 +88,7 @@ def select_profile(repo,args,destination):
 def offline_edit_ready(root):
     """Unfinished receipts must not be orphaned by changing roles or trust."""
     import sqlite3
-    terminal={'complete','completed','verified','aborted','cancelled','idle','skipped'}
+    terminal={'complete','completed','verified','aborted','cancelled','idle','skipped','operator_overridden'}
     for path in (Path(root)/'characters').glob('*/reports/banking/*.json'):
         value=json.loads(path.read_text(encoding='utf-8'))
         if value.get('phase') and value['phase'] not in terminal:return False
@@ -96,9 +96,9 @@ def offline_edit_ready(root):
     if not path.exists():return True
     with closing(sqlite3.connect(f'file:{path.as_posix()}?mode=ro',uri=True)) as db:
         tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if 'transactions' in tables and db.execute("SELECT 1 FROM transactions WHERE phase NOT IN ('verified','aborted') LIMIT 1").fetchone():
+        if 'transactions' in tables and db.execute("SELECT 1 FROM transactions WHERE phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1").fetchone():
             return False
         if 'delivery_reservations' in tables:
             for row in db.execute('SELECT state FROM delivery_reservations'):
-                if json.loads(row[0]).get('phase') not in ('verified','cancelled','expired'):return False
+                if json.loads(row[0]).get('phase') not in ('verified','cancelled','expired','operator_overridden'):return False
     return True

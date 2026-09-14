@@ -20,7 +20,7 @@ def parent_visit():
     candidates=[]
     for name in ('merchant-journey','meteor-consolidation','overflow'):
         row=read_json(state_path(f'reports/banking/{name}.json'))
-        if row.get('started_at') and row.get('phase') not in (None,'completed','complete','failed'):
+        if row.get('started_at') and row.get('phase') not in (None,'completed','complete','failed','operator_overridden'):
             candidates.append((row['started_at'],name))
     return ':'.join(map(str,max(candidates))) if candidates else None
 

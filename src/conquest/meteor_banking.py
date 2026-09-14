@@ -3,9 +3,12 @@ from conquest.character_context import installation_path, state_path
 import time
 from pathlib import Path
 from conquest.discord_notify import read_json,write_json
+import json
+import hashlib
 
 POLICY=Path('profiles/meteor-banking.json')
 JOURNAL=Path(state_path('reports/banking/meteor-consolidation.json'))
+AUDIT=Path(state_path('reports/banking/meteor-consolidation-audit.jsonl'))
 METEOR=1088001
 SCROLL=720027
 
@@ -130,8 +133,48 @@ def trip(loop,plan,*,before_submit=None):
 
 
 PENDING={'withdrawing','travelling','exchange_ready','exchange_pending','storing_scroll','stored_in_market','returning','carried_in_market'}
+TERMINAL={'completed','operator_overridden'}
 
-def pending():return read_json(JOURNAL).get('phase') in PENDING
+def pending():
+    from conquest.recovery_override import read_recovered
+    return read_recovered(JOURNAL).get('phase') in PENDING
+
+
+def recheck(loop):
+    """Read fresh memory-backed state for a Meteor hold without input."""
+    life=loop.living()['embedded_controls']['life']
+    supplies=loop.town('supplies')
+    evidence={'observed_at':time.time(), 'life':life, 'supplies':supplies}
+    evidence['evidence_digest']=hashlib.sha256(json.dumps(evidence,sort_keys=True).encode()).hexdigest()
+    return evidence
+
+
+def operator_override(loop, *, operator_confirmed=False, confirmation_reference=None,
+                      operator=None):
+    """Close a Meteor recovery hold after explicit per-incident confirmation.
+
+    This records the complete pre-override journal in an append-only audit
+    record and stores only fresh read-only observations as replan evidence. It
+    never repeats a fare, exchange, warehouse movement or return trip.
+    """
+    if operator_confirmed is not True:
+        raise ValueError('Operator confirmation is required for this incident')
+    if not isinstance(confirmation_reference,str) or not confirmation_reference.strip():
+        raise ValueError('A non-empty incident confirmation reference is required')
+    if operator is not None and (not isinstance(operator,str) or not operator.strip()):
+        raise ValueError('Operator must be a non-empty string when supplied')
+    state=read_json(JOURNAL)
+    if state.get('phase') not in PENDING and state.get('phase')!='operator_overridden':
+        raise ValueError('No unresolved Meteor recovery hold is active')
+    try:
+        fresh=recheck(loop)
+    except (ValueError,OSError,KeyError,TypeError) as error:
+        fresh={'recheck_unavailable':type(error).__name__,
+               'reason':'Fresh farmer memory unavailable; resume requires a fresh replan'}
+    from conquest.recovery_override import operator_override as close
+    return close(JOURNAL,pending_phases=PENDING,operator_confirmed=operator_confirmed,
+                 confirmation_reference=confirmation_reference,operator=operator,
+                 fresh_evidence=fresh,audit_path=AUDIT,incident='meteor-consolidation')
 
 
 def save(state,phase=None,**fields):
@@ -268,8 +311,14 @@ def resume(loop):
         save(state,'travelling')
     if world==state['origin'] and state['phase']=='travelling':
         if state.get('departure_attempted'):raise ValueError('Meteor departure uncertain; no repeat fare issued')
-        close_warehouse(loop);save(state,departure_attempted=True)
-        trip(loop,route['outbound']);world=1036
+        close_warehouse(loop)
+        # Movement and NPC qualification are retryable.  Mark the departure
+        # only at the trip's pre-submit fence, immediately before the first
+        # fare/dialogue input.  A failure while walking must not strand this
+        # journal behind a false payment hold.
+        def mark_departure_submission():
+            save(state,departure_attempted=True,departure_submitted_at=time.time())
+        trip(loop,route['outbound'],before_submit=mark_departure_submission);world=1036
         save(state,'exchange_ready')
     if world!=1036:raise ValueError('Unexpected map during Meteor trip; valuables preserved')
     if state['phase'] in ('travelling','carried_in_market'):save(state,'exchange_ready')

@@ -15,7 +15,24 @@ JOURNAL=Path(state_path('reports/banking/merchant-journey.json'))
 
 
 def pending():
-    return read_json(JOURNAL).get('phase') in ('prepared','outbound_pending','market','return_pending')
+    from conquest.recovery_override import read_recovered
+    return read_recovered(JOURNAL).get('phase') in ('prepared','outbound_pending','market','return_pending')
+
+
+def recheck(loop):
+    return {'observed_at':time.time(), 'life':loop.living()['embedded_controls']['life'],
+            'supplies':loop.town('supplies')}
+
+
+def operator_override(loop, *, operator_confirmed=False, confirmation_reference=None, operator=None):
+    from conquest.recovery_override import operator_override as close
+    try:fresh=recheck(loop)
+    except (ValueError,OSError,KeyError,TypeError) as error:
+        fresh={'recheck_unavailable':type(error).__name__,
+               'reason':'Fresh farmer memory unavailable; resume requires a fresh replan'}
+    return close(JOURNAL,pending_phases=('prepared','outbound_pending','market','return_pending'),
+                 operator_confirmed=operator_confirmed,confirmation_reference=confirmation_reference,
+                 operator=operator,fresh_evidence=fresh,incident='merchant-journey')
 
 
 def save(state,**fields):

@@ -27,25 +27,33 @@ def guard_reload():
     if pending():raise ValueError('Reconcile the pending farmer delivery before reloading')
     if not JOURNAL.exists():return
     with sqlite3.connect(JOURNAL.resolve().as_uri()+'?mode=ro',uri=True,timeout=2) as db:
-        if db.execute("SELECT 1 FROM transactions WHERE kind='farmer_delivery' AND phase NOT IN ('verified','aborted') LIMIT 1").fetchone():
+        if db.execute("SELECT 1 FROM transactions WHERE kind='farmer_delivery' AND phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1").fetchone():
             raise ValueError('Reconcile the pending farmer delivery before reloading')
 
 
 def clear_settled_attention(ui,key,receipt):
     """Clear only this incident after both durable journals prove no transfer."""
     runtime=getattr(ui,'runtime',None)
-    if (runtime is None or receipt.get('phase')!='aborted' or receipt.get('outcome')!='no_transfer'
-            or receipt.get('cleanup_pending') or receipt.get('next_action')!='retry_delivery'
-            or not receipt.get('proof_digest')):
+    overridden = receipt.get('phase')=='operator_overridden' and receipt.get('outcome')=='operator_overridden'
+    settled = receipt.get('phase')=='aborted' and receipt.get('outcome')=='no_transfer'
+    if (runtime is None or not (overridden or settled)
+            or receipt.get('cleanup_pending') or receipt.get('next_action') not in ('retry_delivery','release_route')
+            or (not overridden and not receipt.get('proof_digest'))):
         return False
     character=character_name(receipt['character'])
     with runtime.journal.db() as db:
         db.execute('BEGIN IMMEDIATE')
         row=db.execute("SELECT value FROM state WHERE character=? AND name='delivery_reservation'",(character,)).fetchone()
         reservation=json.loads(row[0]) if row else {}
-        if (not reservation or reservation.get('request_id')!=key
-                or reservation.get('phase')!='no_transfer_reconciled'
-                or (reservation.get('disposition') or {}).get('proof_digest')!=receipt['proof_digest']):
+        if not reservation or reservation.get('request_id')!=key:
+            return False
+        if overridden:
+            if reservation.get('phase')!='operator_overridden':return False
+            if ((reservation.get('operator_override') or {}).get('confirmation_reference') !=
+                    (receipt.get('operator_override') or {}).get('confirmation_reference')):
+                return False
+        elif (reservation.get('phase')!='no_transfer_reconciled'
+              or (reservation.get('disposition') or {}).get('proof_digest')!=receipt['proof_digest']):
             return False
         row=db.execute("SELECT value FROM state WHERE character=? AND name='attention'",(character,)).fetchone()
         attention=json.loads(row[0]) if row else None
@@ -84,8 +92,10 @@ def status(journal,key):
     evidence_outcome=result.get('outcome')
     if row['phase']=='verified':evidence_outcome=evidence_outcome or 'delivered'
     elif row['phase']=='aborted':evidence_outcome=evidence_outcome or 'aborted'
+    elif row['phase']=='operator_overridden':evidence_outcome=evidence_outcome or 'operator_overridden'
     outcome=({'delivered':'transferred','no_transfer':'no_transfer',
-              'not_started':'retryable_before_input','partial_transfer':'deferred'}
+              'not_started':'retryable_before_input','partial_transfer':'deferred',
+              'operator_overridden':'operator_overridden'}
              .get(evidence_outcome))
     if outcome is None:
         outcome='unresolved' if row['phase'] in ('submitted','uncertain') else 'deferred'
@@ -95,11 +105,12 @@ def status(journal,key):
         'partial_transfer':'Exact bilateral ownership proves only part of the selected batch transferred',
         'not_started':'The worker was rejected before any gameplay input',
         'aborted':'The operation has a durable terminal abort receipt',
+        'operator_overridden':'The operator closed this incident without asserting a transfer outcome',
     }.get(evidence_outcome,'Exact bilateral reconciliation is still required')
     cleanup_pending=result.get('cleanup_pending') or []
     cleanup_verified=any(s['stage'] in ('cleanup','cleanup_trade') and s['status']=='observed' for s in trace)
     receiver_verified=any(s['stage']=='receiver_receipt' and s['status']=='observed' for s in trace)
-    if row['phase'] in ('verified','aborted') and cleanup_pending and not cleanup_verified:
+    if row['phase'] in ('verified','aborted','operator_overridden') and cleanup_pending and not cleanup_verified:
         next_action='cleanup_trade_modal'
     elif row['phase']=='verified' and not receiver_verified:
         next_action='finalize_receiver_receipt'
@@ -107,7 +118,7 @@ def status(journal,key):
         next_action='replan_remaining_delivery'
     elif row['phase']=='aborted' and evidence_outcome=='no_transfer':
         next_action='retry_delivery'
-    elif row['phase'] in ('verified','aborted'):
+    elif row['phase'] in ('verified','aborted','operator_overridden'):
         next_action='release_route'
     elif any(s['stage']=='action_trace' and s['status']=='initialized' for s in trace):
         next_action='reconcile_bilateral_ownership'
@@ -145,6 +156,66 @@ def reject_worker_admission(journal,key):
         'reason':'input_grant_rejected','next_action':'release_route',
         'cleanup_pending':[]})
     return status(journal,key)
+
+
+def operator_override(ui, journal, key, *, operator_confirmed=False,
+                      confirmation_reference=None, operator=None, incident_digest=None):
+    """Recheck both live participants, then close the linked hold manually.
+
+    The snapshots are read-only and are recorded as planning evidence.  They
+    are deliberately never passed to the normal reconciliation classifier:
+    an override does not assert whether an old trade succeeded.
+    """
+    old=status(journal,key)
+    if not old:raise ValueError('Unknown farmer delivery')
+    worker=getattr(ui,'delivery_workers',{}).get(key)
+    if worker and worker.is_alive() or key in getattr(ui,'delivery_admissions',set()):
+        raise ValueError('Wait for the delivery worker before overriding this incident')
+    if old['phase'] in ('verified','aborted') and old['outcome']!='operator_overridden':
+        raise ValueError('A completed delivery cannot be overridden')
+    character=old['character']
+    from conquest.merchants.delivery_bridge import pair
+    try:
+        farmer,merchant=pair(ui,character)
+        observed_at=max(farmer.get('timestamp',0),merchant.get('timestamp',0))
+        fresh={'observed_at':observed_at,'farmer':farmer,'merchant':merchant}
+    except (ValueError,OSError) as error:
+        # Override is a journal disposition and may be performed while a
+        # client is disconnected.  The next normal cycle still waits for
+        # fresh memory before accepting work or stock as a stranger.
+        fresh={'recheck_unavailable':type(error).__name__,'reason':'Fresh participant memory unavailable'}
+    result=journal.operator_override(key,operator_confirmed=operator_confirmed,
+                                     confirmation_reference=confirmation_reference,
+                                     operator=operator,fresh_evidence=fresh,
+                                     incident_digest=incident_digest)
+    # Complete the other side after the source transaction.  If a process dies
+    # here, the next identical request is idempotent and repairs this link.
+    from conquest.merchants import delivery_reservation as reservations
+    source_receipt=status(journal,key)
+    reservations.operator_override(ui.runtime.journal,character,key,
+                                    operator_confirmed=operator_confirmed,
+                                    confirmation_reference=confirmation_reference,
+                                    operator=operator,fresh_evidence=fresh,
+                                    cleanup_pending=source_receipt.get('cleanup_pending') if source_receipt else None,
+                                    intent=saved_intent(journal,key))
+    receipt=source_receipt
+    clear_settled_attention(ui,key,receipt)
+    return {'request_id':key,'running':False,'receipt':receipt,'rechecked':fresh,
+            'reservation_phase':ui.runtime.journal.get(character,'delivery_reservation',{}).get('phase')}
+
+
+def repair_operator_link(ui, journal, key, receipt):
+    """Finish a source/reservation override split after an app restart."""
+    if not receipt or receipt.get('phase')!='operator_overridden':return receipt
+    character=receipt['character'];reservation=ui.runtime.journal.get(character,'delivery_reservation',{}) or {}
+    if reservation.get('request_id')==key and reservation.get('phase')=='operator_overridden':return receipt
+    override=receipt.get('operator_override') or {}
+    from conquest.merchants import delivery_reservation as reservations
+    reservations.operator_override(ui.runtime.journal,character,key,
+        operator_confirmed=True,confirmation_reference=override.get('confirmation_reference'),
+        operator=override.get('operator'),fresh_evidence=override.get('fresh_evidence'),
+        cleanup_pending=receipt.get('cleanup_pending'),intent=saved_intent(journal,key))
+    return receipt
 
 
 def saved_intent(journal,key):
@@ -199,7 +270,13 @@ def dispatch(ui,body):
         expected|={'character','uids'}
     valid=(set(body)==expected or action in ('delivery-start','delivery-test')
            and set(body)==expected|{'items'})
-    if action not in ('delivery-start','delivery-test','delivery-status','delivery-reconcile','delivery-cleanup') or not valid:
+    override_fields={'action','request_id','operator_confirmed','confirmation_reference'}
+    if action=='delivery-override':
+        allowed=override_fields|({'operator'} if 'operator' in body else set())|({'incident_digest'} if 'incident_digest' in body else set())
+        if set(body)!=allowed:raise ValueError('Unsupported operator override arguments')
+    if action=='delivery-recheck':
+        if set(body)!={'action','request_id'}:raise ValueError('Unsupported delivery recheck arguments')
+    if action not in ('delivery-start','delivery-test','delivery-status','delivery-reconcile','delivery-cleanup','delivery-recheck','delivery-override') or not valid and action not in ('delivery-recheck','delivery-override'):
         raise ValueError('Unsupported native delivery command')
     key=body['request_id']
     if not isinstance(key,str) or not 1<=len(key)<=100:raise ValueError('Invalid delivery request ID')
@@ -214,12 +291,37 @@ def dispatch(ui,body):
     worker=ui.delivery_workers.get(key)
     running=bool(worker and worker.is_alive()) or key in ui.delivery_admissions
     if action=='delivery-status':
+        if old and old.get('phase')=='operator_overridden':
+            try:repair_operator_link(ui,journal,key,old)
+            except (ValueError,OSError):pass
         return {'request_id':key,'running':running,'receipt':old,'error':ui.delivery_errors.get(key)}
+    if action in ('delivery-recheck','delivery-override'):
+        if old is None:raise ValueError('Unknown farmer delivery')
+        if running:raise ValueError('Wait for the delivery worker before rechecking this incident')
+        if action=='delivery-recheck':
+            from conquest.merchants.delivery_bridge import pair
+            farmer,merchant=pair(ui,old['character'])
+            fresh={'observed_at':max(farmer.get('timestamp',0),merchant.get('timestamp',0)),
+                   'farmer':farmer,'merchant':merchant}
+            digest=hashlib.sha256(json.dumps(fresh,sort_keys=True).encode()).hexdigest()
+            journal.step(key,'operator_recheck','observed',{'evidence_digest':digest,
+                                                            'observed_at':fresh['observed_at']})
+            return {'request_id':key,'running':False,'receipt':status(journal,key),
+                    'rechecked':fresh,'evidence_digest':digest,
+                    'incident_digest':journal.original_evidence_digest(key)}
+        return operator_override(ui,journal,key,
+                                 operator_confirmed=body.get('operator_confirmed'),
+                                 confirmation_reference=body.get('confirmation_reference'),
+                                 operator=body.get('operator'),incident_digest=body.get('incident_digest'))
     if action in ('delivery-reconcile','delivery-cleanup'):
         if old is None:raise ValueError('Unknown farmer delivery')
         if running:return {'request_id':key,'running':True,'receipt':old}
         if action=='delivery-cleanup' and old['next_action']!='cleanup_trade_modal':
             raise ValueError('Delivery has no verified empty trade cleanup pending')
+        if action=='delivery-reconcile' and old['phase']=='operator_overridden':
+            repair_operator_link(ui,journal,key,old)
+            clear_settled_attention(ui,key,old)
+            return {'request_id':key,'running':False,'receipt':status(journal,key)}
         if action=='delivery-reconcile' and (old['phase']=='aborted'
                 or (old['phase']=='verified' and old['next_action']=='release_route')):
             clear_settled_attention(ui,key,old)

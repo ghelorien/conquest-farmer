@@ -10,7 +10,24 @@ JOURNAL=Path(state_path('reports/banking/overflow.json'))
 
 
 def pending():
-    return read_json(JOURNAL).get('phase') in ('departing','market','returning')
+    from conquest.recovery_override import read_recovered
+    return read_recovered(JOURNAL).get('phase') in ('departing','market','returning')
+
+
+def recheck(loop):
+    return {'observed_at':time.time(), 'life':loop.living()['embedded_controls']['life'],
+            'supplies':loop.town('supplies')}
+
+
+def operator_override(loop, *, operator_confirmed=False, confirmation_reference=None, operator=None):
+    from conquest.recovery_override import operator_override as close
+    try:fresh=recheck(loop)
+    except (ValueError,OSError,KeyError,TypeError) as error:
+        fresh={'recheck_unavailable':type(error).__name__,
+               'reason':'Fresh farmer memory unavailable; resume requires a fresh replan'}
+    return close(JOURNAL,pending_phases=('departing','market','returning'),
+                 operator_confirmed=operator_confirmed,confirmation_reference=confirmation_reference,
+                 operator=operator,fresh_evidence=fresh,incident='storage-overflow')
 
 
 def extras(loop):return [i for i in loop.town('supplies')['items'] if stash_candidate(i)]
@@ -59,9 +76,10 @@ def resume(loop):
         if state.get('departure_attempted'):
             raise ValueError('Previous overflow departure was not verified; no repeat fare issued')
         close_warehouse(loop)
-        state['departure_attempted']=True;write_json(JOURNAL,state)
         outbound={**state['route']['outbound'],'activity':'Heading to Phoenix Conductress for Market overflow storage'}
-        trip(loop,outbound);world=1036
+        def mark_departure_submission():
+            state['departure_attempted']=True;state['departure_submitted_at']=time.time();write_json(JOURNAL,state)
+        trip(loop,outbound,before_submit=mark_departure_submission);world=1036
     if world==1036:
         state['phase']='market';write_json(JOURNAL,state)
         from conquest.merchants.delivery_route import market_storage,warehouse_exhausted

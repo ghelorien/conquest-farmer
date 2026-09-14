@@ -330,7 +330,7 @@ class MerchantRuntime:
             return
         controller = self.controllers[character]
         returning=self.returns[character].state()
-        returning=bool(returning and returning['phase']!='complete')
+        returning=bool(returning and returning['phase'] not in ('complete','operator_overridden'))
         with self.observers[character].lock:
             snapshot = controller.driver.memory.read(recovery=True) if returning else controller.driver.read()
         with self.lock:
@@ -564,7 +564,7 @@ class MerchantRuntime:
                 qualification = {}
                 controller = self.controllers.get(character)
                 return_state=self.returns[character].state()
-                returning=bool(return_state and return_state['phase']!='complete')
+                returning=bool(return_state and return_state['phase'] not in ('complete','operator_overridden'))
                 from conquest.merchants.held_stock_refill import market_ready
                 current_market_ready=market_ready(self,character,snapshot)
                 historical_error=bool(error and return_state and error.get('note')==return_state.get('note'))

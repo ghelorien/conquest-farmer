@@ -8,8 +8,58 @@ from conquest.capture import CaptureUnavailable
 from conquest.discord_notify import read_json,write_json
 from conquest.merchants.journal import character_name
 from conquest.merchants.recovery import credential_path
+import copy
+import hashlib
+import json
 
-TERMINAL={'market','failed','cancelled'}
+TERMINAL={'market','failed','cancelled','operator_overridden'}
+
+
+def recheck(runtime, character):
+    controller=runtime.controllers.get(character)
+    if controller is None:raise ValueError('Merchant is not attached')
+    return controller.driver.read()
+
+
+def operator_override(runtime, character, *, operator_confirmed=False,
+                      confirmation_reference=None, operator=None, fresh_evidence=None,
+                      incident_digest=None):
+    if operator_confirmed is not True:
+        raise ValueError('Operator confirmation is required for this incident')
+    if not isinstance(confirmation_reference,str) or not confirmation_reference.strip():
+        raise ValueError('A non-empty incident confirmation reference is required')
+    character=character_name(character)
+    with runtime.journal.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute("SELECT value FROM state WHERE character=? AND name='connect_market'",(character,)).fetchone()
+        state=json.loads(row[0]) if row else {}
+        if state.get('phase')=='operator_overridden':
+            prior=state.get('operator_override') or {}
+            if prior.get('confirmation_reference')!=confirmation_reference.strip():
+                raise ValueError('Incident was already overridden with a different confirmation')
+            return state
+        if not state or (state.get('phase') in TERMINAL and not state.get('fare_pending') and not state.get('launch_unresolved')):
+            raise ValueError('No unresolved Market connection hold is active')
+        original=copy.deepcopy(state)
+        digest=hashlib.sha256(json.dumps(original,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        if incident_digest is not None and incident_digest != digest:
+            raise ValueError('Incident evidence changed; recheck before overriding')
+        state.update(phase='operator_overridden',replan_required=True,fare_pending=False,launch_unresolved=False,
+                     operator_override={'operator_confirmed':True,
+                      'confirmation_reference':confirmation_reference.strip(),
+                      'operator':operator,'confirmed_at':time.time(),
+                      'original_phase':original.get('phase'),
+                      'original_evidence_digest':digest,'original_state':original,
+                      'fresh_evidence':fresh_evidence or {}})
+        encoded=json.dumps(state)
+        if row:
+            db.execute("UPDATE state SET value=? WHERE character=? AND name='connect_market'",(encoded,character))
+        else:
+            db.execute("INSERT INTO state(character,name,value) VALUES(?,?,?)",(character,'connect_market',encoded))
+    runtime.journal.event(character,'connect_market_operator_overridden',
+                           original_evidence_digest=digest,
+                           confirmation_reference=confirmation_reference.strip())
+    return state
 
 
 def save(runtime,character,phase,**fields):

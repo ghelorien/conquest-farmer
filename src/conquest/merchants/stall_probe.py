@@ -2,10 +2,53 @@
 import struct
 import time
 import json
+import copy
+import hashlib
 from conquest.memory_life import read_life
 from conquest.merchants.memory import unpack
 from conquest.merchants.stalls import vacant_flags,owned_booth
 from conquest.merchants.booth_target import owned_booth_target, CONTROL
+
+
+def operator_override(driver, journal, snapshot=None, *, operator_confirmed=False,
+                      confirmation_reference=None, operator=None, fresh_evidence=None,
+                      incident_digest=None, character=None):
+    """Close an interrupted stall probe without claiming a booth outcome."""
+    if operator_confirmed is not True:
+        raise ValueError('Operator confirmation is required for this incident')
+    if not isinstance(confirmation_reference,str) or not confirmation_reference.strip():
+        raise ValueError('A non-empty incident confirmation reference is required')
+    character=character or getattr(getattr(driver,'observer',None),'character',None)
+    if not character:
+        raise ValueError('A merchant character is required for this stall incident')
+    from conquest.merchants.journal import character_name
+    character=character_name(character)
+    with journal.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute("SELECT value FROM state WHERE character=? AND name='stall_probe'",(character,)).fetchone()
+        state=json.loads(row[0]) if row else {}
+        if state.get('phase')=='operator_overridden':
+            if (state.get('operator_override') or {}).get('confirmation_reference')!=confirmation_reference.strip():
+                raise ValueError('Incident was already overridden with a different confirmation')
+            return state
+        if state.get('phase') not in ('submitted','observed'):
+            raise ValueError('No unresolved stall probe is active')
+        original=copy.deepcopy(state);digest=hashlib.sha256(json.dumps(original,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        if incident_digest is not None and incident_digest != digest:
+            raise ValueError('Incident evidence changed; recheck before overriding')
+        state.update(phase='operator_overridden',replan_required=True,
+                     operator_override={'operator_confirmed':True,'confirmation_reference':confirmation_reference.strip(),
+                      'operator':operator,'confirmed_at':time.time(),'original_phase':original.get('phase'),
+                      'original_evidence_digest':digest,'original_state':original,
+                      'fresh_evidence':fresh_evidence if fresh_evidence is not None else {'snapshot':snapshot}})
+        encoded=json.dumps(state)
+        if row:
+            db.execute("UPDATE state SET value=? WHERE character=? AND name='stall_probe'",(encoded,character))
+        else:
+            db.execute("INSERT INTO state(character,name,value) VALUES(?,?,?)",(character,'stall_probe',encoded))
+    journal.event(character,'stall_probe_operator_overridden',
+                  original_evidence_digest=digest,confirmation_reference=confirmation_reference.strip())
+    return state
 
 
 def reconcile_interrupted_probe(driver,journal):

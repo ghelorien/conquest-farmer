@@ -54,7 +54,7 @@ def evaluate(config, *, now, kill_events, visits, deliveries, refill_events, int
                             'transfer_refill_matches':matches,
                             'refill_results':[m['refill'] for m in matches],'resumed_kill':resumed})
     unresolved=[d.get('request_id') for d in deliveries if d.get('started_at',0)>=start and
-                (d.get('phase') not in ('verified','aborted') or d.get('cleanup_pending')
+                (d.get('phase') not in ('verified','aborted','operator_overridden') or d.get('cleanup_pending')
                  or d.get('phase')=='verified' and d.get('next_action')!='release_route')]
     farmers=sorted({cycle['farmer_profile_id'] for cycle in covered})
     merchants=sorted({match['refill']['character'] for cycle in covered for match in cycle['transfer_refill_matches']})

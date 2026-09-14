@@ -43,7 +43,7 @@ def condition(state):
     if error and not str(error.get('note','')).startswith(QUIET_WAITS):
         return safe_note(error['note']),60
     returning=state.get('shop_return')
-    if returning and returning['phase']!='complete':
+    if returning and returning['phase'] not in ('complete','operator_overridden'):
         return 'Reconnect is not complete: returning to Market and restoring the shop.',60
     return None
 
@@ -93,7 +93,7 @@ class Alerts:
         self.observe('Conquest app',('Conquest UI stopped responding; merchant input may be blocked.',60) if stale_ui else None,now)
         for character,state in status['characters'].items():
             returning=state.get('shop_return')
-            if (returning and returning['phase']!='complete' and not state.get('enabled')
+            if (returning and returning['phase'] not in ('complete','operator_overridden') and not state.get('enabled')
                     and not state.get('needs_attention')):
                 continue  # Manual pause neither alerts nor confirms unfinished recovery.
             self.observe(character,condition(state),now)

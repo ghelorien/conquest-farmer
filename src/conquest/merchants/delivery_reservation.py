@@ -2,12 +2,14 @@
 from conquest.merchants.capacity import available_slots
 import time
 import json
+import hashlib
+import copy
 from conquest.capture import CaptureUnavailable
 from conquest.merchants.delivery import (prepare,exact_items,validate_offers,
     reconciliation_outcome,ReconciliationBlocked)
 
 KEY='delivery_reservation'
-TERMINAL=('verified','cancelled_before_input','no_transfer_reconciled','partial_aborted_reconciled')
+TERMINAL=('verified','cancelled_before_input','no_transfer_reconciled','partial_aborted_reconciled','operator_overridden')
 
 
 def active(journal,character):
@@ -73,7 +75,7 @@ def save(journal,character,state,*,creating=False):
         db.execute('INSERT OR REPLACE INTO state VALUES(?,?,?)',(character,KEY,encoded))
         db.execute('INSERT OR REPLACE INTO delivery_reservations VALUES(?,?,?)',
                    (character,state['request_id'],encoded))
-        if state['phase'] in ('verified','partial_aborted_reconciled'):
+        if state['phase'] in ('verified','partial_aborted_reconciled','operator_overridden'):
             db.execute('INSERT OR REPLACE INTO state VALUES(?,?,?)',(character,'new_stock','true'))
 
 
@@ -176,6 +178,8 @@ def disposition(journal,character,request_id,farmer,merchant,*,trace,intent=None
     saved=json.loads(row[0])
     if saved.get('phase') in TERMINAL:
         result=saved.get('disposition') or {}
+        if result.get('outcome')=='operator_overridden':
+            return result
         if result.get('outcome') not in ('no_transfer','partial_transfer'):
             raise ReconciliationBlocked('Delivery reservation has a different terminal result')
         return result
@@ -196,3 +200,77 @@ def disposition(journal,character,request_id,farmer,merchant,*,trace,intent=None
                   remaining=[i['uid'] for i in result['remaining']],
                   proof_digest=result['proof_digest'])
     return result
+
+
+def operator_override(journal, character, request_id, *, operator_confirmed=False,
+                      confirmation_reference=None, operator=None,
+                      fresh_evidence=None, cleanup_pending=None, intent=None, now=None):
+    """Close a reserved merchant hold with explicit operator testimony.
+
+    No ownership outcome is inferred and no transfer is recorded.  The saved
+    reservation remains the immutable original evidence; the override only
+    appends a linked disposition and marks current stock for an ordinary fresh
+    eligibility scan.  A repeated call with the same incident confirmation is
+    idempotent, which also repairs a source/reservation closure split after a
+    restart.
+    """
+    if operator_confirmed is not True:
+        raise ValueError('Operator confirmation is required for this incident')
+    if not isinstance(confirmation_reference, str) or not confirmation_reference.strip():
+        raise ValueError('A non-empty incident confirmation reference is required')
+    if operator is not None and (not isinstance(operator, str) or not operator.strip()):
+        raise ValueError('Operator must be a non-empty string when supplied')
+    now = time.time() if now is None else now
+    fresh_evidence = fresh_evidence or {}
+    missing=False
+    with journal.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT state FROM delivery_reservations WHERE character=? AND request_id=?',
+                       (character,request_id)).fetchone()
+        current_row=db.execute('SELECT value FROM state WHERE character=? AND name=?',(character,KEY)).fetchone()
+        current=json.loads(current_row[0]) if current_row else {}
+        if current and current.get('request_id')!=request_id and current.get('phase') not in TERMINAL:
+            raise ValueError('Another delivery reservation is active')
+        if not row:
+            if not intent or intent.get('operation_id')!=request_id:
+                raise ValueError('Delivery reservation not found')
+            if current and current.get('phase') not in TERMINAL:
+                raise ValueError('Another delivery reservation is active')
+            state={'request_id':request_id,'phase':'operator_overridden',
+                   'created_at':intent.get('created_at',now),'intent':intent}
+            missing=True
+            original_phase='missing_reservation'
+            original_value=intent
+        else:
+            state=json.loads(row[0])
+            if state.get('phase')=='operator_overridden':
+                prior=state.get('operator_override') or {}
+                if prior.get('confirmation_reference')!=confirmation_reference.strip():
+                    raise ValueError('Incident was already overridden with a different confirmation')
+                return state
+            if state.get('phase') in TERMINAL:
+                raise ValueError('A completed delivery reservation cannot be overridden')
+            original_phase=state.get('phase');original_value=state
+        original_digest=hashlib.sha256(json.dumps(original_value,sort_keys=True,
+                                                   separators=(',',':')).encode()).hexdigest()
+        override={'operator_confirmed':True,
+                  'confirmation_reference':confirmation_reference.strip(),
+                  'operator':operator.strip() if isinstance(operator,str) else None,
+                  'confirmed_at':now,'original_phase':original_phase,
+                  'original_evidence_digest':original_digest,
+                  'original_evidence':copy.deepcopy(original_value),
+                  'fresh_evidence':fresh_evidence}
+        state.update(phase='operator_overridden',operator_override=override,
+                     disposition={'outcome':'operator_overridden','next_action':'release_route',
+                                  'proof_digest':original_digest,'delivered':[],'remaining':[],
+                                  'cleanup_pending':cleanup_pending or [],'replan_required':True,
+                                  'known_stock_recheck_required':True})
+        encoded=json.dumps(state,sort_keys=True)
+        db.execute('INSERT OR REPLACE INTO state VALUES(?,?,?)',(character,KEY,encoded))
+        db.execute('INSERT OR REPLACE INTO delivery_reservations VALUES(?,?,?)',
+                   (character,request_id,encoded))
+        db.execute('INSERT OR REPLACE INTO state VALUES(?,?,?)',(character,'new_stock','true'))
+    journal.event(character,'delivery_operator_overridden',request_id=request_id,
+                  original_evidence_digest=original_digest,
+                  confirmation_reference=confirmation_reference.strip(),reservation_missing=missing)
+    return state

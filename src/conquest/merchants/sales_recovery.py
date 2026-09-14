@@ -34,7 +34,7 @@ def reconcile(journal, character, before, after, *, sources, apply=False):
         if not baseline or any(r['observed_at'] < baseline[0] for r in rows):
             raise ValueError('Departures predate tracking')
         tx = list(db.execute('SELECT * FROM transactions WHERE character=? AND created<=? AND updated>=?',(character,end,start)))
-        if any(t['kind']!='listing' or t['phase'] not in ('verified','aborted') for t in tx):
+        if any(t['kind']!='listing' or t['phase'] not in ('verified','aborted','operator_overridden') for t in tx):
             raise ValueError('Trade or unresolved transaction overlaps this interval')
         listed = {(i['uid'],i['price']) for i in before['booth']}
         # An anchor may have been captured immediately before a verified refill.

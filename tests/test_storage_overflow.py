@@ -15,7 +15,9 @@ def scenario(monkeypatch):
     plan={'outbound':{'verified':True,'destination_map':1036,'fare':100},
           'return':{'verified':True,'destination_map':1011,'fare':0}}
     write_json(o.POLICY,{'overflow_enabled':True,'origins':{'1011':plan},'market_warehouse':{'position':[182,180]}})
-    def trip(loop,leg):state['map']=leg['destination_map'];state['wallet']-=leg['fare'];events.append(('trip',state['map']))
+    def trip(loop,leg,*,before_submit=None):
+        if before_submit:before_submit()
+        state['map']=leg['destination_map'];state['wallet']-=leg['fare'];events.append(('trip',state['map']))
     monkeypatch.setattr(o,'trip',trip)
     monkeypatch.setattr('conquest.navigation.read_terrain',lambda *a:NS(map_id=state['map']))
     monkeypatch.setattr(banking,'open_warehouse',lambda loop:events.append(('open',state['map'])))

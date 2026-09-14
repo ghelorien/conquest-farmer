@@ -14,7 +14,7 @@ import subprocess
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk, simpledialog
+from tkinter import ttk, simpledialog, messagebox
 
 import yaml
 
@@ -190,6 +190,21 @@ class DesktopApp:
                         state='normal' if self.transfer_character else 'disabled',
                         command=self.save_merchant_transfers).pack(anchor='w',pady=(0,4))
 
+        # Recovery controls deliberately live beside the farmer controls as
+        # well as in the merchant tabs.  They only close one selected durable
+        # hold; they never turn off the manual-stop or fresh-observation
+        # guards used by update_ids/start_embedded_farm.
+        self.recovery_frame = ttk.LabelFrame(self.sidebar, text='Recovery holds', padding=6)
+        self.recovery_frame.pack(fill='x', pady=(0,4))
+        self.recovery_text = tk.StringVar(value='Checking for unresolved farmer holds…')
+        ttk.Label(self.recovery_frame, textvariable=self.recovery_text,
+                  wraplength=420).pack(anchor='w')
+        recovery_row = ttk.Frame(self.recovery_frame)
+        recovery_row.pack(fill='x', pady=(4,0))
+        ttk.Button(recovery_row, text='Recheck', command=self.recheck_farmer_recovery).pack(side='left')
+        ttk.Button(recovery_row, text='Override & resume',
+                   command=self.override_farmer_recovery).pack(side='left', padx=(6,0))
+
         self.mouse_note=tk.StringVar(value='Mouse control: automatic · move mouse to take over')
         ttk.Label(self.sidebar,textvariable=self.mouse_note).pack(anchor='w',pady=(0,4))
 
@@ -235,6 +250,7 @@ class DesktopApp:
         self.sidebar_host.bind_children()
         self.refresh_client()
         self.record(state='Off')
+        self.refresh_farmer_recovery()
         self.detail_text.set('Embedding checks actual memory access. Administrator access is only relevant if Windows denies that read.')
         root.after(200, self.poll)
         root.after(25, self.poll_pointer_focus)
@@ -253,6 +269,246 @@ class DesktopApp:
         except (OSError,ValueError) as error:
             self.merchant_transfers.set(enabled(self.transfer_character))
             self.detail_text.set('Could not save merchant transfer setting: '+str(error))
+
+    # ------------------------------------------------------------------
+    # Durable recovery holds
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _recovery_digest(value):
+        from conquest.recovery_override import evidence_digest
+        return evidence_digest(value)
+
+    def _farmer_recovery_incidents(self):
+        """Return one row per unresolved farmer hold, without repairing it."""
+        from conquest.discord_notify import read_json
+        from conquest.recovery_override import read_recovered
+        incidents = []
+
+        # Protected withdrawals use SQLite and must be read without creating a
+        # journal.  ``pending`` returns a durable unreadable marker when a
+        # state file cannot be read, which is useful evidence for the dialog.
+        try:
+            from conquest.protected_withdrawal import pending
+            for state in pending():
+                operation = state.get('operation_id') or 'unreadable'
+                digest = self._recovery_digest(state)
+                incidents.append({'id':str(operation), 'kind':'protected-withdrawal',
+                    'phase':state.get('phase','blocked'), 'state':state,
+                    'items':(state.get('items') or ([state.get('uid')] if state.get('uid') else [])),
+                    'digest':digest, 'note':state.get('error','Protected warehouse withdrawal needs reconciliation'),
+                    'operation_id':operation})
+        except (OSError,ValueError):
+            # The next status refresh can retry.  Never infer that no hold
+            # exists from a failed read.
+            incidents.append({'id':'protected-withdrawal:unreadable',
+                'kind':'protected-withdrawal', 'phase':'blocked', 'state':{},
+                'items':[], 'digest':None,
+                'note':'Protected withdrawal journal could not be read; no automatic input is allowed'})
+
+        # These journals belong to the farmer profile and are deliberately
+        # inspected independently so a user can select exactly one incident.
+        json_journals = (
+            ('merchant-journey', ('prepared','outbound_pending','market','return_pending')),
+            ('meteor-consolidation', ('withdrawing','travelling','exchange_ready','exchange_pending',
+                                      'storing_scroll','stored_in_market','returning','carried_in_market')),
+            ('overflow', ('departing','market','returning')),
+            ('market-route-departure', ('prepared','submitted')),
+        )
+        for name, phases in json_journals:
+            path = Path(state_path(('reports/banking/' if name!='market-route-departure' else '.runtime/')+
+                                   name+'.json'))
+            state = read_recovered(path)
+            if not isinstance(state,dict) or state.get('phase') not in phases:
+                continue
+            ident = state.get('operation_id') or state.get('visit_id') or name
+            items = state.get('items') or state.get('deposit_pending') or []
+            if isinstance(items,dict): items=[items]
+            incidents.append({'id':f'{name}:{ident}', 'kind':name,
+                'phase':state.get('phase'), 'state':state, 'items':items,
+                'digest':self._recovery_digest(state),
+                'note':state.get('reason') or f'{name} is awaiting recovery reconciliation',
+                'path':str(path), 'pending_phases':phases})
+
+        # Overnight is a route controller hold rather than a transaction.  It
+        # is shown here only when the controller explicitly entered attention.
+        route_path = Path(state_path('reports/overnight/status.json'))
+        route = read_json(route_path)
+        if isinstance(route,dict) and route.get('phase')=='needs_attention':
+            incidents.append({'id':'overnight:needs_attention','kind':'overnight',
+                'phase':'needs_attention','state':route,'items':[],
+                'digest':self._recovery_digest(route),
+                'note':route.get('detail') or route.get('error') or 'Route controller needs attention',
+                'path':str(route_path), 'pending_phases':('needs_attention',)})
+        return incidents
+
+    @staticmethod
+    def _recovery_items_text(items):
+        if not items:return 'Items: none recorded'
+        rendered=[]
+        for item in items[:20]:
+            if isinstance(item,dict):
+                rendered.append('UID '+str(item.get('uid','?'))+
+                    (' · +'+str(item.get('plus')) if item.get('plus') is not None else '')+
+                    (' · '+str(item.get('type_id')) if item.get('type_id') is not None else ''))
+            else: rendered.append(str(item))
+        if len(items)>20:rendered.append(f'… and {len(items)-20} more')
+        return 'Items: '+', '.join(rendered)
+
+    def _choose_farmer_recovery(self):
+        incidents=self._farmer_recovery_incidents()
+        if not incidents:return None
+        if len(incidents)==1:return incidents[0]
+        # A list selection is intentional: a multi-hold override must never
+        # clear every incident at once.
+        dialog=tk.Toplevel(self.root);dialog.title('Choose recovery incident');dialog.transient(self.root)
+        ttk.Label(dialog,text='Select exactly one incident to inspect or override:',wraplength=500).pack(padx=12,pady=(12,6))
+        choices=tk.Listbox(dialog,width=84,height=min(10,len(incidents)),exportselection=False)
+        choices.pack(padx=12,fill='both',expand=True)
+        for incident in incidents:
+            choices.insert('end',f"{incident['id']} · {incident['phase']} · {incident['note']}")
+        selected=[]
+        def choose():
+            index=choices.curselection()
+            if index:selected.append(incidents[index[0]]);dialog.destroy()
+        buttons=ttk.Frame(dialog);buttons.pack(fill='x',padx=12,pady=10)
+        ttk.Button(buttons,text='Select',command=choose).pack(side='right')
+        ttk.Button(buttons,text='Cancel',command=dialog.destroy).pack(side='right',padx=(0,6))
+        dialog.protocol('WM_DELETE_WINDOW',dialog.destroy)
+        dialog.grab_set();self.root.wait_window(dialog)
+        return selected[0] if selected else None
+
+    def _show_recovery_preview(self, incident, *, action):
+        digest=incident.get('digest') or '(unavailable — journal read failed)'
+        text=(f"Incident: {incident['id']}\nPhase: {incident.get('phase')}\n"
+              f"{incident.get('note','')}\n{self._recovery_items_text(incident.get('items',[]))}\n"
+              "")
+        if action=='recheck':
+            messagebox.showinfo('Recovery recheck',text+'\n\nNo game input was sent.',parent=self.root)
+            return True
+        if not digest or len(digest)!=64:return False
+        return messagebox.askyesno('Confirm recovery override',
+            text+'\n\nConfirm this exact incident to override this one hold.\n'
+            'The old result will remain unverified. Continue from the current game state?',
+            parent=self.root)
+
+    def _farmer_fresh_recheck(self, incident):
+        from conquest.worker import request
+        fresh={'recheck_unavailable':'Farmer client is not attached'}
+        info=self.last.get('worker_info_path')
+        if info:
+            try:
+                health=request(info,'health')
+                fresh=dict(health.get('embedded_controls') or {})
+                fresh['target']=health.get('target')
+            except (OSError,ValueError,KeyError,TypeError) as error:
+                fresh={'recheck_unavailable':str(error)}
+        return dict(incident,rechecked=fresh)
+
+    def _farmer_resume_if_fresh(self, revision, fresh=None, *, deadline=None):
+        # A click on Override & resume is explicit intent, but a later Stop wins.
+        expected_revision,epoch=revision if isinstance(revision,tuple) else (revision,getattr(self,'_recovery_epoch',0))
+        if self.control.snapshot()['revision']!=expected_revision or getattr(self,'_recovery_epoch',0)!=epoch:return False
+        unified=getattr(self,'unified',None)
+        if unified and unified.coordinator.stopped:
+            self.recovery_text.set('Hold cleared; Global Stop remains active')
+            return False
+        deadline=deadline or time.monotonic()+10
+        current=self._farmer_fresh_recheck({}).get('rechecked',{})
+        life=current.get('life') or {}
+        from conquest.character_context import farmer_name
+        usable=(current.get('observations_available') and life.get('character')==farmer_name()
+                and 0<=time.time()-current.get('observed_at',0)<=2
+                and not current.get('external_execution'))
+        if self.mouse_priority.active() or not usable:
+            self.recovery_text.set('Hold cleared; waiting for fresh memory and mouse release')
+            if time.monotonic()<deadline:
+                self.root.after(250,lambda:self._farmer_resume_if_fresh(revision,deadline=deadline))
+            return False
+        if self.control.snapshot()['revision']!=expected_revision or getattr(self,'_recovery_epoch',0)!=epoch:return False
+        if unified and unified.coordinator.stopped:return False
+        try:self.update_control({'enabled':True})
+        except (OSError,ValueError) as error:
+            self.recovery_text.set('Hold cleared; '+str(error));return False
+        self.recovery_text.set('Hold cleared; farming requested')
+        return True
+
+    def _apply_farmer_override(self, incident, digest):
+        from conquest.route_controller import controller_guard
+        with controller_guard() as acquired:
+            if not acquired:raise ValueError('Route is still active; wait for it to stop before overriding')
+            fresh=self._farmer_fresh_recheck(incident).get('rechecked',{})
+            if fresh.get('external_execution'):
+                raise ValueError('Farmer input is still active; wait before overriding')
+            if incident['kind']=='protected-withdrawal':
+                from conquest.protected_withdrawal import operator_override
+                return operator_override(incident['operation_id'],operator_confirmed=True,
+                    confirmation_reference=digest,incident_digest=digest,fresh_evidence=fresh)
+            from conquest.recovery_override import operator_override
+            return operator_override(Path(incident['path']),pending_phases=incident['pending_phases'],
+                operator_confirmed=True,confirmation_reference=digest,incident_digest=digest,
+                fresh_evidence=fresh,incident=incident['kind'])
+
+    def recheck_farmer_recovery(self):
+        incident=self._choose_farmer_recovery()
+        if not incident:
+            self.recovery_text.set('No unresolved farmer recovery holds')
+            return None
+        incident=self._farmer_fresh_recheck(incident)
+        self._show_recovery_preview(incident,action='recheck')
+        self.refresh_farmer_recovery()
+        return incident
+
+    def refresh_farmer_recovery(self):
+        incidents=self._farmer_recovery_incidents()
+        if not incidents:self.recovery_text.set('No unresolved farmer recovery holds');return incidents
+        self.recovery_text.set(f"{len(incidents)} recovery hold(s) need attention · select one with Recheck")
+        return incidents
+
+    def override_farmer_recovery(self):
+        incident=self._choose_farmer_recovery()
+        if not incident:return None
+        revision=(self.control.snapshot()['revision'],getattr(self,'_recovery_epoch',0))
+        incident=self._farmer_fresh_recheck(incident)
+        if not self._show_recovery_preview(incident,action='override'):return None
+        try:result=self._apply_farmer_override(incident,incident['digest'])
+        except (OSError,ValueError) as error:
+            messagebox.showerror('Recovery override',str(error),parent=self.root);return None
+        self.record(recovery_override={'incident':incident['id'],'digest':incident['digest'],'at':time.time()})
+        self.refresh_farmer_recovery()
+        self._farmer_resume_if_fresh(revision)
+        return result
+
+    def dispatch_recovery(self, body):
+        """Small local bridge used by profile-aware clients and focused tests."""
+        action=body.get('action') if isinstance(body,dict) else None
+        if action not in ('recovery-status','recovery-recheck','recovery-override'):
+            raise ValueError('Unsupported recovery command')
+        incidents=self._farmer_recovery_incidents()
+        if action=='recovery-status':return {'incidents':incidents}
+        incident_id=body.get('incident_id')
+        incident=next((row for row in incidents if row['id']==incident_id),None)
+        if incident is None:raise ValueError('Unknown recovery incident')
+        if action=='recovery-recheck':
+            fresh=self._farmer_fresh_recheck(incident)
+            return {'incident':fresh,'incident_digest':fresh.get('digest'),'rechecked':fresh.get('rechecked')}
+        if body.get('operator_confirmed') is not True:
+            raise ValueError('Operator confirmation is required for this incident')
+        digest=body.get('incident_digest')
+        if digest!=incident.get('digest'):raise ValueError('Incident evidence changed; recheck before overriding')
+        # UI confirmation is the final boundary; the command remains useful
+        # to local tests without opening dialogs.
+        if body.get('confirmation_reference')!=digest:
+            raise ValueError('Exact incident digest confirmation is required')
+        revision=(self.control.snapshot()['revision'],getattr(self,'_recovery_epoch',0))
+        result=self._apply_farmer_override(incident,digest)
+        self.record(recovery_override={'incident':incident['id'],'digest':digest,'at':time.time()})
+        self.refresh_farmer_recovery()
+        self._farmer_resume_if_fresh(revision)
+        return result
+
+    def dispatch(self, body):
+        """Handle the small profile-local recovery surface."""
+        return self.dispatch_recovery(body)
 
     def toggle_route_details(self):
         if self.route_details_frame.winfo_manager():
@@ -529,6 +785,7 @@ class DesktopApp:
                 session.close()
 
     def stop(self):
+        self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
         self.update_kill_metrics('stop')
         if getattr(self,'unified',None):
             self.unified.grant = None
@@ -986,6 +1243,7 @@ class DesktopApp:
             self.route_note.set(str(error))
 
     def update_ids(self, enabled):
+        if not enabled:self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
         if enabled:
             from conquest.merchants.delivery_operation import guard_protected_assets
             try:guard_protected_assets()
@@ -1028,6 +1286,7 @@ class DesktopApp:
             self.memory_text.set(str(error))
 
     def update_control(self, body):
+        if body.get('enabled') is False:self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
         if body.get('enabled'):
             from conquest.merchants.delivery_operation import guard_protected_assets
             guard_protected_assets()

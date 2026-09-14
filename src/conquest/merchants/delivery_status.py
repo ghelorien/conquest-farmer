@@ -8,8 +8,10 @@ def describe(receipt, *, running):
     outcome=receipt['outcome'];action=receipt['next_action']
     if action=='release_route' and outcome=='transferred':
         state='returning';reason='Both inventories reconciled; merchant delivery complete'
-    elif outcome in ('retryable_before_input','no_transfer') and action in ('release_route','retry_delivery'):
-        state='safely deferred';reason='No items transferred; another merchant or warehouse may be used'
+    elif outcome in ('retryable_before_input','no_transfer','operator_overridden') and action in ('release_route','retry_delivery'):
+        state='safely deferred';reason=('Operator closed this incident without asserting a transfer outcome; '
+                                       'fresh stock is eligible after recheck' if outcome=='operator_overridden'
+                                       else 'No items transferred; another merchant or warehouse may be used')
     elif running:
         state='verifying' if action in ('reconcile_bilateral_ownership','finalize_receiver_receipt','cleanup_trade_modal') else 'trading'
         reason='Checking the exact delivery and both participants'

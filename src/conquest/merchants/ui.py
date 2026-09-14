@@ -1,6 +1,7 @@
 """Unified native tabs around the unchanged farmer controls."""
 from conquest.character_context import state_path, ProfileMap, is_farmer_owner
 import json
+import sqlite3
 from pathlib import Path
 import time
 import tkinter as tk
@@ -208,6 +209,26 @@ class UnifiedUI:
         if action=='delivery-target' and set(body)=={'action','character'}:
             from conquest.merchants.farmer_trade import delivery_target_status
             return delivery_target_status(self,character_name(body['character']))
+        if action in ('recovery-status','recovery-recheck','recovery-override'):
+            allowed={'action','character'} if action=='recovery-status' else {'action','character','incident_id'}
+            if action=='recovery-override':
+                allowed |= {'operator_confirmed','confirmation_reference','incident_digest'}
+                if 'operator' in body:allowed.add('operator')
+            if set(body)!=allowed:raise ValueError('Unsupported recovery command arguments')
+            character=character_name(body['character'])
+            incidents=self._merchant_recovery_incidents(character)
+            incident=next((row for row in incidents if row['id']==body.get('incident_id')),None) if action!='recovery-status' else None
+            if action=='recovery-status':return {'character':character,'incidents':incidents}
+            if incident is None:raise ValueError('Unknown recovery incident')
+            if action=='recovery-recheck':
+                fresh=self._merchant_fresh_recheck(character,incident)
+                return {'incident':fresh,'incident_digest':fresh.get('digest'),'rechecked':True}
+            if body.get('operator_confirmed') is not True or body.get('confirmation_reference')!=body.get('incident_digest'):
+                raise ValueError('Exact incident digest confirmation is required')
+            if body.get('incident_digest')!=incident.get('digest'):
+                raise ValueError('Incident evidence changed; recheck before overriding')
+            return self._apply_merchant_override(character,incident,body['incident_digest'],
+                                                 operator=body.get('operator'))
         if action=='farmer-view-height' and set(body)=={'action','scale'}:
             scale = float(body['scale'])
             if not 1 <= scale <= 1.15: raise ValueError('Height scale must be between 1 and 1.15')
@@ -352,7 +373,7 @@ class UnifiedUI:
                             town_visit_id=self.grant.get('town_visit_id'),operation_id=key)
             finally:self.coordinator.lock.release()
             return {'refill':True,'expires_at':self.grant['expires_at']}
-        if action in ('delivery-start','delivery-test','delivery-status','delivery-readiness','delivery-reconcile','delivery-cleanup'):
+        if action in ('delivery-start','delivery-test','delivery-status','delivery-readiness','delivery-reconcile','delivery-cleanup','delivery-recheck','delivery-override'):
             from conquest.merchants.delivery_operation import dispatch
             return dispatch(self,body)
         if action in ('delivery-pair','delivery-reserve','delivery-ready','delivery-finish','delivery-source','delivery-disposition'):
@@ -614,6 +635,14 @@ class UnifiedUI:
             menu.add_command(label=label,command=callback)
         more.grid(row=0,column=2,padx=(0,6),pady=2)
         ttk.Button(controls,text='Stop all (including farmer)',command=self.global_stop).grid(row=0,column=3,pady=2)
+        recovery = ttk.Frame(frame)
+        recovery.pack(fill='x',padx=12,pady=(3,0))
+        self.recovery_texts = getattr(self,'recovery_texts',{})
+        recovery_text = tk.StringVar(value='Checking for unresolved recovery holds…')
+        self.recovery_texts[character] = recovery_text
+        ttk.Label(recovery,textvariable=recovery_text,width=55).pack(side='left',fill='x',expand=True)
+        ttk.Button(recovery,text='Recheck',command=lambda c=character:self.recheck_merchant_recovery(c)).pack(side='left',padx=(6,0))
+        ttk.Button(recovery,text='Override & resume',command=lambda c=character:self.override_merchant_recovery(c)).pack(side='left',padx=(6,0))
         ttk.Label(frame,text='Pause merchant stops both activities without closing the game. Settings keeps separate permissions.',
                   wraplength=950).pack(anchor='w',padx=12,pady=(3,0))
         tabs = ttk.Notebook(frame);tabs.pack(fill='both',expand=True,padx=12,pady=12)
@@ -651,6 +680,298 @@ class UnifiedUI:
                 tree.heading(col,text=col);tree.column(col,width=130 if col!='Details' and col!='Reason' else 440)
             tables[label] = tree
         self.tables[character] = tables
+
+    # ------------------------------------------------------------------
+    # Merchant recovery holds
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _recovery_digest(value):
+        from conquest.recovery_override import evidence_digest
+        return evidence_digest(value)
+
+    @staticmethod
+    def _recovery_items_text(items):
+        if not items:return 'Items: none recorded'
+        rendered=[]
+        for item in items[:20]:
+            if isinstance(item,dict):
+                rendered.append('UID '+str(item.get('uid','?'))+
+                    (' · +'+str(item.get('plus')) if item.get('plus') is not None else '')+
+                    (' · '+str(item.get('type_id')) if item.get('type_id') is not None else ''))
+            else:rendered.append(str(item))
+        if len(items)>20:rendered.append(f'… and {len(items)-20} more')
+        return 'Items: '+', '.join(rendered)
+
+    def _merchant_recovery_incidents(self, character):
+        """Read unresolved holds for one merchant without mutating journals."""
+        incidents=[]
+        # Normal merchant listing/delivery journals are distinct from the
+        # farmer-delivery source journal.  Keep them separate: sending a
+        # listing ID to delivery_operation would look in the wrong database.
+        try:
+            journal=self.runtime.journal
+            for row in journal.pending(character):
+                if row.get('kind') not in ('listing','delivery'):continue
+                try:before=json.loads(row.get('before_json') or '{}')
+                except (TypeError,ValueError):before={}
+                incidents.append({'id':f"{row['kind']}:{row['id']}",
+                    'kind':row['kind'],'request_id':row['id'],'phase':row.get('phase'),
+                    'state':row,'items':before.get('items') or ([before.get('item')] if before.get('item') else []),
+                    'digest':journal.original_evidence_digest(row['id']),
+                    'note':'Listing confirmation needs reconciliation' if row['kind']=='listing'
+                          else 'Merchant transaction needs reconciliation'})
+        except (OSError,ValueError,KeyError,AttributeError,sqlite3.Error):
+            pass
+        try:
+            from conquest.merchants.journal import Journal
+            from conquest.merchants import delivery_operation
+            delivery_journal=Journal(delivery_operation.JOURNAL) if Path(delivery_operation.JOURNAL).exists() else None
+            for row in (delivery_journal.pending(character) if delivery_journal else []):
+                if row.get('kind')!='farmer_delivery':continue
+                request_id=row.get('id')
+                try:receipt=delivery_operation.status(delivery_journal,request_id) or {}
+                except (OSError,ValueError,KeyError):receipt={}
+                if not receipt:continue
+                digest=delivery_journal.original_evidence_digest(request_id)
+                incidents.append({'id':f'farmer-delivery:{request_id}','kind':'farmer-delivery',
+                    'request_id':request_id,'phase':receipt.get('phase'),
+                    'state':receipt,'items':receipt.get('items') or [],'digest':digest,
+                    'note':receipt.get('reason') or 'Merchant delivery needs reconciliation'})
+        except (OSError,ValueError,KeyError,sqlite3.Error):
+            # The status panel will continue to show the runtime error.  Do
+            # not fabricate a clear state when the durable journal is unreadable.
+            pass
+
+        state=self.runtime.journal.get(character,'shop_return') or {}
+        if state.get('phase') not in (None,'complete','operator_overridden'):
+            incidents.append({'id':f'shop-return:{character}','kind':'shop-return',
+                'phase':state.get('phase'),'state':state,
+                'items':state.get('wanted') or state.get('before',{}).get('inventory',[]),
+                'digest':self._recovery_digest(state),
+                'note':state.get('note') or state.get('reason') or 'Shop return needs attention'})
+
+        for key,kind,phases,note in (
+                ('connect_market','connect-market',None,
+                 'Market connection needs reconciliation'),
+                ('stall_probe','stall-probe',('submitted','observed'),
+                 'Stall inspection needs reconciliation')):
+            state=self.runtime.journal.get(character,key) or {}
+            if kind=='connect-market':
+                from conquest.merchants.connect_market import TERMINAL
+                if not state or state.get('phase')=='operator_overridden':continue
+                if state.get('phase') in TERMINAL and not (state.get('fare_pending') or state.get('launch_unresolved')):continue
+            elif state.get('phase') not in phases:continue
+            incidents.append({'id':f'{kind}:{character}','kind':kind,'phase':state.get('phase'),
+                'state':state,'items':state.get('inventory_before') or [],
+                'digest':self._recovery_digest(state),'note':state.get('note') or note})
+
+        safety=self.runtime.journal.get(character,'recovery_safety') or {}
+        market_safety=self.runtime.journal.get(character,'market_safety') or {}
+        attention=self.runtime.journal.get(character,'attention') or {}
+        if (market_safety and market_safety.get('phase')!='operator_overridden') or (
+                attention.get('kind')=='market_safety' and not market_safety):
+            state=market_safety or attention
+            incidents.append({'id':f'market-safety:{character}','kind':'market-safety',
+                'phase':state.get('phase') or 'paused','state':state,'items':[],
+                'digest':self._recovery_digest(state),
+                'note':attention.get('note') or 'Market safety hold requires review'})
+        elif safety.get('active') or (self.runtime.journal.get(character,'connect_hold',False)
+                                      and safety.get('phase') not in ('operator_overridden',None)):
+            state={'safety':safety,'attention':attention,
+                   'connect_hold':self.runtime.journal.get(character,'connect_hold',False)}
+            incidents.append({'id':f'recovery-safety:{character}','kind':'recovery-safety',
+                'phase':safety.get('phase') or 'connect_hold','state':state,'items':[],
+                'digest':self._recovery_digest(safety),
+                'note':attention.get('note') or 'Protective recovery stop requires review'})
+        elif attention:
+            # Attention is a single selected incident.  It is never cleared
+            # together with a delivery or shop-return hold.
+            incidents.append({'id':f'attention:{character}','kind':'attention',
+                'phase':attention.get('kind','needs_attention'),'state':attention,'items':[],
+                'digest':self._recovery_digest(attention),
+                'note':attention.get('note') or 'Merchant needs attention'})
+        return incidents
+
+    def _choose_merchant_recovery(self, character):
+        incidents=self._merchant_recovery_incidents(character)
+        if not incidents:return None
+        if len(incidents)==1:return incidents[0]
+        dialog=tk.Toplevel(self.root);dialog.title('Choose recovery incident');dialog.transient(self.root)
+        ttk.Label(dialog,text='Select exactly one incident to inspect or override:',wraplength=600).pack(padx=12,pady=(12,6))
+        choices=tk.Listbox(dialog,width=100,height=min(10,len(incidents)),exportselection=False)
+        choices.pack(padx=12,fill='both',expand=True)
+        for incident in incidents:
+            choices.insert('end',f"{incident['id']} · {incident['phase']} · {incident['note']}")
+        selected=[]
+        def choose():
+            index=choices.curselection()
+            if index:selected.append(incidents[index[0]]);dialog.destroy()
+        buttons=ttk.Frame(dialog);buttons.pack(fill='x',padx=12,pady=10)
+        ttk.Button(buttons,text='Select',command=choose).pack(side='right')
+        ttk.Button(buttons,text='Cancel',command=dialog.destroy).pack(side='right',padx=(0,6))
+        dialog.protocol('WM_DELETE_WINDOW',dialog.destroy)
+        dialog.grab_set();self.root.wait_window(dialog)
+        return selected[0] if selected else None
+
+    def _merchant_fresh_recheck(self, character, incident):
+        if incident['kind']=='farmer-delivery':
+            incident=dict(incident)
+            try:
+                result=self.dispatch({'action':'delivery-recheck','request_id':incident['request_id']})
+            except (OSError,ValueError,KeyError,TypeError) as error:
+                incident['rechecked']={'recheck_unavailable':type(error).__name__,
+                                       'reason':'Fresh participant memory unavailable; resume requires a fresh replan'}
+                return incident
+            incident['digest']=result.get('incident_digest') or incident.get('digest')
+            incident['rechecked']=result.get('rechecked')
+            incident['state']=result.get('receipt') or incident['state']
+            return incident
+        if incident['kind'] in ('listing','delivery'):
+            if self.coordinator.owner:
+                return dict(incident,rechecked={'recheck_unavailable':'Merchant input active'})
+            snapshot={'recheck_unavailable':'merchant memory unavailable'}
+            controller=self.runtime.controllers.get(character)
+            observer=self.runtime.observers.get(character)
+            if controller is not None and observer is not None:
+                try:
+                    with observer.lock:
+                        snapshot=controller.driver.read()
+                        # Normal reconciliation is allowed to settle an incident
+                        # proved by fresh ownership memory before an override.
+                        controller.reconcile(snapshot)
+                except (OSError,ValueError,KeyError,TypeError):pass
+            incident=dict(incident);incident['rechecked']={'snapshot':snapshot}
+            return incident
+        if incident['kind']=='connect-market':
+            from conquest.merchants.connect_market import recheck
+            incident=dict(incident)
+            try:snapshot=recheck(self.runtime,character)
+            except (OSError,ValueError,KeyError,TypeError):snapshot={'recheck_unavailable':'Merchant memory unavailable'}
+            incident['rechecked']={'snapshot':snapshot}
+            return incident
+        if incident['kind']=='stall-probe':
+            snapshot={'recheck_unavailable':'merchant memory unavailable'}
+            controller=self.runtime.controllers.get(character)
+            if controller is not None:
+                try:snapshot=controller.driver.memory.read(recovery=True)
+                except (OSError,ValueError,KeyError,TypeError):pass
+            incident=dict(incident);incident['rechecked']={'snapshot':snapshot}
+            return incident
+        if incident['kind']=='shop-return':
+            snapshot={'recheck_unavailable':'merchant memory unavailable'}
+            observer=self.runtime.observers.get(character)
+            if observer is not None:
+                try:
+                    snapshot=self.runtime.controllers[character].driver.memory.read(recovery=True)
+                except (OSError,ValueError,KeyError,TypeError):pass
+            incident=dict(incident);incident['rechecked']={'snapshot':snapshot}
+            return incident
+        # Safety/attention incidents are historical journal holds.  Rechecking
+        # them still takes a fresh read when a merchant is attached; it does
+        # not clear the protective stop.
+        snapshot={'recheck_unavailable':'merchant memory unavailable'}
+        observer=self.runtime.observers.get(character)
+        if observer is not None:
+            try:snapshot=self.runtime.controllers[character].driver.memory.read(recovery=True)
+            except (OSError,ValueError,KeyError,TypeError):pass
+        return dict(incident,rechecked={'snapshot':snapshot,'state':incident.get('state',{})})
+
+    def _show_merchant_preview(self, incident, *, action):
+        digest=incident.get('digest') or '(unavailable)'
+        text=(f"Incident: {incident['id']}\nPhase: {incident.get('phase')}\n"
+              f"{incident.get('note','')}\n{self._recovery_items_text(incident.get('items',[]))}\n"
+              "")
+        if action=='recheck':
+            messagebox.showinfo('Recovery recheck',text+'\n\nNo game input was sent.',parent=self.root)
+            return True
+        if len(digest)!=64:return False
+        return messagebox.askyesno('Confirm recovery override',
+            text+'\n\nConfirm this exact incident to override this one hold.\n'
+            'The old result will remain unverified. Continue from current stock?',
+            parent=self.root)
+
+    def recheck_merchant_recovery(self, character):
+        incident=self._choose_merchant_recovery(character)
+        if not incident:
+            textvar=self.recovery_texts.get(character)
+            if textvar is not None:textvar.set('No unresolved recovery holds')
+            return None
+        try:incident=self._merchant_fresh_recheck(character,incident)
+        except (OSError,ValueError,KeyError,TypeError) as error:
+            messagebox.showerror('Recovery recheck',str(error),parent=self.root);return None
+        self._show_merchant_preview(incident,action='recheck')
+        return incident
+
+    def _apply_merchant_override(self, character, incident, digest, *, operator=None):
+        if not self.coordinator.lock.acquire(blocking=False):
+            raise ValueError('Merchant input is active; wait before overriding')
+        try:
+            if self.coordinator.owner:
+                raise ValueError('Merchant input is active; wait before overriding')
+            options={'operator_confirmed':True,'confirmation_reference':digest,
+                     'incident_digest':digest,'operator':operator}
+            kind=incident['kind']
+            if kind=='farmer-delivery':
+                return self.dispatch({'action':'delivery-override','request_id':incident['request_id'],**options})
+            fresh=self._merchant_fresh_recheck(character,incident).get('rechecked',{})
+            if kind in ('listing','delivery'):
+                key=incident['request_id']
+                with self.runtime.journal.db() as db:
+                    row=db.execute('SELECT phase FROM transactions WHERE id=? AND character=?',(key,character)).fetchone()
+                if row and row['phase'] in ('verified','aborted'):
+                    return {'reconciled':True,'request_id':key}
+                result=self.runtime.journal.operator_override(key,fresh_evidence=fresh,**options)
+                self.runtime.journal.set(character,'new_stock',True)
+                return result
+            if kind=='shop-return':
+                return self.runtime.returns[character].operator_override(fresh.get('snapshot',{}),**options)
+            if kind=='recovery-safety':
+                from conquest.merchants.recovery_safety import operator_override
+                return operator_override(self.runtime,character,fresh_evidence=fresh,**options)
+            if kind=='market-safety':
+                from conquest.merchants.market_guard import operator_override
+                return operator_override(self.runtime,character,fresh_evidence=fresh,**options)
+            if kind=='connect-market':
+                from conquest.merchants.connect_market import operator_override
+                return operator_override(self.runtime,character,**options)
+            if kind=='stall-probe':
+                from conquest.merchants.stall_probe import operator_override
+                controller=self.runtime.controllers.get(character)
+                return operator_override(getattr(controller,'driver',None),self.runtime.journal,
+                    dict(fresh.get('snapshot',{}),character=character),character=character,**options)
+            if kind=='attention':
+                journal=self.runtime.journal
+                with journal.db() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    row=db.execute("SELECT value FROM state WHERE character=? AND name='attention'",(character,)).fetchone()
+                    original=json.loads(row[0]) if row else {}
+                    if self._recovery_digest(original)!=digest:
+                        raise ValueError('Incident evidence changed; recheck before overriding')
+                    audit={'outcome':'operator_overridden','original_state':original,
+                           'confirmation_reference':digest,'fresh_evidence':fresh}
+                    db.execute('INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)',
+                        (character,'attention_operator_overridden',json.dumps(audit),time.time()))
+                    db.execute("UPDATE state SET value='null' WHERE character=? AND name='attention'",(character,))
+                return audit
+            raise ValueError('Unknown recovery incident')
+        finally:self.coordinator.lock.release()
+
+    def override_merchant_recovery(self, character):
+        incident=self._choose_merchant_recovery(character)
+        if not incident:return None
+        # Preserve independently selected trading/refill permissions.
+        permissions=(self.runtime.enabled(character),self.runtime.refill_enabled(character))
+        if not self._show_merchant_preview(incident,action='override'):return None
+        try:result=self._apply_merchant_override(character,incident,incident['digest'])
+        except (OSError,ValueError,KeyError,TypeError) as error:
+            messagebox.showerror('Recovery override',str(error),parent=self.root);return None
+        self.recovery_texts[character].set('Hold cleared; queued for a fresh stock check')
+        self.runtime.journal.set(character,'new_stock',True)
+        # Resume only permissions already enabled. User-selected pauses and
+        # Global Stop remain intact; the native scheduler owns focus and input.
+        if not self.coordinator.stopped and permissions[0]:
+            self.runtime.enable(character,True)
+        return result
 
     def shop_help(self):
         messagebox.showinfo('Shop controls',
@@ -1145,6 +1466,12 @@ class UnifiedUI:
                     menu.entryconfigure(4,label=('Pause' if state['refill']['enabled'] else 'Enable')+' automatic refill')
                 from conquest.merchants.simple_controls import summary
                 note=summary(state,now=time.time(),global_stopped=self.coordinator.stopped)
+                recovery_reader=getattr(self,'_merchant_recovery_incidents',None)
+                holds=recovery_reader(character) if callable(recovery_reader) and getattr(self,'runtime',None) is not None else []
+                if character in getattr(self,'recovery_texts',{}):
+                    self.recovery_texts[character].set(
+                        f'{len(holds)} recovery hold(s) need attention · select one with Recheck'
+                        if holds else 'No unresolved recovery holds')
                 host = self.hosts.get(character)
                 if host and host.saved:
                     # Share the verified dead-client handling with resize events.

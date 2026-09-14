@@ -1,6 +1,8 @@
 """Durable reconnect itinerary; never resume trading before returning to Market."""
 import json
 import time
+import copy
+import hashlib
 from conquest.capture import CaptureUnavailable
 from conquest.merchants.controller import identities
 
@@ -24,7 +26,7 @@ class ShopReturn:
                 self.journal.set(self.character,'shop_home',home)
 
     def begin(self):
-        if self.state() and self.state()['phase']!='complete':return
+        if self.state() and self.state()['phase'] not in ('complete','operator_overridden'):return
         # Sales observations already persist the final pre-disconnect inventory.
         with self.journal.db() as db:
             row=db.execute('SELECT snapshot FROM sales_baseline WHERE character=?',(self.character,)).fetchone()
@@ -41,7 +43,7 @@ class ShopReturn:
 
     def step(self, snapshot, controller, travel):
         state=self.state()
-        if not state or state['phase']=='complete':return True
+        if not state or state['phase'] in ('complete','operator_overridden'):return True
         # Check this even after login/arrival so manual pause never becomes a resume.
         if not controller.active():
             raise CaptureUnavailable('Paused; recovery will not change manual intent')
@@ -155,6 +157,53 @@ class ShopReturn:
         self.journal.set(self.character,'new_stock',True)
         self.journal.event(self.character,'shop_return_verified',position=snapshot['position'],restored=len(wanted))
         return True
+
+    def recheck(self, snapshot):
+        """Return the current memory snapshot without changing the hold."""
+        return {'observed_at':self.clock(),'snapshot':snapshot}
+
+    def operator_override(self, snapshot, *, operator_confirmed=False,
+                          confirmation_reference=None, operator=None, incident_digest=None):
+        if operator_confirmed is not True:
+            raise ValueError('Operator confirmation is required for this incident')
+        if not isinstance(confirmation_reference,str) or not confirmation_reference.strip():
+            raise ValueError('A non-empty incident confirmation reference is required')
+        from conquest.merchants.journal import character_name
+        character=character_name(self.character)
+        with self.journal.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute("SELECT value FROM state WHERE character=? AND name='shop_return'",(character,)).fetchone()
+            state=json.loads(row[0]) if row else {}
+            if state.get('phase')=='operator_overridden':
+                if (state.get('operator_override') or {}).get('confirmation_reference')!=confirmation_reference.strip():
+                    raise ValueError('Incident was already overridden with a different confirmation')
+                return state
+            if not state or state.get('phase')=='complete':
+                raise ValueError('No unresolved shop recovery hold is active')
+            original=copy.deepcopy(state)
+            digest=hashlib.sha256(json.dumps(original,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            if incident_digest is not None and incident_digest != digest:
+                raise ValueError('Incident evidence changed; recheck before overriding')
+            override={'operator_confirmed':True,'confirmation_reference':confirmation_reference.strip(),
+                      'operator':operator,'confirmed_at':self.clock(),
+                      'original_phase':state.get('phase'),'original_evidence_digest':digest,
+                      'original_state':original,'fresh_evidence':{'snapshot':snapshot}}
+            state.update(operator_override=override,phase='operator_overridden',
+                         replan_required=True,updated_at=self.clock())
+            encoded=json.dumps(state)
+            if row:
+                db.execute("UPDATE state SET value=? WHERE character=? AND name='shop_return'",(encoded,character))
+            else:
+                db.execute("INSERT INTO state(character,name,value) VALUES(?,?,?)",(character,'shop_return',encoded))
+            # The old shop baseline may contain assets that are no longer
+            # explainable after the disconnect. Mark current known inventory
+            # for an independent ordinary scan.
+            db.execute("INSERT OR REPLACE INTO state(character,name,value) VALUES(?,?,?)",
+                       (character,'new_stock','true'))
+        self.journal.event(self.character,'shop_return_operator_overridden',
+                           original_evidence_digest=digest,
+                           confirmation_reference=confirmation_reference.strip())
+        return state
 
     def move(self, state, snapshot, controller, travel, destination):
         with controller.coordinator.lease(self.character):

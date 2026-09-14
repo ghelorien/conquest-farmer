@@ -23,7 +23,7 @@ PLAN = Path(state_path('reports/banking/protected-withdrawal-qualification.json'
 JOURNAL = Path(state_path('reports/banking/protected-withdrawals.sqlite3'))
 RECEIPT_ROOT = Path(state_path('reports/banking/controlled-warehouse-deposits'))
 CORE = ('uid','type_id','plus','gem1','gem2','quantity','bound')
-TERMINAL = ('withdrawn','no_transfer')
+TERMINAL = ('withdrawn','no_transfer','operator_overridden')
 ACTIVE = ('prepared','input_maybe_sent','reconciling','blocked')
 MAX_INPUT_SECONDS = 5
 
@@ -359,6 +359,45 @@ class ProtectedWithdrawalJournal:
                        (operation_id,phase,json.dumps(changes,sort_keys=True),now))
         return state
 
+    def operator_override(self, operation_id, *, operator_confirmed=False,
+                          confirmation_reference=None, operator=None,
+                          fresh_evidence=None, incident_digest=None):
+        if operator_confirmed is not True:
+            raise ValueError('Operator confirmation is required for this incident')
+        if not isinstance(confirmation_reference,str) or not confirmation_reference.strip():
+            raise ValueError('A non-empty incident confirmation reference is required')
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT state FROM operations WHERE operation_id=?',(operation_id,)).fetchone()
+            if not row:raise ValueError('Protected withdrawal operation is missing')
+            state=json.loads(row['state'])
+            if state['phase']=='operator_overridden':
+                prior=state.get('operator_override') or {}
+                if prior.get('confirmation_reference')!=confirmation_reference.strip():
+                    raise ValueError('Incident was already overridden with a different confirmation')
+                return state
+            if state['phase'] in TERMINAL:
+                raise ValueError('A completed protected withdrawal cannot be overridden')
+            original=json.loads(row['state'])
+            digest=_digest(original)
+            if incident_digest is not None and incident_digest != digest:
+                raise ValueError('Incident evidence changed; recheck before overriding')
+            override={'operator_confirmed':True,'confirmation_reference':confirmation_reference.strip(),
+                      'operator':operator,'confirmed_at':self.clock(),
+                      'original_phase':state['phase'],'original_evidence_digest':digest,
+                      'original_evidence':original,
+                      'fresh_evidence':fresh_evidence or {}}
+            state.update(phase='operator_overridden',operator_override=override,
+                         replan_required=True,updated_at=self.clock())
+            encoded=json.dumps(state,sort_keys=True)
+            db.execute('UPDATE operations SET phase=?,state=?,updated_at=? WHERE operation_id=? AND phase=?',
+                       ('operator_overridden',encoded,state['updated_at'],operation_id,override['original_phase']))
+            if db.execute('SELECT changes()').fetchone()[0]!=1:
+                raise ValueError('Protected withdrawal changed during operator override')
+            db.execute('INSERT INTO history(operation_id,phase,payload,timestamp) VALUES(?,?,?,?)',
+                       (operation_id,'operator_overridden',json.dumps({'operator_override':override},sort_keys=True),state['updated_at']))
+            return state
+
     def history(self,operation_id):
         with self.db() as db:
             return [dict(row) for row in db.execute(
@@ -621,3 +660,13 @@ class ProtectedWithdrawal:
 
 def withdraw(town,plan_id,operation_id,uid,**options):
     return ProtectedWithdrawal(town,**options).run(plan_id,operation_id,uid)
+
+
+def operator_override(operation_id, *, operator_confirmed=False,
+                      confirmation_reference=None, operator=None,
+                      fresh_evidence=None, journal=None, incident_digest=None):
+    """Close one unresolved withdrawal hold without issuing warehouse input."""
+    return (journal or ProtectedWithdrawalJournal()).operator_override(
+        operation_id,operator_confirmed=operator_confirmed,
+        confirmation_reference=confirmation_reference,operator=operator,
+        fresh_evidence=fresh_evidence,incident_digest=incident_digest)

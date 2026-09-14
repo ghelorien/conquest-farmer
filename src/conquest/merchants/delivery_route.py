@@ -144,11 +144,11 @@ def settle(loop,send,state,*,start=False):
                 attempted_reconcile=True
                 send({'action':'delivery-reconcile','request_id':key})
                 continue
-            if (receipt.get('phase') not in ('verified','aborted') or receipt.get('cleanup_pending')
+            if (receipt.get('phase') not in ('verified','aborted','operator_overridden') or receipt.get('cleanup_pending')
                     or action not in ('release_route','retry_delivery','replan_remaining_delivery')):
                 raise ValueError('Merchant delivery needs reconciliation; valuables remain protected')
             outcome=receipt.get('outcome')
-            if outcome not in ('transferred','no_transfer','retryable_before_input','deferred'):
+            if outcome not in ('transferred','no_transfer','retryable_before_input','deferred','operator_overridden'):
                 raise ValueError('Merchant delivery has no authoritative disposition')
             delivered=receipt.get('delivered') or []
             if outcome=='transferred' and exact_items(delivered)!=exact_items(active['items']):
@@ -163,7 +163,7 @@ def settle(loop,send,state,*,start=False):
             loop.record('merchant_delivery_verified' if delivered else 'merchant_delivery_deferred',
                         request_id=key,merchant=active['merchant'],items=delivered,outcome=outcome,
                         activity='Valuables delivered and verified in both inventories' if delivered else
-                                 'Trade made no transfer; selecting another safe destination')
+                                 'Delivery incident closed; checking the next safe destination')
             return record
         if time.monotonic()>=until:
             raise ValueError('Merchant delivery still running; reconcile before resuming storage')
