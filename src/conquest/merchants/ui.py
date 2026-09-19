@@ -289,9 +289,20 @@ class UnifiedUI:
         if action=='cancel-empty-delivery' and set(body)=={'action','character'}:
             from conquest.merchants.empty_delivery_cancel import start
             return start(self,body['character'])
-        if action=='probe-delivery-request' and set(body)=={'action','character'}:
+        if action=='probe-delivery-request' and set(body)=={'action','character','uids'}:
             from conquest.merchants.delivery_probe import start
-            return start(self,body['character'])
+            return start(self,body['character'],uids=body['uids'])
+        if action=='probe-delivery-recheck' and set(body)=={'action'}:
+            from conquest.merchants.delivery_probe import recheck
+            return recheck(self)
+        if action=='probe-delivery-override':
+            allowed={'action','operator_confirmed','confirmation_reference','incident_digest'}
+            if 'operator' in body:allowed.add('operator')
+            if set(body)!=allowed:raise ValueError('Unsupported trade-probe override arguments')
+            from conquest.merchants.delivery_probe import operator_override
+            return operator_override(self,operator_confirmed=body['operator_confirmed'],
+                confirmation_reference=body['confirmation_reference'],
+                incident_digest=body['incident_digest'],operator=body.get('operator'))
         if action=='probe-delivery-stage' and set(body)=={'action','stage'}:
             from conquest.merchants.delivery_live import start
             return start(self,body['stage'])

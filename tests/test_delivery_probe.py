@@ -247,6 +247,40 @@ def test_probe_recheck_and_override_refuse_running_probe(tmp_path,monkeypatch):
             confirmation_reference=digest,incident_digest=digest)
 
 
+def test_unified_ui_routes_exact_probe_selection_and_recovery(monkeypatch):
+    from conquest.merchants.ui import UnifiedUI
+    calls=[]
+    monkeypatch.setattr(probe,'start',lambda ui,character,*,uids:
+        calls.append(('start',ui,character,uids)) or {'started':True})
+    monkeypatch.setattr(probe,'recheck',lambda ui:
+        calls.append(('recheck',ui)) or {'incident_digest':'digest'})
+    monkeypatch.setattr(probe,'operator_override',lambda ui,**fields:
+        calls.append(('override',ui,fields)) or {'phase':'operator_overridden'})
+    ui=type('UI',(),{})()
+    assert UnifiedUI.dispatch(ui,{'action':'probe-delivery-request','character':'Spiritual',
+                                  'uids':[295326974]})=={'started':True}
+    assert UnifiedUI.dispatch(ui,{'action':'probe-delivery-recheck'})=={'incident_digest':'digest'}
+    command={'action':'probe-delivery-override','operator_confirmed':True,
+             'confirmation_reference':'digest','incident_digest':'digest','operator':'supervisor'}
+    assert UnifiedUI.dispatch(ui,command)=={'phase':'operator_overridden'}
+    assert calls[0][2:]==('Spiritual',[295326974])
+    assert calls[2][2]=={'operator_confirmed':True,'confirmation_reference':'digest',
+                         'incident_digest':'digest','operator':'supervisor'}
+
+
+@pytest.mark.parametrize('body',[
+    {'action':'probe-delivery-request','character':'Spiritual'},
+    {'action':'probe-delivery-request','character':'Spiritual','uids':[10],'extra':True},
+    {'action':'probe-delivery-recheck','extra':True},
+    {'action':'probe-delivery-override','operator_confirmed':True,
+     'confirmation_reference':'digest','incident_digest':'digest','extra':True},
+])
+def test_unified_ui_rejects_inexact_probe_bridge_commands(body):
+    from conquest.merchants.ui import UnifiedUI
+    with pytest.raises(ValueError,match='Unsupported'):
+        UnifiedUI.dispatch(type('UI',(),{})(),body)
+
+
 @pytest.mark.parametrize('change',[None,'position','currency','identity','inventory','request'])
 def test_request_probe_rechecks_both_participants_before_input(change):
     item=dict(uid=10,type_id=720027,plus=0,gem1=0,gem2=0,quantity=1,bound=False,slot=0)
