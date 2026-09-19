@@ -27,8 +27,15 @@ def manage_profiles(registry,selected=None):
     ttk.Label(frame,text='Overrides (JSON). {} uses the existing engine’s automatic defaults. Allowed settings:\n'+', '.join(SETTING_TYPES),wraplength=800).pack(fill='x')
     settings=tk.Text(frame,height=5,wrap='word');settings.pack(fill='x',pady=4)
     ttk.Label(frame,text='Trusted deliveries (JSON list). Each entry requires name, server and verified character_uid.\n'
-        'Adding a farmer never adds it to this list. Example structure: [{"name":"Name","server":"America","character_uid":123}]',wraplength=800).pack(fill='x')
+        'These authorize automated delivery sources. Manual visitors are separate below and never enter this list. '
+        'Example structure: [{"name":"Name","server":"America","character_uid":123}]',wraplength=800).pack(fill='x')
     trust=tk.Text(frame,height=3,wrap='word');trust.pack(fill='x',pady=4)
+    ttk.Label(frame,text='Allowed manual visitors — exact profile-local permissions only. Revocation sends no game input and does not alter trusted delivery sources.',wraplength=800).pack(fill='x',pady=(6,2))
+    visitors=ttk.Treeview(frame,columns=('name','server','uid'),show='headings',height=3,selectmode='extended')
+    for key,title,width in (('name','Visitor',240),('server','Server',160),('uid','Verified UID',160)):
+        visitors.heading(key,text=title);visitors.column(key,width=width)
+    visitors.pack(fill='x')
+    visitor_rows={}
     note=tk.StringVar(value='No client state or credentials are exported.')
     ttk.Label(frame,textvariable=note,wraplength=800).pack(fill='x',pady=8)
 
@@ -40,7 +47,19 @@ def manage_profiles(registry,selected=None):
         p=chosen();label.set(p.label);role.set(p.role);enabled.set(p.local_enabled)
         settings.delete('1.0','end');settings.insert('1.0',json.dumps(registry.effective(p),indent=2))
         trust.delete('1.0','end');trust.insert('1.0',json.dumps(p.trusted_sources,indent=2))
-        note.set(f'Profile {p.id}\nObserved level, skills and equipment are read from this character only when connected.')
+        visitors.delete(*visitors.get_children());visitor_rows.clear()
+        for index,row in enumerate(registry.list_visitors(p.id)):
+            key=str(index);visitors.insert('','end',iid=key,values=(row['visitor_name'],row['visitor_server'],row['visitor_uid']))
+            visitor_rows[key]={name:row[name] for name in ('target_profile_id','visitor_name','visitor_server','visitor_uid')}
+        from conquest.profile_readiness import profile_transaction_blockers
+        blockers=profile_transaction_blockers(registry.root,p.id)
+        details=f'Profile {p.id}\nObserved level, skills and equipment are read from this character only when connected.'
+        if visitor_rows:details+='\nRole change blocked: revoke the exact allowed manual visitor permissions first.'
+        if blockers:
+            first=blockers[0];details+=(f"\nLocal authority changes blocked for this profile: "
+                f"{first.get('kind')} · {first.get('phase') or first.get('id') or 'needs reconciliation'}"
+                + (f" (+{len(blockers)-1} more)" if len(blockers)>1 else ''))
+        note.set(details)
     def refresh(profile_id=None):
         for item in tree.get_children():tree.delete(item)
         for p in registry.profiles():tree.insert('','end',iid=p.id,values=(p.label or p.name,p.server,p.role))
@@ -60,6 +79,12 @@ def manage_profiles(registry,selected=None):
             'template':'automatic','overrides':json.loads(settings.get('1.0','end')),
             'trusted_sources':json.loads(trust.get('1.0','end'))})
         refresh(p.id);note.set('Saved. No running behavior was changed.')
+    def revoke_visitors():
+        p=chosen();selected=list(visitors.selection())
+        exact=[dict(visitor_rows[key]) for key in selected]
+        if not exact:raise ValueError('Select one or more exact manual visitor permissions to revoke')
+        registry.revoke_visitors(p.id,exact,operator='profile UI')
+        load();note.set('Selected exact manual visitor permission(s) revoked. Trusted delivery sources were unchanged.')
     def export():
         p=chosen();path=filedialog.asksaveasfilename(parent=root,defaultextension='.json',filetypes=[('Preferences','*.json')])
         if path:write_json(path,registry.export(p.id));note.set('Exported saved preferences only; credentials and trust identities excluded.')
@@ -105,7 +130,7 @@ def manage_profiles(registry,selected=None):
             note.set('Notification destination saved encrypted on this PC.')
     tree.bind('<<TreeviewSelect>>',load)
     row=ttk.Frame(frame);row.pack(fill='x')
-    for index,(text,action) in enumerate([('Add character',add),('Save changes',save),('Export settings',export),('Import settings',import_settings),('Game installation',installation),('Save as template',save_template),('Account login',login),('Discord destination',notification)]):
+    for index,(text,action) in enumerate([('Add character',add),('Save changes',save),('Revoke selected manual visitor',revoke_visitors),('Export settings',export),('Import settings',import_settings),('Game installation',installation),('Save as template',save_template),('Account login',login),('Discord destination',notification)]):
         ttk.Button(row,text=text,command=lambda f=action:guarded(f)).grid(row=index//3,column=index%3,sticky='ew',padx=2,pady=2)
         row.columnconfigure(index%3,weight=1)
     def wrap(event):

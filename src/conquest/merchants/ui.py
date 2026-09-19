@@ -146,6 +146,7 @@ class UnifiedUI:
         self.bridge = MerchantBridge(self.dispatch)
         install(self.coordinator)
         self.rows,self.labels,self.tables = ProfileMap(),{},{}
+        self.manual_displayed,self.manual_texts,self.manual_buttons = ProfileMap(),ProfileMap(),ProfileMap()
         self.build_overview()
         for character in CHARACTERS:
             self.build_merchant(character)
@@ -392,15 +393,34 @@ class UnifiedUI:
                 raise ValueError('Farmer focus request expired')
             if result.get('error'):raise ValueError(result['error'])
             return result
+        if action=='manual-status' and set(body) in ({'action'},{'action','character'}):
+            character=body.get('character')
+            if character is not None:character='Farmer' if character=='Farmer' else character_name(character)
+            return {'sessions':self.runtime.manual_status(character),
+                    'farmer':self.runtime.manual_farmer_status()}
+        if action in ('manual-approve','manual-reject'):
+            allowed={'action','binding'} | ({'operator'} if 'operator' in body else set())
+            if set(body)!=allowed:raise ValueError('Unsupported manual decision arguments')
+            binding=body.get('binding')
+            if not isinstance(binding,dict):raise ValueError('Exact displayed approval binding is required')
+            operation=self.runtime.approve_manual if action=='manual-approve' else self.runtime.reject_manual
+            return operation(binding,operator=body.get('operator','local UI'))
+        if action=='manual-override':
+            allowed={'action','session_id','confirmation_reference','operator','reason'}
+            if set(body)!=allowed:raise ValueError('Unsupported manual override arguments')
+            return self.runtime.override_manual(body['session_id'],
+                confirmation_reference=body['confirmation_reference'],operator=body['operator'],reason=body['reason'])
         if action=='status' and set(body)=={'action'}:
             return {'characters':self.runtime.status(),'input_owner':self.coordinator.owner,
                 'handoff_requested':self.runtime.handoff,'handoff_granted':bool(self.grant and self.safe_to_yield()),
                 'calibration':dict(self.calibration_results),'layout':dict(self.layout_status),
                 'ui_health':{**self.ui_health,'tick_age_ms':round((time.monotonic()-self.last_ui_tick)*1000)},
                 'sales_reporting':self.runtime.sales_worker.status(),
+                'manual_sessions':self.runtime.manual_status(),
+                'manual_farmer':self.runtime.manual_farmer_status(),
                 'header':dict(self.header_status),
                 'background_probe':dict(self.background_probe),
-                'merchant_ui_version':29}
+                'merchant_ui_version':30}
         if action=='background-probe' and set(body)=={'action','character','mode'}:
             from conquest.merchants.background_probe import start_probe
             character=character_name(body['character'])
@@ -570,6 +590,19 @@ class UnifiedUI:
             text = tk.StringVar(value='Connecting…')
             self.rows[name] = text
             ttk.Label(box,textvariable=text,wraplength=900).pack(anchor='w')
+            manual=tk.StringVar(value='Checking manual visitor status…')
+            self.manual_texts[name]=manual
+            ttk.Separator(box).pack(fill='x',pady=8)
+            ttk.Label(box,textvariable=manual,wraplength=900,justify='left').pack(anchor='w',fill='x')
+            actions=ttk.Frame(box);actions.pack(fill='x',pady=(6,0))
+            approve=ttk.Button(actions,text='Approve exact visitor',state='disabled',
+                command=lambda target=name:self.approve_manual_displayed(target))
+            reject=ttk.Button(actions,text='Reject request',state='disabled',
+                command=lambda target=name:self.reject_manual_displayed(target))
+            override=ttk.Button(actions,text='Resolve attention hold…',state='disabled',
+                command=lambda target=name:self.override_manual_displayed(target))
+            approve.pack(side='left');reject.pack(side='left',padx=6);override.pack(side='left')
+            self.manual_buttons[name]={'approve':approve,'reject':reject,'override':override}
         row = ttk.Frame(frame);row.pack(fill='x',padx=20,pady=10)
         ttk.Button(row,text='Update all shops now',command=self.list_once).pack(side='left')
         ttk.Button(row,text='How shop controls work',command=self.shop_help).pack(side='left',padx=8)
@@ -579,6 +612,82 @@ class UnifiedUI:
         ttk.Label(frame,textvariable=self.discord_note,wraplength=900).pack(anchor='w',padx=20,pady=6)
         self.input_note = tk.StringVar()
         ttk.Label(frame,textvariable=self.input_note,wraplength=900).pack(anchor='w',padx=20,pady=10)
+
+    def refresh_manual_operator(self, statuses, control, *, now=None):
+        """Refresh views atomically; button callbacks retain only this displayed JSON."""
+        from conquest.merchants.manual_operator import displayed,status_text,action_state
+        now=time.time() if now is None else now
+        farmer=self.runtime.manual_farmer_status()
+        for target in ('Farmer',*CHARACTERS):
+            row=farmer.get('session') if target=='Farmer' else self.runtime.manual_status(target)
+            shown=displayed(row)
+            self.manual_displayed[target]=shown
+            intent=(control if target=='Farmer' else {
+                'enabled':bool(statuses.get(target,{}).get('enabled')),
+                'refill_enabled':bool(statuses.get(target,{}).get('refill',{}).get('enabled'))})
+            self.manual_texts[target].set(status_text(target,shown,farmer_status=farmer,
+                                                       intent=intent,now=now))
+            state=action_state(shown,now=now)
+            for action,button in self.manual_buttons[target].items():
+                button.configure(state='normal' if state[action] else 'disabled')
+
+    def _displayed_manual(self, target, *, binding=False):
+        from conquest.merchants.manual_operator import displayed
+        row=displayed(self.manual_displayed.get(target))
+        if row is None:raise ValueError('The displayed manual session is no longer available')
+        if binding and not isinstance(row.get('approval_binding'),dict):
+            raise ValueError('The displayed session has no exact approval binding')
+        return row
+
+    def approve_manual_displayed(self, target):
+        from conquest.merchants.manual_operator import exact_binding_text,visitor_text,decision_seconds
+        try:row=self._displayed_manual(target,binding=True)
+        except ValueError as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+        seconds=decision_seconds(row)
+        prompt=(f"Target: {target}\nVisitor: {visitor_text(row.get('visitor'))}\n"
+                f"Decision time remaining: {seconds if seconds is not None else '?'} second(s)\n\n"
+                "Approve this exact request? Approval only saves permission and activates the memory-observed "
+                "manual interval. It sends no gameplay input and does not enable farming, trading or refill.\n\n"
+                "Exact approval binding:\n"+exact_binding_text(row))
+        if not messagebox.askyesno('Approve exact manual visitor',prompt,parent=self.root):return None
+        try:return self.runtime.approve_manual(row['approval_binding'],operator='local UI')
+        except (ValueError,OSError) as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+
+    def reject_manual_displayed(self, target):
+        from conquest.merchants.manual_operator import exact_binding_text,visitor_text
+        try:row=self._displayed_manual(target,binding=True)
+        except ValueError as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+        prompt=(f"Target: {target}\nVisitor: {visitor_text(row.get('visitor'))}\n\n"
+                "Reject this exact request? This persists decline intent only; any native decline remains at the "
+                "independently qualified input boundary.\n\nExact approval binding:\n"+exact_binding_text(row))
+        if not messagebox.askyesno('Reject exact manual request',prompt,parent=self.root):return None
+        try:return self.runtime.reject_manual(row['approval_binding'],operator='local UI')
+        except (ValueError,OSError) as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+
+    def override_manual_displayed(self, target):
+        from tkinter import simpledialog
+        try:row=self._displayed_manual(target)
+        except ValueError as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+        if row.get('phase')!='needs_attention' and not row.get('rebaseline'):
+            messagebox.showerror('Manual visitor','Only a displayed attention/rebaseline hold can be overridden.',parent=self.root);return None
+        reason=simpledialog.askstring('Manual visitor hold','Reason for the explicit disposition/retry:',parent=self.root)
+        if not reason:return None
+        reference=simpledialog.askstring('Manual visitor hold',
+            'Enter a durable confirmation reference for this exact displayed session:\n'+str(row.get('id')),parent=self.root)
+        if not reference:return None
+        if not messagebox.askyesno('Confirm manual visitor disposition',
+                f"Target: {target}\nExact session: {row.get('id')}\nReason: {reason}\n\n"
+                "This does not prove a transfer or enable automation. Fresh stable memory is still required.",parent=self.root):
+            return None
+        try:return self.runtime.override_manual(row['id'],confirmation_reference=reference,
+                                                operator='local UI',reason=reason)
+        except (ValueError,OSError) as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
 
     def configure_shops(self):
         from tkinter import simpledialog,messagebox
@@ -1442,6 +1551,8 @@ class UnifiedUI:
             statuses = data['characters']
             self.update_header(statuses)
             control = self.app.control.snapshot()
+            if hasattr(self,'manual_texts'):
+                self.refresh_manual_operator(statuses,control)
             self.rows['Farmer'].set(f'{self.app.state_text.get()} · {self.app.activity_text.get()}\n{self.app.stats_text.get()}')
             self.input_note.set(f'Input owner: {self.coordinator.owner or "none"}. '
                 + ('Farmer handoff available.' if self.safe_to_yield() else 'Waiting for the farmer to stop or explicitly grant a safe handoff.'))
