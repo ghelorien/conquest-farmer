@@ -2,8 +2,8 @@
 import importlib
 import threading
 import time
-from conquest.discord_notify import read_json,write_json
-from conquest.merchants.delivery_probe import JOURNAL
+from conquest.discord_notify import read_json
+from conquest.merchants.delivery_probe import JOURNAL,write_probe as write_json
 
 
 def start(ui,stage):
