@@ -146,6 +146,15 @@ def test_malformed_canonical_audit_blocks_terminal_replacement(route,monkeypatch
     assert read_json(m.JOURNAL)==terminal
 
 
+def test_malformed_archive_intent_fails_closed_without_replacing_journal(tmp_path):
+    terminal={'phase':'operator_overridden','operator_override':{'original_state':{'phase':'travelling'}}}
+    write_json(m.JOURNAL,terminal)
+    write_json(m._intent_path(),{'terminal_digest':'not-a-journal','terminal_journal':'corrupt'})
+    with pytest.raises(ValueError,match='archive intent is unreadable'):
+        m._recover_archive_boundary()
+    assert read_json(m.JOURNAL)==terminal
+
+
 def test_canonical_audit_append_is_concurrent_and_idempotent(monkeypatch,tmp_path):
     monkeypatch.setattr(m,'AUDIT',tmp_path/'meteor-audit.jsonl')
     record={'record_type':'meteor_terminal_journal','archive_key':'terminal-journal:one','journal':{'phase':'operator_overridden'}}

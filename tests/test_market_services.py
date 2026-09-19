@@ -94,7 +94,8 @@ def test_unqualified_exchange_and_unfinished_batch_never_withdraw(monkeypatch):
     monkeypatch.setattr(banking,'read_json',lambda path:{'enabled':False,'qualified':False})
     assert banking.consolidate(None,stored) is False
     monkeypatch.setattr(banking,'read_json',lambda path:
-        {'enabled':True,'qualified':True,'exchange':{'fee':0}} if path==banking.POLICY else {'phase':'exchange_pending'})
+        {'enabled':True,'qualified':True,'exchange':{'fee':0}} if path==banking.POLICY
+        else {'phase':'exchange_pending'} if path==banking.JOURNAL else {})
     with pytest.raises(ValueError,match='reconciliation'):banking.consolidate(None,stored)
 
 
