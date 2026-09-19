@@ -116,6 +116,54 @@ def test_immutable_layout_requires_external_state_before_launch(tmp_path,monkeyp
     with pytest.raises(ValueError,match='separate'):layout.RuntimeLayout.resolve()
 
 
+def test_full_verification_failure_backoff_never_writes_or_caches_success(tmp_path,monkeypatch):
+    root=app(tmp_path/'release');state=tmp_path/'state';state.mkdir()
+    release.write_manifest(root);digest=release.verify_release(root)['manifest_sha256']
+    monkeypatch.setenv(layout.APP_ROOT,str(root));monkeypatch.setenv(layout.MANIFEST_PIN,digest)
+    monkeypatch.setenv('CONQUEST_DATA_ROOT',str(state))
+    monkeypatch.setattr(route_controller,'state_path',lambda value:str(state/value))
+    now=[100];monkeypatch.setattr(layout.time,'monotonic',lambda:now[0])
+    calls=[]
+    def invalid(*args,**kwargs):
+        calls.append(1)
+        raise release.ReleaseError('Release file differs from the manifest: payload')
+    monkeypatch.setattr(release,'verify_release',invalid)
+    for second in (100,102,140):
+        now[0]=second
+        with pytest.raises(release.ReleaseError,match='payload'):
+            route_controller.ensure_running('bandit')
+    assert len(calls)==1 and not list(state.iterdir())
+    now[0]=145
+    with pytest.raises(release.ReleaseError,match='payload'):
+        route_controller.ensure_running('bandit')
+    assert len(calls)==2 and not list(state.iterdir())
+    now[0]=190
+    monkeypatch.setattr(release,'verify_release',lambda *a,**k:calls.append(1))
+    layout.RuntimeLayout.resolve();layout.RuntimeLayout.resolve()
+    assert len(calls)==4  # Each successful launch attempt obtains a fresh proof.
+
+
+def test_failed_full_verification_is_single_flight_per_root_and_pin(tmp_path,monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    entered=threading.Event();finish=threading.Event();calls=[]
+    def invalid(*args,**kwargs):
+        calls.append(1);entered.set()
+        assert finish.wait(5)
+        raise release.ReleaseError('integrity failure')
+    monkeypatch.setattr(release,'verify_release',invalid)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first=pool.submit(layout._verify_release_for_launch,tmp_path,'pin')
+        assert entered.wait(5)
+        second=pool.submit(layout._verify_release_for_launch,tmp_path,'pin')
+        finish.set()
+        for pending in (first,second):
+            with pytest.raises(release.ReleaseError,match='integrity failure'):pending.result()
+    assert len(calls)==1
+    with pytest.raises(release.ReleaseError):layout._verify_release_for_launch(tmp_path,'new-pin')
+    assert len(calls)==2
+
+
 def test_entrypoint_rejects_wrong_root_before_conquest_imports(tmp_path):
     root=Path(__file__).resolve().parents[1]
     environment=os.environ.copy();environment[layout.APP_ROOT]=str(tmp_path)

@@ -6,9 +6,34 @@ import os
 import re
 import stat
 import sys
+import threading
+import time
 
 APP_ROOT = 'CONQUEST_APP_ROOT'
 MANIFEST_PIN = 'CONQUEST_RELEASE_MANIFEST_SHA256'
+_VERIFY_BACKOFF_SECONDS = 45
+_verification_registry_lock = threading.Lock()
+_verification_flights = {}
+
+
+def _verify_release_for_launch(root, pin):
+    """Serialize full reads and retain only failures, never successful proofs."""
+    key = (os.path.normcase(str(root)), pin)
+    with _verification_registry_lock:
+        flight = _verification_flights.setdefault(key, {'lock': threading.Lock()})
+    with flight['lock']:
+        failure = flight.get('failure')
+        if failure and time.monotonic() - failure[0] < _VERIFY_BACKOFF_SECONDS:
+            _at, error_type, arguments = failure
+            raise error_type(*arguments)
+        from conquest.release import verify_release
+        try:
+            verify_release(root, expected_manifest_sha256=pin)
+        except (OSError, ValueError) as error:
+            flight['failure'] = (time.monotonic(), type(error), error.args)
+            raise
+        else:
+            flight.pop('failure', None)
 
 
 def real_path(value):
@@ -49,8 +74,7 @@ def application_root(explicit=None, *, verify=True):
         if not manifest.is_file() or hashlib.sha256(manifest.read_bytes()).hexdigest() != pin:
             raise ValueError('Release manifest differs from the activated manifest')
         if verify:
-            from conquest.release import verify_release
-            verify_release(root, expected_manifest_sha256=pin)
+            _verify_release_for_launch(root, pin)
     return root
 
 
