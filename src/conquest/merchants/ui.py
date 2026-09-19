@@ -238,6 +238,9 @@ class UnifiedUI:
         if action=='delivery-target' and set(body)=={'action','character'}:
             from conquest.merchants.farmer_trade import delivery_target_status
             return delivery_target_status(self,character_name(body['character']))
+        if action=='trade-qualification-prep-target' and set(body)=={'action','character'}:
+            from conquest.merchants.trade_qualification_prep import target_projection
+            return target_projection(self,character_name(body['character']))
         if action in ('recovery-status','recovery-recheck','recovery-override'):
             allowed={'action','character'} if action=='recovery-status' else {'action','character','incident_id'}
             if action=='recovery-override':

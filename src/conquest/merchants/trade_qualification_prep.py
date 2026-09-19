@@ -8,6 +8,7 @@ from pathlib import Path
 import ctypes
 import hashlib
 import json
+import math
 import os
 import tempfile
 import threading
@@ -28,6 +29,8 @@ TERMINAL = {'completed', 'operator_overridden'}
 PENDING = {'prepared', 'warehouse_opening', 'deposit_pending', 'banked',
            'withdraw_pending', 'withdraw_submitted', 'outbound_pending', 'market', 'approaching'}
 _START_LOCK = threading.RLock()
+CANDIDATE = Path(state_path('reports/merchants/trade-layout-candidate.json'))
+CANDIDATE_MAX_AGE = 30*24*60*60
 
 
 def _write_durable(path, state):
@@ -141,6 +144,147 @@ def _payload_is_safe(source, state):
     if extras:
         raise ValueError('More than one protected or delivery-eligible item remains carried')
     return selected
+
+
+def _candidate_profile(observer):
+    """Load the probe's build-pinned read-only projection evidence strictly."""
+    try:
+        raw = CANDIDATE.read_bytes()
+        profile = json.loads(raw.decode('utf-8'))
+    except (OSError, UnicodeError, ValueError) as error:
+        raise ValueError('Trade layout candidate is unreadable') from error
+    expected = {'at', 'client_sha256', 'target_mode', 'recipient', 'input_qualified',
+                'evidence_reports', 'remaining'}
+    if not isinstance(profile, dict) or set(profile) != expected:
+        raise ValueError('Trade layout candidate schema changed')
+    target = profile.get('target_mode')
+    recipient = profile.get('recipient')
+    from conquest.merchants.trade_controls import TRADE_MODE_RVA, TRADE_MODE_VALUE
+    if (type(profile.get('at')) not in (int, float) or not math.isfinite(profile['at'])
+            or profile['at'] <= 0 or profile['at'] > time.time()+300
+            or type(profile.get('input_qualified')) is not bool
+            or not isinstance(target, dict) or set(target) != {'rva', 'value'}
+            or any(type(target.get(key)) is not int for key in ('rva', 'value'))
+            or target != {'rva': TRADE_MODE_RVA, 'value': TRADE_MODE_VALUE}
+            or not isinstance(recipient, dict)
+            or set(recipient) != {'vtable_rva', 'uid_offset', 'name_offset',
+                                  'position_offset', 'draw_offset', 'draw_format',
+                                  'name_format', 'name_capacity'}
+            or any(type(recipient.get(key)) is not int for key in
+                   ('vtable_rva', 'uid_offset', 'name_offset', 'position_offset',
+                    'draw_offset', 'name_capacity'))
+            or recipient.get('draw_format') != 'i32'
+            or recipient.get('name_format') != 'inline_utf8'
+            or not isinstance(profile.get('evidence_reports'), list)
+            or not all(isinstance(value, str) and value for value in profile['evidence_reports'])
+            or not isinstance(profile.get('remaining'), list)
+            or not all(isinstance(value, str) for value in profile['remaining'])):
+        raise ValueError('Trade layout candidate schema changed')
+    if profile.get('client_sha256') != observer.adapter.expected_sha256:
+        raise ValueError('Trade layout build changed')
+    if time.time()-profile['at'] > CANDIDATE_MAX_AGE:
+        raise ValueError('Trade layout candidate is stale')
+    return raw, profile
+
+
+def _projection_observation(observer, profile, farmer, merchant):
+    """Observe actionability, life and anchor without acquiring input ownership."""
+    from conquest.merchants.farmer_trade import RecipientAbsent, recipient_actionability
+    try:
+        actionability = recipient_actionability(observer, profile, merchant, farmer=farmer)
+        occupied = actionability['recipient'].get('occupied_tiles', [])
+    except RecipientAbsent as error:
+        actionability = None
+        occupied = error.occupied_tiles
+    from conquest.memory_life import read_life
+    from conquest.scene_input import memory_player_anchor
+    life = read_life(observer.adapter, observer.health_layout, observer.character)
+    if list(life.position) != farmer['position'] or life.map_id != 1036:
+        raise ValueError('Farmer moved during prep target projection')
+    anchor = list(memory_player_anchor(observer, life))
+    return actionability, list(map(list, occupied)), anchor
+
+
+def _fresh_market_pair(farmer, merchant):
+    now = time.time()
+    for snapshot in (farmer, merchant):
+        observed = snapshot.get('timestamp')
+        if type(observed) not in (int, float) or not 0 <= now-observed <= 5:
+            raise ValueError('Fresh Market participant memory is required')
+        if snapshot.get('map_id') != 1036:
+            raise ValueError('Both prep participants must remain in Market')
+
+
+def target_projection(ui, character):
+    """Read-only target projection solely for an already-journaled Market prep.
+
+    This deliberately does not construct FarmerTradeDriver: that driver's
+    final farmer_delivery capability is the evidence this staged exercise is
+    intended to qualify.
+    """
+    character = character_name(character)
+    state = _read()
+    if (not state or state.get('phase') not in ('market', 'approaching')
+            or state.get('character') != character):
+        raise ValueError('No matching Market trade qualification prep is active')
+    incident = hashlib.sha256(json.dumps(state, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    observer = ui.app.observer
+    candidate_raw, profile = _candidate_profile(observer)
+    size = list(observer.operations.target.snapshot()['client_size'])
+    from conquest.merchants.memory import GuiReader
+    gui = list(GuiReader(observer.adapter).viewport_size())
+    if len(size) != 2 or len(gui) != 2 or any(type(value) is not int or value <= 0 for value in size+gui):
+        raise ValueError('Trade projection dimensions are unavailable')
+    profile = {**profile, 'client_size': size, 'gui_size': gui}
+
+    farmer, merchant = pair(ui, character)
+    _same_participant(farmer, state['farmer'], 'Farmer')
+    _same_participant(merchant, state['merchant'], 'Merchant')
+    _fresh_market_pair(farmer, merchant)
+    if farmer.get('trade') or farmer.get('request') or merchant.get('trade') or merchant.get('request'):
+        raise ValueError('Prep target projection requires idle trade participants')
+    _payload_is_safe(farmer, state)
+    first, first_occupied, first_anchor = _projection_observation(
+        observer, profile, farmer, merchant)
+
+    fresh_farmer, fresh_merchant = pair(ui, character)
+    _same_participant(fresh_farmer, state['farmer'], 'Farmer')
+    _same_participant(fresh_merchant, state['merchant'], 'Merchant')
+    _fresh_market_pair(fresh_farmer, fresh_merchant)
+    if (fresh_farmer.get('position') != farmer.get('position')
+            or fresh_merchant.get('position') != merchant.get('position')):
+        raise ValueError('Prep participants moved during target projection')
+    if fresh_farmer.get('trade') or fresh_farmer.get('request') or fresh_merchant.get('trade') or fresh_merchant.get('request'):
+        raise ValueError('Prep trade state changed during target projection')
+    _payload_is_safe(fresh_farmer, state)
+    second, second_occupied, second_anchor = _projection_observation(
+        observer, profile, fresh_farmer, fresh_merchant)
+    if first != second or first_occupied != second_occupied or first_anchor != second_anchor:
+        raise ValueError('Trade recipient actionability changed during target projection')
+
+    current = _read()
+    current_incident = hashlib.sha256(json.dumps(current, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    try:
+        candidate_still = CANDIDATE.read_bytes()
+    except OSError as error:
+        raise ValueError('Trade layout candidate changed during projection') from error
+    if current_incident != incident or candidate_still != candidate_raw:
+        raise ValueError('Prep or trade layout candidate changed during projection')
+
+    occupied = [farmer['position'], *first_occupied]
+    occupied = list(map(list, dict.fromkeys(map(tuple, occupied))))
+    if first is None:
+        return {'schema_version': 1, 'ready': False, 'actionable': False,
+                'reason': 'recipient_absent', 'character': farmer['character'],
+                'farmer_position': farmer['position'], 'merchant': merchant['character'],
+                'merchant_position': merchant['position'], 'point': None,
+                'viewport': gui, 'client_size': size, 'anchor': first_anchor,
+                'occupied_tiles': occupied}
+    return {'schema_version': 1, 'ready': first['actionable'], 'reason': first['reason'],
+            'character': farmer['character'], 'farmer_position': farmer['position'],
+            'merchant': merchant['character'], 'merchant_position': merchant['position'],
+            'point': first['recipient']['point'], 'viewport': gui, 'client_size': size,
+            'anchor': first_anchor, 'occupied_tiles': occupied, **first}
 
 
 def _validate_request(ui, character, uid):
@@ -537,17 +681,23 @@ def _run(ui, state, *, send=request):
             _same_participant(source, state['farmer'], 'Farmer')
             _same_participant(merchant, state['merchant'], 'Merchant')
             _payload_is_safe(source, state)
-            target = send({'action': 'delivery-target', 'character': state['character']})
+            def prep_send(body):
+                if (body.get('action') == 'delivery-target'
+                        and set(body) == {'action', 'character'}):
+                    return send({'action': 'trade-qualification-prep-target',
+                                 'character': body['character']})
+                return send(body)
+            target = prep_send({'action': 'delivery-target', 'character': state['character']})
             plan = {'merchant': state['character'], 'position': target['merchant_position']}
             _save(state, 'approaching', merchant_position=target['merchant_position'])
             from conquest.merchants.delivery_route import approach_merchant
-            if not approach_merchant(loop, plan, send, deadline=time.time()+30):
+            if not approach_merchant(loop, plan, prep_send, deadline=time.time()+30):
                 raise ValueError('Could not reach a memory-actionable position near the merchant')
             source, merchant = pair(ui, state['character'])
             _same_participant(source, state['farmer'], 'Farmer')
             _same_participant(merchant, state['merchant'], 'Merchant')
             _payload_is_safe(source, state)
-            target = send({'action': 'delivery-target', 'character': state['character']})
+            target = prep_send({'action': 'delivery-target', 'character': state['character']})
             if not target.get('ready'):
                 raise ValueError('Merchant is not memory-actionable after approach')
             source, merchant = pair(ui, state['character'])

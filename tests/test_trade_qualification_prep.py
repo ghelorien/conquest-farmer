@@ -349,3 +349,131 @@ def test_guard_blocks_farming_while_prep_is_nonterminal(tmp_path, monkeypatch):
     monkeypatch.setattr('conquest.protected_withdrawal.pending',lambda:[])
     with pytest.raises(ValueError,match='Supervised trade preparation'):
         delivery_operation.guard_protected_assets()
+
+
+def projection_candidate(build='build'):
+    return {'at': time.time(), 'client_sha256': build,
+            'target_mode': {'rva': 0x699290, 'value': 19},
+            'recipient': {'vtable_rva': 20, 'uid_offset': 120, 'name_offset': 164,
+                          'position_offset': 232, 'draw_offset': 248,
+                          'draw_format': 'i32', 'name_format': 'inline_utf8',
+                          'name_capacity': 32},
+            'input_qualified': False, 'evidence_reports': ['probe.json'],
+            'remaining': ['live qualification']}
+
+
+def projection_rig(tmp_path, monkeypatch, *, phase='market'):
+    selected=item(10);farmer=account('Parasite',1,[selected],map_id=1036)
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state={'phase':phase,'character':'Spiritual','selected_uid':10,
+           'selected_item':copy.deepcopy(selected),'farmer':copy.deepcopy(farmer),
+           'merchant':copy.deepcopy(merchant)}
+    journal=tmp_path/'prep.json';candidate=tmp_path/'candidate.json'
+    monkeypatch.setattr(prep,'JOURNAL',journal);monkeypatch.setattr(prep,'CANDIDATE',candidate)
+    prep._durable(state);candidate.write_text(__import__('json').dumps(projection_candidate()),encoding='utf-8')
+    observer=SimpleNamespace(adapter=SimpleNamespace(expected_sha256='build'),health_layout=object(),
+        character='Parasite',operations=SimpleNamespace(target=SimpleNamespace(
+            snapshot=lambda:{'client_size':[1024,768]})))
+    ui=SimpleNamespace(app=SimpleNamespace(observer=observer))
+    monkeypatch.setattr('conquest.merchants.memory.GuiReader',lambda adapter:SimpleNamespace(
+        viewport_size=lambda:[1024,768]))
+    monkeypatch.setattr(prep,'pair',lambda *args,**fields:
+        (copy.deepcopy(farmer),copy.deepcopy(merchant)))
+    actionable={'actionable':True,'reason':'actionable','recipient':{
+        'point':[500,300],'occupied_tiles':[[20,20]],'address':123}}
+    monkeypatch.setattr(prep,'_projection_observation',lambda *args:
+        (copy.deepcopy(actionable),[[20,20]],[512,384]))
+    return ui,farmer,merchant,candidate,actionable
+
+
+def test_prep_target_projection_does_not_require_final_delivery_qualification(tmp_path,monkeypatch):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+    monkeypatch.setattr('conquest.merchants.farmer_trade.delivery_target_status',
+        lambda *args:pytest.fail('Final farmer_delivery qualification must not be consulted'))
+    result=prep.target_projection(ui,'Spiritual')
+    assert result['ready'] is True and result['point']==[500,300]
+    assert result['farmer_position']==farmer['position']
+
+
+@pytest.mark.parametrize('failure', ['corrupt','wrong_build','schema','stale'])
+def test_prep_target_projection_rejects_bad_candidate(tmp_path,monkeypatch,failure):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+    if failure=='corrupt':candidate.write_text('{',encoding='utf-8')
+    elif failure=='wrong_build':
+        candidate.write_text(__import__('json').dumps(projection_candidate('other')),encoding='utf-8')
+    else:
+        value=projection_candidate()
+        if failure=='stale':value['at']-=prep.CANDIDATE_MAX_AGE+1
+        else:value['unexpected']=True
+        candidate.write_text(__import__('json').dumps(value),encoding='utf-8')
+    with pytest.raises(ValueError,match='unreadable|build changed|schema changed|stale'):
+        prep.target_projection(ui,'Spiritual')
+
+
+def test_prep_target_projection_rejects_candidate_that_changes_midread(tmp_path,monkeypatch):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+    calls=[0]
+    def observation(*args):
+        calls[0]+=1
+        if calls[0]==2:
+            value=projection_candidate();value['remaining']=['changed evidence']
+            candidate.write_text(__import__('json').dumps(value),encoding='utf-8')
+        return copy.deepcopy(actionable),[[20,20]],[512,384]
+    monkeypatch.setattr(prep,'_projection_observation',observation)
+    with pytest.raises(ValueError,match='candidate changed'):
+        prep.target_projection(ui,'Spiritual')
+
+
+def test_prep_target_projection_rechecks_identity_position_and_actionability(tmp_path,monkeypatch):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+    changed=copy.deepcopy(farmer);changed['position']=[11,10]
+    pairs=iter([(copy.deepcopy(farmer),copy.deepcopy(merchant)),
+                (changed,copy.deepcopy(merchant))])
+    monkeypatch.setattr(prep,'pair',lambda *args,**fields:next(pairs))
+    with pytest.raises(ValueError,match='moved during target projection'):
+        prep.target_projection(ui,'Spiritual')
+
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+    observations=iter([(copy.deepcopy(actionable),[[20,20]],[512,384]),
+                       ({**copy.deepcopy(actionable),'reason':'covered'},[[20,20]],[512,384])])
+    monkeypatch.setattr(prep,'_projection_observation',lambda *args:next(observations))
+    with pytest.raises(ValueError,match='actionability changed'):
+        prep.target_projection(ui,'Spiritual')
+
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+    changed=copy.deepcopy(merchant);changed['identity']={**changed['identity'],'pid':999}
+    pairs=iter([(copy.deepcopy(farmer),copy.deepcopy(merchant)),
+                (copy.deepcopy(farmer),changed)])
+    monkeypatch.setattr(prep,'pair',lambda *args,**fields:next(pairs))
+    with pytest.raises(ValueError,match='identity changed'):
+        prep.target_projection(ui,'Spiritual')
+
+
+def test_prep_target_projection_requires_matching_market_phase(tmp_path,monkeypatch):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch,phase='banked')
+    with pytest.raises(ValueError,match='No matching Market'):
+        prep.target_projection(ui,'Spiritual')
+
+
+def test_prep_target_bridge_schema_is_strict_and_normal_target_is_unchanged(tmp_path,monkeypatch):
+    from conquest.merchants.ui import UnifiedUI
+    ui=object.__new__(UnifiedUI)
+    monkeypatch.setattr(prep,'target_projection',lambda ui,character:{'prep':character})
+    monkeypatch.setattr('conquest.merchants.farmer_trade.delivery_target_status',
+        lambda ui,character:{'normal':character})
+    assert ui.dispatch({'action':'trade-qualification-prep-target','character':'Spiritual'})=={'prep':'Spiritual'}
+    assert ui.dispatch({'action':'delivery-target','character':'Spiritual'})=={'normal':'Spiritual'}
+    with pytest.raises(ValueError,match='Unsupported'):
+        ui.dispatch({'action':'trade-qualification-prep-target','character':'Spiritual','grant':True})
+
+
+def test_authenticated_bridge_exposes_only_journal_gated_prep_projection(tmp_path,monkeypatch):
+    from conquest.merchants.bridge import MerchantBridge,request
+    from conquest.merchants.ui import UnifiedUI
+    ui=object.__new__(UnifiedUI)
+    monkeypatch.setattr(prep,'target_projection',lambda ui,character:{'character':character,'read_only':True})
+    path=tmp_path/'bridge.json';bridge=MerchantBridge(ui.dispatch,path=path)
+    try:
+        assert request({'action':'trade-qualification-prep-target','character':'Spiritual'},path=path)=={
+            'character':'Spiritual','read_only':True}
+    finally:bridge.close()
