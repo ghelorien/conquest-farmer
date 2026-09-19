@@ -114,12 +114,19 @@ no gameplay input or settlement callback runs. Its dedicated audit event retains
 the original binding, request/decline history, probe and fresh bilateral memory.
 It requires an exact recoverable supervised probe, unchanged process/profile/
 character/recipient/request evidence and holdings, and a single never-approved,
-never-claimed pending request. Approved intervals, settlement and uncertain
+never-claimed pending request. Retraction requires the current `request_verified`
+phase and a durable `updated_at`; both session creation and its original memory
+evidence must be at or after that boundary. Preparation time is insufficient.
+Approved intervals, settlement and uncertain
 declines remain held. Corrupt, terminal, mismatched or stale live evidence never
 grants probe ownership or delivery trust. Recoverable incident age alone does
 not expire an unresolved transaction; fresh bilateral memory must re-prove it.
 Both merchant and farmer observers apply this proof to supervised open-trade
 stages, checking exact peers, item offers, inventory, silver and booth ownership.
+Open offers must match durable `offered_uids` (empty when absent); a submitted
+placement permits only that set or that set plus the exact `placing_uid`.
+Accept/cancel transitions require an empty offer, and complete-offer phases
+require every selected item. An arbitrary subset of selected items is insufficient.
 They never grant automated trust or release an existing farmer manual interval.
 `declined_verified` additionally requires a durable decline input
 claim and unchanged ownership. Terminal receipts explicitly set

@@ -102,11 +102,23 @@ def ownership(state, character, target_profile_id, farmer_profile_id, farmer, me
                 raise ValueError('Probe open trade participants changed')
         from conquest.merchants.farmer_trade import partial_offer
         offered = exact_items(partial_offer(intent, farmer, merchant))
-        if state['phase'] == 'accept_submitted' and offered:
-            raise ValueError('Probe has unexpected items before placement')
-        if state['phase'] in ('offer_verified', 'farmer_confirm_submitted',
-                              'farmer_confirm_verified', 'merchant_confirm_submitted') and offered != items:
-            raise ValueError('Probe requires its complete verified offer')
+        if state['phase'] in ('accept_submitted', 'cancel_submitted'):
+            allowed_offers = (set(),)
+        elif state['phase'] in ('trade_open_verified', 'placement_submitted'):
+            prior = state.get('offered_uids', [])
+            if (not isinstance(prior, list) or any(type(uid) is not int or uid <= 0 for uid in prior)
+                    or len(set(prior)) != len(prior) or not set(prior) <= set(items)):
+                raise ValueError('Durable probe offered set is invalid')
+            allowed_offers = (set(prior),)
+            if state['phase'] == 'placement_submitted':
+                placing = state.get('placing_uid')
+                if type(placing) is not int or placing not in items or placing in prior:
+                    raise ValueError('Durable probe placement boundary is invalid')
+                allowed_offers += (set(prior) | {placing},)
+        else:
+            allowed_offers = (set(items),)
+        if set(offered) not in allowed_offers:
+            raise ValueError('Live probe offer differs from its exact durable phase')
         for role in ('farmer', 'merchant'):
             if any(current[role][field] != original[role][field]
                    for field in ('booth', 'booth_open', 'own_booth_uid', 'capacity')):

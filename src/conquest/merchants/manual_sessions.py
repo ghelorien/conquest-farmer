@@ -698,8 +698,14 @@ class ManualSessionStore:
             row = self._row(db, session_id)
             proof = ownership(state, snapshot['character'], row['target_profile_id'],
                               farmer_profile_id, farmer, snapshot, now=now)
+            # Preparation does not establish ownership of a request that may
+            # already belong to a manual visitor. Without a dedicated saved
+            # request-submission boundary, use the current verified write only.
+            request_owned_at = state.get('updated_at') if state.get('phase') == 'request_verified' else None
+            if type(request_owned_at) not in (int, float) or not math.isfinite(request_owned_at):
+                raise BindingMismatch('Durable verified request ownership boundary is unavailable')
             if (row['phase'] not in ('approval_pending', 'needs_attention') or row['ever_approved']
-                    or proof['modal'] != 'request' or row['created_at'] < state['started_at']
+                    or proof['modal'] != 'request' or row['created_at'] < request_owned_at
                     or db.execute('SELECT 1 FROM manual_decline_claims c JOIN manual_requests r '
                                   'ON r.id=c.request_id WHERE r.session_id=?', (session_id,)).fetchone()):
                 raise BindingMismatch('Manual interval cannot be retracted as a bot-owned request')
@@ -714,7 +720,7 @@ class ManualSessionStore:
             original = db.execute('SELECT snapshot_json FROM manual_evidence WHERE session_id=? AND digest=?',
                                   (session_id, binding['evidence_digest'])).fetchone()
             original = json.loads(original[0]) if original else None
-            if (not original or original['timestamp'] < state['started_at']
+            if (not original or original['timestamp'] < request_owned_at
                     or any(original.get(key) != snapshot.get(key) for key in ('position', 'map_id'))
                     or any({item['uid']: item.get('slot') for item in original[field]} !=
                            {item['uid']: item.get('slot') for item in snapshot[field]}
@@ -726,6 +732,7 @@ class ManualSessionStore:
                        'disposition': 'manual_admission_retracted_bot_owned',
                        'request_still_visible': True, 'gameplay_input': False, 'sales_receipt': False,
                        'reason': reason, 'original_phase': row['phase'], 'original_binding': binding,
+                       'request_owned_at': request_owned_at,
                        'original_request_state': request['state'], 'evidence_id': evidence_id,
                        'probe': state, 'farmer_evidence': farmer, 'at': now}
             db.execute("UPDATE manual_sessions SET phase='request_withdrawn',terminal_json=?,reason=?,"

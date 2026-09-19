@@ -235,6 +235,10 @@ def test_probe_open_trade_stays_with_supervised_worker(supervised):
 
 def open_trade(x, *, phase='trade_open_verified', offered=False):
     x.probe['phase'] = phase
+    if phase == 'trade_open_verified':x.probe['offered_uids'] = list(x.probe['selected_uids']) if offered else []
+    if phase == 'placement_submitted':
+        x.probe['offered_uids'] = []
+        x.probe['placing_uid'] = x.probe['selected_uids'][0]
     x.save()
     terms = dict(own_items=[], items=[], own_silver=0, other_silver=0,
                  accepted=False, other_accepted=False)
@@ -331,3 +335,71 @@ def test_profile_scoped_probe_requires_explicit_exact_profile_binding(supervised
         ownership(x.probe, 'Dutch', 'merchant-profile', 'farmer-profile', x.farmer_read(), x.read(), now=x.now)
     x.probe.update(target_profile_id='merchant-profile', farmer_profile_id='farmer-profile')
     assert ownership(x.probe, 'Dutch', 'merchant-profile', 'farmer-profile', x.farmer_read(), x.read(), now=x.now)
+
+
+@pytest.mark.parametrize('boundary', ['verified_after_admission', 'missing_verified_time', 'submitted_only',
+                                    'evidence_predates_verified_time'])
+def test_retraction_requires_original_admission_after_durable_request_boundary(supervised, boundary):
+    x = supervised
+    # Preparation started at 90, but only the durable write at 101 proves the
+    # request was bot-owned. A manual visitor observed at 100 keeps its hold.
+    x.probe['started_at'] = 90
+    for role in ('farmer', 'merchant'):
+        x.probe['intent'][role]['timestamp'] = 90
+        x.probe[role + '_after']['timestamp'] = 101
+    x.probe['updated_at'] = 101
+    original = x.read()  # original evidence timestamp 100
+    if boundary == 'evidence_predates_verified_time':x.now = 101
+    row = x.runtime.manual_sessions.begin_request('Dutch', original, now=x.now)
+    if boundary == 'missing_verified_time':x.probe.pop('updated_at')
+    if boundary == 'submitted_only':x.probe['phase'] = 'request_submitted'
+    x.save()
+    x.now = 102
+    x.runtime.step('Dutch')
+    saved = x.runtime.manual_sessions.get(row['id'])
+    assert saved['holds_automation'] and saved['terminal'] is None
+    assert x.guard.manual_session_blocked('Dutch') and x.calls == []
+
+
+@pytest.mark.parametrize('phase,prior,placing,live,allowed', [
+    ('trade_open_verified', None, None, [], True),
+    ('trade_open_verified', None, None, [99], False),
+    ('trade_open_verified', [99], None, [99], True),
+    ('trade_open_verified', [99], None, [], False),
+    ('trade_open_verified', [99], None, [99, 100], False),
+    ('trade_open_verified', [99, 100], None, [100], False),
+    ('placement_submitted', [], 99, [], True),
+    ('placement_submitted', [], 99, [99], True),
+    ('placement_submitted', [], 99, [100], False),
+    ('placement_submitted', [99], 100, [99], True),
+    ('placement_submitted', [99], 100, [99, 100], True),
+    ('placement_submitted', [99], 100, [100], False),
+    ('placement_submitted', [99], 100, [], False),
+    ('placement_submitted', [], None, [], False),
+    ('placement_submitted', [99], 99, [99], False),
+    ('accept_submitted', [], None, [99], False),
+    ('cancel_submitted', [], None, [99], False),
+    ('offer_verified', [], None, [99], False),
+    ('offer_verified', [], None, [99, 100], True),
+    ('farmer_confirm_verified', [], None, [100], False),
+])
+def test_open_trade_offer_is_bound_to_exact_durable_phase(supervised, phase, prior, placing, live, allowed):
+    x = supervised
+    second = {**deepcopy(x.farmer['inventory'][0]), 'uid': 100}
+    x.farmer['inventory'].append(second)
+    x.probe['intent']['farmer']['inventory'].append(deepcopy(second))
+    x.probe['intent']['items'].append(deepcopy(second))
+    x.probe['farmer_after']['inventory'].append(deepcopy(second))
+    x.probe['selected_uids'].append(100)
+    open_trade(x, phase=phase)
+    if prior is None:x.probe.pop('offered_uids', None)
+    else:x.probe['offered_uids'] = prior
+    if placing is None:x.probe.pop('placing_uid', None)
+    else:x.probe['placing_uid'] = placing
+    x.save()
+    offered = [item for item in x.probe['intent']['items'] if item['uid'] in live]
+    x.farmer['trade']['own_items'] = deepcopy(offered)
+    x.state['trade']['items'] = deepcopy(offered)
+    assert x.runtime.process_probe_owned('Dutch', x.read()) is allowed
+    assert x.runtime.process_probe_owned('Farmer', x.farmer_read()) is allowed
+    assert x.calls == [] and x.runtime.manual_sessions.permissions() == []
