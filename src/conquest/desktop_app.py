@@ -52,7 +52,7 @@ class DesktopApp:
         self.root, self.profile = root, Path(profile)
         self.backend, self.host = WindowsBackend(), EmbeddedWindow(mode='owned')
         from conquest.discord_notify import read_json
-        self.host.api.height_scale = float(read_json('.runtime/farmer-view.json').get('height_scale',1.0))
+        self.host.api.height_scale = float(read_json(state_path('.runtime/farmer-view.json')).get('height_scale',1.0))
         self.messages, self.thread = queue.Queue(), None
         self.requires_elevation = requires_elevation
         from conquest.character_context import current
@@ -711,6 +711,18 @@ class DesktopApp:
         self.root.after(25,self.poll_pointer_focus)
 
     def start(self, calibration=False):
+        # Memory-only farming requires the explicit pinned embedding flow.
+        # Reject before discovery can choose a foreground client or elevate.
+        try:
+            config = TrialConfig.model_validate(yaml.safe_load(self.profile.read_text()))
+            if config.observation_mode != 'legacy_visual':
+                raise ValueError('Memory-only farming requires an exactly selected embedded client. '
+                    'Use --embed-client --client-pid PID --client-started CREATION_TIME '
+                    '--client-hwnd HWND, then enable Farming On in the app.')
+        except Exception as error:
+            self.state_text.set(str(error))
+            self.record(state='Stopped', result={'detail':str(error)})
+            return
         if self.thread and self.thread.is_alive():
             return
         if self.host.saved:
@@ -720,9 +732,6 @@ class DesktopApp:
             self.refresh_client()
             if self.client is None:
                 raise ValueError('No unique matching character client is open')
-            config = TrialConfig.model_validate(yaml.safe_load(self.profile.read_text()))
-            if config.observation_mode != 'legacy_visual':
-                raise ValueError('Select an explicitly enabled foreground profile')
             if not ctypes.windll.shell32.IsUserAnAdmin():
                 self.state_text.set('Waiting for Windows approval…')
                 self.record(state='Waiting for Windows approval')

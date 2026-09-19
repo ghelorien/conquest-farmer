@@ -236,7 +236,7 @@ class UnifiedUI:
             if not 1 <= scale <= 1.15: raise ValueError('Height scale must be between 1 and 1.15')
             if self.app.control.snapshot()['enabled']: raise ValueError('Stop farming before resizing')
             from conquest.discord_notify import write_json
-            write_json('.runtime/farmer-view.json', {'height_scale':scale})
+            write_json(state_path('.runtime/farmer-view.json'), {'height_scale':scale})
             from conquest.farmer_view import apply
             self.ui_requests.put((lambda:apply(self.app),None,{}))
             return {'height_scale':scale,'queued':True}
@@ -246,7 +246,7 @@ class UnifiedUI:
         if action=='start-account-diagnostic' and set(body)=={'action','character'}:
             import subprocess,sys
             character=character_name(body['character'])
-            path=Path('.runtime')/f'account-diagnostic-{character.lower()}.json'
+            path=Path(state_path(f'.runtime/account-diagnostic-{character.lower()}.json'))
             if path.exists():
                 from conquest.worker import request as worker_request
                 result=worker_request(path,'health')

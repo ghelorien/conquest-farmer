@@ -2,6 +2,7 @@
 import threading
 import time
 from conquest.discord_notify import write_json
+from conquest.character_context import state_path
 from conquest.merchants.delivery import exact_items, validate_snapshot
 from conquest.merchants.delivery_bridge import pair
 from conquest.merchants.booth_panel_probe import CLOSE_CODE
@@ -56,12 +57,12 @@ def start(ui,character):
     f,m=pair(ui,character);before={'farmer':f,'merchant':m};unchanged(before,before)
     if not m.get('trade'):raise ValueError('Merchant has no empty trade window')
     state={'phase':'prepared','character':character,'before':before,'created_at':time.time()}
-    write_json(PATH,state)
+    write_json(state_path(PATH),state)
     revision=ui.app.control.snapshot()['revision']
     def work():
         try:run(ui,state,revision)
         except Exception as error:
-            state.update(error=str(error),finished_at=time.time());write_json(PATH,state)
+            state.update(error=str(error),finished_at=time.time());write_json(state_path(PATH),state)
     ui.delivery_probe_thread=threading.Thread(target=work,daemon=True,name='empty-delivery-cancel')
     ui.delivery_probe_thread.start()
     return {'started':True,'character':character}
@@ -90,12 +91,12 @@ def run(ui,state,revision):
                 check();a,b=pair(ui,character);unchanged(state['before'],{'farmer':a,'merchant':b})
                 if control(driver,b)!=(w,point):raise ValueError('Trade close control moved')
                 driver.memory.gui.assert_hovered(w,'#CLOSE')
-            state.update(phase='cancel_submitted',point=point);write_json(PATH,state)
+            state.update(phase='cancel_submitted',point=point);write_json(state_path(PATH),state)
             foreground_click(driver.target,*point,tuple(size),require_foreground=False,
                 before_press=lambda:wait_hover_validation(guard,check))
             while True:
                 check();a,b=pair(ui,character);after={'farmer':a,'merchant':b};unchanged(state['before'],after)
                 if not a.get('trade') and not b.get('trade'):
-                    state.update(phase='cancel_verified',after=after,verified_at=time.time());write_json(PATH,state);return
+                    state.update(phase='cancel_verified',after=after,verified_at=time.time());write_json(state_path(PATH),state);return
                 time.sleep(.05)
     finally:ui.calibrating.discard(character)

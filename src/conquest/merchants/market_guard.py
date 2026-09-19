@@ -3,6 +3,7 @@ import time
 import copy
 import hashlib
 import json
+from conquest.character_context import state_path
 from conquest.merchants.journal import CHARACTERS
 
 
@@ -163,7 +164,7 @@ class MarketGuard:
                 pass
             from conquest.discord_notify import write_json
             try:
-                write_json('reports/merchants/market-guard.json', {'running':True, 'updated_at':time.time(),
+                write_json(state_path('reports/merchants/market-guard.json'), {'running':True, 'updated_at':time.time(),
                     'interval_seconds':0.25, 'unknown_grace_seconds':2, 'observations':self.observations})
             except OSError: pass
             r.stop_event.wait(0.25)
