@@ -10,7 +10,7 @@ from conquest import release
 
 def _release(root, name="release"):
     root = root / name
-    root.mkdir()
+    root.mkdir(parents=True)
     (root / "pyproject.toml").write_text("[build-system]\nrequires=[]\n", encoding="utf-8")
     (root / "AGENTS.md").write_text("release test", encoding="utf-8")
     (root / "profiles").mkdir(parents=True)
@@ -119,8 +119,28 @@ def test_activation_is_atomic_and_retains_verified_rollback(tmp_path):
 
 def test_activation_never_places_managed_state_inside_release(tmp_path):
     root = _release(tmp_path)
-    with pytest.raises(release.ReleaseError, match="outside"):
+    with pytest.raises(release.ReleaseError, match="separate"):
         release.activate_release(root, state_root=root / "machine-state", lock=_unlocked)
+
+
+def test_activation_rejects_release_nested_in_managed_state_but_allows_siblings(tmp_path):
+    state = tmp_path / "state"
+    nested = _release(state, "releases/current")
+    with pytest.raises(release.ReleaseError, match="separate"):
+        release.activate_release(nested, state_root=state, lock=_unlocked)
+    sibling = _release(tmp_path, "release")
+    activated = release.activate_release(sibling, state_root=state, lock=_unlocked)
+    assert Path(activated["release_root"]) == sibling
+    assert Path(release.active_release(state_root=state)["release_root"]) == sibling
+    nested_receipt = {"schema_version": release.SCHEMA, "release_root": str(nested),
+                      "manifest_sha256": release.verify_release(nested)["manifest_sha256"],
+                      "previous": None}
+    release.write_json(state / release.ACTIVE, nested_receipt)
+    with pytest.raises(release.ReleaseError, match="separate"):
+        release.active_release(state_root=state)
+    release.write_json(state / release.ACTIVE, {**activated, "previous": nested_receipt})
+    with pytest.raises(release.ReleaseError, match="separate"):
+        release.rollback_release(state_root=state, lock=_unlocked)
 
 
 def test_active_release_pins_manifest_and_launcher_uses_release_cwd(tmp_path):

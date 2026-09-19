@@ -60,6 +60,12 @@ def _within(child: Path, parent: Path) -> bool:
         return False
 
 
+def _require_separate_roots(state_root: Path, release: Path) -> None:
+    """Managed state and immutable code must be disjoint sibling trees."""
+    if _within(state_root, release) or _within(release, state_root):
+        raise ReleaseError("Managed machine state and release roots must be separate trees")
+
+
 def _assert_real_tree(root, *, live_state=False) -> list[Path]:
     root = _absolute(root)
     if not root.is_dir() or _reparse(root):
@@ -321,8 +327,7 @@ def activate_release(release, *, state_root=None, lock=None, crash_hook=None) ->
     """Atomically switch only after the complete new release has verified."""
     release = _absolute(release)
     state_root = _state_root(state_root)
-    if _within(state_root, release):
-        raise ReleaseError("Managed machine state must remain outside the release root")
+    _require_separate_roots(state_root, release)
     with _state_lock(state_root, lock):
         prior = _read_active(state_root)
         verified = verify_release(release)
@@ -341,8 +346,7 @@ def active_release(*, state_root=None) -> dict:
     if receipt is None:
         raise ReleaseError("No Conquest release is active")
     release = _absolute(receipt.get("release_root", ""))
-    if _within(state_root, release):
-        raise ReleaseError("Activation receipt points at managed state, not a release")
+    _require_separate_roots(state_root, release)
     verify_release(release, expected_manifest_sha256=receipt.get("manifest_sha256"))
     return receipt
 
@@ -356,6 +360,7 @@ def rollback_release(*, state_root=None, lock=None, crash_hook=None) -> dict:
             raise ReleaseError("No retained prior release is available for rollback")
         prior = current["previous"]
         release = _absolute(prior.get("release_root", ""))
+        _require_separate_roots(state_root, release)
         verified = verify_release(release, expected_manifest_sha256=prior.get("manifest_sha256"))
         receipt = _receipt(release, verified, current)
         if crash_hook:
