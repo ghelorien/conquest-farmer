@@ -312,6 +312,17 @@ class UnifiedUI:
         if action=='trade-qualification-prep-status' and set(body)=={'action'}:
             from conquest.merchants.trade_qualification_prep import status
             return status(self)
+        if action=='trade-qualification-prep-recheck' and set(body)=={'action'}:
+            from conquest.merchants.trade_qualification_prep import recheck
+            return recheck(self)
+        if action=='trade-qualification-prep-override':
+            allowed={'action','operator_confirmed','confirmation_reference','incident_digest'}
+            if 'operator' in body:allowed.add('operator')
+            if set(body)!=allowed:raise ValueError('Unsupported trade-prep override arguments')
+            from conquest.merchants.trade_qualification_prep import operator_override
+            return operator_override(self,operator_confirmed=body['operator_confirmed'],
+                confirmation_reference=body['confirmation_reference'],
+                incident_digest=body['incident_digest'],operator=body.get('operator'))
         if action=='reconcile-stall-inspection' and set(body)=={'action','character'}:
             character=character_name(body['character'])
             from conquest.merchants.stall_probe import reconcile_interrupted_probe

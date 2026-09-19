@@ -9,6 +9,7 @@ import ctypes
 import hashlib
 import json
 import os
+import tempfile
 import threading
 import time
 import uuid
@@ -25,18 +26,27 @@ from conquest.town_trade import stash_candidate
 JOURNAL = Path(state_path('reports/merchants/trade-qualification-prep.json'))
 TERMINAL = {'completed', 'operator_overridden'}
 PENDING = {'prepared', 'warehouse_opening', 'deposit_pending', 'banked',
-           'withdraw_pending', 'outbound_pending', 'market', 'approaching'}
+           'withdraw_pending', 'withdraw_submitted', 'outbound_pending', 'market', 'approaching'}
 _START_LOCK = threading.RLock()
 
 
-def _durable(state):
-    write_json(JOURNAL, state)
-    with JOURNAL.open('r+b') as stream:
+def _write_durable(path, state):
+    path = Path(path)
+    write_json(path, state)
+    with path.open('r+b') as stream:
         stream.flush()
         os.fsync(stream.fileno())
 
 
+def _durable(state):
+    _write_durable(JOURNAL, state)
+
+
 def _read():
+    intent = Path(str(JOURNAL)+'.override-intent.json')
+    if intent.exists():
+        from conquest.recovery_override import read_recovered
+        read_recovered(JOURNAL)
     try:
         value = json.loads(JOURNAL.read_text(encoding='utf-8'))
     except FileNotFoundError:
@@ -71,14 +81,26 @@ def _archive(state):
     digest = hashlib.sha256(raw).hexdigest()
     path = JOURNAL.parent/'trade-qualification-prep-audit'/f'{digest}.json'
     path.parent.mkdir(parents=True, exist_ok=True)
+    def verify_and_sync():
+        with path.open('r+b') as stream:
+            if stream.read() != raw:
+                raise ValueError('Trade qualification prep archive differs from its receipt')
+            stream.flush();os.fsync(stream.fileno())
+    if path.exists():
+        verify_and_sync()
+        return
+    fd, name = tempfile.mkstemp(prefix=digest+'.', suffix='.tmp', dir=path.parent)
+    temporary = Path(name)
     try:
-        with path.open('xb') as stream:
-            stream.write(raw)
-            stream.flush()
-            os.fsync(stream.fileno())
-    except FileExistsError:
-        if path.read_bytes() != raw:
-            raise ValueError('Trade qualification prep archive differs from its receipt')
+        with os.fdopen(fd, 'wb') as stream:
+            if stream.write(raw) != len(raw):
+                raise OSError('Incomplete trade qualification prep archive write')
+            stream.flush();os.fsync(stream.fileno())
+        try:os.link(temporary, path)
+        except FileExistsError:pass
+        verify_and_sync()
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _selected(source, uid):
@@ -105,16 +127,23 @@ def _same_participant(current, saved, role):
         raise ValueError(f'{role} process or character identity changed; prep cannot resume')
 
 
-def _bank_match(item, stored):
-    """Compare fields retained by the warehouse reader, including quantity."""
-    amount = item.get('amount', item.get('quantity'))
-    return (stored.get('uid') == item.get('uid')
-            and stored.get('type_id') == item.get('type_id')
-            and stored.get('plus') == item.get('plus')
-            and (amount is None or stored.get('amount', stored.get('quantity')) == amount))
+def _payload_is_safe(source, state):
+    """Require the saved +1 to be the only protected/deliverable payload."""
+    _same_participant(source, state['farmer'], 'Farmer')
+    selected = _selected(source, state['selected_uid'])
+    if exact_items([selected]) != exact_items([state['selected_item']]):
+        raise ValueError('Selected +1 changed during supervised prep')
+    extras = [item for item in source['inventory']
+              if item['uid'] != state['selected_uid']
+              and (stash_candidate(item) or eligible(item))]
+    if any(item.get('type_id') == 1088001 for item in source['inventory']):
+        raise ValueError('Loose Meteors remain carried; merchant route blocked')
+    if extras:
+        raise ValueError('More than one protected or delivery-eligible item remains carried')
+    return selected
 
 
-def _validate_request(ui, character, uid, *, send=request):
+def _validate_request(ui, character, uid):
     character = character_name(character)
     from conquest.merchants.farmer_preferences import permits_new_delivery
     from conquest.merchants.farmer_identity import ui_character
@@ -146,12 +175,9 @@ def _validate_request(ui, character, uid, *, send=request):
     previous_probe()
     if not ui.safe_to_yield():
         raise ValueError('Farmer input is not safely released')
-    source = send({'action': 'delivery-source'})['farmer']
-    receiver = ui.runtime.observers.get(character)
-    if receiver is None:
-        raise ValueError('Selected merchant is not attached')
-    with receiver.lock:
-        merchant = ui.runtime.controllers[character].driver.read()
+    # This function runs inside MerchantBridge's single request thread.  Read
+    # the app-owned observers directly; a localhost self-call would deadlock.
+    source, merchant = pair(ui, character, farmer_preflight=True)
     selected = _selected(source, uid)
     if source.get('map_id') not in (1002, 1011, 1036):
         raise ValueError('Prep must start in a supported town or Market')
@@ -240,21 +266,128 @@ def _release_window(ui, key):
         time.sleep(.05)
 
 
-def _reconcile_deposit(loop, state):
-    pending_item = state.get('pending_item')
-    if not pending_item:
+def _recovery_available(ui):
+    if (getattr(ui, 'trade_qualification_prep_thread', None)
+            and ui.trade_qualification_prep_thread.is_alive()):
+        raise ValueError('Wait for trade qualification prep to stop before rechecking')
+    if (getattr(ui, 'delivery_probe_thread', None) and ui.delivery_probe_thread.is_alive()
+            or any(worker.is_alive() for worker in getattr(ui, 'delivery_workers', {}).values())):
+        raise ValueError('Wait for delivery input to finish before rechecking prep')
+
+
+def _fresh_recovery_evidence(ui, state):
+    """Read-only current ownership used only for explicit disposition/replan."""
+    from conquest.merchants.manual_sessions import canonical_ownership
+    from conquest.recovery_override import evidence_digest
+    character = character_name(state.get('character'))
+    source, merchant = pair(ui, character, farmer_preflight=True)
+    now = time.time()
+    for snapshot in (source, merchant):
+        if not 0 <= now-snapshot.get('timestamp', 0) <= 5:
+            raise ValueError('Fresh memory evidence is required for prep recovery')
+    proof = {'farmer': canonical_ownership(source, require_closed=False),
+             'merchant': canonical_ownership(merchant, require_closed=False),
+             'farmer_map': source['map_id'], 'merchant_map': merchant['map_id']}
+    warehouse = {'available': False}
+    try:
+        observer = ui.app.observer
+        with observer.lock:
+            snapshot = observer.town_trade({'action': 'warehouse-items', 'rich': True})
+        warehouse = {'available': True, 'capacity': snapshot['capacity'],
+                     'items': list(snapshot['items'])}
+        # Force full rich validation, including binding, gems and quantities.
+        exact_items(warehouse['items'])
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        warehouse = {'available': False, 'reason': type(error).__name__}
+    proof['warehouse'] = warehouse
+    return {'observed_at': now, 'farmer': source, 'merchant': merchant,
+            'proof': proof, 'ownership_digest': evidence_digest(proof),
+            'farmer_identity_matches': source.get('identity') == state.get('farmer', {}).get('identity'),
+            'merchant_identity_matches': merchant.get('identity') == state.get('merchant', {}).get('identity')}
+
+
+def recheck(ui):
+    """Preview an unresolved prep incident without issuing any gameplay input."""
+    from conquest.recovery_override import evidence_digest
+    _recovery_available(ui)
+    state = _read()
+    if not state or state.get('phase') not in PENDING:
+        raise ValueError('No unresolved trade qualification prep is available')
+    incident = evidence_digest(state)
+    fresh = _fresh_recovery_evidence(ui, state)
+    if evidence_digest(_read()) != incident:
+        raise ValueError('Trade qualification prep changed during recheck')
+    preview = {'incident_digest': incident, 'evidence_digest': fresh['ownership_digest'],
+               'fresh_evidence': fresh, 'original_phase': state['phase']}
+    _write_durable(Path(str(JOURNAL)+'.recheck.json'), preview)
+    return preview
+
+
+def operator_override(ui, *, operator_confirmed=False, confirmation_reference=None,
+                      incident_digest=None, operator=None):
+    """Close uncertain prep input without claiming a deposit, withdrawal or fare."""
+    from conquest.recovery_override import evidence_digest, operator_override as close
+    _recovery_available(ui)
+    if (operator_confirmed is not True or not isinstance(incident_digest, str)
+            or not incident_digest or confirmation_reference != incident_digest):
+        raise ValueError('Confirm the exact previewed trade-prep incident digest')
+    state = _read()
+    if state and state.get('phase') == 'operator_overridden':
+        prior = state.get('operator_override') or {}
+        if (prior.get('confirmation_reference') == confirmation_reference
+                and prior.get('original_evidence_digest') == incident_digest):
+            return {'phase': 'operator_overridden', 'incident_digest': incident_digest,
+                    'historical_outcome': 'unknown', 'replan_required': True}
+        raise ValueError('Trade prep was already overridden with different confirmation')
+    if not state or state.get('phase') not in PENDING or evidence_digest(state) != incident_digest:
+        raise ValueError('Trade qualification prep changed; recheck before overriding')
+    preview = read_json(Path(str(JOURNAL)+'.recheck.json'))
+    if (preview.get('incident_digest') != incident_digest
+            or not 0 <= time.time()-preview.get('fresh_evidence', {}).get('observed_at', 0) <= 30):
+        raise ValueError('A fresh trade-prep recheck is required before overriding')
+    fresh = _fresh_recovery_evidence(ui, state)
+    if fresh['ownership_digest'] != preview.get('evidence_digest'):
+        raise ValueError('Current ownership changed; recheck trade prep before overriding')
+    result = close(JOURNAL, pending_phases=PENDING, operator_confirmed=True,
+        confirmation_reference=confirmation_reference, incident_digest=incident_digest,
+        operator=operator, fresh_evidence=fresh, incident='trade-qualification-prep')
+    # Force crash-intent completion and strict parse before releasing the hold.
+    result = _read()
+    return {'phase': result['phase'], 'incident_digest': incident_digest,
+            'historical_outcome': 'unknown', 'replan_required': True}
+
+
+def _reconcile_deposit(loop, state, *, send=request):
+    intent = state.get('deposit')
+    if not isinstance(intent, dict):
         return False
-    bag = loop.town('supplies')['items']
-    stored = loop.town('warehouse-items')['items']
-    carried = [item for item in bag if item.get('uid') == pending_item['uid']]
-    banked = [item for item in stored if item.get('uid') == pending_item['uid']]
-    if not carried and len(banked) == 1 and _bank_match(pending_item, banked[0]):
-        state.setdefault('banked_uids', []).append(pending_item['uid'])
-        _save(state, 'warehouse_opening', pending_item=None)
+    item = intent.get('item') or {}
+    uid = item.get('uid')
+    before_bag = intent.get('bag_before')
+    before_bank = intent.get('warehouse_before')
+    if (type(uid) is not int or not isinstance(before_bag, list)
+            or not isinstance(before_bank, list)
+            or type(intent.get('warehouse_capacity')) is not int):
+        raise ValueError('Pending warehouse deposit evidence is incomplete')
+    source = send({'action': 'delivery-source'})['farmer']
+    _same_participant(source, state['farmer'], 'Farmer')
+    warehouse = loop.town('warehouse-items', rich=True)
+    if warehouse['capacity'] != intent['warehouse_capacity']:
+        raise ValueError('Warehouse capacity changed during deposit reconciliation')
+    old_bag, old_bank = exact_items(before_bag), exact_items(before_bank)
+    new_bag, new_bank = exact_items(source['inventory']), exact_items(warehouse['items'])
+    if uid not in old_bag or uid in old_bank or old_bag[uid] != exact_items([item])[uid]:
+        raise ValueError('Pending deposit baseline does not own the exact selected item')
+    expected_bag = dict(old_bag);del expected_bag[uid]
+    expected_bank = dict(old_bank);expected_bank[uid] = old_bag[uid]
+    if new_bag == expected_bag and new_bank == expected_bank:
+        if uid not in state.setdefault('banked_uids', []):
+            state['banked_uids'].append(uid)
+        _save(state, 'warehouse_opening', deposit=None)
         return True
-    if len(carried) == 1 and not banked and _bank_match(pending_item, carried[0]):
+    if new_bag == old_bag and new_bank == old_bank:
         return False
-    raise ValueError('Pending warehouse deposit has ambiguous ownership; no input repeated')
+    raise ValueError('Pending warehouse deposit changed ownership unexpectedly; no input repeated')
 
 
 def _bank_nonselected(loop, state, *, send=request):
@@ -263,18 +396,23 @@ def _bank_nonselected(loop, state, *, send=request):
         _save(state, 'warehouse_opening')
     open_warehouse(loop)
     if state.get('phase') == 'deposit_pending':
-        _reconcile_deposit(loop, state)
+        _reconcile_deposit(loop, state, send=send)
     while True:
-        bag = loop.town('supplies')['items']
-        selected = [item for item in bag if item.get('uid') == state['selected_uid']]
-        if len(selected) != 1:
-            raise ValueError('Selected +1 is no longer carried; prep stopped')
-        candidates = [item for item in bag
+        source = send({'action': 'delivery-source'})['farmer']
+        _same_participant(source, state['farmer'], 'Farmer')
+        _selected(source, state['selected_uid'])
+        candidates = [item for item in source['inventory']
                       if item.get('uid') != state['selected_uid'] and stash_candidate(item)]
         if not candidates:
             break
         item = candidates[0]
-        _save(state, 'deposit_pending', pending_item=item)
+        warehouse = loop.town('warehouse-items', rich=True)
+        if item['uid'] in exact_items(warehouse['items']):
+            raise ValueError('Warehouse already contains the carried deposit UID')
+        intent = {'item': item, 'bag_before': source['inventory'],
+                  'warehouse_before': list(warehouse['items']),
+                  'warehouse_capacity': warehouse['capacity']}
+        _save(state, 'deposit_pending', deposit=intent)
         try:
             receipt = loop.town('warehouse-deposit', uid=item['uid'])
         except (OSError, ValueError):
@@ -283,7 +421,7 @@ def _bank_nonselected(loop, state, *, send=request):
             raise
         if receipt.get('verified_in_warehouse') is not True:
             raise ValueError('Warehouse deposit receipt is unverified')
-        _reconcile_deposit(loop, state)
+        _reconcile_deposit(loop, state, send=send)
     money = loop.town('warehouse-money')
     fare = state['route']['outbound']['fare']
     if money['silver'] < fare:
@@ -292,6 +430,10 @@ def _bank_nonselected(loop, state, *, send=request):
             raise ValueError('Warehouse lacks the verified Market fare')
         before = {'silver': money['silver'], 'stored_silver': money['stored_silver']}
         _save(state, 'withdraw_pending', withdraw={'amount': amount, 'before': before})
+        unchanged = loop.town('warehouse-money')
+        if any(unchanged.get(key) != value for key, value in before.items()):
+            raise ValueError('Warehouse money changed before withdrawal; no input issued')
+        _save(state, 'withdraw_submitted')
         transfer(loop, 'withdraw', amount)
         fresh = loop.town('warehouse-money')
         if (fresh['silver'] != before['silver']+amount
@@ -300,16 +442,7 @@ def _bank_nonselected(loop, state, *, send=request):
         _save(state, 'warehouse_opening', withdraw=None)
     close_warehouse(loop)
     fresh = send({'action': 'delivery-source'})['farmer']
-    _same_participant(fresh, state['farmer'], 'Farmer')
-    item = _selected(fresh, state['selected_uid'])
-    if exact_items([item]) != exact_items([state['selected_item']]):
-        raise ValueError('Selected +1 changed during banking')
-    if any(item.get('type_id') == 1088001 for item in fresh['inventory']):
-        raise ValueError('Loose Meteors remain carried; Market departure blocked')
-    extras = [item for item in fresh['inventory']
-              if item['uid'] != state['selected_uid'] and eligible(item)]
-    if extras:
-        raise ValueError('More than one delivery-eligible item remains carried')
+    _payload_is_safe(fresh, state)
     _save(state, 'banked')
 
 
@@ -326,10 +459,7 @@ def _reconcile_withdraw(loop, state):
         return
     if (current['silver'] == before['silver']
             and current['stored_silver'] == before['stored_silver']):
-        from conquest.banking import transfer
-        transfer(loop, 'withdraw', amount)
-        _save(state, 'warehouse_opening', withdraw=None)
-        return
+        raise ValueError('Fare withdrawal outcome needs attention; no transfer repeated')
     raise ValueError('Fare withdrawal ownership changed; no transfer repeated')
 
 
@@ -344,7 +474,7 @@ def _run(ui, state, *, send=request):
         _same_participant(merchant, state['merchant'], 'Merchant')
         world = source['map_id']
         phase = state['phase']
-        if phase == 'withdraw_pending':
+        if phase in ('withdraw_pending', 'withdraw_submitted'):
             if world != state['origin']:
                 raise ValueError('Fare withdrawal location changed; no transfer repeated')
             from conquest.banking import open_warehouse
@@ -357,6 +487,11 @@ def _run(ui, state, *, send=request):
             _bank_nonselected(loop, state, send=send)
             phase = state['phase']
         if phase == 'banked':
+            source, merchant = pair(ui, state['character'], farmer_preflight=True)
+            _same_participant(merchant, state['merchant'], 'Merchant')
+            if source['map_id'] != state['origin']:
+                raise ValueError('Banked prep changed maps before the saved fare; no input issued')
+            _payload_is_safe(source, state)
             if state['origin'] == 1036:
                 _save(state, 'market', leg_before=None)
                 phase = 'market'
@@ -385,11 +520,7 @@ def _run(ui, state, *, send=request):
             source, merchant = pair(ui, state['character'])
             _same_participant(source, state['farmer'], 'Farmer')
             _same_participant(merchant, state['merchant'], 'Merchant')
-            item = _selected(source, state['selected_uid'])
-            if exact_items([item]) != exact_items([state['selected_item']]):
-                raise ValueError('Selected +1 changed before merchant approach')
-            if any(i.get('type_id') == 1088001 for i in source['inventory']):
-                raise ValueError('Loose Meteors appeared in Market; no merchant approach')
+            _payload_is_safe(source, state)
             target = send({'action': 'delivery-target', 'character': state['character']})
             plan = {'merchant': state['character'], 'position': target['merchant_position']}
             _save(state, 'approaching', merchant_position=target['merchant_position'])
@@ -399,14 +530,13 @@ def _run(ui, state, *, send=request):
             source, merchant = pair(ui, state['character'])
             _same_participant(source, state['farmer'], 'Farmer')
             _same_participant(merchant, state['merchant'], 'Merchant')
-            item = _selected(source, state['selected_uid'])
-            if exact_items([item]) != exact_items([state['selected_item']]):
-                raise ValueError('Selected +1 changed after merchant approach')
-            if any(i.get('type_id') == 1088001 for i in source['inventory']):
-                raise ValueError('Loose Meteors appeared before qualification')
+            _payload_is_safe(source, state)
             target = send({'action': 'delivery-target', 'character': state['character']})
             if not target.get('ready'):
                 raise ValueError('Merchant is not memory-actionable after approach')
+            source, merchant = pair(ui, state['character'])
+            _same_participant(merchant, state['merchant'], 'Merchant')
+            _payload_is_safe(source, state)
             _save(state, 'completed', completed_at=time.time(),
                   farmer_position=source['position'], merchant_position=merchant['position'])
     finally:
@@ -420,7 +550,7 @@ def start(ui, character, *, selected_uid, send=request):
         if running and running.is_alive():
             raise ValueError('Trade qualification prep is already running')
         character, control, source, merchant, selected = _validate_request(
-            ui, character, selected_uid, send=send)
+            ui, character, selected_uid)
         old = _read()
         if old and old.get('phase') not in TERMINAL:
             if old.get('character') != character or old.get('selected_uid') != selected_uid:
@@ -431,6 +561,7 @@ def start(ui, character, *, selected_uid, send=request):
             state['control_revision'] = control['revision']
             state.pop('error', None)
             state.pop('error_type', None)
+            state.pop('attention_required', None)
             _durable(state)
         else:
             from conquest.meteor_banking import POLICY
@@ -458,7 +589,8 @@ def start(ui, character, *, selected_uid, send=request):
             try:
                 _run(ui, state, send=send)
             except Exception as error:
-                _save(state, error=str(error), error_type=type(error).__name__)
+                _save(state, error=str(error), error_type=type(error).__name__,
+                      attention_required=True)
         thread = threading.Thread(target=work, daemon=True, name='trade-qualification-prep')
         ui.trade_qualification_prep_thread = thread
         thread.start()
