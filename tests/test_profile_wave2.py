@@ -196,6 +196,46 @@ def test_migration_remaps_every_character_table_and_manual_targets(tmp_path):
         assert 'manual_session_identity_immutable' in triggers
 
 
+def test_migration_remaps_active_farmer_json_journals_but_preserves_history(tmp_path):
+    source=tmp_path/'legacy';bank=source/'reports/banking'
+    write_json(bank/'town-visit.json',{
+        'version':1,'town_visit_id':'current-town','farmer_profile_id':'Parasite',
+        'phase':'complete','history':[
+            {'town_visit_id':'older-town','farmer_profile_id':'Parasite','phase':'complete',
+             'nested_evidence':{'farmer_profile_id':'Parasite'}},
+        ],
+    })
+    write_json(bank/'merchant-service-visit.json',{
+        'version':1,'visit_id':'market-visit','farmer_profile_id':'Parasite',
+        'phase':'active','attempts':[{'farmer_profile_id':'Parasite','outcome':'deferred'}],
+    })
+    write_json(bank/'merchant-route.json',{
+        'active':{'request_id':'live-route','farmer_profile_id':'Parasite'},
+        'operations':[{'request_id':'old-route','farmer_profile_id':'Parasite'}],
+        'receipts':[{'request_id':'old-receipt','farmer_profile_id':'Parasite'}],
+    })
+    # Similar-looking diagnostic data is not an active controller journal.
+    write_json(bank/'migration-diagnostic.json',{'farmer_profile_id':'Parasite','phase':'complete'})
+
+    destination=tmp_path/'managed'
+    result=migrate_legacy(source,destination,check_offline=lambda _:None)
+    farmer=result['farmer_profile_id'];managed=destination/'characters'/farmer/'reports/banking'
+    town=json.loads((managed/'town-visit.json').read_text())
+    service=json.loads((managed/'merchant-service-visit.json').read_text())
+    route=json.loads((managed/'merchant-route.json').read_text())
+    diagnostic=json.loads((managed/'migration-diagnostic.json').read_text())
+
+    assert town['farmer_profile_id']==farmer
+    assert town['history'][0]['farmer_profile_id']=='Parasite'
+    assert town['history'][0]['nested_evidence']['farmer_profile_id']=='Parasite'
+    assert service['farmer_profile_id']==farmer
+    assert service['attempts'][0]['farmer_profile_id']=='Parasite'
+    assert route['active']['farmer_profile_id']==farmer
+    assert route['operations'][0]['farmer_profile_id']=='Parasite'
+    assert route['receipts'][0]['farmer_profile_id']=='Parasite'
+    assert diagnostic['farmer_profile_id']=='Parasite'
+
+
 def test_migration_refuses_nonterminal_manual_binding_instead_of_rewriting_evidence(tmp_path):
     source=tmp_path/'legacy';journal=legacy_journal(source);manual=ManualSessionStore(journal.path)
     with manual.db() as db:

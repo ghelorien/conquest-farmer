@@ -34,6 +34,17 @@ PRUNED_STATE_DIRECTORIES = frozenset((
 ))
 
 
+# These records are live, profile-local controller state rather than immutable
+# receipts. A legacy installation keyed them by the farmer's display name;
+# after migration the active controller must instead see the managed profile
+# UUID. Keep this deliberately small: broad JSON replacement would rewrite
+# historical proof and diagnostic artifacts whose old identity is evidence.
+_ACTIVE_FARMER_REFERENCE_JOURNALS = frozenset((
+    'reports/banking/town-visit.json',
+    'reports/banking/merchant-service-visit.json',
+))
+
+
 def _copy(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     if source.suffix.lower() in ('.sqlite', '.sqlite3'):
@@ -380,6 +391,47 @@ def _remap_journal(journal, by_name):
                            (profile.id, 'profile_initialized', 'true'))
 
 
+def _remap_active_farmer_references(stage, farmer):
+    """Translate only live profile-local JSON controller references.
+
+    TownVisit reads its top-level owner even after a visit becomes complete,
+    while MarketVisit reads the same field while its budget is active. Their
+    embedded history/attempt evidence is intentionally left as legacy proof.
+    Merchant-route has a mix of immutable operation receipts and one live
+    ``active`` operation, so only the latter can be rewritten safely.
+    """
+    def remap_owner(value):
+        if not isinstance(value, dict) or value.get('farmer_profile_id') != farmer.name:
+            return False
+        value['farmer_profile_id'] = farmer.id
+        return True
+
+    for relative in _ACTIVE_FARMER_REFERENCE_JOURNALS:
+        path = stage / 'characters' / farmer.id / relative
+        if not path.is_file():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError, TypeError):
+            # Migration must never overwrite an uninterpretable local
+            # artifact just because it happens to have an active-journal name.
+            continue
+        if remap_owner(value):
+            write_json(path, value)
+
+    route = stage / 'characters' / farmer.id / 'reports/banking/merchant-route.json'
+    if not route.is_file():
+        return
+    try:
+        value = json.loads(route.read_text(encoding='utf-8'))
+    except (OSError, ValueError, TypeError):
+        return
+    # ``operations`` and ``receipts`` are historical proof. Only ``active``
+    # gates a resume and therefore needs the managed owner identity.
+    if isinstance(value, dict) and remap_owner(value.get('active')):
+        write_json(route, value)
+
+
 def _import_legacy_trust(registry, journal, farmer, merchants):
     with closing(sqlite3.connect(journal)) as db:
         tables = {row[0] for row in db.execute(
@@ -516,6 +568,7 @@ def migrate_legacy(source, root, *, check_offline=require_offline, copy_file=_co
                 _copy(journal, stage / 'migration-backup/merchant-journal.sqlite3')
                 _remap_journal(journal, by_name)
                 _import_legacy_trust(registry, journal, farmer, merchants)
+            _remap_active_farmer_references(stage, farmer)
             result = {
                 'schema_version': 1, 'source': str(source),
                 'farmer_profile_id': farmer.id,
