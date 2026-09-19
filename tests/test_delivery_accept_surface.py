@@ -10,9 +10,9 @@ from conquest.merchants.delivery_accept_probe import control, lease_authorized, 
 from conquest.merchants.ui import UnifiedUI, callback_failure
 
 
-def test_accept_control_binds_stale_open_booth_label_to_exact_raw_trade_model(monkeypatch):
-    """A one-frame stale registry name cannot replace the proven raw Trade model."""
-    base,model=0x140000000,0x100000
+def test_accept_control_binds_distinct_rendered_confirm_to_raw_trade_model(monkeypatch):
+    """The raw Trade model and rendered ImGui window have distinct pointers."""
+    base,model,window=0x140000000,0x100000,0x200000
     handlers={base+0x95fd6:bytes.fromhex('e835dcfaff'),
               base+0x95fdf:bytes.fromhex('b201488bcbe857070000')}
     raw=bytearray(0x250)
@@ -21,21 +21,21 @@ def test_accept_control_binds_stale_open_booth_label_to_exact_raw_trade_model(mo
     struct.pack_into('<f',raw,0x114,18)
     def read(address,size):
         if address==model+12:return b'\x01'
-        if address==model:return bytes(raw[:size])
+        if address==window:return bytes(raw[:size])
         return handlers[address][:size]
     labels=['Trade###Confirm','Parasite wishes to trade with you.','Accept','Cancel']
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',
         lambda _session,address:labels[(address-model-0x48)//0x20])
     driver=NS(observer=NS(adapter=NS(read_block=read)),
               memory=NS(gui=NS(base=base,model=lambda *_args:model)))
-    snapshot={'windows':[{'name':'Open Booth###Confirm','address':model,
+    snapshot={'windows':[{'name':'Open Booth###Confirm','address':window,
                           'geometry':[844,282,200,100]}]}
-    assert control(driver,snapshot)==(snapshot['windows'][0],(944,360))
+    assert control(driver,snapshot)==({**snapshot['windows'][0],'model_address':model},(944,360))
 
 
-@pytest.mark.parametrize('address',[0x200000,True])
-def test_accept_control_rejects_stale_label_when_address_is_not_raw_trade_model(monkeypatch,address):
-    """Names are advisory only; address mismatch is always input-free failure."""
+@pytest.mark.parametrize('address',[0,True])
+def test_accept_control_rejects_invalid_rendered_confirmation_address(monkeypatch,address):
+    """A rendered confirmation needs its own valid memory address."""
     base,model=0x140000000,0x100000
     handlers={base+0x95fd6:bytes.fromhex('e835dcfaff'),
               base+0x95fdf:bytes.fromhex('b201488bcbe857070000')}
@@ -63,14 +63,14 @@ def test_accept_control_rejects_trade_when_open_booth_confirmation_also_exists(m
     struct.pack_into('<2f',raw,0xe8,1036,373);struct.pack_into('<f',raw,0x114,18)
     def read(address,size):
         if address==model+12:return b'\x01'
-        if address==model:return bytes(raw[:size])
+        if address==window:return bytes(raw[:size])
         return handlers[address][:size]
     labels=['Trade###Confirm','Parasite wishes to trade with you.','Accept','Cancel']
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',
         lambda _session,address:labels[(address-model-0x48)//0x20])
     driver=NS(observer=NS(adapter=NS(read_block=read)),
               memory=NS(gui=NS(base=base,model=lambda *_args:model)))
-    snapshot={'windows':[{'name':'Open Booth###Confirm','address':model,'geometry':[844,282,200,100]},
+    snapshot={'windows':[{'name':'Open Booth###Confirm','address':window,'geometry':[844,282,200,100]},
                          {'name':'Open Booth###Confirm','address':window+0x400,'geometry':[1,1,200,100]}]}
     with pytest.raises(ValueError,match='ambiguous'):
         control(driver,snapshot)
@@ -79,7 +79,7 @@ def test_accept_control_rejects_trade_when_open_booth_confirmation_also_exists(m
 @pytest.mark.parametrize('drift',[('geometry',[844,282,201,100]),('handler',None),('label',None)])
 def test_accept_control_rejects_layout_signature_or_raw_button_drift(monkeypatch,drift):
     """All geometry and handler evidence remains exact despite a stale label."""
-    base,model=0x140000000,0x100000
+    base,model,window=0x140000000,0x100000,0x200000
     handlers={base+0x95fd6:bytes.fromhex('e835dcfaff'),
               base+0x95fdf:bytes.fromhex('b201488bcbe857070000')}
     raw=bytearray(0x250)
@@ -91,14 +91,14 @@ def test_accept_control_rejects_layout_signature_or_raw_button_drift(monkeypatch
     if kind=='label':labels[2]='Yes'
     def read(pointer,size):
         if pointer==model+12:return b'\x01'
-        if pointer==model:return bytes(raw[:size])
+        if pointer in (window,window+0x400):return bytes(raw[:size])
         return handlers[pointer][:size]
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',
         lambda _session,pointer:labels[(pointer-model-0x48)//0x20])
     driver=NS(observer=NS(adapter=NS(read_block=read)),
               memory=NS(gui=NS(base=base,model=lambda *_args:model)))
     geometry=value if kind=='geometry' else [844,282,200,100]
-    snapshot={'windows':[{'name':'Open Booth###Confirm','address':model,'geometry':geometry}]}
+    snapshot={'windows':[{'name':'Open Booth###Confirm','address':window,'geometry':geometry}]}
     with pytest.raises(ValueError):
         control(driver,snapshot)
 
@@ -131,14 +131,14 @@ def accept_run_fixture(monkeypatch):
     monkeypatch.setattr(delivery_probe_ownership,'ownership',lambda *_args,**_kwargs:{})
     monkeypatch.setattr(farmer_preferences,'permits_new_delivery',lambda *_args:None)
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.control',
-        lambda *_args:({'address':1,'geometry':[1,1,200,100]},(100,100)))
+        lambda *_args:({'model_address':2,'address':1,'geometry':[1,1,200,100]},(100,100)))
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.write_json',lambda *_args:None)
     monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
     monkeypatch.setattr(driver_module,'wait_hover_validation',lambda guard,_check:guard())
     return ui,state,farmer,merchant,foreground
 
 
-def live_accept_control(ui,monkeypatch,*,stage,model=0x100000):
+def live_accept_control(ui,monkeypatch,*,stage,model=0x100000,window=0x200000):
     """Install a raw slot-15 control that can change only before press."""
     base=0x140000000
     raw=bytearray(0x250)
@@ -149,7 +149,7 @@ def live_accept_control(ui,monkeypatch,*,stage,model=0x100000):
     def active_model():return model+0x100 if stage[0]=='model' and stage[1] else model
     def read(pointer,size):
         if pointer==active_model()+12:return b'\x01'
-        if pointer==active_model():return bytes(raw[:size])
+        if pointer in (window,window+0x400):return bytes(raw[:size])
         if pointer in handlers:
             code=handlers[pointer]
             return (b'\0'*len(code) if stage[0]=='handler' and stage[1] else code)[:size]
@@ -167,12 +167,12 @@ def live_accept_control(ui,monkeypatch,*,stage,model=0x100000):
     ui.runtime.controllers['Spiritual']=NS(driver=driver)
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',strings)
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.farmer_name',lambda:'Parasite')
-    return gui
+    return gui,window
 
 
-def live_confirm_snapshot(stage,model=0x100000):
+def live_confirm_snapshot(stage,window=0x200000):
     name='Trade###Confirm' if stage[0]=='label' and stage[1] else 'Open Booth###Confirm'
-    address=model+0x400 if stage[0]=='address' and stage[1] else model
+    address=window+0x400 if stage[0]=='address' and stage[1] else window
     geometry=[844,282,201,100] if stage[0]=='geometry' and stage[1] else [844,282,200,100]
     return {'name':name,'address':address,'geometry':geometry,
             'scroll':[99,7] if stage[0]=='label' and stage[1] else [0,0]}
@@ -183,10 +183,10 @@ def test_accept_prepress_ignores_stale_label_and_scroll_change_for_same_raw_cont
     from conquest.merchants import delivery_accept_probe
     ui,state,farmer,merchant,foreground=accept_run_fixture(monkeypatch)
     monkeypatch.setattr(delivery_accept_probe,'control',control)
-    stage=['label',False];hovered=live_accept_control(ui,monkeypatch,stage=stage)
-    merchant['windows']=[live_confirm_snapshot(stage)]
+    stage=['label',False];hovered,window=live_accept_control(ui,monkeypatch,stage=stage)
+    merchant['windows']=[live_confirm_snapshot(stage,window)]
     def pairs(*_args):
-        current=deepcopy(merchant);current['windows']=[live_confirm_snapshot(stage)]
+        current=deepcopy(merchant);current['windows']=[live_confirm_snapshot(stage,window)]
         return deepcopy(farmer),current
     monkeypatch.setattr(delivery_accept_probe,'pair',pairs)
     monkeypatch.setattr(delivery_accept_probe,'validate_offers',lambda *_args:None)
@@ -208,10 +208,10 @@ def test_accept_prepress_control_drift_never_reaches_press(monkeypatch,kind):
     from conquest.merchants import delivery_accept_probe
     ui,state,farmer,merchant,foreground=accept_run_fixture(monkeypatch)
     monkeypatch.setattr(delivery_accept_probe,'control',control)
-    stage=[kind,False];live_accept_control(ui,monkeypatch,stage=stage)
-    merchant['windows']=[live_confirm_snapshot(stage)]
+    stage=[kind,False];_gui,window=live_accept_control(ui,monkeypatch,stage=stage)
+    merchant['windows']=[live_confirm_snapshot(stage,window)]
     def pairs(*_args):
-        current=deepcopy(merchant);current['windows']=[live_confirm_snapshot(stage)]
+        current=deepcopy(merchant);current['windows']=[live_confirm_snapshot(stage,window)]
         return deepcopy(farmer),current
     monkeypatch.setattr(delivery_accept_probe,'pair',pairs)
     presses=[]
@@ -221,6 +221,30 @@ def test_accept_prepress_control_drift_never_reaches_press(monkeypatch,kind):
         presses.append(True)
     monkeypatch.setattr(foreground,'foreground_click',click)
     with pytest.raises(ValueError):run(ui,state)
+    assert presses==[]
+
+
+def test_accept_rejects_one_wrong_rendered_confirm_when_accept_hover_id_is_absent(monkeypatch):
+    """A hidden/wrong confirmation cannot redirect an exact raw Trade model."""
+    from conquest.merchants import delivery_accept_probe
+    ui,state,farmer,merchant,foreground=accept_run_fixture(monkeypatch)
+    monkeypatch.setattr(delivery_accept_probe,'control',control)
+    stage=['label',False];gui,window=live_accept_control(ui,monkeypatch,stage=stage)
+    # The raw model proves Trade, while this lone rendered dialog has the
+    # stale Open Booth name and lacks the ImGui Accept control ID.
+    gui.assert_hovered.side_effect=ValueError('Pointer is not over the memory-identified merchant control')
+    merchant['windows']=[live_confirm_snapshot(stage,window)]
+    def pairs(*_args):
+        current=deepcopy(merchant);current['windows']=[live_confirm_snapshot(stage,window)]
+        return deepcopy(farmer),current
+    monkeypatch.setattr(delivery_accept_probe,'pair',pairs)
+    presses=[]
+    def click(*_args,**kwargs):
+        kwargs['before_press']()
+        presses.append(True)
+    monkeypatch.setattr(foreground,'foreground_click',click)
+    with pytest.raises(ValueError,match='not over'):
+        run(ui,state)
     assert presses==[]
 
 

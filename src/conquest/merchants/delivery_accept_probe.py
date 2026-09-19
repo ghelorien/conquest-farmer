@@ -77,16 +77,17 @@ def control(driver,snapshot):
     for rva,code in ((0x95fd6,'e835dcfaff'),(0x95fdf,'b201488bcbe857070000')):
         if s.read_block(g.base+rva,len(bytes.fromhex(code)))!=bytes.fromhex(code):
             raise ValueError('Native accept handler changed')
-    # The GUI registry name can lag the active shared slot by a frame.  Its
-    # address is the stable binding instead: only the exact slot-15 model
-    # whose raw controls above prove Trade may furnish click geometry.  A
-    # stale label is therefore harmless, but another confirmation or a
-    # different address is never an acceptable substitute.
+    # The slot-15 model and ImGui renderer have distinct object addresses.
+    # The registry name can lag the active shared slot by a frame, so bind a
+    # single *rendered* confirmation to its own raw geometry, while retaining
+    # the exact active model address as a separate authority.  This does not
+    # redirect by a name or geometry: before press re-proves both structures
+    # and hover verifies this rendered window's Accept ID.
     confirmations=[w for w in snapshot['windows'] if str(w.get('name','')).endswith('###Confirm')]
     if (len(confirmations)!=1 or type(confirmations[0].get('address')) is not int
-            or confirmations[0]['address']!=model):
+            or confirmations[0]['address']<=0):
         raise ValueError('Trade confirmation window is absent or ambiguous')
-    w=confirmations[0];raw=s.read_block(model,0x250)
+    w={**confirmations[0],'model_address':model};raw=s.read_block(w['address'],0x250)
     geometry=w.get('geometry')
     if not isinstance(geometry,(list,tuple)) or len(geometry)!=4:
         raise ValueError('Trade confirmation button layout changed')
@@ -111,9 +112,10 @@ def control_binding(window,point):
 
     The registry name and draw metadata are observational and may legitimately
     lag or change while the native slot remains the same.  ``control`` has
-    already bound the address and geometry to the raw exact Trade model.
+    independently proved the rendered address/geometry and raw exact Trade
+    model in the same fresh read; both identities are retained here.
     """
-    return window['address'],tuple(window['geometry']),point
+    return window['model_address'],window['address'],tuple(window['geometry']),point
 
 
 def exact_incoming_request(intent, merchant):
