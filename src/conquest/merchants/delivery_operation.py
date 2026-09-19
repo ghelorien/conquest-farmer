@@ -15,20 +15,29 @@ from conquest.merchants.farmer_trade import FarmerTradeDriver
 JOURNAL=Path(state_path('reports/banking/merchant-deliveries.sqlite3'))
 
 
+def pending():
+    if not JOURNAL.exists():return False
+    try:
+        with sqlite3.connect(JOURNAL.resolve().as_uri()+'?mode=ro',uri=True,timeout=2) as db:
+            return bool(db.execute("SELECT 1 FROM transactions WHERE kind='farmer_delivery' AND phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1").fetchone())
+    except sqlite3.Error as error:
+        raise ValueError('Farmer delivery journal is unreadable; reconcile before input') from error
+
+
 def guard_protected_assets():
     from conquest.protected_withdrawal import pending
     if pending():
         raise ValueError('Protected warehouse withdrawal needs inventory reconciliation before continuing')
+    from conquest.merchants.trade_qualification_prep import pending as prep_pending
+    if prep_pending():
+        raise ValueError('Supervised trade preparation needs reconciliation before continuing')
 
 
 def guard_reload():
     guard_protected_assets()
-    from conquest.merchants.delivery_route import pending
+    from conquest.merchants.delivery_route import pending as route_pending
+    if route_pending():raise ValueError('Reconcile the pending farmer delivery before reloading')
     if pending():raise ValueError('Reconcile the pending farmer delivery before reloading')
-    if not JOURNAL.exists():return
-    with sqlite3.connect(JOURNAL.resolve().as_uri()+'?mode=ro',uri=True,timeout=2) as db:
-        if db.execute("SELECT 1 FROM transactions WHERE kind='farmer_delivery' AND phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1").fetchone():
-            raise ValueError('Reconcile the pending farmer delivery before reloading')
 
 
 def clear_settled_attention(ui,key,receipt):

@@ -306,6 +306,12 @@ class UnifiedUI:
         if action=='probe-delivery-stage' and set(body)=={'action','stage'}:
             from conquest.merchants.delivery_live import start
             return start(self,body['stage'])
+        if action=='prepare-trade-qualification' and set(body)=={'action','character','selected_uid'}:
+            from conquest.merchants.trade_qualification_prep import start
+            return start(self,body['character'],selected_uid=body['selected_uid'])
+        if action=='trade-qualification-prep-status' and set(body)=={'action'}:
+            from conquest.merchants.trade_qualification_prep import status
+            return status(self)
         if action=='reconcile-stall-inspection' and set(body)=={'action','character'}:
             character=character_name(body['character'])
             from conquest.merchants.stall_probe import reconcile_interrupted_probe
