@@ -38,6 +38,83 @@ def test_profile_readiness_distinguishes_terminal_unresolved_and_unrelated(tmp_p
     assert registry.resolve(first.id).label=='North shop'
 
 
+def test_profile_readiness_covers_target_scoped_manual_recovery(tmp_path):
+    registry=ProfileRegistry(tmp_path);first=registry.add('First',role='Merchant')
+    other=registry.add('Other',role='Merchant');journal=merchant_journal(tmp_path)
+    with journal.db() as db:
+        db.executescript('''CREATE TABLE manual_rebaseline(
+            id TEXT PRIMARY KEY,target_profile_id TEXT,phase TEXT);
+            CREATE TABLE manual_replans(session_id TEXT PRIMARY KEY,target_profile_id TEXT,
+            merchant_pending INTEGER,farmer_pending INTEGER);''')
+        db.execute('INSERT INTO manual_rebaseline VALUES(?,?,?)',
+                   ('other-baseline',other.id,'needs_attention'))
+        db.execute('INSERT INTO manual_replans VALUES(?,?,?,?)',
+                   ('other-replan',other.id,1,1))
+        for name,value in (
+                ('manual_reader_hold',{'target_profile_id':other.id}),
+                ('accepted_request',{'opened_at':1}),
+                ('unrelated_request_decline',{'phase':'submitted'})):
+            db.execute('INSERT INTO state VALUES(?,?,?)',(other.id,name,json.dumps(value)))
+    # Every unresolved row above belongs to the other profile.
+    registry.update(first.id,{'local_enabled':False})
+
+    def blocked():
+        with pytest.raises(ValueError,match='this profile'):
+            registry.update(first.id,{'local_enabled':not registry.resolve(first.id).local_enabled})
+    def succeeds():
+        registry.update(first.id,{'local_enabled':not registry.resolve(first.id).local_enabled})
+    def state(name,value):
+        with journal.db() as db:
+            db.execute('INSERT OR REPLACE INTO state VALUES(?,?,?)',
+                       (first.id,name,json.dumps(value)))
+
+    with journal.db() as db:
+        db.execute('INSERT INTO manual_rebaseline VALUES(?,?,?)',
+                   ('first-baseline',first.id,'settlement_observed'))
+    with pytest.raises(ValueError,match='this profile'):
+        registry.update(first.id,{'trusted_sources':[
+            {'name':'Farmer','server':'America','character_uid':7}]})
+    blocked()
+    with journal.db() as db:
+        db.execute("UPDATE manual_rebaseline SET phase='completed' WHERE id='first-baseline'")
+    succeeds()
+
+    state('manual_reader_hold',{'target_profile_id':first.id,'phase':'needs_attention'})
+    visitor={'target_profile_id':first.id,'visitor_name':'Guest',
+             'visitor_server':'America','visitor_uid':91}
+    store=ManualSessionStore(journal.path)
+    with store.db() as db:
+        db.execute('INSERT INTO visitor_permissions VALUES(?,?,?,?,1,?)',
+                   (*visitor.values(),1.0))
+    with pytest.raises(ValueError,match='this profile'):
+        registry.revoke_visitors(first.id,[visitor],operator='tester')
+    blocked();state('manual_reader_hold',None)
+    assert registry.revoke_visitors(first.id,[visitor],operator='tester')==[]
+    succeeds()
+
+    with journal.db() as db:
+        db.execute('INSERT INTO manual_replans VALUES(?,?,?,?)',
+                   ('first-replan',first.id,1,0))
+    blocked()
+    with journal.db() as db:
+        db.execute("UPDATE manual_replans SET merchant_pending=0 WHERE session_id='first-replan'")
+    succeeds()
+
+    state('accepted_request',{'opened_at':1})
+    with pytest.raises(ValueError,match='this profile'):
+        registry.update(first.id,{'role':'Farmer'})
+    blocked();state('accepted_request',None);succeeds()
+    registry.update(first.id,{'role':'Farmer'});registry.update(first.id,{'role':'Merchant'})
+    state('unrelated_request_decline',{'phase':'submitted'})
+    with pytest.raises(ValueError,match='this profile'):
+        registry.update(first.id,{'trusted_sources':[
+            {'name':'Farmer','server':'America','character_uid':8}]})
+    blocked();state('unrelated_request_decline',{'phase':'verified'})
+    registry.update(first.id,{'trusted_sources':[
+        {'name':'Farmer','server':'America','character_uid':8}]})
+    succeeds()
+
+
 def test_farmer_readiness_is_profile_scoped_and_terminal_history_is_inert(tmp_path):
     registry=ProfileRegistry(tmp_path);first=registry.add('First');other=registry.add('Other')
     own=context_for(first.id,tmp_path).state_dir/'reports/banking/merchant-journey.json'
@@ -134,6 +211,17 @@ def test_migration_refuses_nonterminal_manual_binding_instead_of_rewriting_evide
     with manual.db() as db:
         assert db.execute('SELECT target_profile_id FROM manual_sessions').fetchone()[0]=='Dutch'
         assert db.execute('SELECT digest FROM manual_audit').fetchone()[0]=='immutable-digest'
+
+
+def test_migration_refuses_nonnull_manual_reader_hold(tmp_path):
+    source=tmp_path/'legacy';journal=legacy_journal(source)
+    hold={'target_profile_id':'Dutch','phase':'needs_attention','reason':'reader failed'}
+    journal.set('Dutch','manual_reader_hold',hold)
+    destination=tmp_path/'managed'
+    with pytest.raises(ValueError,match='manual reader hold'):
+        migrate_legacy(source,destination,check_offline=lambda _:None)
+    assert not destination.exists()
+    assert journal.get('Dutch','manual_reader_hold')==hold
 
 
 def test_migration_copies_only_recognized_dpapi_secrets(tmp_path):

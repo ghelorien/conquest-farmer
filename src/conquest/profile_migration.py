@@ -250,6 +250,11 @@ def _remap_journal(journal, by_name):
     with closing(sqlite3.connect(journal)) as db, db:
         tables = [row[0] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+        if ('state' in tables and db.execute(
+                "SELECT 1 FROM state WHERE name='manual_reader_hold' AND value!='null' "
+                "LIMIT 1").fetchone()):
+            raise ValueError(
+                'Reconcile nonterminal manual reader holds in the legacy installation before migration')
         if ('manual_sessions' in tables and db.execute(
                 "SELECT 1 FROM manual_sessions WHERE phase NOT IN "
                 "('completed','request_withdrawn','declined_verified','operator_overridden') "

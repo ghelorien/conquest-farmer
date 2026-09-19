@@ -137,7 +137,50 @@ def _merchant_blockers(root, profile_id):
                 if row:
                     blockers.append({'journal': str(path), 'kind': 'manual_session',
                                      'id': row[0], 'phase': row[1]})
+            if 'manual_rebaseline' in tables:
+                row = db.execute(
+                    "SELECT id,phase FROM manual_rebaseline WHERE target_profile_id=? "
+                    "AND phase!='completed' LIMIT 1", (profile_id,)).fetchone()
+                if row:
+                    blockers.append({'journal': str(path), 'kind': 'manual_rebaseline',
+                                     'id': row[0], 'phase': row[1]})
+            if 'manual_replans' in tables:
+                row = db.execute(
+                    "SELECT session_id,merchant_pending,farmer_pending FROM manual_replans "
+                    "WHERE target_profile_id=? AND (merchant_pending!=0 OR farmer_pending!=0) "
+                    "LIMIT 1", (profile_id,)).fetchone()
+                if row:
+                    blockers.append({'journal': str(path), 'kind': 'manual_replan',
+                                     'id': row[0], 'phase': 'pending'})
             if 'state' in tables:
+                for name, kind in (
+                        ('manual_reader_hold', 'manual_reader_hold'),
+                        ('accepted_request', 'accepted_request')):
+                    row = db.execute(
+                        "SELECT value FROM state WHERE character=? AND name=?",
+                        (profile_id, name)).fetchone()
+                    if row:
+                        try:
+                            value = json.loads(row[0])
+                        except (ValueError, TypeError):
+                            value = {'unreadable': True}
+                        if value is not None:
+                            blockers.append({'journal': str(path), 'kind': kind,
+                                             'phase': value.get('phase') if isinstance(value, dict) else None})
+                row = db.execute(
+                    "SELECT value FROM state WHERE character=? AND name='unrelated_request_decline'",
+                    (profile_id,)).fetchone()
+                if row:
+                    try:
+                        decline = json.loads(row[0])
+                    except (ValueError, TypeError):
+                        decline = {'phase': 'unreadable'}
+                    if decline is not None and (not isinstance(decline, dict)
+                                                or decline.get('phase') != 'verified'):
+                        blockers.append({'journal': str(path),
+                                         'kind': 'unrelated_request_decline',
+                                         'phase': decline.get('phase')
+                                         if isinstance(decline, dict) else None})
                 row = db.execute(
                     "SELECT value FROM state WHERE character=? AND name='scan'", (profile_id,)).fetchone()
                 if row:
