@@ -10,26 +10,46 @@ from conquest.merchants.delivery_accept_probe import control, lease_authorized, 
 from conquest.merchants.ui import UnifiedUI, callback_failure
 
 
-def test_accept_control_rejects_open_booth_confirmation(monkeypatch):
-    """A visible selling list/Open Booth dialog can never become an accept click."""
-    base,model,window=0x140000000,0x100000,0x200000
+def test_accept_control_binds_stale_open_booth_label_to_exact_raw_trade_model(monkeypatch):
+    """A one-frame stale registry name cannot replace the proven raw Trade model."""
+    base,model=0x140000000,0x100000
     handlers={base+0x95fd6:bytes.fromhex('e835dcfaff'),
               base+0x95fdf:bytes.fromhex('b201488bcbe857070000')}
     raw=bytearray(0x250)
+    struct.pack_into('<4f',raw,0x18,844,282,200,100)
     struct.pack_into('<2f',raw,0xe8,1036,373)
     struct.pack_into('<f',raw,0x114,18)
     def read(address,size):
         if address==model+12:return b'\x01'
-        if address==window:return bytes(raw[:size])
+        if address==model:return bytes(raw[:size])
         return handlers[address][:size]
     labels=['Trade###Confirm','Parasite wishes to trade with you.','Accept','Cancel']
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',
         lambda _session,address:labels[(address-model-0x48)//0x20])
     driver=NS(observer=NS(adapter=NS(read_block=read)),
               memory=NS(gui=NS(base=base,model=lambda *_args:model)))
-    snapshot={'windows':[{'name':'Open Booth###Confirm','address':window,
+    snapshot={'windows':[{'name':'Open Booth###Confirm','address':model,
                           'geometry':[844,282,200,100]}]}
-    with pytest.raises(ValueError,match='Trade confirmation window'):
+    assert control(driver,snapshot)==(snapshot['windows'][0],(944,360))
+
+
+@pytest.mark.parametrize('address',[0x200000,True])
+def test_accept_control_rejects_stale_label_when_address_is_not_raw_trade_model(monkeypatch,address):
+    """Names are advisory only; address mismatch is always input-free failure."""
+    base,model=0x140000000,0x100000
+    handlers={base+0x95fd6:bytes.fromhex('e835dcfaff'),
+              base+0x95fdf:bytes.fromhex('b201488bcbe857070000')}
+    def read(pointer,size):
+        if pointer==model+12:return b'\x01'
+        return handlers[pointer][:size]
+    labels=['Trade###Confirm','Parasite wishes to trade with you.','Accept','Cancel']
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',
+        lambda _session,pointer:labels[(pointer-model-0x48)//0x20])
+    driver=NS(observer=NS(adapter=NS(read_block=read)),
+              memory=NS(gui=NS(base=base,model=lambda *_args:model)))
+    snapshot={'windows':[{'name':'Open Booth###Confirm','address':address,
+                          'geometry':[844,282,200,100]}]}
+    with pytest.raises(ValueError,match='absent or ambiguous'):
         control(driver,snapshot)
 
 
@@ -39,19 +59,47 @@ def test_accept_control_rejects_trade_when_open_booth_confirmation_also_exists(m
     handlers={base+0x95fd6:bytes.fromhex('e835dcfaff'),
               base+0x95fdf:bytes.fromhex('b201488bcbe857070000')}
     raw=bytearray(0x250)
+    struct.pack_into('<4f',raw,0x18,844,282,200,100)
     struct.pack_into('<2f',raw,0xe8,1036,373);struct.pack_into('<f',raw,0x114,18)
     def read(address,size):
         if address==model+12:return b'\x01'
-        if address==window:return bytes(raw[:size])
+        if address==model:return bytes(raw[:size])
         return handlers[address][:size]
     labels=['Trade###Confirm','Parasite wishes to trade with you.','Accept','Cancel']
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',
         lambda _session,address:labels[(address-model-0x48)//0x20])
     driver=NS(observer=NS(adapter=NS(read_block=read)),
               memory=NS(gui=NS(base=base,model=lambda *_args:model)))
-    snapshot={'windows':[{'name':'Trade###Confirm','address':window,'geometry':[844,282,200,100]},
+    snapshot={'windows':[{'name':'Open Booth###Confirm','address':model,'geometry':[844,282,200,100]},
                          {'name':'Open Booth###Confirm','address':window+0x400,'geometry':[1,1,200,100]}]}
     with pytest.raises(ValueError,match='ambiguous'):
+        control(driver,snapshot)
+
+
+@pytest.mark.parametrize('drift',[('geometry',[844,282,201,100]),('handler',None),('label',None)])
+def test_accept_control_rejects_layout_signature_or_raw_button_drift(monkeypatch,drift):
+    """All geometry and handler evidence remains exact despite a stale label."""
+    base,model=0x140000000,0x100000
+    handlers={base+0x95fd6:bytes.fromhex('e835dcfaff'),
+              base+0x95fdf:bytes.fromhex('b201488bcbe857070000')}
+    raw=bytearray(0x250)
+    struct.pack_into('<4f',raw,0x18,844,282,200,100)
+    struct.pack_into('<2f',raw,0xe8,1036,373);struct.pack_into('<f',raw,0x114,18)
+    kind,value=drift
+    if kind=='handler':handlers[base+0x95fd6]=b'\0'*5
+    labels=['Trade###Confirm','Parasite wishes to trade with you.','Accept','Cancel']
+    if kind=='label':labels[2]='Yes'
+    def read(pointer,size):
+        if pointer==model+12:return b'\x01'
+        if pointer==model:return bytes(raw[:size])
+        return handlers[pointer][:size]
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',
+        lambda _session,pointer:labels[(pointer-model-0x48)//0x20])
+    driver=NS(observer=NS(adapter=NS(read_block=read)),
+              memory=NS(gui=NS(base=base,model=lambda *_args:model)))
+    geometry=value if kind=='geometry' else [844,282,200,100]
+    snapshot={'windows':[{'name':'Open Booth###Confirm','address':model,'geometry':geometry}]}
+    with pytest.raises(ValueError):
         control(driver,snapshot)
 
 

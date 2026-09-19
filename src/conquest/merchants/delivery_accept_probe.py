@@ -1,7 +1,8 @@
 """Qualify native acceptance of Parasite's exact incoming trade request."""
+import math
 import struct
-import time
 import threading
+import time
 from conquest.capture import CaptureUnavailable
 from conquest.merchants.delivery_probe import JOURNAL,write_probe as write_json
 from conquest.merchants.delivery_bridge import pair
@@ -76,16 +77,33 @@ def control(driver,snapshot):
     for rva,code in ((0x95fd6,'e835dcfaff'),(0x95fdf,'b201488bcbe857070000')):
         if s.read_block(g.base+rva,len(bytes.fromhex(code)))!=bytes.fromhex(code):
             raise ValueError('Native accept handler changed')
+    # The GUI registry name can lag the active shared slot by a frame.  Its
+    # address is the stable binding instead: only the exact slot-15 model
+    # whose raw controls above prove Trade may furnish click geometry.  A
+    # stale label is therefore harmless, but another confirmation or a
+    # different address is never an acceptable substitute.
     confirmations=[w for w in snapshot['windows'] if str(w.get('name','')).endswith('###Confirm')]
-    if len(confirmations)!=1 or confirmations[0].get('name')!='Trade###Confirm':
+    if (len(confirmations)!=1 or type(confirmations[0].get('address')) is not int
+            or confirmations[0]['address']!=model):
         raise ValueError('Trade confirmation window is absent or ambiguous')
-    windows=confirmations
-    w=windows[0];raw=s.read_block(w['address'],0x250)
-    x,y,width,height=w['geometry'];end_x,button_y=struct.unpack_from('<2f',raw,0xe8)
-    line=struct.unpack_from('<f',raw,0x114)[0]
-    if width!=200 or not 100<=height<=400 or line!=18 or end_x!=x+width-8:
+    w=confirmations[0];raw=s.read_block(model,0x250)
+    geometry=w.get('geometry')
+    if not isinstance(geometry,(list,tuple)) or len(geometry)!=4:
         raise ValueError('Trade confirmation button layout changed')
-    return w,(round(x+width/2),round(button_y-22+line/2))
+    x,y,width,height=geometry
+    raw_geometry=struct.unpack_from('<4f',raw,0x18)
+    if (not all(type(value) in (int,float) and math.isfinite(value) for value in geometry)
+            or tuple(geometry)!=raw_geometry):
+        raise ValueError('Trade confirmation button layout changed')
+    end_x,button_y=struct.unpack_from('<2f',raw,0xe8)
+    line=struct.unpack_from('<f',raw,0x114)[0]
+    if (width!=200 or not 100<=height<=400 or line!=18 or end_x!=x+width-8
+            or not all(math.isfinite(value) for value in (end_x,button_y,line))):
+        raise ValueError('Trade confirmation button layout changed')
+    point=(round(x+width/2),round(button_y-22+line/2))
+    if not x<point[0]<x+width or not y<point[1]<y+height:
+        raise ValueError('Trade confirmation button layout changed')
+    return w,point
 
 
 def exact_incoming_request(intent, merchant):
