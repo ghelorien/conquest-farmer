@@ -107,7 +107,21 @@ equality; the full original snapshot remains immutable evidence.
 
 `completed` means an approved manual interval has settled, not a proven trade.
 `request_withdrawn` means an unapproved request disappeared with unchanged
-ownership. `declined_verified` additionally requires a durable decline input
+ownership, except for the explicit `manual_admission_retracted_bot_owned`
+disposition. That disposition withdraws only a false local manual admission:
+the exact in-game request is still visible (`request_still_visible=True`), and
+no gameplay input or settlement callback runs. Its dedicated audit event retains
+the original binding, request/decline history, probe and fresh bilateral memory.
+It requires an exact recoverable supervised probe, unchanged process/profile/
+character/recipient/request evidence and holdings, and a single never-approved,
+never-claimed pending request. Approved intervals, settlement and uncertain
+declines remain held. Corrupt, terminal, mismatched or stale live evidence never
+grants probe ownership or delivery trust. Recoverable incident age alone does
+not expire an unresolved transaction; fresh bilateral memory must re-prove it.
+Both merchant and farmer observers apply this proof to supervised open-trade
+stages, checking exact peers, item offers, inventory, silver and booth ownership.
+They never grant automated trust or release an existing farmer manual interval.
+`declined_verified` additionally requires a durable decline input
 claim and unchanged ownership. Terminal receipts explicitly set
 `sales_receipt=False`. Any process rollover, character mismatch, missing or
 stale evidence, unapproved ownership change, or unapproved/mismatched open trade

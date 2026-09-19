@@ -111,6 +111,8 @@ class ManualRuntime:
                     snapshot=MerchantMemory(observer).read(farmer_preflight=True)
                 else:snapshot = controller.driver.read()
             finally:observer.lock.release()
+            if self.process_probe_owned(character, snapshot, now=now):
+                raise ManualSessionError('Supervised bot probe owns this exact request; manual approval is unavailable')
             try:return self.manual_sessions.allow_and_activate(binding, snapshot, operator=operator, now=now)
             finally:self._sync_manual_fence()
 
@@ -168,9 +170,62 @@ class ManualRuntime:
             self._sync_manual_fence()
         return bool(row or self._manual_get(character,'manual_reader_hold'))
 
+    def process_probe_owned(self, character, snapshot, *, now=None):
+        """Keep exact supervised input under its own worker, never auto-accept."""
+        if not (snapshot.get('request') or snapshot.get('trade')):
+            return False
+        from conquest.merchants import delivery_probe
+        from conquest.merchants.delivery_probe_ownership import ownership, REQUEST_PHASES, TRADE_PHASES
+        from conquest.merchants.memory import MerchantMemory
+        from conquest.recovery_override import evidence_digest
+        from conquest.capture import CaptureUnavailable
+        from conquest.character_context import farmer_name
+        with self.coordinator.lock:
+            try:
+                state = delivery_probe.read_probe()
+                farmer_side = is_farmer_owner(character)
+                if (not state or not farmer_side and state.get('character') != str(character)
+                        or state.get('phase') not in REQUEST_PHASES | TRADE_PHASES):
+                    return False
+                merchant_character = character_name(state['character']) if farmer_side else character
+                source = self.manual_farmer_provider()
+                if source is None or source.character != farmer_name():
+                    return False
+                observer = self.observers.get(merchant_character) if farmer_side else source
+                if observer is None or not observer.lock.acquire(blocking=False):return False
+                try:
+                    observer.adapter.assert_identity()
+                    if farmer_side:
+                        farmer = snapshot
+                        merchant = self.controllers[merchant_character].driver.read()
+                    else:
+                        farmer = MerchantMemory(observer).read(farmer_preflight=True)
+                        merchant = snapshot
+                finally:observer.lock.release()
+                now = time.time() if now is None else now
+                source_target = self.manual_target('Farmer')
+                proof = ownership(state, merchant_character, self.manual_target(merchant_character), source_target,
+                                  farmer, merchant, now=now)
+                if evidence_digest(delivery_probe.read_probe()) != proof['probe_digest']:
+                    return False
+            except (ValueError, OSError, KeyError, TypeError, AttributeError, CaptureUnavailable):
+                # Unreadable, changed or unrelated journals cannot hide visitors.
+                return False
+            row = self.manual_sessions.active(self.manual_target(character))
+            decline = self._manual_get(character, 'unrelated_request_decline') or {}
+            if row and not farmer_side and decline.get('phase') != 'submitted':
+                try:
+                    self.manual_sessions.retract_probe_admission(row['id'], snapshot, state, farmer,
+                                                                farmer_profile_id=source_target, now=now)
+                except ManualSessionError:
+                    pass  # Genuine/uncertain manual intervals retain their fence.
+            self._sync_manual_fence()
+            return True
+
     def process_manual(self, character, snapshot, *, decline_enabled=False, now=None):
         """Called after bot reservation/transaction routing, before normal work."""
         now = time.time() if now is None else now
+        if self.process_probe_owned(character, snapshot, now=now):return True
         target = self.manual_target(character)
         store = self.manual_sessions
         with self.coordinator.lock:

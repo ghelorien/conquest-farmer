@@ -684,6 +684,58 @@ class ManualSessionStore:
         """Same-process restart is observation only; no input claim is replayed."""
         return self.observe(session_id, snapshot, now=now)
 
+    def retract_probe_admission(self, session_id, snapshot, state, farmer, *, farmer_profile_id, now=None):
+        """Withdraw only a proven false local admission, without gameplay input.
+
+        The game request remains visible. Never forgive approved intervals,
+        settlement, uncertain decline input, changed holdings, or a different
+        original request. Keep all original requests, declines and evidence.
+        """
+        from conquest.merchants.delivery_probe_ownership import ownership
+        now = _now(now)
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = self._row(db, session_id)
+            proof = ownership(state, snapshot['character'], row['target_profile_id'],
+                              farmer_profile_id, farmer, snapshot, now=now)
+            if (row['phase'] not in ('approval_pending', 'needs_attention') or row['ever_approved']
+                    or proof['modal'] != 'request' or row['created_at'] < state['started_at']
+                    or db.execute('SELECT 1 FROM manual_decline_claims c JOIN manual_requests r '
+                                  'ON r.id=c.request_id WHERE r.session_id=?', (session_id,)).fetchone()):
+                raise BindingMismatch('Manual interval cannot be retracted as a bot-owned request')
+            requests = db.execute('SELECT * FROM manual_requests WHERE session_id=?', (session_id,)).fetchall()
+            if (len(requests) != 1 or requests[0]['state'] not in ('pending', 'decline_pending')
+                    or requests[0]['id'] != row['current_request_id']):
+                raise BindingMismatch('Manual request has prior activity or uncertain input')
+            binding = json.loads(requests[0]['binding_json'])
+            row, request, current = self._bound_request(db, binding, snapshot, now)
+            if json.loads(request['before_json']) != current:
+                raise BindingMismatch('Original manual evidence differs from the exact bot-owned request')
+            original = db.execute('SELECT snapshot_json FROM manual_evidence WHERE session_id=? AND digest=?',
+                                  (session_id, binding['evidence_digest'])).fetchone()
+            original = json.loads(original[0]) if original else None
+            if (not original or original['timestamp'] < state['started_at']
+                    or any(original.get(key) != snapshot.get(key) for key in ('position', 'map_id'))
+                    or any({item['uid']: item.get('slot') for item in original[field]} !=
+                           {item['uid']: item.get('slot') for item in snapshot[field]}
+                           for field in ('inventory', 'booth'))):
+                raise BindingMismatch('Original manual location/chronology differs from the probe')
+            evidence_id = self._evidence(db, session_id, snapshot, now, current)
+            reason = 'Local manual admission retracted; the exact bot-owned game request remains visible'
+            receipt = {**proof, 'phase': 'request_withdrawn',
+                       'disposition': 'manual_admission_retracted_bot_owned',
+                       'request_still_visible': True, 'gameplay_input': False, 'sales_receipt': False,
+                       'reason': reason, 'original_phase': row['phase'], 'original_binding': binding,
+                       'original_request_state': request['state'], 'evidence_id': evidence_id,
+                       'probe': state, 'farmer_evidence': farmer, 'at': now}
+            db.execute("UPDATE manual_sessions SET phase='request_withdrawn',terminal_json=?,reason=?,"
+                       'last_observed_at=?,updated_at=? WHERE id=?',
+                       (_json(receipt), reason, snapshot['timestamp'], now, session_id))
+            self._audit(db, session_id, 'manual_admission_retracted_bot_owned', receipt, now)
+            # No settlement callback: this reclassification proves no transfer,
+            # new stock, sale, disappeared request or successful decline.
+            return self._view(db, self._row(db, session_id))
+
     def observe_target(self, target_profile_id, snapshot, *, now=None):
         """Observe a held session or quarantine an unapproved already-open trade.
 

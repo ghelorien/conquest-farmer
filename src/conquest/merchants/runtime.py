@@ -359,6 +359,10 @@ class MerchantRuntime(ManualRuntime):
             raise
         with self.lock:
             self.latest[character] = snapshot
+        # Supervised probes have no normal reservation/accepted-request receipt.
+        # Route their exact fresh bilateral evidence before manual admission,
+        # including correction of a previously misclassified pending session.
+        if self.process_probe_owned(character,snapshot):return
         from conquest.merchants.delivery_reservation import active as reserved_delivery
         reservation=reserved_delivery(self.journal,character)
         accepted = self.journal.get(character,'accepted_request') or {}

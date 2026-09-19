@@ -220,7 +220,11 @@ def start(ui,character,*,uids=None):
         raise ValueError('Approach the memory-identified merchant before the trade probe')
     revision=ui.app.control.snapshot()['revision']
     state={'phase':'prepared','character':character,'intent':intent,'started_at':time.time(),
-           'selected_uids':list(uids)}
+           'selected_uids':list(uids),
+           'target_profile_id':getattr(character,'profile_id',str(character))}
+    from conquest.character_context import current
+    context=current()
+    state['farmer_profile_id']=context.profile.id if context and context.profile.role=='Farmer' else 'Farmer'
     archive_probe(old)
     write_probe(JOURNAL,state)
     def work():

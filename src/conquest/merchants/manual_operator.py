@@ -48,8 +48,9 @@ def status_text(target, row, *, farmer_status=None, intent=None, now=None):
         blocker=observation.get('reason') or observation.get('decline_blocker')
         suffix=f'\nObservation blocker: {blocker}' if blocker else ''
         return f'No manual visitor session.\n{intent_line}{suffix}'
-    phase=str(row.get('phase') or 'unknown').replace('_',' ')
-    scope=row.get('fence_scope') or 'target'
+    retracted=(row.get('terminal') or {}).get('disposition')=='manual_admission_retracted_bot_owned'
+    phase='local manual admission retracted; game request still visible' if retracted else str(row.get('phase') or 'unknown').replace('_',' ')
+    scope='released' if retracted else row.get('fence_scope') or 'target'
     lines=[f"{phase.title()} · {visitor_text(row.get('visitor'))}",
            f"Input fence: {scope} · session {row.get('id','?')}", intent_line]
     if row.get('phase')=='approval_pending' and row.get('request_state')=='pending':
