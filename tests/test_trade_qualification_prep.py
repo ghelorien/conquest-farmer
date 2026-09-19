@@ -173,6 +173,30 @@ def test_resumed_banked_phase_revalidates_before_any_fare(tmp_path, monkeypatch)
     assert state['phase']=='banked'
 
 
+def test_fare_boundary_revalidates_payload_immediately_before_submission(tmp_path, monkeypatch):
+    monkeypatch.setattr(prep,'JOURNAL',tmp_path/'prep.json')
+    selected=item(10);safe=account('Parasite',1,[selected]);unsafe=copy.deepcopy(safe)
+    unsafe['inventory'].append(item(20,1088001,plus=0))
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state={'phase':'banked','work_window':'w','character':'Spiritual','origin':1011,
+           'farmer':safe,'merchant':merchant,'selected_uid':10,'selected_item':selected,
+           'route':{'outbound':{}},'control_revision':1,'started_at':time.time(),'route_id':'bandit'}
+    fake=SimpleNamespace(refresh=lambda:None,town=lambda *args,**fields:
+                         pytest.fail('Fare baseline must not be saved for unsafe payload'))
+    sequence=iter([(safe,merchant),(safe,merchant),(unsafe,merchant)])
+    issued=[]
+    def trip(loop, route, before_submit):
+        before_submit();issued.append('fare')
+    monkeypatch.setattr(prep,'PrepLoop',lambda ui,state:fake)
+    monkeypatch.setattr(prep,'_reserve_window',lambda ui,key:None)
+    monkeypatch.setattr(prep,'_release_window',lambda ui,key:None)
+    monkeypatch.setattr(prep,'pair',lambda *args,**fields:tuple(map(copy.deepcopy,next(sequence))))
+    monkeypatch.setattr('conquest.meteor_banking.trip',trip)
+    with pytest.raises(ValueError,match='Loose Meteors'):
+        prep._run(object(),state)
+    assert issued==[] and state['phase']=='banked'
+
+
 def test_completion_revalidates_payload_after_actionability_read(tmp_path, monkeypatch):
     monkeypatch.setattr(prep,'JOURNAL',tmp_path/'prep.json')
     selected=item(10);safe=account('Parasite',1,[selected],map_id=1036)
@@ -244,9 +268,15 @@ def test_actual_authenticated_bridge_start_does_not_self_call_deadlock(tmp_path,
     finally:bridge.close()
 
 
-def recovery_ui(warehouse):
+def recovery_ui(warehouse, money=None):
+    money=money or {'silver':1000,'stored_silver':900,'amount':0}
+    def town_trade(body):
+        if body['action']=='warehouse-money':return copy.deepcopy(money)
+        if body=={'action':'warehouse-items','rich':True}:
+            return {'items':copy.deepcopy(warehouse),'capacity':40}
+        raise AssertionError(body)
     observer=SimpleNamespace(lock=threading.RLock(),
-        town_trade=lambda body:{'items':copy.deepcopy(warehouse),'capacity':40})
+        town_trade=town_trade)
     return SimpleNamespace(trade_qualification_prep_thread=None,delivery_probe_thread=None,
         delivery_workers={},app=SimpleNamespace(observer=observer))
 
@@ -280,6 +310,22 @@ def test_override_rejects_changed_fresh_ownership(tmp_path, monkeypatch):
     monkeypatch.setattr(prep,'pair',lambda *args,**fields:(copy.deepcopy(current[0]),copy.deepcopy(merchant)))
     preview=prep.recheck(ui)
     current[0]=account('Parasite',1,[item(10),item(99,1050002,plus=0,quantity=5)])
+    with pytest.raises(ValueError,match='ownership changed'):
+        prep.operator_override(ui,operator_confirmed=True,
+            confirmation_reference=preview['incident_digest'],incident_digest=preview['incident_digest'])
+
+
+def test_override_digest_includes_stored_warehouse_silver(tmp_path, monkeypatch):
+    monkeypatch.setattr(prep,'JOURNAL',tmp_path/'prep.json')
+    farmer=account('Parasite',1,[item(10)]);merchant=account('Spiritual',2,[],map_id=1036)
+    prep._durable({'phase':'withdraw_submitted','character':'Spiritual','selected_uid':10,
+        'selected_item':farmer['inventory'][0],'farmer':farmer,'merchant':merchant})
+    money={'silver':0,'stored_silver':900,'amount':100}
+    ui=recovery_ui([],money);monkeypatch.setattr(prep,'pair',
+        lambda *args,**fields:(copy.deepcopy(farmer),copy.deepcopy(merchant)))
+    preview=prep.recheck(ui)
+    assert preview['fresh_evidence']['proof']['warehouse']['stored_silver']==900
+    money['stored_silver']=800
     with pytest.raises(ValueError,match='ownership changed'):
         prep.operator_override(ui,operator_confirmed=True,
             confirmation_reference=preview['incident_digest'],incident_digest=preview['incident_digest'])

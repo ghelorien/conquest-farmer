@@ -288,17 +288,28 @@ def _fresh_recovery_evidence(ui, state):
     proof = {'farmer': canonical_ownership(source, require_closed=False),
              'merchant': canonical_ownership(merchant, require_closed=False),
              'farmer_map': source['map_id'], 'merchant_map': merchant['map_id']}
-    warehouse = {'available': False}
-    try:
-        observer = ui.app.observer
-        with observer.lock:
-            snapshot = observer.town_trade({'action': 'warehouse-items', 'rich': True})
-        warehouse = {'available': True, 'capacity': snapshot['capacity'],
-                     'items': list(snapshot['items'])}
-        # Force full rich validation, including binding, gems and quantities.
-        exact_items(warehouse['items'])
-    except (ValueError, OSError, KeyError, TypeError) as error:
-        warehouse = {'available': False, 'reason': type(error).__name__}
+    warehouse = {'available': False, 'money_available': False}
+    observer = ui.app.observer
+    with observer.lock:
+        try:money_before = observer.town_trade({'action': 'warehouse-money'})
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            money_before = None;warehouse['money_reason'] = type(error).__name__
+        try:snapshot = observer.town_trade({'action': 'warehouse-items', 'rich': True})
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            snapshot = None;warehouse['reason'] = type(error).__name__
+        try:money_after = observer.town_trade({'action': 'warehouse-money'})
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            money_after = None;warehouse['money_reason'] = type(error).__name__
+    if snapshot is not None:
+        items = list(snapshot['items'])
+        exact_items(items)  # binding, gems and quantities must all be rich.
+        warehouse.update(available=True, capacity=snapshot['capacity'], items=items)
+    if money_before is not None and money_after is not None:
+        if money_before != money_after:
+            raise ValueError('Warehouse silver changed during recovery observation')
+        warehouse.update(money_available=True, silver=money_after['silver'],
+                         stored_silver=money_after['stored_silver'],
+                         amount_field=money_after.get('amount'))
     proof['warehouse'] = warehouse
     return {'observed_at': now, 'farmer': source, 'merchant': merchant,
             'proof': proof, 'ownership_digest': evidence_digest(proof),
@@ -498,6 +509,11 @@ def _run(ui, state, *, send=request):
             else:
                 from conquest.meteor_banking import trip
                 def before_submit():
+                    source, merchant = pair(ui, state['character'], farmer_preflight=True)
+                    _same_participant(merchant, state['merchant'], 'Merchant')
+                    if source['map_id'] != state['origin']:
+                        raise ValueError('Farmer left the fare origin before submission')
+                    _payload_is_safe(source, state)
                     bag = loop.town('supplies')
                     _save(state, 'outbound_pending',
                           leg_before={'silver': bag['silver'], 'items': bag['items']})
