@@ -94,9 +94,15 @@ def observe(runtime,observer=None):
         return True
     runtime.manual_farmer_observation={'available':True,'observed_at':snapshot['timestamp'],
                                       'source':'read_only_memory','snapshot':snapshot}
-    if runtime.process_probe_owned('Farmer', snapshot):
-        runtime.manual_farmer_observation.update(bot_owned=True,
-            reason='Exact supervised farmer delivery has fresh bilateral observation priority')
+    routed = runtime.process_probe_owned('Farmer', snapshot)
+    if routed:
+        from conquest.merchants.manual_runtime import OBSERVATION_DEFERRED
+        if routed is OBSERVATION_DEFERRED:
+            runtime.manual_farmer_observation.update(observation_deferred=True,
+                reason='Trade observation waited for input; a fresh memory read is required')
+        else:
+            runtime.manual_farmer_observation.update(bot_owned=True,
+                reason='Exact supervised farmer delivery has fresh bilateral observation priority')
         return runtime.coordinator.manual_session_blocked('Farmer')
     if runtime.manual_farmer_controller is None or runtime.manual_farmer_controller.driver.observer is not observer:
         try:runtime.manual_farmer_controller=controller(runtime,observer)

@@ -1,13 +1,47 @@
 """Memory-only visitor routing; permission never grants automated trade input."""
 import json
 import time
+from contextlib import contextmanager
 from conquest.character_context import is_farmer_owner
 
 from conquest.merchants.journal import CHARACTERS, character_name
 from conquest.merchants.manual_sessions import ManualSessionError, ManualSessionStore
 
 
+OBSERVATION_DEFERRED = object()
+
+
 class ManualRuntime:
+    @contextmanager
+    def _manual_observation_scope(self, snapshot, *, now=None):
+        """Serialize one observation, distinguishing queued reads from bad input.
+
+        Complete evidence fresh when submitted must be reread if it waited for
+        another input owner: even a short action can change modal ownership.
+        This grants no incident proof, changes no fence, and requires a new
+        read on the next observer poll.
+        """
+        from conquest.merchants.manual_sessions import _fresh, _digest
+        entered_at = time.time() if now is None else now
+        digest = None
+        try:
+            _fresh(snapshot, entered_at)
+            digest = _digest(snapshot)
+        except (ValueError, KeyError, TypeError, AttributeError):
+            pass  # Missing/already-stale evidence follows ordinary fail-closed routing.
+        waited = not self.coordinator.lock.acquire(blocking=False)
+        if waited:self.coordinator.lock.acquire()
+        try:
+            deferred = False
+            if waited and digest is not None:
+                try:
+                    deferred = _digest(snapshot) == digest
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    pass
+            yield deferred
+        finally:
+            self.coordinator.lock.release()
+
     def init_manual_sessions(self):
         from conquest.merchants.manual_recovery import SCHEMA
         with self.journal.db() as db:db.executescript(SCHEMA)
@@ -300,7 +334,8 @@ class ManualRuntime:
         from conquest.recovery_override import evidence_digest
         from conquest.capture import CaptureUnavailable
         from conquest.character_context import farmer_name
-        with self.coordinator.lock:
+        with self._manual_observation_scope(snapshot, now=now) as deferred:
+            if deferred:return False if require_bilateral else OBSERVATION_DEFERRED
             state = None
             try:
                 state = delivery_probe.read_probe()
@@ -439,6 +474,12 @@ class ManualRuntime:
 
     def process_manual(self, character, snapshot, *, decline_enabled=False, now=None):
         """Called after bot reservation/transaction routing, before normal work."""
+        with self._manual_observation_scope(snapshot, now=now) as deferred:
+            if deferred:return True
+            return self._process_manual_locked(character, snapshot, decline_enabled=decline_enabled, now=now)
+
+    def _process_manual_locked(self, character, snapshot, *, decline_enabled=False, now=None):
+        """Routing and any resulting admission share one observation mutex."""
         if self.process_probe_owned(character, snapshot, now=now):return True
         now = time.time() if now is None else now
         target = self.manual_target(character)
