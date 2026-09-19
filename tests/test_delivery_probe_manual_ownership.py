@@ -60,6 +60,100 @@ def test_exact_probe_precedes_admission_without_granting_delivery_trust(supervis
     assert x.path.read_text() and x.probe['phase'] == 'request_verified'
 
 
+@pytest.mark.parametrize('phase', ['request_submitted', 'request_verified'])
+@pytest.mark.parametrize('entry', ['step', 'manual', 'probe'])
+def test_peer_read_completion_time_does_not_create_false_manual_admission(supervised, phase, entry):
+    x=supervised
+    x.probe['phase']=phase;x.save()
+    def read_source():
+        # Native MerchantMemory timestamps at the end of its read, later than
+        # the caller's entry time even while Farming Off.
+        x.now+=.2
+        return {**deepcopy(x.farmer),'timestamp':x.now}
+    x.farmer_read=read_source
+    if entry=='step':x.runtime.step('Dutch')
+    elif entry=='manual':assert x.runtime.process_manual('Dutch',x.read())
+    else:assert x.runtime.process_probe_owned('Dutch',x.read())
+    assert x.runtime.manual_status('Dutch') is None
+    assert x.calls==[] and x.runtime.manual_sessions.permissions()==[]
+
+
+def test_farmer_probe_validation_uses_completion_time_of_merchant_read(supervised):
+    x=supervised
+    open_trade(x)
+    def read_merchant():
+        x.now+=.2
+        return x.read()
+    x.driver.read=read_merchant
+    assert x.runtime.process_probe_owned('Farmer',x.farmer_read())
+    assert x.runtime.manual_status('Farmer') is None and x.calls==[]
+
+
+def test_explicit_validation_time_is_not_silently_advanced(supervised):
+    x=supervised
+    def read_source():
+        x.now+=.2
+        return {**deepcopy(x.farmer),'timestamp':x.now}
+    x.farmer_read=read_source
+    assert not x.runtime.process_probe_owned('Dutch',x.read(),now=x.now)
+    assert x.runtime.manual_status('Dutch') is None and x.calls==[]
+
+
+@pytest.mark.parametrize('read_fails', [False, True])
+def test_slow_peer_read_does_not_refresh_expired_local_evidence(supervised, read_fails):
+    x=supervised
+    def read_source():
+        x.now+=6
+        if read_fails:raise OSError('slow failed read')
+        return {**deepcopy(x.farmer),'timestamp':x.now}
+    x.farmer_read=read_source
+    # Neither the bilateral nor structural fallback may validate the local
+    # sample at its pre-read age after six real seconds have elapsed.
+    assert not x.runtime.process_probe_owned('Dutch',x.read())
+    assert x.runtime.manual_status('Dutch') is None and x.calls==[]
+
+
+def test_restart_rebinds_same_attached_observer_without_changing_farming_off(supervised):
+    from conquest.merchants.runtime import MerchantRuntime
+    x=supervised
+    restarted=MerchantRuntime(object(),x.guard,journal=x.journal)
+    # Startup absence supplies no ownership authority and needs no new wiring.
+    assert not restarted.process_probe_owned('Dutch',x.read())
+    intent={'enabled':False,'paused':False,'revision':7}
+    restarted.configure_manual_farmer(lambda:x.source,lambda:dict(intent))
+    def read_source():
+        x.now+=.2
+        return {**deepcopy(x.farmer),'timestamp':x.now}
+    x.farmer_read=read_source
+    assert restarted.process_manual('Dutch',x.read())
+    assert restarted.manual_status('Dutch') is None
+    assert intent=={'enabled':False,'paused':False,'revision':7} and x.calls==[]
+
+
+def test_advancing_clock_never_hides_a_different_exact_request(supervised):
+    x=supervised
+    x.state['request']['participant_uid']+=1
+    def read_source():
+        x.now+=.2
+        return {**deepcopy(x.farmer),'timestamp':x.now}
+    x.farmer_read=read_source
+    assert x.runtime.process_manual('Dutch',x.read())
+    assert x.runtime.manual_status('Dutch')['phase']=='approval_pending'
+    assert x.calls==[]
+
+
+def test_observer_contention_retains_existing_fence_and_never_grants_bilateral_proof(supervised):
+    x=supervised
+    row=x.runtime.manual_sessions.begin_request('Dutch',x.read(),now=x.now)
+    x.runtime._sync_manual_fence()
+    x.source.lock=NS(acquire=lambda **_kwargs:False,release=lambda:None)
+    x.now+=.2
+    assert x.runtime.process_probe_owned('Dutch',x.read())
+    assert not x.runtime.process_probe_owned('Dutch',x.read(),require_bilateral=True)
+    assert x.runtime.manual_sessions.get(row['id'])['holds_automation']
+    assert x.guard.manual_session_blocked('Dutch') and x.calls==[]
+
+
 @pytest.mark.parametrize('failure', ['peer_lock', 'peer_read'])
 def test_unresolved_exact_probe_structurally_suppresses_manual_admission_on_transient_peer_failure(
         supervised, monkeypatch, failure):

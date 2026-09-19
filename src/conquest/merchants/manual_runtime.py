@@ -280,7 +280,6 @@ class ManualRuntime:
         from conquest.character_context import farmer_name
         with self.coordinator.lock:
             state = None
-            proof_now = time.time() if now is None else now
             try:
                 state = delivery_probe.read_probe()
                 farmer_side = is_farmer_owner(character)
@@ -306,7 +305,8 @@ class ManualRuntime:
                     observer = self.observers.get(merchant_character) if farmer_side else source
                     if observer is None:return False
                     if not observer.lock.acquire(blocking=False):
-                        return False if require_bilateral else self._structural_request_probe_owned(character,snapshot,state,now=proof_now)
+                        return False if require_bilateral else self._structural_request_probe_owned(
+                            character,snapshot,state,now=time.time() if now is None else now)
                     try:
                         observer.adapter.assert_identity()
                         if farmer_side:
@@ -321,9 +321,13 @@ class ManualRuntime:
                         # snapshots exist, a failed bilateral proof is evidence
                         # of a changed incident and must route manually.
                         return False if require_bilateral or farmer_side else self._structural_request_probe_owned(
-                            character,snapshot,state,now=proof_now)
+                            character,snapshot,state,now=time.time() if now is None else now)
                     finally:observer.lock.release()
-                now = proof_now
+                # Native snapshots are timestamped when their reads finish.
+                # Taking now before the peer read makes valid fresh evidence
+                # look future-dated and incorrectly admits the bot request as
+                # manual. Keep explicit caller-supplied test/evidence time fixed.
+                now = time.time() if now is None else now
                 source_target = self.manual_target('Farmer')
                 proof = ownership(state, merchant_character, self.manual_target(merchant_character), source_target,
                                   farmer, merchant, now=now)
@@ -356,8 +360,8 @@ class ManualRuntime:
 
     def process_manual(self, character, snapshot, *, decline_enabled=False, now=None):
         """Called after bot reservation/transaction routing, before normal work."""
-        now = time.time() if now is None else now
         if self.process_probe_owned(character, snapshot, now=now):return True
+        now = time.time() if now is None else now
         target = self.manual_target(character)
         store = self.manual_sessions
         with self.coordinator.lock:
