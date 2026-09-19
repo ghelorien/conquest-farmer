@@ -128,6 +128,12 @@ placement permits only that set or that set plus the exact `placing_uid`.
 Accept/cancel transitions require an empty offer, and complete-offer phases
 require every selected item. An arbitrary subset of selected items is insufficient.
 They never grant automated trust or release an existing farmer manual interval.
+On restart, an absent farmer observer permits observation-only suppression of
+a new merchant admission for `request_verified` alone: the complete saved pair
+must validate at its recorded time, the fresh merchant process/profile/request/
+holdings must still match, and the journal digest must remain unchanged. This
+path never retracts a session, changes its fence, or supplies bilateral input
+proof. `request_submitted` and a present but mismatched observer cannot use it.
 `declined_verified` additionally requires a durable decline input
 claim and unchanged ownership. Terminal receipts explicitly set
 `sales_receipt=False`. Any process rollover, character mismatch, missing or

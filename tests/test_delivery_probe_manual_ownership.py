@@ -117,8 +117,10 @@ def test_restart_rebinds_same_attached_observer_without_changing_farming_off(sup
     from conquest.merchants.runtime import MerchantRuntime
     x=supervised
     restarted=MerchantRuntime(object(),x.guard,journal=x.journal)
-    # Startup absence supplies no ownership authority and needs no new wiring.
-    assert not restarted.process_probe_owned('Dutch',x.read())
+    # An exact saved verified receipt only reserves observation during startup;
+    # it supplies no current bilateral proof or input authority.
+    assert restarted.process_probe_owned('Dutch',x.read())
+    assert not restarted.process_probe_owned('Dutch',x.read(),require_bilateral=True)
     intent={'enabled':False,'paused':False,'revision':7}
     restarted.configure_manual_farmer(lambda:x.source,lambda:dict(intent))
     def read_source():
@@ -247,7 +249,7 @@ def test_request_stages_are_owned_even_when_incident_is_old(supervised, phase):
     'merchant_process', 'farmer_process', 'merchant_character_uid', 'farmer_character_uid',
     'merchant_position', 'farmer_position', 'recipient_uid', 'recipient_name', 'recipient_position',
     'selected_uid', 'missing_intent', 'missing_start', 'future_start', 'past_update',
-    'future_update', 'nan_update', 'stale_farmer', 'farmer_missing', 'wrong_source_observer',
+    'future_update', 'nan_update', 'stale_farmer', 'wrong_source_observer',
     'farmer_trade', 'stock_changed', 'source_server', 'journal_changes',
     'missing_saved_request', 'saved_request_changed', 'saved_process_changed',
     'saved_request_future',
@@ -286,7 +288,6 @@ def test_nonmatching_journal_never_suppresses_a_real_manual_request(supervised, 
     if fault == 'future_update':x.probe['updated_at'] = 101
     if fault == 'nan_update':x.probe['updated_at'] = float('nan')
     if fault == 'stale_farmer':x.farmer_read = lambda: {**deepcopy(x.farmer), 'timestamp': 90}
-    if fault == 'farmer_missing':x.runtime.manual_farmer_provider = lambda: None
     if fault == 'wrong_source_observer':x.source.character = 'Different'
     if fault == 'farmer_trade':x.farmer['trade'] = {'participant': 'Dutch', 'participant_uid': 123}
     if fault == 'stock_changed':x.farmer['silver'] += 1

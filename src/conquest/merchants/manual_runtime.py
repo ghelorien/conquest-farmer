@@ -183,6 +183,7 @@ class ManualRuntime:
         from conquest.merchants.delivery import validate_snapshot, exact_items
         from conquest.merchants.delivery_request_reconciliation import ownership as request_ownership
         from conquest.merchants.manual_sessions import canonical_ownership
+        from conquest.character_context import farmer_name
         from conquest.recovery_override import evidence_digest
         try:
             request=snapshot.get('request')
@@ -191,7 +192,8 @@ class ManualRuntime:
                     or snapshot.get('trade') is not None or not isinstance(request,dict)
                     or state.get('character')!=str(character)
                     or state.get('target_profile_id',state.get('character'))!=self.manual_target(character)
-                    or state.get('farmer_profile_id','Farmer')!=self.manual_target('Farmer')):
+                    or state.get('farmer_profile_id','Farmer')!=self.manual_target('Farmer')
+                    or farmer.get('character')!=farmer_name()):
                 return False
             started=state.get('started_at')
             if type(started) not in (int,float) or not math.isfinite(started) or not 0<=started<=now:
@@ -238,14 +240,21 @@ class ManualRuntime:
                         ('identity','character','character_uid','server','position')):
                     return False
                 saved_request=saved.get('request')
-                if not isinstance(saved_request,dict) or any(saved_request.get(key)!=request.get(key) for key in
-                        ('participant','participant_uid','message','server')):
+                if not isinstance(saved_request,dict) or saved_request!=request:
                     return False
                 saved_farmer=state.get('farmer_after')
                 # Saved observations are a durable receipt, not current
                 # memory.  Validate them at their own boundary so an old,
                 # recoverable error cannot reopen manual admission.
                 if not isinstance(saved_farmer,dict):return False
+                if state['phase']=='request_verified':
+                    verified_at=state.get('updated_at')
+                    if (type(verified_at) not in (int,float) or not math.isfinite(verified_at)
+                            or not started<=verified_at<=now):return False
+                    for receipt in (saved_farmer,saved):
+                        observed_at=receipt.get('timestamp')
+                        if (type(observed_at) not in (int,float) or not math.isfinite(observed_at)
+                                or not started<=observed_at<=verified_at):return False
                 saved_now=max(saved_farmer.get('timestamp',float('inf')),saved.get('timestamp',float('inf')))
                 request_ownership(intent,saved_farmer,saved,now=saved_now)
                 expected=saved
@@ -298,8 +307,17 @@ class ManualRuntime:
                     farmer,merchant=farmer_snapshot,snapshot
                 else:
                     source = self.manual_farmer_provider()
+                    if source is None:
+                        # On restart the merchant can attach before the farmer.
+                        # Only an already verified bilateral receipt may reserve
+                        # this exact still-visible request during that gap. This
+                        # early return cannot retract a session, change a fence,
+                        # or provide the full proof required for any input.
+                        return (not require_bilateral and not farmer_side and state.get('phase')=='request_verified'
+                                and self._structural_request_probe_owned(character,snapshot,state,
+                                    now=time.time() if now is None else now))
                     intent=state.get('intent');farmer_intent=intent.get('farmer') if isinstance(intent,dict) else None
-                    if (source is None or source.character != farmer_name() or not isinstance(farmer_intent,dict)
+                    if (source.character != farmer_name() or not isinstance(farmer_intent,dict)
                             or getattr(getattr(source,'adapter',None),'identity',None)!=farmer_intent.get('identity')):
                         return False
                     observer = self.observers.get(merchant_character) if farmer_side else source
