@@ -276,6 +276,19 @@ class ManualRuntime:
         except (KeyError, TypeError, ValueError, OSError):
             return False
 
+    def _structural_trade_probe_owned(self, character, snapshot, state, *, now):
+        """Defer one observation only; never retract or synchronize a fence."""
+        from conquest.merchants import delivery_probe
+        from conquest.merchants.delivery_probe_ownership import local_ownership
+        from conquest.recovery_override import evidence_digest
+        try:
+            merchant = character_name(state['character'])
+            proof = local_ownership(state, merchant, self.manual_target(merchant), self.manual_target('Farmer'),
+                'farmer' if is_farmer_owner(character) else 'merchant', snapshot, now=now)
+            return evidence_digest(delivery_probe.read_probe()) == proof['probe_digest']
+        except (KeyError, TypeError, ValueError, OSError):
+            return False
+
     def process_probe_owned(self, character, snapshot, *, farmer_snapshot=None, now=None,
                             require_bilateral=False):
         """Keep exact supervised input under its own worker, never auto-accept."""
@@ -296,6 +309,18 @@ class ManualRuntime:
                         or state.get('phase') not in REQUEST_PHASES | TRADE_PHASES):
                     return False
                 merchant_character = character_name(state['character']) if farmer_side else character
+                def defer():
+                    if require_bilateral:return False
+                    observed_now = time.time() if now is None else now
+                    if state['phase'] in TRADE_PHASES and self._structural_trade_probe_owned(
+                            character, snapshot, state, now=observed_now):return True
+                    return not farmer_side and self._structural_request_probe_owned(
+                        character, snapshot, state, now=observed_now)
+                # A request captured before acceptance can reach this mutex
+                # after the durable open-trade write. It is old observation,
+                # never evidence for a new manual admission or for input.
+                if farmer_snapshot is not None and snapshot.get('request') and state['phase'] not in REQUEST_PHASES:
+                    return False
                 if farmer_snapshot is not None:
                     # Delivery acceptance has just read this exact bilateral
                     # pair under both observer locks.  Reacquiring the farmer
@@ -313,20 +338,26 @@ class ManualRuntime:
                         # this exact still-visible request during that gap. This
                         # early return cannot retract a session, change a fence,
                         # or provide the full proof required for any input.
-                        return (not require_bilateral and not farmer_side and state.get('phase')=='request_verified'
+                        return (defer() if state['phase'] in TRADE_PHASES else
+                                not require_bilateral and not farmer_side and state.get('phase')=='request_verified'
                                 and self._structural_request_probe_owned(character,snapshot,state,
                                     now=time.time() if now is None else now))
                     intent=state.get('intent');farmer_intent=intent.get('farmer') if isinstance(intent,dict) else None
                     if (source.character != farmer_name() or not isinstance(farmer_intent,dict)
                             or getattr(getattr(source,'adapter',None),'identity',None)!=farmer_intent.get('identity')):
                         return False
+                    if snapshot.get('request') and state['phase'] not in REQUEST_PHASES:
+                        return defer()
                     observer = self.observers.get(merchant_character) if farmer_side else source
-                    if observer is None:return False
+                    if observer is None:return defer() if state['phase'] in TRADE_PHASES else False
+                    peer_role = 'merchant' if farmer_side else 'farmer'
+                    if getattr(getattr(observer, 'adapter', None), 'identity', None) != intent[peer_role]['identity']:
+                        return False
                     if not observer.lock.acquire(blocking=False):
-                        return False if require_bilateral else self._structural_request_probe_owned(
-                            character,snapshot,state,now=time.time() if now is None else now)
+                        return defer()
                     try:
-                        observer.adapter.assert_identity()
+                        try:observer.adapter.assert_identity()
+                        except (OSError, CaptureUnavailable, ValueError):return False
                         if farmer_side:
                             farmer = snapshot
                             merchant = self.controllers[merchant_character].driver.read()
@@ -338,8 +369,7 @@ class ManualRuntime:
                         # observation-only structural fallback.  Once both
                         # snapshots exist, a failed bilateral proof is evidence
                         # of a changed incident and must route manually.
-                        return False if require_bilateral or farmer_side else self._structural_request_probe_owned(
-                            character,snapshot,state,now=time.time() if now is None else now)
+                        return defer()
                     finally:observer.lock.release()
                 # Native snapshots are timestamped when their reads finish.
                 # Taking now before the peer read makes valid fresh evidence
@@ -353,6 +383,8 @@ class ManualRuntime:
                     return False
             except (OSError, CaptureUnavailable, ValueError, KeyError, TypeError, AttributeError):
                 return False
+            if proof['modal'] == 'trade':
+                return self.reconcile_probe_pair(merchant_character, farmer, merchant, now=now)
             row = self.manual_sessions.active(self.manual_target(character))
             decline = self._manual_get(character, 'unrelated_request_decline') or {}
             if row and not farmer_side and decline.get('phase') != 'submitted':
@@ -362,6 +394,35 @@ class ManualRuntime:
                 except ManualSessionError:
                     pass  # Genuine/uncertain manual intervals retain their fence.
             self._sync_manual_fence()
+            return True
+
+    def reconcile_probe_pair(self, character, farmer, merchant, *, now=None):
+        """Full bilateral proof and all-or-nothing false-admission cleanup."""
+        from conquest.merchants import delivery_probe
+        from conquest.merchants.delivery_probe_ownership import ownership
+        from conquest.recovery_override import evidence_digest
+        with self.coordinator.lock:
+            try:
+                state = delivery_probe.read_probe()
+                now = time.time() if now is None else now
+                target, source = self.manual_target(character), self.manual_target('Farmer')
+                proof = ownership(state, str(character), target, source, farmer, merchant, now=now)
+                if proof['modal'] != 'trade':return False
+                if evidence_digest(delivery_probe.read_probe()) != proof['probe_digest']:return False
+            except (ValueError, OSError, KeyError, TypeError, AttributeError):
+                return False
+            try:
+                if any((self._manual_get(owner, 'unrelated_request_decline') or {}).get('phase') == 'submitted'
+                       or self._manual_get(owner, 'manual_reader_hold') for owner in (character, 'Farmer')):
+                    return True  # Exact bot incident, but every existing hold remains.
+                self.manual_sessions.retract_probe_pair(state, farmer, merchant,
+                    target_profile_id=target, farmer_profile_id=source, now=now,
+                    current_probe=delivery_probe.read_probe)
+            except ManualSessionError:
+                pass  # A genuine/uncertain interval keeps both fences.
+            except (ValueError, OSError, KeyError, TypeError, AttributeError):
+                return False
+            finally:self._sync_manual_fence()
             return True
 
     def reconcile_probe_owned(self, character, farmer, merchant, *, now=None):

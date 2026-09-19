@@ -2,6 +2,7 @@
 import ctypes
 import threading
 import time
+from contextlib import contextmanager
 from conquest.capture import CaptureUnavailable
 from conquest.merchants.delivery_probe import JOURNAL,write_probe as write_json
 from conquest.merchants.delivery_bridge import pair
@@ -18,8 +19,13 @@ def run(ui,state):
     from conquest.merchants.delivery_confirm_controls import confirm_control
     intent=state['intent'];character=state['character'];revision=ui.app.control.snapshot()['revision']
     deadline=time.monotonic()+15
+    def manual_fence():
+        if any(ui.coordinator.manual_session_blocked(owner) for owner in
+               (state.get('farmer_profile_id','Farmer'),state.get('target_profile_id',character))):
+            raise CaptureUnavailable('Manual visitor session holds a delivery participant')
     def check():
         permits_new_delivery(intent['farmer']['character']);ui.coordinator.check()
+        manual_fence()
         c=ui.app.control.snapshot()
         if (ui.closed or ui.app.closing or c['enabled'] or c.get('paused') or c['revision']!=revision
                 or not ui.safe_to_yield() or time.monotonic()>=deadline
@@ -44,7 +50,15 @@ def run(ui,state):
              farmer_before_confirm=f,merchant_before_confirm=m)
         foreground_click(target,*point,tuple(size),require_foreground=False,
             before_press=lambda:wait_hover_validation(before,check))
-    with ui.coordinator.lease('Farmer'),physical_coordinates():
+    @contextmanager
+    def lease(owner):
+        with ui.coordinator.lock:
+            f,m=pair(ui,character)
+            if not ui.runtime.reconcile_probe_pair(character,f,m):
+                raise CaptureUnavailable('Delivery confirmation needs fresh bilateral probe reconciliation')
+            manual_fence()
+            with ui.coordinator.lease(owner),physical_coordinates():yield
+    with lease('Farmer'):
         done,result=threading.Event(),{}
         ui.ui_requests.put((ui.app.show_game,done,result))
         if not done.wait(3):
@@ -64,7 +78,7 @@ def run(ui,state):
     if character in ui.calibrating:raise ValueError('Merchant has another calibration active')
     ui.calibrating.add(character);ui.calibration_cancel[character]=threading.Event()
     try:
-        with ui.coordinator.lease(character),physical_coordinates():
+        with lease(character):
             driver=ui.runtime.controllers[character].driver
             click('merchant',driver.observer,driver.memory)
             # Finish read-only reconciliation after an expired input deadline.

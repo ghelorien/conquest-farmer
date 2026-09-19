@@ -49,7 +49,8 @@ def status_text(target, row, *, farmer_status=None, intent=None, now=None):
         suffix=f'\nObservation blocker: {blocker}' if blocker else ''
         return f'No manual visitor session.\n{intent_line}{suffix}'
     retracted=(row.get('terminal') or {}).get('disposition')=='manual_admission_retracted_bot_owned'
-    phase='local manual admission retracted; game request still visible' if retracted else str(row.get('phase') or 'unknown').replace('_',' ')
+    modal='trade' if (row.get('terminal') or {}).get('trade_still_visible') else 'request'
+    phase=f'local manual admission retracted; game {modal} still visible' if retracted else str(row.get('phase') or 'unknown').replace('_',' ')
     scope='released' if retracted else row.get('fence_scope') or 'target'
     lines=[f"{phase.title()} · {visitor_text(row.get('visitor'))}",
            f"Input fence: {scope} · session {row.get('id','?')}", intent_line]

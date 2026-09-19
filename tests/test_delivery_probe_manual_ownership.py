@@ -462,7 +462,6 @@ def open_trade(x, *, phase='trade_open_verified', offered=False):
     if phase == 'placement_submitted':
         x.probe['offered_uids'] = []
         x.probe['placing_uid'] = x.probe['selected_uids'][0]
-    x.save()
     terms = dict(own_items=[], items=[], own_silver=0, other_silver=0,
                  accepted=False, other_accepted=False)
     x.state.update(request=None, trade={**deepcopy(terms), 'participant': 'Parasite', 'participant_uid': 55})
@@ -470,6 +469,12 @@ def open_trade(x, *, phase='trade_open_verified', offered=False):
     if offered:
         x.farmer['trade']['own_items'] = deepcopy(x.probe['intent']['items'])
         x.state['trade']['items'] = deepcopy(x.probe['intent']['items'])
+    if phase in ('farmer_confirm_verified', 'merchant_confirm_submitted'):
+        x.farmer['trade']['accepted'] = x.state['trade']['other_accepted'] = True
+    if phase not in ('accept_submitted', 'cancel_submitted'):
+        x.probe.update(accepted_at=x.now,updated_at=x.now,
+                       farmer_after=x.farmer_read(),merchant_after=x.read())
+    x.save()
 
 
 @pytest.mark.parametrize('phase,offered', [
@@ -521,7 +526,8 @@ def test_farmer_mismatch_is_quarantined_without_any_probe_privilege(supervised, 
     if fault == 'terminal':x.probe['phase'] = 'delivery_verified'
     if fault == 'wrong_target':x.probe['target_profile_id'] = 'other-target'
     if fault == 'stale_peer':x.driver.read = lambda: {**deepcopy(x.state), 'timestamp': 90}
-    if fault == 'changed_request':x.state['request'] = deepcopy(x.probe['merchant_after']['request'])
+    if fault == 'changed_request':x.state['request'] = {'participant': 'Parasite', 'participant_uid': 55,
+                                                      'message': 'Parasite wishes to trade with you.'}
     if fault == 'missing_saved_peer':x.probe.pop('farmer_after')
     if fault == 'saved_peer_identity':x.probe['merchant_after']['identity']['pid'] += 1
     if fault == 'malformed_currency':x.farmer['trade']['own_silver'] = False
@@ -614,7 +620,7 @@ def test_open_trade_offer_is_bound_to_exact_durable_phase(supervised, phase, pri
     x.probe['intent']['items'].append(deepcopy(second))
     x.probe['farmer_after']['inventory'].append(deepcopy(second))
     x.probe['selected_uids'].append(100)
-    open_trade(x, phase=phase)
+    open_trade(x, phase=phase, offered=phase in ('offer_verified', 'farmer_confirm_verified'))
     if prior is None:x.probe.pop('offered_uids', None)
     else:x.probe['offered_uids'] = prior
     if placing is None:x.probe.pop('placing_uid', None)

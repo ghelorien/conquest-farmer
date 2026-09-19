@@ -2,6 +2,7 @@
 import ctypes
 import threading
 import time
+from contextlib import contextmanager
 from conquest.capture import CaptureUnavailable
 from conquest.merchants.delivery_probe import JOURNAL,write_probe as write_json
 from conquest.merchants.delivery_bridge import pair
@@ -20,8 +21,13 @@ def run(ui,state):
     character=state['character'];intent=state['intent'];revision=ui.app.control.snapshot()['revision']
     observer=ui.app.observer;memory=MerchantMemory(observer);target=observer.operations.target
     deadline=time.monotonic()+15
+    def manual_fence():
+        if any(ui.coordinator.manual_session_blocked(owner) for owner in
+               (state.get('farmer_profile_id','Farmer'),state.get('target_profile_id',character))):
+            raise CaptureUnavailable('Manual visitor session holds a delivery participant')
     def check():
         permits_new_delivery(intent['farmer']['character']);ui.coordinator.check()
+        manual_fence()
         c=ui.app.control.snapshot()
         if (ui.closed or ui.app.closing or c['enabled'] or c.get('paused') or c['revision']!=revision
                 or not ui.safe_to_yield() or time.monotonic()>=deadline
@@ -29,7 +35,15 @@ def run(ui,state):
             raise CaptureUnavailable('Trade placement was stopped or expired')
     def save(phase,**fields):
         state.update(phase=phase,updated_at=time.time(),error=None,**fields);write_json(JOURNAL,state)
-    with ui.coordinator.lease('Farmer'),physical_coordinates():
+    @contextmanager
+    def lease():
+        with ui.coordinator.lock:
+            f,m=pair(ui,character)
+            if not ui.runtime.reconcile_probe_pair(character,f,m):
+                raise CaptureUnavailable('Delivery placement needs fresh bilateral probe reconciliation')
+            manual_fence()
+            with ui.coordinator.lease('Farmer'),physical_coordinates():yield
+    with lease():
         done,result=threading.Event(),{}
         ui.ui_requests.put((ui.app.show_game,done,result))
         if not done.wait(3):

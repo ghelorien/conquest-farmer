@@ -155,8 +155,14 @@ def run(ui,state):
     from conquest.recovery_override import evidence_digest
     from conquest.merchants.delivery_probe import read_probe
     from conquest.merchants.delivery_probe_ownership import ownership
+    from contextlib import contextmanager
+    def manual_fence():
+        if any(ui.coordinator.manual_session_blocked(owner,purpose='delivery_accept_probe') for owner in
+               (state.get('farmer_profile_id','Farmer'),profile_id or character)):
+            raise CaptureUnavailable('Manual visitor session holds a delivery participant')
     def check():
         permits_new_delivery(intent['farmer']['character']);ui.coordinator.check()
+        manual_fence()
         import ctypes
         c=ui.app.control.snapshot()
         if (c['enabled'] or c.get('paused') or c['revision']!=revision or time.monotonic()>=deadline
@@ -190,17 +196,19 @@ def run(ui,state):
         # Pair capture and its full proof share the coordinator mutex.  That
         # prevents a manual observer pass from admitting the same request
         # between the observer reads and false-session retraction.
-        with ui.coordinator.lock:
-            _farmer,merchant=pair(ui,character)
-            reconciled=ui.runtime.reconcile_probe_owned(character,_farmer,merchant)
-        if not reconciled:
-            raise CaptureUnavailable('Delivery acceptance needs fresh bilateral probe reconciliation')
-        if ui.coordinator.manual_session_blocked(profile_id or character,purpose='delivery_accept_probe'):
-            raise CaptureUnavailable('Manual visitor session holds automation input')
+        @contextmanager
+        def lease():
+            with ui.coordinator.lock:
+                _farmer,merchant=pair(ui,character)
+                reconciled=ui.runtime.reconcile_probe_owned(character,_farmer,merchant)
+                if not reconciled:
+                    raise CaptureUnavailable('Delivery acceptance needs fresh bilateral probe reconciliation')
+                manual_fence()
+                with ui.coordinator.lease(character,purpose='delivery_accept_probe'),physical_coordinates():yield
         # This purpose asks the UI handoff to select and re-embed this exact
         # merchant before the first live control read.  The subsequent
         # ``control`` checks remain the only authority for sending a click.
-        with ui.coordinator.lease(character,purpose='delivery_accept_probe'),physical_coordinates():
+        with lease():
             f,m=fresh();w,point=control(driver,m);binding=control_binding(w,point)
             size=driver.target.snapshot()['client_size']
             if size!=driver.memory.gui.viewport_size():raise ValueError('Native and GUI dimensions differ')
@@ -209,15 +217,16 @@ def run(ui,state):
                 current,now_point=control(driver,m)
                 if control_binding(current,now_point)!=binding:raise ValueError('Accept control moved')
                 driver.memory.gui.assert_hovered(current,'Accept')
-            state.update(phase='accept_submitted',accept_point=point,error=None);write_json(JOURNAL,state)
+            state.update(phase='accept_submitted',accept_point=point,error=None,updated_at=time.time());write_json(JOURNAL,state)
             foreground_click(driver.target,*point,tuple(size),require_foreground=False,
                 before_press=lambda:wait_hover_validation(before,check))
             while True:
                 check();f,m=pair(ui,character)
                 if f.get('trade') and m.get('trade'):
                     validate_offers({**intent,'items':[]},f,m)
+                    accepted_at=time.time()
                     state.update(phase='trade_open_verified',farmer_after=f,merchant_after=m,
-                                 accepted_at=time.time());write_json(JOURNAL,state);return
+                                 accepted_at=accepted_at,updated_at=accepted_at);write_json(JOURNAL,state);return
                 time.sleep(.1)
     finally:
         ui.calibrating.discard(character)

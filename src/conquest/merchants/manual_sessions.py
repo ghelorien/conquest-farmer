@@ -743,6 +743,114 @@ class ManualSessionStore:
             # new stock, sale, disappeared request or successful decline.
             return self._view(db, self._row(db, session_id))
 
+    def retract_probe_pair(self, state, farmer, merchant, *, target_profile_id, farmer_profile_id,
+                           current_probe, now=None):
+        """Atomically retract only false post-accept admissions on both owners.
+
+        The entire evidence history must still identify the exact bot trade.
+        This creates no sale, settlement callback, permission or input claim.
+        """
+        from conquest.merchants.delivery_probe_ownership import ownership, historical_local_trade, _saved_boundary, _context
+        from conquest.recovery_override import evidence_digest
+        now = _now(now)
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            proof = ownership(state, merchant['character'], target_profile_id, farmer_profile_id,
+                              farmer, merchant, now=now)
+            if proof['modal'] != 'trade':raise BindingMismatch('An exact open bot trade is required')
+            intent, originals, items = _context(state, merchant['character'], target_profile_id, farmer_profile_id, now=now)
+            _saved_boundary(state, intent, originals, items)
+            accepted_at = state.get('accepted_at')
+            if (type(accepted_at) not in (int, float) or not math.isfinite(accepted_at)
+                    or not state['started_at'] <= accepted_at <= now):
+                raise BindingMismatch('Durable accepted boundary is unavailable')
+            pending = []
+            for role, target, snapshot, peer in (('farmer', farmer_profile_id, farmer, merchant),
+                                                ('merchant', target_profile_id, merchant, farmer)):
+                row = db.execute("SELECT * FROM manual_sessions WHERE target_profile_id=? AND phase NOT IN "
+                                 "('completed','request_withdrawn','declined_verified','operator_overridden')", (target,)).fetchone()
+                if row is None:continue
+                session_id = row['id']
+                if (row['phase'] != 'needs_attention' or row['ever_approved']
+                        or row['created_at'] < accepted_at or row['stable_digest'] is not None
+                        or row['terminal_json'] is not None):
+                    raise BindingMismatch('Manual interval predates or exceeds bot admission')
+                current = _fresh(snapshot, now)
+                self._same_owner(row, current)
+                visitor = VisitorKey(target, peer['character'], peer['server'], peer['character_uid'])
+                if row['visitor_json'] != _json(asdict(visitor)):
+                    raise BindingMismatch('Manual visitor differs from the exact bot peer')
+                requests = db.execute('SELECT * FROM manual_requests WHERE session_id=?', (session_id,)).fetchall()
+                if (db.execute('SELECT 1 FROM manual_declines WHERE session_id=?', (session_id,)).fetchone()
+                        or db.execute('SELECT 1 FROM manual_decline_claims c JOIN manual_requests r '
+                                      'ON r.id=c.request_id WHERE r.session_id=?', (session_id,)).fetchone()):
+                    raise BindingMismatch('Manual decline history cannot be retracted')
+                if requests:
+                    if (role != 'merchant' or len(requests) != 1 or requests[0]['state'] != 'pending'
+                            or requests[0]['id'] != row['current_request_id']):
+                        raise BindingMismatch('Manual request history is not a pristine stale admission')
+                elif row['current_request_id'] is not None:
+                    raise BindingMismatch('Manual request evidence is missing')
+                events = db.execute('SELECT event FROM manual_audit WHERE session_id=?', (session_id,)).fetchall()
+                if any(event[0] not in ('session_started', 'approval_pending', 'needs_attention',
+                                       'windows_observed', 'observation_ignored') for event in events):
+                    raise BindingMismatch('Manual interval has prior activity')
+                evidence = db.execute('SELECT * FROM manual_evidence WHERE session_id=? ORDER BY id',
+                                      (session_id,)).fetchall()
+                if not evidence:raise BindingMismatch('Original admission evidence is unavailable')
+                for index, record in enumerate(evidence):
+                    original = json.loads(record['snapshot_json'])
+                    if (record['error'] or record['digest'] != _digest(original)
+                            or record['recorded_at'] < accepted_at or original['timestamp'] > now):
+                        raise BindingMismatch('Admission has missing or uncertain historical evidence')
+                    historical = historical_local_trade(state, merchant['character'], target_profile_id,
+                        farmer_profile_id, role, original)
+                    self._same_owner(row, historical)
+                    if record['ownership_digest'] != _digest(historical):
+                        raise BindingMismatch('Historical ownership digest differs')
+                    if index == 0:
+                        if requests:
+                            request = requests[0]
+                            binding = json.loads(request['binding_json'])
+                            if (original.get('request') is None or request['before_json'] != _json(historical)
+                                    or binding.get('evidence_digest') != record['digest']
+                                    or binding.get('ownership_digest') != _digest(historical)
+                                    or binding.get('session_id') != session_id
+                                    or binding.get('request_id') != request['id']
+                                    or binding.get('target_profile_id') != target
+                                    or binding.get('visitor') != asdict(visitor)
+                                    or binding.get('game_process_identity') != historical['identity']
+                                    or binding.get('character_identity') != json.loads(row['character_json'])
+                                    or binding.get('request_fingerprint') != request['fingerprint']
+                                    or request['fingerprint'] != request_fingerprint(original)):
+                                raise BindingMismatch('Original stale request binding differs')
+                        elif original.get('trade') is None:
+                            raise BindingMismatch('Original admission was not an open trade')
+                pending.append((row, snapshot, current, evidence[0]['id']))
+            # A replacement during validation must roll back both targets. The
+            # coordinator mutex excludes admission/input; the digest excludes
+            # concurrent journal advancement by the supervised worker.
+            if evidence_digest(current_probe()) != proof['probe_digest']:
+                raise BindingMismatch('Probe changed during bilateral retraction')
+            results = []
+            for row, snapshot, current, original_id in pending:
+                evidence_id = self._evidence(db, row['id'], snapshot, now, current)
+                reason = 'Local manual admission retracted; the exact bot-owned trade remains open'
+                receipt = {**proof, 'phase': 'request_withdrawn',
+                    'disposition': 'manual_admission_retracted_bot_owned', 'trade_still_visible': True,
+                    'request_still_visible': False, 'gameplay_input': False, 'sales_receipt': False,
+                    'reason': reason, 'original_phase': row['phase'], 'accepted_at': accepted_at,
+                    'original_evidence_id': original_id, 'evidence_id': evidence_id,
+                    'probe': state, 'farmer_evidence': farmer, 'merchant_evidence': merchant, 'at': now}
+                db.execute("UPDATE manual_sessions SET phase='request_withdrawn',terminal_json=?,reason=?,"
+                           'last_observed_at=?,updated_at=? WHERE id=?',
+                           (_json(receipt), reason, snapshot['timestamp'], now, row['id']))
+                self._audit(db, row['id'], 'manual_admission_retracted_bot_owned', receipt, now)
+                results.append(self._view(db, self._row(db, row['id'])))
+            if evidence_digest(current_probe()) != proof['probe_digest']:
+                raise BindingMismatch('Probe changed before bilateral retraction committed')
+            return results
+
     def observe_target(self, target_profile_id, snapshot, *, now=None):
         """Observe a held session or quarantine an unapproved already-open trade.
 

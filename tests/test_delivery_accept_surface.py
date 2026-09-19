@@ -138,6 +138,40 @@ def accept_run_fixture(monkeypatch):
     return ui,state,farmer,merchant,foreground
 
 
+@pytest.mark.parametrize('held', ['Farmer', 'Spiritual'])
+def test_accept_preserves_both_participant_holds_before_any_lease(monkeypatch, held):
+    from conquest.capture import CaptureUnavailable
+    from conquest.merchants import delivery_accept_probe
+    ui,state,farmer,merchant,foreground=accept_run_fixture(monkeypatch)
+    monkeypatch.setattr(delivery_accept_probe,'pair',lambda *_a:(farmer,merchant))
+    ui.coordinator.manual_session_blocked=lambda owner,**_kw:owner==held
+    ui.coordinator.lease=lambda *_a,**_kw:pytest.fail('Held peer must prevent focus/lease')
+    monkeypatch.setattr(foreground,'foreground_click',lambda *_a,**_kw:pytest.fail('No click'))
+    with pytest.raises(CaptureUnavailable,match='delivery participant'):
+        run(ui,state)
+
+
+def test_accept_keeps_coordinator_mutex_through_lease_handoff(monkeypatch):
+    from conquest.merchants import delivery_accept_probe
+    ui,state,farmer,merchant,foreground=accept_run_fixture(monkeypatch)
+    monkeypatch.setattr(delivery_accept_probe,'pair',lambda *_a:(farmer,merchant))
+    class ReachedLease(Exception):pass
+    def lease(*_a,**_kw):
+        assert ui.coordinator.lock._is_owned()
+        admitted=[]
+        def try_admit():
+            acquired=ui.coordinator.lock.acquire(blocking=False)
+            admitted.append(acquired)
+            if acquired:ui.coordinator.lock.release()
+        worker=threading.Thread(target=try_admit)
+        worker.start();worker.join(5)
+        assert admitted==[False]
+        raise ReachedLease()
+    ui.coordinator.lease=lease
+    monkeypatch.setattr(foreground,'foreground_click',lambda *_a,**_kw:pytest.fail('No click'))
+    with pytest.raises(ReachedLease):run(ui,state)
+
+
 def live_accept_control(ui,monkeypatch,*,stage,model=0x100000,window=0x200000):
     """Install a raw slot-15 control that can change only before press."""
     base=0x140000000
