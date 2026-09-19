@@ -13,13 +13,16 @@ from conquest.character_context import farmer_name
 def control(driver,snapshot):
     s=driver.observer.adapter;g=driver.memory.gui
     model=g.model(15,0x5c4f30)
-    if [string(s,model+o) for o in (0x48,0x68,0x88,0xa8)]!=[
+    # Window slot 15 is shared by native confirmations.  Do not infer the
+    # requested action from whichever dialog happens to be visible: accepting
+    # is allowed only for the live, exact Trade confirmation model.
+    if s.read_block(model+12,1)!=b'\x01' or [string(s,model+o) for o in (0x48,0x68,0x88,0xa8)]!=[
             'Trade###Confirm',f'{farmer_name()} wishes to trade with you.','Accept','Cancel']:
         raise ValueError('Confirmation is not Parasite trade acceptance')
     for rva,code in ((0x95fd6,'e835dcfaff'),(0x95fdf,'b201488bcbe857070000')):
         if s.read_block(g.base+rva,len(bytes.fromhex(code)))!=bytes.fromhex(code):
             raise ValueError('Native accept handler changed')
-    windows=[w for w in snapshot['windows'] if w['name'].endswith('###Confirm')]
+    windows=[w for w in snapshot['windows'] if w['name']=='Trade###Confirm']
     if len(windows)!=1:raise ValueError('Trade confirmation window is absent or ambiguous')
     w=windows[0];raw=s.read_block(w['address'],0x250)
     x,y,width,height=w['geometry'];end_x,button_y=struct.unpack_from('<2f',raw,0xe8)
@@ -58,7 +61,10 @@ def run(ui,state):
     if character in ui.calibrating:raise ValueError('Merchant has another calibration active')
     ui.calibrating.add(character);ui.calibration_cancel[character]=threading.Event()
     try:
-        with ui.coordinator.lease(character),physical_coordinates():
+        # This purpose asks the UI handoff to select and re-embed this exact
+        # merchant before the first live control read.  The subsequent
+        # ``control`` checks remain the only authority for sending a click.
+        with ui.coordinator.lease(character,purpose='delivery_accept_probe'),physical_coordinates():
             f,m=fresh();w,point=control(driver,m)
             size=driver.target.snapshot()['client_size']
             if size!=driver.memory.gui.viewport_size():raise ValueError('Native and GUI dimensions differ')

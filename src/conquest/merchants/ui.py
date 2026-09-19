@@ -32,6 +32,23 @@ def calibration_failure(error):
     return {'verified':False,'note':note,'diagnostic':detail}
 
 
+def callback_failure(error):
+    """Return a bounded, useful UI-callback failure without a traceback dump."""
+    def message(value,limit=180):
+        # Callback errors reach a durable probe journal.  Keep control
+        # characters/newlines from corrupting that record or its UI rendering.
+        text=''.join(char if char.isprintable() else ' ' for char in str(value))
+        text=' '.join(text.split())
+        return text if len(text)<=limit else text[:limit-1]+'…'
+    chain=[];seen=set();current=error
+    while current is not None and id(current) not in seen and len(chain)<3:
+        seen.add(id(current))
+        detail=message(current)
+        chain.append(type(current).__name__+(f': {detail}' if detail else ''))
+        current=current.__cause__ or current.__context__
+    return ('Embedded client UI action failed: '+' <- '.join(chain))[:640]
+
+
 def wait_for_calibration_idle(coordinator, cancel, closed, *, clock=time.monotonic):
     deadline = clock()+15
     while True:
@@ -1438,7 +1455,14 @@ class UnifiedUI:
                         raise ValueError('Activate the selected login client before continuing')
                 return
         done,result = threading.Event(),{}
-        callback=lambda:self.show_merchant(character)
+        # A staged acceptance has no safe fallback to the previously selected
+        # pane.  Select the named observer's owned host on the Tk thread,
+        # creating it only when none is attached, then wait for its native
+        # surface below.  This does not inspect a screen or send game input.
+        if self.coordinator.purpose=='delivery_accept_probe':
+            callback=lambda:self.prepare_delivery_accept_surface(character)
+        else:
+            callback=lambda:self.show_merchant(character)
         fence=getattr(self,'grant_fence',None)
         if fence:callback=fence.guard_callback(fence.capture(),callback)
         self.ui_requests.put((callback,done,result))
@@ -1451,6 +1475,144 @@ class UnifiedUI:
         host=self.hosts[character]
         others=[h for c,h in self.hosts.items() if c!=character]
         wait_for_merchant_surface(host,others,self.coordinator.check)
+
+    def prepare_delivery_accept_surface(self, character):
+        """Show the exact observer's owned host for one acceptance probe."""
+        observer,target,host,identity=self.delivery_accept_binding(character)
+        expected=(target.hwnd,identity)
+        if not host or not host.saved:
+            self.embed_delivery_accept_merchant(character,expected)
+            # The attach path may not authorize presentation after a journal,
+            # observer, or HWND replacement.
+            observer,target,host,identity=self.delivery_accept_binding(character,expected)
+        self.show_delivery_accept_merchant(character,expected)
+        # Do not return control to the worker after a same-named replacement.
+        self.delivery_accept_binding(character,expected)
+
+    def delivery_accept_binding(self, character, expected=None):
+        """Read-only journal/observer/HWND binding for a staged accept."""
+        # Read the durable receipt on the UI thread before touching an owned
+        # window.  A stale/partial/replaced receipt cannot authorize focus,
+        # embedding, or any eventual click.
+        from conquest.merchants.delivery_probe import read_probe
+        state=read_probe()
+        if (not isinstance(state,dict) or state.get('phase')!='request_verified'
+                or state.get('character')!=character):
+            raise ValueError('Trade acceptance probe is no longer request-verified; no client action sent')
+        intent=state.get('intent')
+        merchant=intent.get('merchant') if isinstance(intent,dict) else None
+        if (not isinstance(merchant,dict) or merchant.get('character')!=character
+                or not isinstance(merchant.get('identity'),dict)):
+            raise ValueError('Trade acceptance merchant binding is unreadable; no client action sent')
+        receipt_identity=merchant['identity']
+        if (type(receipt_identity.get('pid')) is not int or receipt_identity['pid']<=0
+                or type(receipt_identity.get('creation_time_100ns')) is not int
+                or receipt_identity['creation_time_100ns']<=0
+                or not isinstance(receipt_identity.get('path'),str) or not receipt_identity['path']):
+            raise ValueError('Trade acceptance merchant identity is incomplete; no client action sent')
+        observer=self.runtime.observers.get(character)
+        if (not observer or observer.adapter.identity!=receipt_identity):
+            raise ValueError('Waiting for the exact merchant process before trade acceptance')
+        observer.adapter.assert_identity()
+        target=observer.operations.target
+        if type(getattr(target,'hwnd',None)) is not int or target.hwnd<=0:
+            raise ValueError('Trade acceptance merchant window is unavailable; no client action sent')
+        if expected is not None and (target.hwnd,receipt_identity)!=expected:
+            raise ValueError('Trade acceptance merchant mapping changed; no client action sent')
+        host=self.hosts.get(character)
+        # HostApi.assert_owner proves that the current observer's target HWND
+        # still belongs to the full journaled process identity.  Use the
+        # existing host API when possible; it avoids creating any window or
+        # changing presentation state during this read-only binding check.
+        if host:
+            host.api.assert_owner(target.hwnd,receipt_identity)
+        else:
+            from conquest.window_host import HostApi
+            HostApi().assert_owner(target.hwnd,receipt_identity)
+        if host and host.saved:
+            # Never detach, reconnect, or guess at a replacement during a
+            # delivery.  A saved host must still be the observer's exact HWND
+            # and complete process identity before it may be shown.
+            host.api.assert_owner(host.saved.hwnd,host.saved.identity)
+            if (host.saved.hwnd!=target.hwnd or host.saved.identity!=receipt_identity):
+                raise ValueError('Selected merchant host changed; re-embed was not attempted')
+            if host.mode!='owned':
+                raise ValueError('Selected merchant is not an owned host; no client action sent')
+        return observer,target,host,receipt_identity
+
+    def embed_delivery_accept_merchant(self, character, expected):
+        """Attach only ``expected``; generic merchant fallback is forbidden."""
+        if probe_busy(self):
+            raise ValueError('Background diagnostic owns the client; no client action sent')
+        observer,target,host,identity=self.delivery_accept_binding(character,expected)
+        if host and host.saved:
+            return
+        if not self.safe_to_yield():
+            raise ValueError('Farmer has not granted a safe handoff')
+        from conquest.window_host import EmbeddedWindow
+        host=host or EmbeddedWindow(mode='owned')
+        if not host.mode=='owned':
+            raise ValueError('Selected merchant is not an owned host; no client action sent')
+        self.notebook.select(self.frames[character])
+        self.detail_tabs[character].select(0)
+        layout=getattr(self,'apply_client_compact_layout',None)
+        if layout:layout()
+        self.root.update_idletasks()
+        pane=self.client_panes[character]
+        from conquest.character_context import registry
+        if registry():
+            from conquest.client_attachment import require_viewport
+            require_viewport(pane.winfo_width(),pane.winfo_height())
+        # Re-read just before the native operation; never replace a stale host
+        # with a newly observed same-named process.
+        observer,target,current,identity=self.delivery_accept_binding(character,expected)
+        if current is not None and current is not host:
+            raise ValueError('Selected merchant host changed; no client action sent')
+        self.hosts[character]=host
+        host.attach(expected[0],expected[1],pane.winfo_id(),pane.winfo_width(),pane.winfo_height())
+        self.delivery_accept_binding(character,expected)
+
+    def show_delivery_accept_merchant(self, character, expected):
+        """Present only a receipt-bound owned host, without generic lookup."""
+        if self.closed or self.app.closing:
+            raise ValueError('App is closing')
+        observer,target,host,identity=self.delivery_accept_binding(character,expected)
+        if not host or not host.saved:
+            raise ValueError('Selected merchant host is unavailable; no client action sent')
+        foreground=host.api.gui.GetForegroundWindow()
+        bookmark={'tab':self.notebook.select(),'hwnd':foreground,'identity':None}
+        if foreground:
+            try:
+                import ctypes
+                from ctypes import wintypes
+                pid=wintypes.DWORD()
+                host.api.backend.window_pid(foreground,ctypes.byref(pid))
+                bookmark['identity']=host.api.backend.identity(pid.value)
+            except (OSError,ValueError):
+                pass
+        self.input_bookmarks[character]=bookmark
+        self.notebook.select(self.frames[character])
+        self.detail_tabs[character].select(0)
+        layout=getattr(self,'apply_client_compact_layout',None)
+        if layout:layout()
+        self.root.update_idletasks()
+        # The layout callback can reconnect a merchant.  Rebind before hiding
+        # siblings or making the receipt-bound host visible.  Viewport
+        # rejection is also pre-presentation: it must not hide another client.
+        observer,target,host,identity=self.delivery_accept_binding(character,expected)
+        pane=self.client_panes[character]
+        from conquest.character_context import registry
+        if registry():
+            from conquest.client_attachment import require_viewport
+            require_viewport(pane.winfo_width(),pane.winfo_height())
+        self.delivery_accept_binding(character,expected)
+        for other,other_host in self.hosts.items():
+            if other!=character and other_host.saved:
+                other_host.api.assert_owner(other_host.saved.hwnd,other_host.saved.identity)
+                other_host.api.show_async(other_host.saved.hwnd,0)
+        self.delivery_accept_binding(character,expected)
+        host.resize(pane.winfo_width(),pane.winfo_height())
+        self.delivery_accept_binding(character,expected)
 
     def release_input(self, character):
         if not is_farmer_owner(character):
@@ -1502,7 +1664,10 @@ class UnifiedUI:
                 if not result.get('expired'):
                     callback()
             except Exception as error:
-                result['error'] = str(error) if isinstance(error,(ValueError,OSError)) else 'Embedded client UI action failed'
+                # The worker journal needs the actual callback failure to
+                # distinguish an unavailable layout from a failed UI action.
+                # Keep it concise and never expose traceback locals.
+                result['error'] = callback_failure(error)
             finally:
                 if done:
                     done.set()
