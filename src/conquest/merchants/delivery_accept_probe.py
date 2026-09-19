@@ -106,6 +106,16 @@ def control(driver,snapshot):
     return w,point
 
 
+def control_binding(window,point):
+    """Return only the qualified identity that must survive pre-press reads.
+
+    The registry name and draw metadata are observational and may legitimately
+    lag or change while the native slot remains the same.  ``control`` has
+    already bound the address and geometry to the raw exact Trade model.
+    """
+    return window['address'],tuple(window['geometry']),point
+
+
 def exact_incoming_request(intent, merchant):
     """Bind the hidden request actor, not merely its rendered dialog name."""
     request=merchant.get('request')
@@ -189,13 +199,14 @@ def run(ui,state):
         # merchant before the first live control read.  The subsequent
         # ``control`` checks remain the only authority for sending a click.
         with ui.coordinator.lease(character,purpose='delivery_accept_probe'),physical_coordinates():
-            f,m=fresh();w,point=control(driver,m)
+            f,m=fresh();w,point=control(driver,m);binding=control_binding(w,point)
             size=driver.target.snapshot()['client_size']
             if size!=driver.memory.gui.viewport_size():raise ValueError('Native and GUI dimensions differ')
             def before():
                 f,m=fresh()
-                if control(driver,m)!=(w,point):raise ValueError('Accept control moved')
-                driver.memory.gui.assert_hovered(w,'Accept')
+                current,now_point=control(driver,m)
+                if control_binding(current,now_point)!=binding:raise ValueError('Accept control moved')
+                driver.memory.gui.assert_hovered(current,'Accept')
             state.update(phase='accept_submitted',accept_point=point,error=None);write_json(JOURNAL,state)
             foreground_click(driver.target,*point,tuple(size),require_foreground=False,
                 before_press=lambda:wait_hover_validation(before,check))

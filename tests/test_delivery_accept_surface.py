@@ -130,11 +130,98 @@ def accept_run_fixture(monkeypatch):
     monkeypatch.setattr(delivery_probe,'read_probe',lambda:deepcopy(state))
     monkeypatch.setattr(delivery_probe_ownership,'ownership',lambda *_args,**_kwargs:{})
     monkeypatch.setattr(farmer_preferences,'permits_new_delivery',lambda *_args:None)
-    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.control',lambda *_args:({'address':1},(100,100)))
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.control',
+        lambda *_args:({'address':1,'geometry':[1,1,200,100]},(100,100)))
     monkeypatch.setattr('conquest.merchants.delivery_accept_probe.write_json',lambda *_args:None)
     monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
     monkeypatch.setattr(driver_module,'wait_hover_validation',lambda guard,_check:guard())
     return ui,state,farmer,merchant,foreground
+
+
+def live_accept_control(ui,monkeypatch,*,stage,model=0x100000):
+    """Install a raw slot-15 control that can change only before press."""
+    base=0x140000000
+    raw=bytearray(0x250)
+    struct.pack_into('<4f',raw,0x18,844,282,200,100)
+    struct.pack_into('<2f',raw,0xe8,1036,373);struct.pack_into('<f',raw,0x114,18)
+    handlers={base+0x95fd6:bytes.fromhex('e835dcfaff'),
+              base+0x95fdf:bytes.fromhex('b201488bcbe857070000')}
+    def active_model():return model+0x100 if stage[0]=='model' and stage[1] else model
+    def read(pointer,size):
+        if pointer==active_model()+12:return b'\x01'
+        if pointer==active_model():return bytes(raw[:size])
+        if pointer in handlers:
+            code=handlers[pointer]
+            return (b'\0'*len(code) if stage[0]=='handler' and stage[1] else code)[:size]
+        raise AssertionError(f'unexpected control read: {pointer:#x}')
+    def strings(_session,pointer):
+        labels=['Trade###Confirm','Parasite wishes to trade with you.','Accept','Cancel']
+        if stage[0]=='raw_string' and stage[1]:labels[2]='Yes'
+        offset=pointer-active_model()-0x48
+        if offset not in (0,0x20,0x40,0x60):return 'changed'
+        return labels[offset//0x20]
+    gui=NS(base=base,model=lambda *_args:active_model(),viewport_size=lambda:[1000,800],
+           assert_hovered=Mock())
+    driver=NS(target=NS(snapshot=lambda:{'client_size':[1000,800]}),memory=NS(gui=gui),
+              observer=NS(adapter=NS(read_block=read)))
+    ui.runtime.controllers['Spiritual']=NS(driver=driver)
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',strings)
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.farmer_name',lambda:'Parasite')
+    return gui
+
+
+def live_confirm_snapshot(stage,model=0x100000):
+    name='Trade###Confirm' if stage[0]=='label' and stage[1] else 'Open Booth###Confirm'
+    address=model+0x400 if stage[0]=='address' and stage[1] else model
+    geometry=[844,282,201,100] if stage[0]=='geometry' and stage[1] else [844,282,200,100]
+    return {'name':name,'address':address,'geometry':geometry,
+            'scroll':[99,7] if stage[0]=='label' and stage[1] else [0,0]}
+
+
+def test_accept_prepress_ignores_stale_label_and_scroll_change_for_same_raw_control(monkeypatch):
+    """Only canonical raw-bound control identity, not registry metadata, gates press."""
+    from conquest.merchants import delivery_accept_probe
+    ui,state,farmer,merchant,foreground=accept_run_fixture(monkeypatch)
+    monkeypatch.setattr(delivery_accept_probe,'control',control)
+    stage=['label',False];hovered=live_accept_control(ui,monkeypatch,stage=stage)
+    merchant['windows']=[live_confirm_snapshot(stage)]
+    def pairs(*_args):
+        current=deepcopy(merchant);current['windows']=[live_confirm_snapshot(stage)]
+        return deepcopy(farmer),current
+    monkeypatch.setattr(delivery_accept_probe,'pair',pairs)
+    monkeypatch.setattr(delivery_accept_probe,'validate_offers',lambda *_args:None)
+    presses=[]
+    def click(*_args,**kwargs):
+        stage[1]=True
+        kwargs['before_press']()
+        farmer['trade']={'participant':'Spiritual'};merchant['trade']={'participant':'Parasite'}
+        presses.append(True)
+    monkeypatch.setattr(foreground,'foreground_click',click)
+    run(ui,state)
+    assert presses==[True]
+    assert hovered.assert_hovered.call_args.args[0]['name']=='Trade###Confirm'
+
+
+@pytest.mark.parametrize('kind',['address','model','geometry','raw_string','handler'])
+def test_accept_prepress_control_drift_never_reaches_press(monkeypatch,kind):
+    """Every authority-bearing control change still fails before foreground input."""
+    from conquest.merchants import delivery_accept_probe
+    ui,state,farmer,merchant,foreground=accept_run_fixture(monkeypatch)
+    monkeypatch.setattr(delivery_accept_probe,'control',control)
+    stage=[kind,False];live_accept_control(ui,monkeypatch,stage=stage)
+    merchant['windows']=[live_confirm_snapshot(stage)]
+    def pairs(*_args):
+        current=deepcopy(merchant);current['windows']=[live_confirm_snapshot(stage)]
+        return deepcopy(farmer),current
+    monkeypatch.setattr(delivery_accept_probe,'pair',pairs)
+    presses=[]
+    def click(*_args,**kwargs):
+        stage[1]=True
+        kwargs['before_press']()
+        presses.append(True)
+    monkeypatch.setattr(foreground,'foreground_click',click)
+    with pytest.raises(ValueError):run(ui,state)
+    assert presses==[]
 
 
 @pytest.mark.parametrize('field,value',[('participant_uid',56),('message','Parasite wishes to trade?'),('server','Europe')])
