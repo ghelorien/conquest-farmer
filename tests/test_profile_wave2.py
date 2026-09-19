@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import sqlite3
 from pathlib import Path
@@ -238,6 +239,69 @@ def test_migration_copies_only_recognized_dpapi_secrets(tmp_path):
     assert all(b'must-not-copy' not in path.read_bytes() for path in dpapi)
 
 
+def test_migration_prunes_long_generated_trees_before_descent_and_keeps_durable_state(
+        tmp_path, monkeypatch):
+    source=tmp_path/'legacy';destination=tmp_path/'managed'
+    write_json(source/'.runtime/route-optimization-state.json',{'winner':'north'})
+    write_json(source/'.runtime/merchants/shop-state.json',{'booths':2})
+    journal=legacy_journal(source);journal.set('Dutch','silver_total',321)
+    config=source/'profiles/desktop-foreground.local.yaml';config.parent.mkdir(parents=True)
+    config.write_text('character: CacheFarmer\n',encoding='utf-8')
+    route=source/'profiles/routes/cache-regression.yaml';route.parent.mkdir(parents=True)
+    route.write_text('id: cache-regression\nname: Cache regression\n',encoding='utf-8')
+    credentials={
+        '.runtime/account.dpapi':b'farmer-account',
+        '.runtime/merchants/spiritual/account.dpapi':b'spiritual-account',
+        '.runtime/merchants/dutch/account.dpapi':b'dutch-account',
+        '.runtime/discord-webhook.dpapi':b'farmer-webhook',
+        '.runtime/merchants/shops-webhook.dpapi':b'shops-webhook',
+    }
+    for relative,value in credentials.items():
+        path=source/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(value)
+
+    model_root=source/'.runtime/video-analysis-models'
+    model_parent=model_root/'models--Systran--faster-whisper-base.en'/'snapshots'/('a'*32)
+    while len(str(model_parent/'model.json')) < 235:
+        model_parent=model_parent/'nested-cache'
+    model_file=model_parent/'model.json'
+    model_file.parent.mkdir(parents=True);model_file.write_text('{"generated":true}',encoding='utf-8')
+    report_cache=source/'reports/cache'/('generated-report-component-'*4)/'cached.json'
+    report_cache.parent.mkdir(parents=True);report_cache.write_text('{}',encoding='utf-8')
+    assert len(str(model_file)) >= 235
+
+    real_walk=os.walk
+    excluded=(model_root,source/'reports/cache')
+    def guarded_walk(top,*args,**kwargs):
+        for current,directories,files in real_walk(top,*args,**kwargs):
+            current=Path(current)
+            assert not any(current==root or current.is_relative_to(root) for root in excluded), \
+                f'excluded generated tree was traversed: {current}'
+            yield str(current),directories,files
+    monkeypatch.setattr(profile_migration.os,'walk',guarded_walk)
+
+    class NoProcess:
+        def identity(self,_pid):
+            raise AssertionError('No process identity is present')
+    require_offline(source,backend=NoProcess())
+    result=migrate_legacy(source,destination,check_offline=lambda _:None)
+    farmer=result['farmer_profile_id'];spiritual=result['profiles']['Spiritual']
+    dutch=result['profiles']['Dutch'];registry=ProfileRegistry(destination)
+    assert json.loads((destination/'characters'/farmer/'.runtime/route-optimization-state.json').read_text())=={'winner':'north'}
+    assert json.loads((destination/'machine-state/.runtime/merchants/shop-state.json').read_text())=={'booths':2}
+    with sqlite3.connect(destination/'machine-state/reports/merchants/journal.sqlite3') as db:
+        assert json.loads(db.execute(
+            "SELECT value FROM state WHERE character=? AND name='silver_total'",(dutch,)
+        ).fetchone()[0])==321
+    assert (destination/'characters'/farmer/'farmer.local.yaml').read_text()=='character: CacheFarmer\n'
+    assert (destination/'characters'/farmer/'routes/cache-regression.yaml').exists()
+    assert (destination/'accounts'/registry.resolve(farmer).account_id/'account.dpapi').read_bytes()==b'farmer-account'
+    assert (destination/'accounts'/registry.resolve(spiritual).account_id/'account.dpapi').read_bytes()==b'spiritual-account'
+    assert (destination/'accounts'/registry.resolve(dutch).account_id/'account.dpapi').read_bytes()==b'dutch-account'
+    assert (destination/'characters'/farmer/'.runtime/discord-webhook.dpapi').read_bytes()==b'farmer-webhook'
+    assert (destination/'machine-state/.runtime/merchants/shops-webhook.dpapi').read_bytes()==b'shops-webhook'
+    assert not list(destination.rglob('model.json')) and not list(destination.rglob('cached.json'))
+
+
 def test_offline_check_uses_full_identity_and_scans_all_durable_receipts(tmp_path):
     source=tmp_path/'legacy'
     write_json(source/'.runtime/unusual.json',
@@ -294,6 +358,33 @@ def test_diagnostics_destination_moves_aside_and_restores_on_failure(tmp_path):
     with pytest.raises(OSError):
         migrate_legacy(source,second,check_offline=lambda _:None,copy_file=fail)
     assert json.loads((second/'diagnostics/failure.json').read_text())=={'kept':True}
+
+
+@pytest.mark.parametrize('failure_point',['offline','copy'])
+def test_failed_migration_removes_only_its_stage_and_restores_diagnostics(
+        tmp_path,failure_point):
+    source=tmp_path/'legacy';state=source/'.runtime/state.json';write_json(state,{'value':1})
+    destination=tmp_path/'managed';write_json(destination/'diagnostics/failure.json',{'kept':True})
+    existing_stage=tmp_path/'managed.migration-preexisting';existing_stage.mkdir()
+    (existing_stage/'keep.txt').write_text('keep',encoding='utf-8')
+    existing_backup=tmp_path/'managed.diagnostics-before-migration-preexisting';existing_backup.mkdir()
+    (existing_backup/'keep.txt').write_text('keep',encoding='utf-8')
+    unrelated=tmp_path/'other-managed';unrelated.mkdir()
+    before=set(tmp_path.glob('managed.migration-*'))
+    source_bytes=state.read_bytes()
+    def offline(_source):
+        if failure_point=='offline':raise OSError('offline check failed')
+    def copy(original,target):
+        if failure_point=='copy':raise OSError('copy failed')
+        profile_migration._copy(original,target)
+    with pytest.raises(OSError,match='failed'):
+        migrate_legacy(source,destination,check_offline=offline,copy_file=copy)
+    assert set(tmp_path.glob('managed.migration-*'))==before
+    assert (existing_stage/'keep.txt').read_text()=='keep'
+    assert (existing_backup/'keep.txt').read_text()=='keep'
+    assert unrelated.is_dir()
+    assert json.loads((destination/'diagnostics/failure.json').read_text())=={'kept':True}
+    assert state.read_bytes()==source_bytes
 
 
 def test_existing_managed_destination_is_rejected(tmp_path):

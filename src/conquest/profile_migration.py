@@ -17,6 +17,21 @@ from conquest.character_profiles import CharacterProfile, ProfileRegistry, write
 COPY_SUFFIXES = frozenset(('.json', '.jsonl', '.sqlite', '.sqlite3', '.yaml', '.log'))
 TRANSIENT_NAMES = ('worker', 'bridge', 'qualification', 'input-profile', 'reload-resume')
 PROCESS_FILE_HINTS = ('worker', 'bridge', 'status', 'app-state', 'controller', 'handover', 'lifecycle')
+RECOGNIZED_CREDENTIALS = frozenset((
+    '.runtime/account.dpapi',
+    '.runtime/merchants/spiritual/account.dpapi',
+    '.runtime/merchants/dutch/account.dpapi',
+    '.runtime/discord-webhook.dpapi',
+    '.runtime/merchants/shops-webhook.dpapi',
+))
+# These are generated dependencies, not durable application state.  Compare
+# complete path components so a durable receipt such as model-cache-status.json
+# is not discarded.  Hugging Face model directories use the models--* form.
+PRUNED_STATE_DIRECTORIES = frozenset((
+    '.cache', '__pycache__', 'cache', 'caches', 'model-cache', 'model-caches',
+    'models', 'node_modules', 'site-packages', 'vendor', 'vendor-runtime',
+    'vendors', 'video-analysis-models',
+))
 
 
 def _copy(source, target):
@@ -62,21 +77,36 @@ def _safe_source(source):
     return source.resolve(strict=True)
 
 
-def _safe_tree(root, relative):
+def _pruned_state_directory(relative):
+    parts = tuple(part.casefold() for part in Path(relative).parts)
+    if not parts or parts[0] not in ('.runtime', 'reports'):
+        return False
+    return any(part in PRUNED_STATE_DIRECTORIES or part.startswith('models--')
+               for part in parts[1:])
+
+
+def _safe_tree(root, relative, *, prune=None):
     base = root / relative
     if not base.exists():
         return []
     if _reparse(base) or not _inside(base, root):
         raise ValueError('Migration source contains a junction, symlink or escaping path')
     found = []
-    for current, directories, files in os.walk(base, followlinks=False):
+    for current, directories, files in os.walk(base, topdown=True, followlinks=False):
         current = Path(current)
         if _reparse(current) or not _inside(current, root):
             raise ValueError('Migration source contains a junction, symlink or escaping path')
-        for name in list(directories):
+        kept = []
+        for name in directories:
             path = current / name
             if _reparse(path) or not _inside(path, root):
                 raise ValueError('Migration source contains a junction, symlink or escaping path')
+            if prune is None or not prune(path.relative_to(root)):
+                kept.append(name)
+        # os.walk(topdown=True) reads this list to decide where to descend.
+        # Pruning here is what prevents Windows from ever constructing the
+        # arbitrarily long paths inside model and dependency caches.
+        directories[:] = kept
         for name in files:
             path = current / name
             if _reparse(path) or not _inside(path, root):
@@ -125,21 +155,20 @@ def _stable_copy(source, target, copy_file):
         raise ValueError('Migration source file changed during copy')
 
 
+def _state_source_paths(source):
+    found = []
+    for folder in ('.runtime', 'reports'):
+        found.extend(_safe_tree(source, folder, prune=_pruned_state_directory))
+    return found
+
+
 def _selected_source_paths(source):
     selected = set()
-    for folder in ('.runtime', 'reports'):
-        for path in _safe_tree(source, folder):
-            if (path.is_file() and path.suffix.lower() in COPY_SUFFIXES
-                    and not any(word in path.name.lower() for word in TRANSIENT_NAMES)):
-                selected.add(path)
-    for relative in (
-        '.runtime/account.dpapi',
-        '.runtime/merchants/spiritual/account.dpapi',
-        '.runtime/merchants/dutch/account.dpapi',
-        '.runtime/discord-webhook.dpapi',
-        '.runtime/merchants/shops-webhook.dpapi',
-        'profiles/desktop-foreground.local.yaml',
-    ):
+    for path in _state_source_paths(source):
+        if (path.is_file() and path.suffix.lower() in COPY_SUFFIXES
+                and not any(word in path.name.lower() for word in TRANSIENT_NAMES)):
+            selected.add(path)
+    for relative in (*RECOGNIZED_CREDENTIALS, 'profiles/desktop-foreground.local.yaml'):
         path = source / relative
         if path.exists():
             if _reparse(path) or not _inside(path, source):
@@ -148,15 +177,15 @@ def _selected_source_paths(source):
     for route in _safe_tree(source, 'profiles/routes'):
         if route.is_file() and route.suffix.lower() == '.yaml':
             selected.add(route)
-    return selected
+    return tuple(sorted(selected, key=lambda path: path.relative_to(source).as_posix()))
 
 
-def _source_manifest(source):
-    return {path: _source_token(path) for path in _selected_source_paths(source)}
+def _source_manifest(selected):
+    return {path: _source_token(path) for path in selected}
 
 
 def _validate_manifest(source, manifest):
-    if _selected_source_paths(source) != set(manifest):
+    if set(_selected_source_paths(source)) != set(manifest):
         raise ValueError('Selected migration source files changed before activation')
     for path, token in manifest.items():
         if _reparse(path) or _source_token(path) != token:
@@ -201,8 +230,7 @@ def require_offline(source, *, backend=None):
     if backend is None:
         from conquest.win32 import WindowsBackend
         backend = WindowsBackend()
-    paths = _safe_tree(source, '.runtime') + _safe_tree(source, 'reports')
-    for path in paths:
+    for path in _state_source_paths(source):
         if path.suffix.lower() != '.json':
             continue
         hinted = any(hint in path.name.lower() for hint in PROCESS_FILE_HINTS)
@@ -241,9 +269,69 @@ def _validate_existing_diagnostics(root):
     if _reparse(root):
         raise ValueError('Destination is a reparse point')
     for current, directories, files in os.walk(root, followlinks=False):
+        current = Path(current)
+        if _reparse(current) or not _inside(current, root):
+            raise ValueError('Diagnostics destination contains a reparse point')
         for name in directories + files:
-            if _reparse(Path(current) / name):
+            path = current / name
+            if _reparse(path) or not _inside(path, root):
                 raise ValueError('Diagnostics destination contains a reparse point')
+
+
+def _directory_identity(path):
+    info = os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode) or _reparse(path):
+        raise ValueError('Migration staging path is not an owned local directory')
+    return info.st_dev, info.st_ino
+
+
+def _create_stage(root):
+    path = Path(tempfile.mkdtemp(prefix=root.name + '.migration-', dir=root.parent))
+    return path, _directory_identity(path)
+
+
+def _unused_diagnostics_backup(root):
+    for _ in range(128):
+        candidate = root.with_name(
+            root.name + '.diagnostics-before-migration-' + uuid.uuid4().hex)
+        if not os.path.lexists(candidate):
+            return candidate
+    raise FileExistsError('Could not reserve a unique diagnostics backup path')
+
+
+def _validate_owned_stage(stage, root, identity):
+    if (stage.parent != root.parent
+            or not stage.name.startswith(root.name + '.migration-')
+            or _directory_identity(stage) != identity):
+        raise ValueError('Migration staging directory ownership changed')
+
+
+def _remove_owned_stage(stage, root, identity):
+    if not os.path.lexists(stage):
+        return
+    _validate_owned_stage(stage, root, identity)
+    owned_root = stage.resolve(strict=True)
+    for current, directories, files in os.walk(stage, followlinks=False):
+        current = Path(current)
+        if (_reparse(current) or not _inside(current, owned_root)):
+            raise ValueError('Migration staging directory changed before cleanup')
+        for name in directories + files:
+            path = current / name
+            if _reparse(path) or not _inside(path, owned_root):
+                raise ValueError('Migration staging directory changed before cleanup')
+    _validate_owned_stage(stage, root, identity)
+    shutil.rmtree(stage)
+
+
+def _restore_diagnostics(root, backup, identity):
+    if backup is None:
+        return
+    if os.path.lexists(root):
+        raise ValueError('Destination appeared while restoring migration diagnostics')
+    if (not os.path.lexists(backup) or _reparse(backup)
+            or _directory_identity(backup) != identity):
+        raise ValueError('Migration diagnostics backup ownership changed')
+    os.rename(backup, root)
 
 
 def _remap_journal(journal, by_name):
@@ -334,11 +422,11 @@ def migrate_legacy(source, root, *, check_offline=require_offline, copy_file=_co
     from conquest.profile_bootstrap import managed_root_owner, legacy_app_owner_if_present
     with ExitStack() as owners:
         owners.enter_context(managed_root_owner(root, timeout=lock_timeout))
-        if root.exists() and _reparse(root):
+        if os.path.lexists(root) and _reparse(root):
             raise ValueError('Destination is a reparse point')
         owners.enter_context(legacy_app_owner_if_present(root, timeout=lock_timeout))
         marker = root / 'migration.json'
-        if marker.exists():
+        if os.path.lexists(marker):
             if _reparse(marker):
                 raise ValueError('Destination migration marker is a reparse point')
             try:
@@ -359,22 +447,27 @@ def migrate_legacy(source, root, *, check_offline=require_offline, copy_file=_co
             raise ValueError('Migration source and destination must be different directories')
         owners.enter_context(legacy_app_owner_if_present(source, timeout=lock_timeout))
         diagnostics_backup = None
+        diagnostics_identity = None
         if root.exists():
             if not _diagnostics_only(root):
                 raise ValueError('Destination already contains a managed installation')
             _validate_existing_diagnostics(root)
-            diagnostics_backup = root.with_name(
-                root.name + '.diagnostics-before-migration-' + uuid.uuid4().hex)
-            os.rename(root, diagnostics_backup)
-        stage = root.with_name(root.name + '.migration-' + uuid.uuid4().hex)
+        stage, stage_identity = _create_stage(root)
+        diagnostics_moved = False
         try:
+            if root.exists():
+                diagnostics_backup = _unused_diagnostics_backup(root)
+                diagnostics_identity = _directory_identity(root)
+                os.rename(root, diagnostics_backup)
+                diagnostics_moved = True
+                if _directory_identity(diagnostics_backup) != diagnostics_identity:
+                    raise ValueError('Migration diagnostics backup ownership changed')
             check_offline(source)
-            manifest = _source_manifest(source)
+            selected = _selected_source_paths(source)
+            manifest = _source_manifest(selected)
             registry = ProfileRegistry(stage)
             config_path = source / 'profiles/desktop-foreground.local.yaml'
-            if config_path.exists():
-                if _reparse(config_path) or not _inside(config_path, source):
-                    raise ValueError('Migration config escapes the source')
+            if config_path in selected:
                 config = yaml.safe_load(config_path.read_text(encoding='utf-8')) or {}
             else:
                 config = {}
@@ -382,51 +475,41 @@ def migrate_legacy(source, root, *, check_offline=require_offline, copy_file=_co
             merchants = [registry.add(name, role='Merchant') for name in ('Spiritual', 'Dutch')]
             by_name = {profile.name: profile for profile in merchants}
 
-            for folder in ('.runtime', 'reports'):
-                for path in _safe_tree(source, folder):
-                    if not path.is_file() or path.suffix.lower() not in COPY_SUFFIXES:
+            # Manifesting and copying consume this same immutable selection.
+            # The fixed credential keys are the only .dpapi inputs admitted.
+            credentials = {
+                '.runtime/account.dpapi':
+                    stage / 'accounts' / farmer.account_id / 'account.dpapi',
+                '.runtime/merchants/spiritual/account.dpapi':
+                    stage / 'accounts' / by_name['Spiritual'].account_id / 'account.dpapi',
+                '.runtime/merchants/dutch/account.dpapi':
+                    stage / 'accounts' / by_name['Dutch'].account_id / 'account.dpapi',
+                '.runtime/discord-webhook.dpapi':
+                    stage / 'characters' / farmer.id / '.runtime/discord-webhook.dpapi',
+                '.runtime/merchants/shops-webhook.dpapi':
+                    stage / 'machine-state/.runtime/merchants/shops-webhook.dpapi',
+            }
+            packaged = Path(__file__).resolve().parents[2] / 'profiles/routes'
+            for path in selected:
+                relative_path = path.relative_to(source)
+                relative = relative_path.as_posix()
+                if relative in credentials:
+                    destination = credentials[relative]
+                elif relative == 'profiles/desktop-foreground.local.yaml':
+                    destination = stage / 'characters' / farmer.id / 'farmer.local.yaml'
+                elif relative_path.parts[:2] == ('profiles', 'routes'):
+                    builtin = packaged / path.name
+                    if builtin.exists() and builtin.read_bytes() == path.read_bytes():
                         continue
-                    relative = path.relative_to(source).as_posix()
-                    if any(word in path.name.lower() for word in TRANSIENT_NAMES):
-                        continue
+                    destination = stage / 'characters' / farmer.id / 'routes' / path.name
+                elif relative_path.parts[0] in ('.runtime', 'reports'):
                     shared = relative.startswith(('.runtime/merchants/', 'reports/merchants/',
                                                    '.runtime/shop-', '.runtime/shops-'))
                     destination = stage / ('machine-state' if shared
                                            else 'characters/' + farmer.id) / relative
-                    _stable_copy(path, destination, copy_file)
-
-            # Generic traversal excludes all .dpapi because COPY_SUFFIXES does
-            # not contain it.  Only these fixed, semantically known secrets
-            # can enter managed credential locations.
-            credentials = {
-                source / '.runtime/account.dpapi':
-                    stage / 'accounts' / farmer.account_id / 'account.dpapi',
-                source / '.runtime/merchants/spiritual/account.dpapi':
-                    stage / 'accounts' / by_name['Spiritual'].account_id / 'account.dpapi',
-                source / '.runtime/merchants/dutch/account.dpapi':
-                    stage / 'accounts' / by_name['Dutch'].account_id / 'account.dpapi',
-                source / '.runtime/discord-webhook.dpapi':
-                    stage / 'characters' / farmer.id / '.runtime/discord-webhook.dpapi',
-                source / '.runtime/merchants/shops-webhook.dpapi':
-                    stage / 'machine-state/.runtime/merchants/shops-webhook.dpapi',
-            }
-            for original, destination in credentials.items():
-                if original.exists():
-                    if _reparse(original) or not _inside(original, source):
-                        raise ValueError('Credential path escapes the migration source')
-                    _stable_copy(original, destination, copy_file)
-            if config_path.exists():
-                _stable_copy(config_path,
-                             stage / 'characters' / farmer.id / 'farmer.local.yaml', copy_file)
-
-            packaged = Path(__file__).resolve().parents[2] / 'profiles/routes'
-            for route in _safe_tree(source, 'profiles/routes'):
-                if not route.is_file() or route.suffix.lower() != '.yaml':
-                    continue
-                builtin = packaged / route.name
-                if not builtin.exists() or builtin.read_bytes() != route.read_bytes():
-                    _stable_copy(route, stage / 'characters' / farmer.id / 'routes' / route.name,
-                                 copy_file)
+                else:
+                    raise ValueError('Selected migration source has no destination policy')
+                _stable_copy(path, destination, copy_file)
 
             journal = stage / 'machine-state/reports/merchants/journal.sqlite3'
             if journal.exists():
@@ -446,9 +529,22 @@ def migrate_legacy(source, root, *, check_offline=require_offline, copy_file=_co
             _validate_manifest(source, manifest)
             # The destination remains absent until every copy, validation and
             # journal rewrite has succeeded.
+            _validate_owned_stage(stage, root, stage_identity)
+            if os.path.lexists(root):
+                raise ValueError('Destination appeared before migration activation')
             os.rename(stage, root)
             return result
-        except Exception:
-            if diagnostics_backup is not None and diagnostics_backup.exists() and not root.exists():
-                os.rename(diagnostics_backup, root)
+        except BaseException as failure:
+            cleanup_errors = []
+            try:
+                _remove_owned_stage(stage, root, stage_identity)
+            except Exception as error:
+                cleanup_errors.append(error)
+            if diagnostics_moved:
+                try:
+                    _restore_diagnostics(root, diagnostics_backup, diagnostics_identity)
+                except Exception as error:
+                    cleanup_errors.append(error)
+            for error in cleanup_errors:
+                failure.add_note('Migration rollback warning: ' + str(error))
             raise
