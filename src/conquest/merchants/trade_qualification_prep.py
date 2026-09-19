@@ -146,6 +146,81 @@ def _payload_is_safe(source, state):
     return selected
 
 
+def _market_outbound(state):
+    route = state.get('route')
+    if not isinstance(route, dict) or set(route) != {'outbound'}:
+        raise ValueError('Market-origin prep route evidence is malformed')
+    outbound = route.get('outbound')
+    if (not isinstance(outbound, dict)
+            or set(outbound) != {'verified', 'source_map', 'destination_map', 'fare'}
+            or outbound.get('verified') is not True
+            or type(outbound.get('source_map')) is not int or outbound['source_map'] != 1036
+            or type(outbound.get('destination_map')) is not int or outbound['destination_map'] != 1036
+            or type(outbound.get('fare')) is not int or outbound['fare'] != 0):
+        raise ValueError('Market-origin prep requires the exact verified zero-fare route')
+    return outbound
+
+
+def _inventory_digest(items):
+    rows = [{'uid': uid, 'details': list(details)}
+            for uid, details in sorted(exact_items(items).items())]
+    raw = json.dumps(rows, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _market_no_banking_body(state, source, merchant):
+    if type(state.get('origin')) is not int or state['origin'] != 1036:
+        raise ValueError('No-banking proof is restricted to a Market-origin prep')
+    saved_farmer = state.get('farmer')
+    saved_merchant = state.get('merchant')
+    if (not isinstance(saved_farmer, dict) or type(saved_farmer.get('map_id')) is not int
+            or saved_farmer['map_id'] != 1036 or not isinstance(saved_merchant, dict)
+            or type(saved_merchant.get('map_id')) is not int or saved_merchant['map_id'] != 1036):
+        raise ValueError('Saved prep participants did not originate together in Market')
+    outbound = _market_outbound(state)
+    if state.get('deposit') is not None or state.get('withdraw') is not None:
+        raise ValueError('Pending deposit or withdrawal evidence blocks the Market fast path')
+    _same_participant(source, state['farmer'], 'Farmer')
+    _same_participant(merchant, state['merchant'], 'Merchant')
+    _fresh_market_pair(source, merchant)
+    if source.get('trade') or source.get('request') or merchant.get('trade') or merchant.get('request'):
+        raise ValueError('Market fast path requires idle trade participants')
+    _payload_is_safe(source, state)
+    return {'schema_version': 1, 'kind': 'market_no_banking_required',
+            'origin': 1036, 'selected_uid': state['selected_uid'],
+            'farmer': {key: source[key] for key in
+                       ('character', 'character_uid', 'server', 'identity')},
+            'merchant': {key: merchant[key] for key in
+                         ('character', 'character_uid', 'server', 'identity')},
+            'outbound': dict(outbound),
+            'farmer_inventory_digest': _inventory_digest(source['inventory']),
+            'deposit_absent': True, 'withdraw_absent': True}
+
+
+def _new_market_no_banking_proof(state, source, merchant):
+    if state.get('phase') != 'prepared':
+        raise ValueError('Only a prepared Market prep can prove no banking is required')
+    if state.get('banked_uids') != [] or 'no_banking_required' in state:
+        raise ValueError('Prepared Market banking evidence is not pristine')
+    return {**_market_no_banking_body(state, source, merchant),
+            'observed_at': time.time()}
+
+
+def _validate_market_no_banking_proof(state, source, merchant):
+    proof = state.get('no_banking_required')
+    if not isinstance(proof, dict):
+        raise ValueError('Market no-banking proof is missing')
+    observed_at = proof.get('observed_at')
+    if (type(observed_at) not in (int, float) or not math.isfinite(observed_at)
+            or observed_at <= 0 or observed_at > time.time()+1):
+        raise ValueError('Market no-banking proof timestamp is invalid')
+    expected = _market_no_banking_body(state, source, merchant)
+    if set(proof) != {*expected, 'observed_at'} or any(proof.get(key) != value
+                                                       for key, value in expected.items()):
+        raise ValueError('Market no-banking proof no longer matches fresh ownership')
+    return proof
+
+
 def _candidate_profile(observer):
     """Load the probe's build-pinned read-only projection evidence strictly."""
     try:
@@ -629,6 +704,10 @@ def _run(ui, state, *, send=request):
         _same_participant(merchant, state['merchant'], 'Merchant')
         world = source['map_id']
         phase = state['phase']
+        if phase == 'prepared' and state.get('origin') == 1036:
+            proof = _new_market_no_banking_proof(state, source, merchant)
+            _save(state, 'banked', no_banking_required=proof)
+            phase = 'banked'
         if phase in ('withdraw_pending', 'withdraw_submitted'):
             if world != state['origin']:
                 raise ValueError('Fare withdrawal location changed; no transfer repeated')
@@ -643,14 +722,15 @@ def _run(ui, state, *, send=request):
             phase = state['phase']
         if phase == 'banked':
             source, merchant = pair(ui, state['character'], farmer_preflight=True)
-            _same_participant(merchant, state['merchant'], 'Merchant')
-            if source['map_id'] != state['origin']:
-                raise ValueError('Banked prep changed maps before the saved fare; no input issued')
-            _payload_is_safe(source, state)
             if state['origin'] == 1036:
+                _validate_market_no_banking_proof(state, source, merchant)
                 _save(state, 'market', leg_before=None)
                 phase = 'market'
             else:
+                _same_participant(merchant, state['merchant'], 'Merchant')
+                if source['map_id'] != state['origin']:
+                    raise ValueError('Banked prep changed maps before the saved fare; no input issued')
+                _payload_is_safe(source, state)
                 from conquest.meteor_banking import trip
                 def before_submit():
                     source, merchant = pair(ui, state['character'], farmer_preflight=True)
@@ -678,9 +758,12 @@ def _run(ui, state, *, send=request):
                 loop.terrain = read_terrain(
                     installation_path(r'C:\Program Files\Classic Conquer 2.0'), 1036)
             source, merchant = pair(ui, state['character'])
-            _same_participant(source, state['farmer'], 'Farmer')
-            _same_participant(merchant, state['merchant'], 'Merchant')
-            _payload_is_safe(source, state)
+            if state.get('origin') == 1036:
+                _validate_market_no_banking_proof(state, source, merchant)
+            else:
+                _same_participant(source, state['farmer'], 'Farmer')
+                _same_participant(merchant, state['merchant'], 'Merchant')
+                _payload_is_safe(source, state)
             def prep_send(body):
                 if (body.get('action') == 'delivery-target'
                         and set(body) == {'action', 'character'}):
@@ -694,15 +777,21 @@ def _run(ui, state, *, send=request):
             if not approach_merchant(loop, plan, prep_send, deadline=time.time()+30):
                 raise ValueError('Could not reach a memory-actionable position near the merchant')
             source, merchant = pair(ui, state['character'])
-            _same_participant(source, state['farmer'], 'Farmer')
-            _same_participant(merchant, state['merchant'], 'Merchant')
-            _payload_is_safe(source, state)
+            if state.get('origin') == 1036:
+                _validate_market_no_banking_proof(state, source, merchant)
+            else:
+                _same_participant(source, state['farmer'], 'Farmer')
+                _same_participant(merchant, state['merchant'], 'Merchant')
+                _payload_is_safe(source, state)
             target = prep_send({'action': 'delivery-target', 'character': state['character']})
             if not target.get('ready'):
                 raise ValueError('Merchant is not memory-actionable after approach')
             source, merchant = pair(ui, state['character'])
-            _same_participant(merchant, state['merchant'], 'Merchant')
-            _payload_is_safe(source, state)
+            if state.get('origin') == 1036:
+                _validate_market_no_banking_proof(state, source, merchant)
+            else:
+                _same_participant(merchant, state['merchant'], 'Merchant')
+                _payload_is_safe(source, state)
             _save(state, 'completed', completed_at=time.time(),
                   farmer_position=source['position'], merchant_position=merchant['position'])
     finally:

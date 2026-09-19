@@ -218,6 +218,195 @@ def test_completion_revalidates_payload_after_actionability_read(tmp_path, monke
     assert state['phase']=='approaching' and 'completed_at' not in state
 
 
+def market_prep_state(farmer,merchant,phase='prepared'):
+    return {'phase':phase,'work_window':'w','request_id':'r','character':'Spiritual',
+            'origin':1036,'farmer':copy.deepcopy(farmer),'merchant':copy.deepcopy(merchant),
+            'selected_uid':10,'selected_item':copy.deepcopy(farmer['inventory'][1]),
+            'route':{'outbound':{'verified':True,'source_map':1036,
+                                 'destination_map':1036,'fare':0}},
+            'control_revision':1,'started_at':time.time(),'route_id':'bandit',
+            'banked_uids':[],'events':[]}
+
+
+def market_payload():
+    arrow=item(9,1050002,plus=0,slot=0,quantity=5000,name='SpeedArrow')
+    selected=item(10,500008,slot=1,name='BambooBow')
+    return arrow,selected
+
+
+def run_market_prep(tmp_path,monkeypatch,state,current_farmer,current_merchant,*,pair_read=None):
+    monkeypatch.setattr(prep,'JOURNAL',tmp_path/'prep.json')
+    fake=SimpleNamespace(refresh=lambda:None,terrain=SimpleNamespace(map_id=1036),
+        town=lambda *args,**fields:pytest.fail('Market fast path must not use town or warehouse input'))
+    monkeypatch.setattr(prep,'PrepLoop',lambda ui,state:fake)
+    monkeypatch.setattr(prep,'_reserve_window',lambda ui,key:None)
+    monkeypatch.setattr(prep,'_release_window',lambda ui,key:None)
+    if pair_read is None:
+        pair_read=lambda *args,**fields:(copy.deepcopy(current_farmer),copy.deepcopy(current_merchant))
+    monkeypatch.setattr(prep,'pair',pair_read)
+    monkeypatch.setattr('conquest.banking.open_warehouse',lambda *args,**fields:
+        pytest.fail('Market fast path must not open the warehouse'))
+    monkeypatch.setattr('conquest.banking.close_warehouse',lambda *args,**fields:
+        pytest.fail('Market fast path must not close the warehouse'))
+    monkeypatch.setattr('conquest.banking.transfer',lambda *args,**fields:
+        pytest.fail('Market fast path must not withdraw'))
+    monkeypatch.setattr('conquest.merchants.delivery_route.approach_merchant',
+        lambda *args,**fields:True)
+    target={'merchant_position':current_merchant['position'],'ready':True}
+    prep._run(object(),state,send=lambda body:copy.deepcopy(target))
+
+
+def test_prepared_market_fast_path_writes_proof_and_never_opens_warehouse(tmp_path,monkeypatch):
+    arrow,selected=market_payload()
+    farmer=account('Parasite',1,[arrow,selected],map_id=1036)
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state=market_prep_state(farmer,merchant)
+    phases=[];save=prep._save
+    def saving(current,phase=None,**fields):
+        save(current,phase,**fields)
+        if phase is not None:phases.append(phase)
+    monkeypatch.setattr(prep,'_save',saving)
+    run_market_prep(tmp_path,monkeypatch,state,farmer,merchant)
+    assert phases[:2]==['banked','market']
+    assert phases[-1]=='completed' and state['phase']=='completed'
+    proof=state['no_banking_required']
+    assert proof['kind']=='market_no_banking_required'
+    assert proof['outbound']['fare']==0 and proof['farmer_inventory_digest']
+
+
+@pytest.mark.parametrize('failure',[
+    'fare','unverified','route_extra','meteor','eligible_extra','stash_extra',
+    'farmer_trade','merchant_request','deposit','withdraw','identity','stale','wrong_map'])
+def test_prepared_market_fast_path_fails_closed_for_changed_or_unsafe_evidence(
+        tmp_path,monkeypatch,failure):
+    arrow,selected=market_payload()
+    farmer=account('Parasite',1,[arrow,selected],map_id=1036)
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state=market_prep_state(farmer,merchant)
+    if failure=='fare':state['route']['outbound']['fare']=1
+    elif failure=='unverified':state['route']['outbound']['verified']=False
+    elif failure=='route_extra':state['route']['outbound']['extra']=True
+    elif failure=='meteor':farmer['inventory'].append(item(20,1088001,plus=0,slot=2))
+    elif failure=='eligible_extra':farmer['inventory'].append(item(21,720027,plus=0,slot=2))
+    elif failure=='stash_extra':farmer['inventory'].append(item(22,410008,plus=2,slot=2,bound=True))
+    elif failure=='farmer_trade':farmer['trade']={'participant':'Spiritual'}
+    elif failure=='merchant_request':merchant['request']={'participant':'Parasite'}
+    elif failure=='deposit':state['deposit']={}
+    elif failure=='withdraw':state['withdraw']={}
+    elif failure=='identity':farmer['identity']={**farmer['identity'],'pid':999}
+    elif failure=='stale':farmer['timestamp']-=10
+    elif failure=='wrong_map':farmer['map_id']=1002
+    with pytest.raises(ValueError):
+        run_market_prep(tmp_path,monkeypatch,state,farmer,merchant)
+    assert state['phase']=='prepared' and 'no_banking_required' not in state
+
+
+def test_prepared_market_fast_path_rejects_corrupt_saved_origin(tmp_path,monkeypatch):
+    arrow,selected=market_payload()
+    farmer=account('Parasite',1,[arrow,selected],map_id=1036)
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state=market_prep_state(farmer,merchant)
+    state['farmer']['map_id']=1011
+    with pytest.raises(ValueError,match='did not originate together'):
+        run_market_prep(tmp_path,monkeypatch,state,farmer,merchant)
+    assert state['phase']=='prepared' and 'no_banking_required' not in state
+
+
+def test_prepared_town_origin_still_uses_banking(tmp_path,monkeypatch):
+    arrow,selected=market_payload()
+    farmer=account('Parasite',1,[arrow,selected],map_id=1011)
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state=market_prep_state(farmer,merchant);state['origin']=1011
+    state['route']['outbound'].update(source_map=1011,fare=100)
+    fake=SimpleNamespace(refresh=lambda:None)
+    monkeypatch.setattr(prep,'JOURNAL',tmp_path/'prep.json')
+    monkeypatch.setattr(prep,'PrepLoop',lambda ui,state:fake)
+    monkeypatch.setattr(prep,'_reserve_window',lambda ui,key:None)
+    monkeypatch.setattr(prep,'_release_window',lambda ui,key:None)
+    monkeypatch.setattr(prep,'pair',lambda *args,**fields:
+        (copy.deepcopy(farmer),copy.deepcopy(merchant)))
+    called=[]
+    def bank(*args,**fields):
+        called.append(True);raise RuntimeError('bank path selected')
+    monkeypatch.setattr(prep,'_bank_nonselected',bank)
+    with pytest.raises(RuntimeError,match='bank path selected'):
+        prep._run(object(),state)
+    assert called==[True] and 'no_banking_required' not in state
+
+
+@pytest.mark.parametrize('phase',['warehouse_opening','deposit_pending',
+                                  'withdraw_pending','withdraw_submitted'])
+def test_market_origin_never_skips_an_unresolved_banking_phase(tmp_path,monkeypatch,phase):
+    arrow,selected=market_payload()
+    farmer=account('Parasite',1,[arrow,selected],map_id=1036)
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state=market_prep_state(farmer,merchant,phase=phase)
+    fake=SimpleNamespace(refresh=lambda:None)
+    monkeypatch.setattr(prep,'JOURNAL',tmp_path/'prep.json')
+    monkeypatch.setattr(prep,'PrepLoop',lambda ui,state:fake)
+    monkeypatch.setattr(prep,'_reserve_window',lambda ui,key:None)
+    monkeypatch.setattr(prep,'_release_window',lambda ui,key:None)
+    monkeypatch.setattr(prep,'pair',lambda *args,**fields:
+        (copy.deepcopy(farmer),copy.deepcopy(merchant)))
+    called=[]
+    def unresolved(*args,**fields):
+        called.append(phase);raise RuntimeError('unresolved banking path selected')
+    if phase.startswith('withdraw'):
+        monkeypatch.setattr('conquest.banking.open_warehouse',unresolved)
+    else:
+        monkeypatch.setattr(prep,'_bank_nonselected',unresolved)
+    with pytest.raises(RuntimeError,match='unresolved banking path selected'):
+        prep._run(object(),state)
+    assert called==[phase] and 'no_banking_required' not in state
+
+
+@pytest.mark.parametrize('phase',['banked','market'])
+def test_market_fast_path_resumes_from_durable_proof_without_banking(tmp_path,monkeypatch,phase):
+    arrow,selected=market_payload()
+    farmer=account('Parasite',1,[arrow,selected],map_id=1036)
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state=market_prep_state(farmer,merchant)
+    state['no_banking_required']=prep._new_market_no_banking_proof(state,farmer,merchant)
+    state['phase']=phase
+    run_market_prep(tmp_path,monkeypatch,state,farmer,merchant)
+    assert state['phase']=='completed'
+
+
+@pytest.mark.parametrize('change',['proof','inventory'])
+def test_market_fast_path_resume_rejects_malformed_or_changed_proof(tmp_path,monkeypatch,change):
+    arrow,selected=market_payload()
+    farmer=account('Parasite',1,[arrow,selected],map_id=1036)
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state=market_prep_state(farmer,merchant)
+    state['no_banking_required']=prep._new_market_no_banking_proof(state,farmer,merchant)
+    state['phase']='banked'
+    if change=='proof':del state['no_banking_required']['withdraw_absent']
+    else:farmer['inventory'][0]['quantity']-=1
+    with pytest.raises(ValueError,match='proof'):
+        run_market_prep(tmp_path,monkeypatch,state,farmer,merchant)
+    assert state['phase']=='banked'
+
+
+@pytest.mark.parametrize(('changed_read','change'),[(4,'trade'),(4,'request'),(5,'map')])
+def test_market_fast_path_revalidates_after_approach_and_before_completion(
+        tmp_path,monkeypatch,changed_read,change):
+    arrow,selected=market_payload()
+    farmer=account('Parasite',1,[arrow,selected],map_id=1036)
+    merchant=account('Spiritual',2,[],map_id=1036)
+    state=market_prep_state(farmer,merchant)
+    calls=[0]
+    def pair_read(*args,**fields):
+        calls[0]+=1;current_farmer=copy.deepcopy(farmer);current_merchant=copy.deepcopy(merchant)
+        if calls[0]>=changed_read:
+            if change=='trade':current_farmer['trade']={'participant':'Spiritual'}
+            elif change=='request':current_merchant['request']={'participant':'Parasite'}
+            else:current_farmer['map_id']=1002
+        return current_farmer,current_merchant
+    with pytest.raises(ValueError,match='idle trade|remain in Market'):
+        run_market_prep(tmp_path,monkeypatch,state,farmer,merchant,pair_read=pair_read)
+    assert state['phase']=='approaching' and 'completed_at' not in state
+
+
 def test_archive_publication_is_idempotent_nonoverwriting_and_resyncs(tmp_path, monkeypatch):
     monkeypatch.setattr(prep,'JOURNAL',tmp_path/'prep.json')
     state={'phase':'completed','selected_uid':7}
