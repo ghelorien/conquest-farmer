@@ -23,10 +23,15 @@ def tree_snapshot(root):
 def test_managed_launcher_and_background_components_leave_release_unchanged(tmp_path):
     release = tmp_path/'release'
     data = tmp_path/'managed-data'
-    for name in ('scripts/start_desktop_app.py', 'profiles/desktop-foreground.example.yaml'):
+    for name in ('scripts/start_desktop_app.py', 'scripts/_bootstrap.py',
+                 'pyproject.toml', 'profiles/desktop-foreground.example.yaml'):
         destination = release/name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(REPO/name, destination)
+    for name in ('src/conquest', 'profiles/routes'):
+        (release/name).mkdir(parents=True, exist_ok=True)
+    from conquest.release import build_manifest
+    assert 'scripts/_bootstrap.py' in build_manifest(release)['files']
     # Existing release artifacts must neither be overwritten nor used as state.
     for name in ('reports/merchants/market-guard.json', '.runtime/farmer-view.json'):
         destination = release/name
