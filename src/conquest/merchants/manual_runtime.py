@@ -373,9 +373,14 @@ class ManualRuntime:
                         # this exact still-visible request during that gap. This
                         # early return cannot retract a session, change a fence,
                         # or provide the full proof required for any input.
-                        return (defer() if state['phase'] in TRADE_PHASES else
-                                not require_bilateral and not farmer_side and state.get('phase')=='request_verified'
-                                and self._structural_request_probe_owned(character,snapshot,state,
+                        if snapshot.get('request') is not None:
+                            return (not require_bilateral and not farmer_side and state.get('phase')=='request_verified'
+                                    and self._structural_request_probe_owned(character,snapshot,state,
+                                        now=time.time() if now is None else now))
+                        # Do not fall through to the request fallback merely
+                        # because accept/cancel are also trade-capable phases.
+                        return (not require_bilateral and state['phase'] in TRADE_PHASES
+                                and self._structural_trade_probe_owned(character,snapshot,state,
                                     now=time.time() if now is None else now))
                     intent=state.get('intent');farmer_intent=intent.get('farmer') if isinstance(intent,dict) else None
                     if (source.character != farmer_name() or not isinstance(farmer_intent,dict)

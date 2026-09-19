@@ -4,7 +4,7 @@ import pytest
 
 from conquest.merchants import delivery_probe as probe
 from conquest.merchants.runtime import MerchantRuntime
-from test_delivery_probe_manual_ownership import supervised
+from test_delivery_probe_manual_ownership import supervised, open_trade
 from test_manual_runtime import rig
 
 
@@ -44,6 +44,33 @@ def test_absent_provider_reserves_only_request_verified(supervised, phase):
     assert x.runtime.process_manual('Dutch',x.read())
     assert x.runtime.manual_status('Dutch')['phase']=='approval_pending'
     assert x.calls==[]
+
+
+def test_absent_provider_does_not_use_trade_boundary_to_hide_a_queued_request(supervised):
+    x=supervised
+    request=x.read()
+    x.now+=.1
+    open_trade(x)
+    absent_source(x)
+    assert not x.runtime.process_probe_owned('Dutch',request)
+    assert x.runtime.process_manual('Dutch',request)
+    assert x.runtime.manual_status('Dutch')['phase']=='approval_pending'
+    assert x.calls==[]
+
+
+@pytest.mark.parametrize('phase,offered',[('trade_open_verified',False),('offer_verified',True)])
+def test_absent_provider_retains_exact_durable_open_trade_observation_only(supervised,phase,offered):
+    x=supervised
+    open_trade(x,phase=phase,offered=offered)
+    store=x.runtime.manual_sessions
+    row=store.observe_target('Dutch',x.read(),now=x.now)
+    x.runtime._sync_manual_fence()
+    original=store.get(row['id']);audit=store.audit()
+    absent_source(x)
+    assert x.runtime.process_probe_owned('Dutch',x.read())
+    assert not x.runtime.process_probe_owned('Dutch',x.read(),require_bilateral=True)
+    assert store.get(row['id'])==original and store.audit()==audit
+    assert x.guard.manual_session_blocked('Dutch') and x.calls==[]
 
 
 @pytest.mark.parametrize('change',[
