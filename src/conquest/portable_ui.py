@@ -42,11 +42,9 @@ def settings_description(profile):
 
 
 def edit_profiles(ui,profile_id=None):
-    from conquest.profile_bootstrap import offline_edit_ready
     if (not ui.safe_to_yield() or ui.coordinator.owner or ui.calibrating
-            or any(ui.runtime.enabled(c) or ui.runtime.refill_enabled(c) for c in ui.runtime.recoveries)
-            or not offline_edit_ready(registry().root)):
-        messagebox.showerror('Character settings','Stop farming, merchant management and refilling, and reconcile unfinished transactions before editing profiles.',parent=ui.root)
+            or any(ui.runtime.enabled(c) or ui.runtime.refill_enabled(c) for c in ui.runtime.recoveries)):
+        messagebox.showerror('Character settings','Stop farming, merchant management and refilling before editing profiles.',parent=ui.root)
         return
     ui.app.profile_editor_requested=profile_id or os.environ.get('CONQUEST_PROFILE_ID')
     if ui.app.close() is False:ui.app.profile_editor_requested=None

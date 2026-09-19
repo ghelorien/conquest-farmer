@@ -37,7 +37,7 @@ def test_labels_do_not_key_records_or_credentials(tmp_path,monkeypatch):
     journal=Journal(tmp_path/'journal.sqlite3');name=resolve_merchant(p.id)
     journal.set(name,'total',90210);journal.begin('intent',name,'listing',{'uid':123})
     path=credential_for(name)
-    with pytest.raises(ValueError):r.update(p.id,{'label':'New label'},stopped=True,pending=True)
+    r.update(p.id,{'label':'New label'},stopped=True,pending=True)
     journal.transition('intent','aborted')
     r.update(p.id,{'label':'Seller on laptop'},stopped=True,pending=False)
     assert journal.get(p.id,'total')==90210 and credential_for(p.id)==path
@@ -106,10 +106,16 @@ def test_template_overrides_only_explicit_settings(tmp_path):
     assert r.effective(b)=={'heal_below':.4,'jump_scatter':False}
 
 
-@pytest.mark.parametrize('stopped,pending',[(False,False),(True,True),(False,True)])
-def test_role_change_requires_stopped_reconciled(tmp_path,stopped,pending):
-    r=ProfileRegistry(tmp_path);p=r.add('A')
-    with pytest.raises(ValueError):r.update(p.id,{'role':'Merchant'},stopped=stopped,pending=pending)
+def test_role_change_requires_affected_profile_transaction_idle(tmp_path):
+    r=ProfileRegistry(tmp_path);p=r.add('A');other=r.add('B')
+    path=context_for(p.id,tmp_path).state_dir/'reports/banking/merchant-journey.json'
+    other_path=context_for(other.id,tmp_path).state_dir/'reports/banking/merchant-journey.json'
+    write_json(other_path,{'phase':'return_pending'})
+    r.update(p.id,{'role':'Merchant'})
+    r.update(p.id,{'role':'Farmer'})
+    write_json(path,{'phase':'return_pending'})
+    with pytest.raises(ValueError,match='this profile'):
+        r.update(p.id,{'role':'Merchant'})
     assert r.resolve(p.id).role=='Farmer'
 
 

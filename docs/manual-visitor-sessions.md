@@ -131,6 +131,14 @@ operator=...)` removes future manual permission and records the operator;
 it sends no input to an already-active manual session. Returned records include
 `holds_automation`, `request_state`, `approval_binding` and `expires_at`.
 
+Profile-management UI must use `ProfileRegistry.list_visitors(profile_id)` and
+`ProfileRegistry.revoke_visitors(profile_id, exact_rows, operator=...)`. These
+APIs keep manual visitor permission separate from automated `trusted_sources`,
+require the affected profile's transaction journals to be idle, and revoke the
+selected exact keys atomically. A role change is refused while any allowed
+manual visitor key remains attached. Cosmetic labels, templates and ordinary
+preference overrides do not consult transaction history.
+
 ## Atomic settlement integration
 
 Construct the store with the exact `Journal.path`. Supply

@@ -7,7 +7,6 @@ from conquest.character_profiles import SETTING_TYPES, write_json, context_for
 
 
 def manage_profiles(registry,selected=None):
-    from conquest.profile_bootstrap import offline_edit_ready
     from conquest.window_host import use_unaware_dpi
     use_unaware_dpi()  # Must precede the very first Tk HWND in this process.
     root=tk.Tk();root.title('Conquest — characters on this PC');root.geometry('900x670');root.minsize(640,480)
@@ -59,7 +58,7 @@ def manage_profiles(registry,selected=None):
         p=chosen()
         registry.update(p.id,{'label':label.get(),'role':role.get(),'local_enabled':enabled.get(),
             'template':'automatic','overrides':json.loads(settings.get('1.0','end')),
-            'trusted_sources':json.loads(trust.get('1.0','end'))},stopped=True,pending=not offline_edit_ready(registry.root))
+            'trusted_sources':json.loads(trust.get('1.0','end'))})
         refresh(p.id);note.set('Saved. No running behavior was changed.')
     def export():
         p=chosen();path=filedialog.asksaveasfilename(parent=root,defaultextension='.json',filetypes=[('Preferences','*.json')])
@@ -83,11 +82,10 @@ def manage_profiles(registry,selected=None):
         result[0]=p.id;root.destroy()
     def save_template():
         p=chosen()
-        if not offline_edit_ready(registry.root):raise ValueError('Reconcile unfinished transactions first')
         title=simpledialog.askstring('Settings template','Template name:',parent=root)
         if not title:return
         key=registry.save_template(title,json.loads(settings.get('1.0','end')))
-        registry.update(p.id,{'template':key,'overrides':{}},stopped=True,pending=False)
+        registry.update(p.id,{'template':key,'overrides':{}})
         refresh(p.id)
     def login():
         p=chosen()

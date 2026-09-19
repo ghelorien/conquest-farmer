@@ -138,16 +138,66 @@ class ProfileRegistry:
             value['profiles'].append(asdict(profile))
         return profile
 
-    def update(self,profile_id,changes,*,stopped,pending):
-        if not stopped or pending:raise ValueError('Stop this character and reconcile unfinished work before editing')
+    def update(self,profile_id,changes,*,stopped=None,pending=None):
         if set(changes)-{'role','label','template','overrides','trusted_sources','local_enabled'}:
             raise ValueError('Identity cannot be changed through profile preferences')
         with self.edit() as value:
             index=next((i for i,p in enumerate(value['profiles']) if p['id']==profile_id),None)
             if index is None:raise ValueError('Unknown profile ID')
+            current=CharacterProfile(**value['profiles'][index])
             updated=CharacterProfile(**{**value['profiles'][index],**changes})
+            sensitive={name for name in ('role','local_enabled','trusted_sources')
+                       if getattr(current,name)!=getattr(updated,name)}
+            if sensitive:
+                from conquest.profile_readiness import ProfileReadiness
+                readiness=ProfileReadiness(self.root)
+                if 'role' in sensitive:
+                    visitors=self.list_visitors(profile_id)
+                    if visitors:
+                        raise ValueError('Revoke the exact allowed manual visitor permissions before changing this role')
+                readiness.require_transaction_idle(profile_id)
             value['profiles'][index]=asdict(updated)
         return updated
+
+    def list_visitors(self,profile_id,*,include_revoked=False):
+        """List local manual visitor permissions, never automated trust."""
+        self.resolve(profile_id)
+        path=self.root/'machine-state/reports/merchants/journal.sqlite3'
+        if not path.exists():return []
+        import sqlite3
+        from contextlib import closing
+        with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True)) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='visitor_permissions'").fetchone():
+                return []
+            db.row_factory=sqlite3.Row
+            rows=[dict(row) for row in db.execute(
+                'SELECT * FROM visitor_permissions WHERE target_profile_id=? '
+                'ORDER BY visitor_name,visitor_server,visitor_uid',(profile_id,))]
+        if not include_revoked:rows=[row for row in rows if row['allowed']]
+        return rows
+
+    def revoke_visitors(self,profile_id,visitors,*,operator):
+        """Revoke the supplied exact permission keys for one idle profile."""
+        self.resolve(profile_id)
+        if not isinstance(visitors,list) or not visitors:
+            raise ValueError('Choose one or more exact visitor permissions to revoke')
+        required=('target_profile_id','visitor_name','visitor_server','visitor_uid')
+        normalized=[]
+        for visitor in visitors:
+            if not isinstance(visitor,dict) or set(visitor)!=set(required) or visitor['target_profile_id']!=profile_id:
+                raise ValueError('Visitor permission must be an exact key for this profile')
+            normalized.append(copy.deepcopy(visitor))
+        from conquest.profile_readiness import ProfileReadiness
+        ProfileReadiness(self.root).require_transaction_idle(profile_id)
+        allowed={tuple(row[name] for name in required) for row in self.list_visitors(profile_id)}
+        requested={tuple(row[name] for name in required) for row in normalized}
+        if requested - allowed:
+            raise ValueError('An exact allowed visitor permission changed before revocation')
+        path=self.root/'machine-state/reports/merchants/journal.sqlite3'
+        from conquest.merchants.manual_sessions import ManualSessionStore
+        store=ManualSessionStore(path)
+        store.revoke_many(normalized,operator=operator,require_allowed=True)
+        return self.list_visitors(profile_id)
 
     def save_template(self,label,settings):
         if not isinstance(label,str) or not 1<=len(label)<=100:raise ValueError('Enter a template label')

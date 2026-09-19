@@ -358,6 +358,24 @@ class ManualSessionStore:
                        (*asdict(visitor).values(), now))
             self._audit(db, None, 'visitor_revoked', {'visitor': asdict(visitor), 'operator': operator}, now)
 
+    def revoke_many(self, visitors, *, operator, now=None, require_allowed=False):
+        """Atomically revoke exact visitor keys; sends no gameplay input."""
+        if not isinstance(visitors, list) or not visitors:
+            raise ManualSessionError('Choose one or more exact visitor permissions')
+        keys = [_key(visitor) for visitor in visitors]
+        if len(set(keys)) != len(keys):
+            raise ManualSessionError('Duplicate visitor permission')
+        _text(operator, 'Operator'); now = _now(now)
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if require_allowed and any(not self._allowed(db, visitor) for visitor in keys):
+                raise ManualSessionError('An exact allowed visitor permission changed before revocation')
+            for visitor in keys:
+                db.execute('INSERT INTO visitor_permissions VALUES(?,?,?,?,0,?) ON CONFLICT(target_profile_id,visitor_name,visitor_server,visitor_uid) DO UPDATE SET allowed=0,updated_at=excluded.updated_at',
+                           (*asdict(visitor).values(), now))
+                self._audit(db, None, 'visitor_revoked',
+                            {'visitor': asdict(visitor), 'operator': operator}, now)
+
     def _new_session(self, db, visitor, proof, now, phase='approval_pending', *, target_profile_id=None):
         session_id = uuid.uuid4().hex
         target_profile_id = visitor.target_profile_id if visitor is not None else _text(target_profile_id, 'Target profile ID')
