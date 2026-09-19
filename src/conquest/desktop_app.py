@@ -395,6 +395,16 @@ class DesktopApp:
         from conquest.worker import request
         fresh={'recheck_unavailable':'Farmer client is not attached'}
         info=self.last.get('worker_info_path')
+        if incident.get('kind')=='meteor-consolidation':
+            # A Meteor override may only be planned from a matching live bag
+            # and warehouse read, never the historical transfer journal.
+            from conquest import meteor_banking
+            try:
+                fresh=meteor_banking.recheck_worker(info) if info else fresh
+            except (OSError,ValueError,KeyError,TypeError) as error:
+                fresh={'recheck_unavailable':type(error).__name__,
+                       'reason':'Fresh Meteor bag/warehouse memory unavailable'}
+            return dict(incident,rechecked=fresh)
         if info:
             try:
                 health=request(info,'health')
@@ -443,6 +453,15 @@ class DesktopApp:
                 from conquest.protected_withdrawal import operator_override
                 return operator_override(incident['operation_id'],operator_confirmed=True,
                     confirmation_reference=digest,incident_digest=digest,fresh_evidence=fresh)
+            if incident['kind']=='meteor-consolidation':
+                # Meteor recovery is intentionally not the generic JSON hold:
+                # its next action needs a fresh memory read of *both* bag and
+                # warehouse, and its terminal journal must enter the dedicated
+                # Meteor archive before a new banking operation can begin.
+                from conquest import meteor_banking
+                return meteor_banking.operator_override(operator_confirmed=True,
+                    confirmation_reference=digest,incident_digest=digest,
+                    fresh_evidence=fresh)
             from conquest.recovery_override import operator_override
             return operator_override(Path(incident['path']),pending_phases=incident['pending_phases'],
                 operator_confirmed=True,confirmation_reference=digest,incident_digest=digest,
