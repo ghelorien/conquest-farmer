@@ -267,7 +267,8 @@ class ManualRuntime:
         except (KeyError, TypeError, ValueError, OSError):
             return False
 
-    def process_probe_owned(self, character, snapshot, *, now=None, require_bilateral=False):
+    def process_probe_owned(self, character, snapshot, *, farmer_snapshot=None, now=None,
+                            require_bilateral=False):
         """Keep exact supervised input under its own worker, never auto-accept."""
         if not (snapshot.get('request') or snapshot.get('trade')):
             return False
@@ -287,31 +288,41 @@ class ManualRuntime:
                         or state.get('phase') not in REQUEST_PHASES | TRADE_PHASES):
                     return False
                 merchant_character = character_name(state['character']) if farmer_side else character
-                source = self.manual_farmer_provider()
-                intent=state.get('intent');farmer_intent=intent.get('farmer') if isinstance(intent,dict) else None
-                if (source is None or source.character != farmer_name() or not isinstance(farmer_intent,dict)
-                        or getattr(getattr(source,'adapter',None),'identity',None)!=farmer_intent.get('identity')):
-                    return False
-                observer = self.observers.get(merchant_character) if farmer_side else source
-                if observer is None:return False
-                if not observer.lock.acquire(blocking=False):
-                    return False if require_bilateral else self._structural_request_probe_owned(character,snapshot,state,now=proof_now)
-                try:
-                    observer.adapter.assert_identity()
-                    if farmer_side:
-                        farmer = snapshot
-                        merchant = self.controllers[merchant_character].driver.read()
-                    else:
-                        farmer = MerchantMemory(observer).read(farmer_preflight=True)
-                        merchant = snapshot
-                except (OSError, CaptureUnavailable, ValueError, KeyError, TypeError, AttributeError):
-                    # Only the peer acquisition/read path may use the
-                    # observation-only structural fallback.  Once both
-                    # snapshots exist, a failed bilateral proof is evidence
-                    # of a changed incident and must route manually.
-                    return False if require_bilateral or farmer_side else self._structural_request_probe_owned(
-                        character,snapshot,state,now=proof_now)
-                finally:observer.lock.release()
+                if farmer_snapshot is not None:
+                    # Delivery acceptance has just read this exact bilateral
+                    # pair under both observer locks.  Reacquiring the farmer
+                    # lock here creates a false failure window and can mint a
+                    # competing manual admission.  Supplied evidence remains
+                    # read-only and must pass the same full ownership/digest
+                    # proof below; it never bypasses a manual-session fence.
+                    if farmer_side:return False
+                    farmer,merchant=farmer_snapshot,snapshot
+                else:
+                    source = self.manual_farmer_provider()
+                    intent=state.get('intent');farmer_intent=intent.get('farmer') if isinstance(intent,dict) else None
+                    if (source is None or source.character != farmer_name() or not isinstance(farmer_intent,dict)
+                            or getattr(getattr(source,'adapter',None),'identity',None)!=farmer_intent.get('identity')):
+                        return False
+                    observer = self.observers.get(merchant_character) if farmer_side else source
+                    if observer is None:return False
+                    if not observer.lock.acquire(blocking=False):
+                        return False if require_bilateral else self._structural_request_probe_owned(character,snapshot,state,now=proof_now)
+                    try:
+                        observer.adapter.assert_identity()
+                        if farmer_side:
+                            farmer = snapshot
+                            merchant = self.controllers[merchant_character].driver.read()
+                        else:
+                            farmer = MerchantMemory(observer).read(farmer_preflight=True)
+                            merchant = snapshot
+                    except (OSError, CaptureUnavailable, ValueError, KeyError, TypeError, AttributeError):
+                        # Only the peer acquisition/read path may use the
+                        # observation-only structural fallback.  Once both
+                        # snapshots exist, a failed bilateral proof is evidence
+                        # of a changed incident and must route manually.
+                        return False if require_bilateral or farmer_side else self._structural_request_probe_owned(
+                            character,snapshot,state,now=proof_now)
+                    finally:observer.lock.release()
                 now = proof_now
                 source_target = self.manual_target('Farmer')
                 proof = ownership(state, merchant_character, self.manual_target(merchant_character), source_target,
@@ -330,6 +341,18 @@ class ManualRuntime:
                     pass  # Genuine/uncertain manual intervals retain their fence.
             self._sync_manual_fence()
             return True
+
+    def reconcile_probe_owned(self, character, farmer, merchant, *, now=None):
+        """Reconcile an already-read exact pair without reacquiring observers.
+
+        This is a read-only, full bilateral ownership proof plus the existing
+        false-admission retraction/fence sync.  It deliberately grants no
+        input: callers must still pass the coordinator's manual fence and
+        purpose-scoped lease checks.
+        """
+        with self.coordinator.lock:
+            return self.process_probe_owned(character,merchant,farmer_snapshot=farmer,
+                                            now=now,require_bilateral=True)
 
     def process_manual(self, character, snapshot, *, decline_enabled=False, now=None):
         """Called after bot reservation/transaction routing, before normal work."""

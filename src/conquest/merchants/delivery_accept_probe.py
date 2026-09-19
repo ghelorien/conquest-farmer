@@ -157,8 +157,13 @@ def run(ui,state):
         # supervised request into a manual hold.  Full bilateral proof is
         # required here: it retracts only a false unapproved admission and
         # leaves genuine/claimed holds intact for the coordinator to deny.
-        _farmer,merchant=pair(ui,character)
-        if not ui.runtime.process_probe_owned(character,merchant,require_bilateral=True):
+        # Pair capture and its full proof share the coordinator mutex.  That
+        # prevents a manual observer pass from admitting the same request
+        # between the observer reads and false-session retraction.
+        with ui.coordinator.lock:
+            _farmer,merchant=pair(ui,character)
+            reconciled=ui.runtime.reconcile_probe_owned(character,_farmer,merchant)
+        if not reconciled:
             raise CaptureUnavailable('Delivery acceptance needs fresh bilateral probe reconciliation')
         if ui.coordinator.manual_session_blocked(profile_id or character,purpose='delivery_accept_probe'):
             raise CaptureUnavailable('Manual visitor session holds automation input')

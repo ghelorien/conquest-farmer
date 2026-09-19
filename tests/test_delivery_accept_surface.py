@@ -74,9 +74,9 @@ def accept_run_fixture(monkeypatch):
     game_driver=NS(target=target,memory=NS(gui=NS(viewport_size=lambda:[1000,800],assert_hovered=Mock())))
     ui=NS(app=NS(control=NS(snapshot=lambda:{'revision':1,'enabled':False})),
           coordinator=NS(check=lambda:None,lease=lambda *_args,**_kwargs:nullcontext(),
-                         manual_session_blocked=lambda *_args,**_kwargs:False),
+                         manual_session_blocked=lambda *_args,**_kwargs:False,lock=threading.RLock()),
           runtime=NS(controllers={'Spiritual':NS(driver=game_driver)},
-                     process_probe_owned=lambda *_args,**_kwargs:True),
+                     reconcile_probe_owned=lambda *_args,**_kwargs:True),
           calibrating=set(),calibration_cancel={})
     monkeypatch.setattr('conquest.character_context.registry',lambda:None)
     monkeypatch.setattr(delivery_probe,'read_probe',lambda:deepcopy(state))

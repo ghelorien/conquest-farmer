@@ -263,6 +263,46 @@ def test_full_preaccept_reconciliation_retracts_false_pending_after_recoverable_
     assert final['terminal']['gameplay_input'] is False and not store.permissions() and x.calls==[]
 
 
+def test_supplied_preaccept_pair_reconciles_without_reacquiring_busy_farmer_observer(supervised):
+    x=supervised;store=x.runtime.manual_sessions
+    row=store.begin_request('Dutch',x.read(),now=x.now)
+    farmer,merchant=x.farmer_read(),x.read();x.now+=1
+    x.source.lock=NS(acquire=lambda **_kwargs:pytest.fail('pre-read pair must not reacquire farmer lock'),
+                     release=lambda:None)
+    assert x.runtime.reconcile_probe_owned('Dutch',farmer,merchant,now=x.now)
+    final=store.get(row['id'])
+    assert final['phase']=='request_withdrawn' and not final['holds_automation']
+    assert final['terminal']['disposition']=='manual_admission_retracted_bot_owned'
+    assert x.calls==[] and not store.permissions()
+
+
+def test_supplied_preaccept_pair_mismatch_cannot_retract_or_bypass_manual_hold(supervised):
+    x=supervised;store=x.runtime.manual_sessions
+    row=store.begin_request('Dutch',x.read(),now=x.now)
+    x.runtime._sync_manual_fence()
+    farmer,merchant=x.farmer_read(),x.read();farmer['silver']+=1;x.now+=1
+    assert not x.runtime.reconcile_probe_owned('Dutch',farmer,merchant,now=x.now)
+    final=store.get(row['id'])
+    assert final['holds_automation'] and final['terminal'] is None
+    assert x.guard.manual_session_blocked('Dutch') and x.calls==[]
+
+
+@pytest.mark.parametrize('protected',['approved','decline_claimed'])
+def test_supplied_preaccept_pair_preserves_genuine_manual_hold(supervised,protected):
+    x=supervised;store=x.runtime.manual_sessions
+    row=store.begin_request('Dutch',x.read(),now=x.now)
+    if protected=='approved':store.allow_and_activate(row['approval_binding'],x.read(),operator='Floor',now=x.now)
+    else:
+        store.reject(row['approval_binding'],operator='Floor',now=x.now)
+        store.claim_decline(row['id'],x.read(),now=x.now)
+    x.runtime._sync_manual_fence()
+    x.now+=1
+    assert x.runtime.reconcile_probe_owned('Dutch',x.farmer_read(),x.read(),now=x.now)
+    final=store.get(row['id'])
+    assert final['holds_automation'] and final['terminal'] is None
+    assert x.guard.manual_session_blocked('Dutch') and x.calls==[]
+
+
 @pytest.mark.parametrize('protected', [
     'approved', 'decline_claimed', 'settlement', 'original_uid', 'original_process',
     'original_stock', 'predates_probe', 'changed_probe', 'second_request',
