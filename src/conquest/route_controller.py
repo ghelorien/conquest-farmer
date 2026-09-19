@@ -12,7 +12,13 @@ ACTIVE={'starting','hunting','restocking','changing_route','recovering_route','v
 
 
 def ensure_running(route_id,*,root=None):
-    root=Path(root or Path(__file__).resolve().parents[2])
+    from conquest.application_layout import RuntimeLayout
+    # The app calls this on each heartbeat. Validate root/pin and entry paths
+    # now, but hash the full immutable payload only when a launch is needed.
+    layout=RuntimeLayout.resolve(root,verify=False)
+    root=layout.root
+    script=layout.script('run_overnight.py')
+    python=layout.python(windowed=True)
     from conquest.protected_withdrawal import pending
     if pending(root/state_path('reports/banking/protected-withdrawals.sqlite3')):
         return False
@@ -24,16 +30,15 @@ def ensure_running(route_id,*,root=None):
         return False
     launch=root/state_path('.runtime/route-controller-launch.json')
     if 0<=now-read_json(launch).get('time',0)<5:return False
+    layout.verify_for_launch()
     from conquest.routes import RouteLibrary
     RouteLibrary(root/'profiles/routes').load(route_id)
     # This function is called only while current farming intent is On.
     (root/state_path('.runtime/overnight.stop')).unlink(missing_ok=True)
     launch.parent.mkdir(parents=True,exist_ok=True)
-    python=Path(sys.executable).with_name('pythonw.exe')
-    if not python.exists():python=Path(sys.executable)
     with (root/state_path('.runtime/route-controller-error.log')).open('ab') as error:
-        process=subprocess.Popen([str(python),str(root/'scripts/run_overnight.py'),'--route',route_id],
-            cwd=root,stdin=subprocess.DEVNULL,stdout=error,stderr=error,
+        process=subprocess.Popen([str(python),'-B',str(script),'--route',route_id],
+            cwd=root,env=layout.environment(),stdin=subprocess.DEVNULL,stdout=error,stderr=error,
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     write_json(launch,{'time':now,'pid':process.pid,'route':route_id})
     return True

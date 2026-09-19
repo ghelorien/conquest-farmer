@@ -4,10 +4,9 @@ import os
 import sys
 import traceback
 
-root = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(root / 'src'))
-os.environ['PYTHONPATH']=str(root/'src')+os.pathsep+os.environ.get('PYTHONPATH','')
-os.chdir(root)
+sys.path.insert(0, str(Path(__file__).absolute().parent))
+from _bootstrap import activate
+root = activate(__file__)
 startup = None
 try:
     from conquest.legacy_startup import configure

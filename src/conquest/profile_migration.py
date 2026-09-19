@@ -297,8 +297,15 @@ def _directory_identity(path):
 
 
 def _create_stage(root):
+    from conquest.managed_security import provision_new
     path = Path(tempfile.mkdtemp(prefix=root.name + '.migration-', dir=root.parent))
-    return path, _directory_identity(path)
+    identity = _directory_identity(path)
+    try:
+        provision_new(path, directory=True)
+    except BaseException:
+        _remove_owned_stage(path, root, identity)
+        raise
+    return path, identity
 
 
 def _unused_diagnostics_backup(root):
@@ -541,7 +548,8 @@ def migrate_legacy(source, root, *, check_offline=require_offline, copy_file=_co
                 '.runtime/merchants/shops-webhook.dpapi':
                     stage / 'machine-state/.runtime/merchants/shops-webhook.dpapi',
             }
-            packaged = Path(__file__).resolve().parents[2] / 'profiles/routes'
+            from conquest.application_layout import application_root
+            packaged = application_root() / 'profiles/routes'
             for path in selected:
                 relative_path = path.relative_to(source)
                 relative = relative_path.as_posix()

@@ -24,10 +24,10 @@ def start_arguments(root, profile, calibration, *, launch_client=False, embed_cl
 
 def elevated_start(hwnd, root, profile, calibration=False, *, launch_client=False, embed_client=None):
     """One consent request initiated by Start; cancellation never retries."""
-    root = Path(root).resolve()
-    python = root/'.venv/Scripts/pythonw.exe'
-    if not python.is_file():
-        raise ValueError('The desktop Python environment is missing')
+    from conquest.application_layout import RuntimeLayout
+    layout=RuntimeLayout.resolve(root);root=layout.root
+    layout.script('start_desktop_app.py')
+    python=layout.python(windowed=True)
     shell = ctypes.WinDLL('shell32',use_last_error=True)
     execute = shell.ShellExecuteW
     execute.argtypes = [wintypes.HWND,wintypes.LPCWSTR,wintypes.LPCWSTR,

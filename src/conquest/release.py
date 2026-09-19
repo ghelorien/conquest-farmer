@@ -329,6 +329,8 @@ def activate_release(release, *, state_root=None, lock=None, crash_hook=None) ->
     state_root = _state_root(state_root)
     _require_separate_roots(state_root, release)
     with _state_lock(state_root, lock):
+        from conquest.managed_security import ensure_managed_directory
+        ensure_managed_directory(state_root)
         prior = _read_active(state_root)
         verified = verify_release(release)
         receipt = _receipt(release, verified, prior)
@@ -380,6 +382,8 @@ def launch_active_release(arguments=(), *, state_root=None, popen=subprocess.Pop
         raise ReleaseError("Active release is missing its launcher or local virtual environment")
     environment = os.environ.copy()
     environment["CONQUEST_DATA_ROOT"] = str(state_root)
+    environment["CONQUEST_APP_ROOT"] = str(root)
+    environment["CONQUEST_RELEASE_MANIFEST_SHA256"] = receipt["manifest_sha256"]
     # Imports must not create __pycache__ files inside the verified release.
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     return popen([str(python), "-B", str(launcher), *arguments], cwd=str(root), env=environment)

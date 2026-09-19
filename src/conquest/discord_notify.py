@@ -582,11 +582,11 @@ def kill_rate_targets():
 def ensure_monitor():
     if not SECRET.exists():
         return False
-    repo=Path(__file__).resolve().parents[2]
-    python=Path(sys.executable).with_name('pythonw.exe')
-    if not python.exists():
-        python=Path(sys.executable)
-    subprocess.Popen([str(python),str(repo/'scripts/run_discord_notifications.py')],cwd=repo,
+    from conquest.application_layout import RuntimeLayout
+    layout=RuntimeLayout.resolve()
+    script=layout.script('run_discord_notifications.py')
+    python=layout.python(windowed=True)
+    subprocess.Popen([str(python),str(script)],cwd=layout.root,env=layout.environment(),
         stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NO_WINDOW)
     return True

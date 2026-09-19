@@ -3,6 +3,13 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def isolate_live_session_plan(tmp_path,monkeypatch):
+    monkeypatch.delenv('CONQUEST_APP_ROOT',raising=False)
+    monkeypatch.delenv('CONQUEST_RELEASE_MANIFEST_SHA256',raising=False)
+    # pytest's Windows tempfile ACL uses OWNER RIGHTS. Real managed roots now
+    # explicitly grant TokenUser access, including to normal-token children.
+    # This directory is fresh, test-owned, and contains no user state.
+    from conquest.managed_security import provision_new
+    provision_new(tmp_path,directory=True)
     from conquest.merchants import handoff
     monkeypatch.setattr(handoff,'POLICY',tmp_path/'merchant-deliveries.json')
     from conquest.merchants import delivery_route

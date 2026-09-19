@@ -108,9 +108,10 @@ class ProfileRegistry:
 
     @contextmanager
     def edit(self):
-        self.root.mkdir(parents=True,exist_ok=True)
+        from conquest.managed_security import ensure_managed_directory, open_managed_lock
+        ensure_managed_directory(self.root)
         import msvcrt
-        with (self.root/'profiles.lock').open('a+b') as lock:
+        with open_managed_lock(self.root/'profiles.lock') as lock:
             lock.seek(0,2)
             if lock.tell()==0:lock.write(b'0');lock.flush()
             lock.seek(0)

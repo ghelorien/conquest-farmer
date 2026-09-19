@@ -152,7 +152,9 @@ class NativeProcesses:
             yield {**initial,'argv':arguments,'parent_pid':parent},stop
 
     def start(self,python,script,root):
-        child=subprocess.Popen([str(python),str(script)],cwd=root,
+        from conquest.application_layout import RuntimeLayout
+        layout=RuntimeLayout.resolve(root)
+        child=subprocess.Popen([str(python),str(script)],cwd=root,env=layout.environment(),
             stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW)
         return child.pid
@@ -161,9 +163,12 @@ class NativeProcesses:
 def restart(worker,*,processes=None,root=None,owner_pid=None,python=None,clock=time.time):
     """No caller-provided process identity; all authority comes from fixed reports."""
     if worker not in WORKERS:raise ValueError('Unknown notification worker')
-    root=Path(root or Path(__file__).resolve().parents[2])
+    from conquest.application_layout import RuntimeLayout
+    layout=RuntimeLayout.resolve(root)
+    root=layout.root
+    script=layout.script(WORKERS[worker][0])
     owner_pid=os.getpid() if owner_pid is None else owner_pid
-    python=Path(python or Path(sys.executable).with_name('pythonw.exe'))
+    python=layout.python(windowed=True) if layout.immutable or python is None else Path(python)
     if not python.is_file():raise ValueError('Notification worker Python is unavailable')
     if not Path(state_path('.runtime/discord.paused')).exists():
         raise ValueError('Pause Discord notifications before worker handover')
@@ -203,7 +208,7 @@ def restart(worker,*,processes=None,root=None,owner_pid=None,python=None,clock=t
             stop(proof)
         # The queue is deliberately neither rewritten nor filtered here. The
         # replacement reads its preserved state under the existing worker lock.
-        replacement=processes.start(python,root/'scripts'/WORKERS[worker][0],root)
+        replacement=processes.start(python,script,root)
         receipt={'worker':worker,'previous_pid':pid,'replacement_pid':replacement,
             'owner_pid':owner_pid,'at':clock(),'phase':'restart_requested','paused':True,
             'queue_preserved':True}

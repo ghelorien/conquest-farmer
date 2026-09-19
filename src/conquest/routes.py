@@ -129,7 +129,8 @@ class RouteLibrary:
         self.builtin_directory=None
         from conquest.character_context import current
         context=current()
-        if context and self.directory.resolve()==(Path(__file__).resolve().parents[2]/'profiles/routes').resolve():
+        from conquest.application_layout import application_root
+        if context and self.directory.resolve()==application_root(verify=False)/'profiles/routes':
             self.builtin_directory=self.directory
             self.directory=context.state_dir/'routes'
 

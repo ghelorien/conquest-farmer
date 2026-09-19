@@ -296,10 +296,11 @@ class UnifiedUI:
             for c in CHARACTERS:
                 if c not in self.runtime.observers:raise ValueError('Both merchants must be attached')
                 self.runtime.controllers[c].driver.memory.read()
-            repo=Path(__file__).resolve().parents[3]
+            from conquest.application_layout import RuntimeLayout
+            layout=RuntimeLayout.resolve();repo=layout.root
             self.readonly_diagnostics=subprocess.Popen(
-                [sys.executable,str(repo/'scripts/start_merchant_diagnostics.py')],
-                cwd=repo,creationflags=subprocess.CREATE_NO_WINDOW,
+                [str(layout.python()),str(layout.script('start_merchant_diagnostics.py'))],
+                cwd=repo,env=layout.environment(),creationflags=subprocess.CREATE_NO_WINDOW,
                 stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             return {'pid':self.readonly_diagnostics.pid,'read_only':True}
         if action=='peer-identity-evidence' and set(body)=={'action','character','peer'}:

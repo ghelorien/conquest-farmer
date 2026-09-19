@@ -142,10 +142,11 @@ class Alerts:
 def ensure_monitor():
     if not SECRET.exists():
         return False
-    repo = Path(__file__).resolve().parents[3]
-    python = Path(sys.executable).with_name('pythonw.exe')
-    subprocess.Popen([str(python if python.exists() else Path(sys.executable)),
-                      str(repo/'scripts/run_shop_notifications.py')],cwd=repo,
+    from conquest.application_layout import RuntimeLayout
+    layout=RuntimeLayout.resolve()
+    script=layout.script('run_shop_notifications.py')
+    python=layout.python(windowed=True)
+    subprocess.Popen([str(python),str(script)],cwd=layout.root,env=layout.environment(),
         stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NO_WINDOW)
     return True

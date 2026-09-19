@@ -11,8 +11,9 @@ from conquest.character_profiles import ProfileRegistry, data_root, write_json, 
 @contextmanager
 def _owner_file(path,timeout,error):
     import msvcrt
+    from conquest.managed_security import open_managed_lock
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
-    with path.open('a+b') as lock:
+    with open_managed_lock(path) as lock:
         lock.seek(0,2)
         if not lock.tell():lock.write(b'0');lock.flush()
         deadline=time.monotonic()+timeout
@@ -63,7 +64,8 @@ def legacy_app_owner_if_present(root,timeout=0):
 def app_owner(root,timeout=15):
     root=Path(root)
     with managed_root_owner(root,timeout=timeout):
-        root.mkdir(parents=True,exist_ok=True)
+        from conquest.managed_security import ensure_managed_directory
+        ensure_managed_directory(root)
         # Retain the established artifact for older support tooling.  The
         # sibling lock is the shared application/migration ownership fence.
         with _owner_file(root/'app.lock',timeout,'Conquest is already running on this PC'):

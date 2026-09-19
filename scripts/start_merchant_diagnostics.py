@@ -2,6 +2,9 @@
 import contextlib
 import json
 from pathlib import Path
+if __name__ == '__main__':
+    from _bootstrap import activate
+    activate(__file__)
 from conquest.character_context import state_path
 from conquest.merchants.journal import CHARACTERS
 import threading

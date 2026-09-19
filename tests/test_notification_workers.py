@@ -26,6 +26,11 @@ class Processes:
 @pytest.fixture
 def setup(tmp_path,monkeypatch):
     root=tmp_path/'release';(root/'scripts').mkdir(parents=True)
+    for name in ('src/conquest','profiles/routes'):
+        (root/name).mkdir(parents=True)
+    (root/'pyproject.toml').touch()
+    (root/'scripts/run_discord_notifications.py').touch()
+    (root/'scripts/run_shop_notifications.py').touch()
     data=tmp_path/'data';(data/'.runtime').mkdir(parents=True);(data/'reports/desktop-farming').mkdir(parents=True)
     python=tmp_path/'pythonw.exe';python.touch()
     monkeypatch.setattr(workers,'state_path',lambda name:str(data/name))

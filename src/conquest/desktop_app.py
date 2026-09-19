@@ -736,7 +736,8 @@ class DesktopApp:
                 self.state_text.set('Waiting for Windows approval…')
                 self.record(state='Waiting for Windows approval')
                 self.root.update_idletasks()
-                elevated_start(self.root.winfo_id(),Path(__file__).resolve().parents[2],self.profile,calibration)
+                from conquest.application_layout import application_root
+                elevated_start(self.root.winfo_id(),application_root(),self.profile,calibration)
                 # No run or embedded client exists here. Do not write a stop
                 # request that would cancel the elevated app's incoming Start.
                 self.root.destroy()
@@ -859,11 +860,12 @@ class DesktopApp:
         route_id=self.selected_route.id
         def prepare():
             try:
-                repo=Path(__file__).resolve().parents[2]
+                from conquest.application_layout import RuntimeLayout
+                layout=RuntimeLayout.resolve();repo=layout.root
                 # Import checks run while the current farmer still protects the player.
-                checked=subprocess.run([str(repo/'.venv/Scripts/pythonw.exe'),
-                    str(repo/'scripts/start_desktop_app.py'),'--check-imports'],
-                    cwd=repo,capture_output=True,timeout=20)
+                checked=subprocess.run([str(layout.python(windowed=True)),
+                    str(layout.script('start_desktop_app.py')),'--check-imports'],
+                    cwd=repo,env=layout.environment(),capture_output=True,timeout=20)
                 if checked.returncode:raise ValueError('Startup check failed; keeping current app')
                 from conquest.safe_reload import prepare as prepare_reload
                 proof=prepare_reload(info,route_id,self.reload_cancel,
@@ -882,13 +884,14 @@ class DesktopApp:
         if unified and (unified.coordinator.owner or unified.calibrating):
             self.state_text.set('Wait for merchant input to finish before reloading')
             return False
-        repo = Path(__file__).resolve().parents[2]
+        from conquest.application_layout import RuntimeLayout
+        layout=RuntimeLayout.resolve();repo=layout.root
         # Validate new source while the approved parent and client are intact.
         try:
             checked = subprocess.run(
-                [str(repo/'.venv/Scripts/pythonw.exe'),
-                 str(repo/'scripts/start_desktop_app.py'),'--check-imports'],
-                cwd=repo, capture_output=True, timeout=20)
+                [str(layout.python(windowed=True)),
+                 str(layout.script('start_desktop_app.py')),'--check-imports'],
+                cwd=repo, env=layout.environment(), capture_output=True, timeout=20)
             if checked.returncode:
                 self.state_text.set('Reload canceled: startup check failed. See reports/desktop-startup-error.txt')
                 return False
@@ -910,7 +913,7 @@ class DesktopApp:
             return False
         # A child of the approved app inherits its existing administrator token.
         # This button does not invoke runas or display another consent request.
-        args = [str(repo/'.venv/Scripts/pythonw.exe'),str(repo/'scripts/start_desktop_app.py'),
+        args = [str(layout.python(windowed=True)),str(layout.script('start_desktop_app.py')),
                 '--profile',str(self.profile.resolve())]
         from conquest.character_context import context_arguments
         args += context_arguments()
@@ -923,7 +926,7 @@ class DesktopApp:
                 # Release owned game windows and the bridge before the new app starts.
                 if unified.close(reason='restarting') is False:
                     return False
-            subprocess.Popen(args,cwd=repo)
+            subprocess.Popen(args,cwd=repo,env=layout.environment())
             self.root.destroy()
             return True
         except OSError as error:
@@ -1853,8 +1856,11 @@ def main():
         from conquest.character_context import context_arguments
         args=context_arguments()
         if '--profile-id' in args:args[args.index('--profile-id')+1]=app.profile_editor_requested
-        subprocess.Popen([sys.executable,str(Path(__file__).resolve().parents[2]/'scripts/start_desktop_app.py'),
-                          *args,'--manage-profiles'],creationflags=subprocess.CREATE_NO_WINDOW)
+        from conquest.application_layout import RuntimeLayout
+        layout=RuntimeLayout.resolve()
+        subprocess.Popen([str(layout.python(windowed=True)),str(layout.script('start_desktop_app.py')),
+                          *args,'--manage-profiles'],cwd=layout.root,env=layout.environment(),
+                         creationflags=subprocess.CREATE_NO_WINDOW)
 
 
 if __name__ == '__main__':

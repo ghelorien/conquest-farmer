@@ -161,6 +161,8 @@ def test_active_release_pins_manifest_and_launcher_uses_release_cwd(tmp_path):
     assert command[0][1] == "-B"
     assert options["cwd"] == str(root)
     assert options["env"]["CONQUEST_DATA_ROOT"] == str(state)
+    assert options["env"]["CONQUEST_APP_ROOT"] == str(root)
+    assert options["env"]["CONQUEST_RELEASE_MANIFEST_SHA256"] == release.active_release(state_root=state)["manifest_sha256"]
     assert options["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
     (root / "profiles" / "route.yaml").write_text("tampered", encoding="utf-8")
     with pytest.raises(release.ReleaseError, match="differs"):
