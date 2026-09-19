@@ -88,6 +88,18 @@ def control(driver,snapshot):
     return w,(round(x+width/2),round(button_y-22+line/2))
 
 
+def exact_incoming_request(intent, merchant):
+    """Bind the hidden request actor, not merely its rendered dialog name."""
+    request=merchant.get('request')
+    farmer=intent.get('farmer') if isinstance(intent,dict) else None
+    if not isinstance(farmer,dict) or not isinstance(request,dict):return False
+    return (request.get('participant')==farmer.get('character')
+            and type(request.get('participant_uid')) is int
+            and request['participant_uid']==farmer.get('character_uid')
+            and request.get('message')==f"{farmer.get('character')} wishes to trade with you."
+            and request.get('server',merchant.get('server'))==farmer.get('server'))
+
+
 def run(ui,state):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_click
@@ -110,6 +122,9 @@ def run(ui,state):
         raise ValueError('Delivery acceptance merchant profile changed')
     deadline=time.monotonic()+15
     driver=ui.runtime.controllers[character].driver
+    from conquest.recovery_override import evidence_digest
+    from conquest.merchants.delivery_probe import read_probe
+    from conquest.merchants.delivery_probe_ownership import ownership
     def check():
         permits_new_delivery(intent['farmer']['character']);ui.coordinator.check()
         import ctypes
@@ -119,12 +134,19 @@ def run(ui,state):
             raise CaptureUnavailable('Trade qualification was stopped or expired')
     def fresh():
         check();f,m=pair(ui,character)
-        if f.get('trade') or m.get('trade') or f.get('request') or m.get('request',{}).get('participant')!=farmer_name():
+        if f.get('trade') or m.get('trade') or f.get('request') or not exact_incoming_request(intent,m):
             raise ValueError('Expected incoming Parasite request changed')
         for role,snapshot in (('farmer',f),('merchant',m)):
             old=intent[role]
             if any(snapshot[k]!=old[k] for k in ('identity','character_uid','position','silver')) or exact_items(snapshot['inventory'])!=exact_items(old['inventory']):
                 raise ValueError('Participants or inventory changed before request acceptance')
+        current=read_probe()
+        if (not isinstance(current,dict) or current.get('phase') not in ('request_verified','accept_submitted')
+                or current.get('phase')!=state.get('phase')
+                or evidence_digest(current)!=evidence_digest(state)):
+            raise ValueError('Trade acceptance receipt changed before native input')
+        ownership(current,str(character),profile_id or str(character),
+                  current.get('farmer_profile_id','Farmer'),f,m,now=time.time())
         return f,m
     # Calibration grants only this checked input window; it never enables the
     # merchant trading controller or changes its persistent permissions.

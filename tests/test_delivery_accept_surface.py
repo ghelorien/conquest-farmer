@@ -1,11 +1,12 @@
 import struct
 import threading
+from copy import deepcopy
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
 import pytest
 
-from conquest.merchants.delivery_accept_probe import control, lease_authorized
+from conquest.merchants.delivery_accept_probe import control, lease_authorized, run
 from conquest.merchants.ui import UnifiedUI, callback_failure
 
 
@@ -52,6 +53,70 @@ def test_accept_control_rejects_trade_when_open_booth_confirmation_also_exists(m
                          {'name':'Open Booth###Confirm','address':window+0x400,'geometry':[1,1,200,100]}]}
     with pytest.raises(ValueError,match='ambiguous'):
         control(driver,snapshot)
+
+
+def accept_run_fixture(monkeypatch):
+    """A no-input staged accept harness; native controls are mocked only."""
+    from contextlib import nullcontext
+    from conquest import desktop_runtime,foreground
+    from conquest.merchants import delivery_probe,delivery_probe_ownership,farmer_preferences,driver as driver_module
+    identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
+    item={'uid':99,'type_id':720027,'plus':0,'gem1':0,'gem2':0,'quantity':1,'bound':False}
+    farmer={'character':'Parasite','character_uid':55,'identity':{'pid':8,'creation_time_100ns':10,'path':'ImConquer.exe'},
+            'server':'America','position':[10,10],'silver':200,'inventory':[item],'request':None,'trade':None}
+    merchant={'character':'Spiritual','character_uid':123,'identity':identity,'server':'America','position':[20,20],
+              'silver':200,'inventory':[],'trade':None,
+              'request':{'participant':'Parasite','participant_uid':55,
+                         'message':'Parasite wishes to trade with you.','server':'America'}}
+    state={'phase':'request_verified','character':'Spiritual','started_at':1,'updated_at':1,
+           'intent':{'farmer':deepcopy(farmer),'merchant':{**deepcopy(merchant),'request':None},'items':[item]}}
+    target=NS(snapshot=lambda:{'client_size':[1000,800]})
+    game_driver=NS(target=target,memory=NS(gui=NS(viewport_size=lambda:[1000,800],assert_hovered=Mock())))
+    ui=NS(app=NS(control=NS(snapshot=lambda:{'revision':1,'enabled':False})),
+          coordinator=NS(check=lambda:None,lease=lambda *_args,**_kwargs:nullcontext(),
+                         manual_session_blocked=lambda *_args,**_kwargs:False),
+          runtime=NS(controllers={'Spiritual':NS(driver=game_driver)},
+                     process_probe_owned=lambda *_args,**_kwargs:True),
+          calibrating=set(),calibration_cancel={})
+    monkeypatch.setattr('conquest.character_context.registry',lambda:None)
+    monkeypatch.setattr(delivery_probe,'read_probe',lambda:deepcopy(state))
+    monkeypatch.setattr(delivery_probe_ownership,'ownership',lambda *_args,**_kwargs:{})
+    monkeypatch.setattr(farmer_preferences,'permits_new_delivery',lambda *_args:None)
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.control',lambda *_args:({'address':1},(100,100)))
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.write_json',lambda *_args:None)
+    monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
+    monkeypatch.setattr(driver_module,'wait_hover_validation',lambda guard,_check:guard())
+    return ui,state,farmer,merchant,foreground
+
+
+@pytest.mark.parametrize('field,value',[('participant_uid',56),('message','Parasite wishes to trade?'),('server','Europe')])
+def test_accept_first_fresh_request_mutation_never_calls_foreground_click(monkeypatch,field,value):
+    ui,state,farmer,merchant,foreground=accept_run_fixture(monkeypatch)
+    reads=[0]
+    def pairs(*_args):
+        reads[0]+=1
+        if reads[0]==2:merchant['request'][field]=value
+        return deepcopy(farmer),deepcopy(merchant)
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.pair',pairs)
+    click=Mock();monkeypatch.setattr(foreground,'foreground_click',click)
+    with pytest.raises(ValueError,match='Expected incoming'):
+        run(ui,state)
+    click.assert_not_called()
+
+
+@pytest.mark.parametrize('field,value',[('participant_uid',56),('message','Parasite wishes to trade?'),('server','Europe')])
+def test_accept_before_press_request_mutation_never_reaches_press(monkeypatch,field,value):
+    ui,state,farmer,merchant,foreground=accept_run_fixture(monkeypatch)
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.pair',lambda *_args:(deepcopy(farmer),deepcopy(merchant)))
+    presses=[]
+    def click(*_args,**kwargs):
+        merchant['request'][field]=value
+        kwargs['before_press']()
+        presses.append(True)
+    monkeypatch.setattr(foreground,'foreground_click',click)
+    with pytest.raises(ValueError,match='Expected incoming'):
+        run(ui,state)
+    assert presses==[]
 
 
 def request_verified(tmp_path,monkeypatch,identity,character='Spiritual',*,target_profile_id=None,server='America'):
