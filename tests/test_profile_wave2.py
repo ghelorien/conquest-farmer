@@ -99,12 +99,18 @@ def test_migration_remaps_every_character_table_and_manual_targets(tmp_path):
                    "VALUES(?,?,?,?,?,?)",('done','kept',1,'{}','','audit-digest'))
         db.execute('CREATE TABLE custom_character_receipts(character TEXT, receipt TEXT)')
         db.execute('INSERT INTO custom_character_receipts VALUES(?,?)',('Dutch','kept'))
+        # This is a durable, unresolved delivery artifact: migration must map
+        # its owner just like the built-in admission table rather than leaving
+        # an old display name capable of bypassing profile-scoped readiness.
+        db.execute('CREATE TABLE pending_receipts(character TEXT, receipt TEXT)')
+        db.execute('INSERT INTO pending_receipts VALUES(?,?)',('Dutch','pending-proof'))
     destination=tmp_path/'managed'
     result=migrate_legacy(source,destination,check_offline=lambda _:None)
     dutch=result['profiles']['Dutch'];path=destination/'machine-state/reports/merchants/journal.sqlite3'
     with sqlite3.connect(path) as db:
         assert db.execute('SELECT character FROM delivery_admissions').fetchone()[0]==dutch
         assert db.execute('SELECT character,receipt FROM custom_character_receipts').fetchone()==(dutch,'kept')
+        assert db.execute('SELECT character,receipt FROM pending_receipts').fetchone()==(dutch,'pending-proof')
         assert db.execute('SELECT target_profile_id FROM visitor_permissions').fetchone()[0]==dutch
         assert db.execute('SELECT target_profile_id FROM manual_sessions').fetchone()[0]==dutch
         assert db.execute('SELECT digest FROM manual_audit').fetchone()[0]=='audit-digest'
@@ -233,6 +239,20 @@ def test_source_mutation_is_rejected_without_activation(tmp_path):
         target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(original,target)
         original.write_text('{"value":2}',encoding='utf-8')
+    with pytest.raises(ValueError,match='changed'):
+        migrate_legacy(source,destination,check_offline=lambda _:None,copy_file=mutate)
+    assert not destination.exists()
+
+
+def test_credential_source_mutation_is_rejected_before_managed_activation(tmp_path):
+    """Fixed encrypted inputs participate in the final source manifest too."""
+    source=tmp_path/'legacy';credential=source/'.runtime/merchants/shops-webhook.dpapi'
+    credential.parent.mkdir(parents=True);credential.write_bytes(b'first-secret')
+    destination=tmp_path/'managed'
+    def mutate(original,target):
+        profile_migration._copy(original,target)
+        if Path(original)==credential:
+            credential.write_bytes(b'replaced-secret')
     with pytest.raises(ValueError,match='changed'):
         migrate_legacy(source,destination,check_offline=lambda _:None,copy_file=mutate)
     assert not destination.exists()

@@ -168,14 +168,26 @@ def test_changed_request_at_decline_boundary_records_no_claim_or_input(rig,tmp_p
     with x.journal.db() as db:assert db.execute('SELECT COUNT(*) FROM manual_decline_claims').fetchone()[0]==0
 
 
-@pytest.mark.parametrize('field',['participant_uid','message'])
+@pytest.mark.parametrize('field',['participant','participant_uid','message'])
 def test_request_change_cannot_use_displayed_binding(rig,field):
     x=rig;x.runtime.step('Dutch');binding=x.runtime.manual_status('Dutch')['approval_binding']
-    x.now+=1;x.state['request'][field]=45 if field=='participant_uid' else 'Changed prompt'
+    x.now+=1;x.state['request'][field]=(
+        'Different visitor' if field=='participant' else 45 if field=='participant_uid' else 'Changed prompt')
     with pytest.raises(ManualSessionError):x.runtime.approve_manual(binding)
     assert not x.runtime.manual_sessions.permissions()
     x.runtime.step('Dutch')
     assert x.runtime.manual_status('Dutch')['phase']=='needs_attention' and not x.calls
+
+
+@pytest.mark.parametrize('field,value',[('pid',8),('path','C:/Other/ImConquer.exe')])
+def test_process_change_cannot_use_displayed_manual_approval(rig,field,value):
+    """A displayed request is bound to the exact process, not merely the visitor."""
+    x=rig;x.runtime.step('Dutch');binding=x.runtime.manual_status('Dutch')['approval_binding']
+    x.now+=1;x.state['identity'][field]=value
+    with pytest.raises(ManualSessionError):x.runtime.approve_manual(binding)
+    assert not x.runtime.manual_sessions.permissions() and not x.calls
+    x.runtime.process_manual('Dutch',x.read())
+    assert x.runtime.manual_status('Dutch')['phase']=='needs_attention'
 
 
 def test_unresolved_bot_transaction_blocks_manual_admission_even_if_reconcile_returns(rig):
