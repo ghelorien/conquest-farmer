@@ -134,16 +134,32 @@ def test_native_tabs_bridge_authentication_handoff_and_global_stop(tmp_path,monk
         assert enlarged_size[0]>initial_size[0]+350 and enlarged_size[1]>initial_size[1]+200
         unified.labels['Dutch'].set('Status\n'+('Long diagnostic line\n'*6))
         root.update()
-        # Status expands to keep diagnostics visible; the game keeps usable space.
+        # Client mode hides verbose status chrome so the native game keeps the
+        # supported viewport even when diagnostics are long.
+        unified.apply_client_compact_layout()
+        root.update()
         status_label=next(child for parent in unified.frames['Dutch'].winfo_children()
             for child in parent.winfo_children() if isinstance(child,ttk.Label)
             and str(child.cget('textvariable'))==str(unified.labels['Dutch']))
-        assert status_label.winfo_height()>=status_label.winfo_reqheight()
+        assert not status_label.master.winfo_manager()
         assert pane.winfo_width()==enlarged_size[0]
-        assert 400<=pane.winfo_height()<enlarged_size[1]
+        assert pane.winfo_height()==enlarged_size[1]
+        root.geometry('1920x1080');root.update()
+        assert pane.winfo_width()>=1036 and pane.winfo_height()>=793
+        supported_size=(pane.winfo_width(),pane.winfo_height())
+        unified.detail_tabs['Dutch'].select(1)
+        root.update()
+        assert status_label.master.winfo_manager()
+        status,recovery,help_text=(item[0] for item in unified.merchant_chrome['Dutch'])
+        controls=unified.merchant_chrome['Dutch'][0][1]['before']
+        tabs=unified.merchant_chrome['Dutch'][1][1]['before']
+        packed=unified.frames['Dutch'].pack_slaves()
+        assert [packed.index(widget) for widget in (status,controls,recovery,help_text,tabs)]==sorted(
+            packed.index(widget) for widget in (status,controls,recovery,help_text,tabs))
+        unified.detail_tabs['Dutch'].select(0)
         unified.labels['Dutch'].set('Connecting…')
         root.update()
-        assert (pane.winfo_width(),pane.winfo_height())==enlarged_size
+        assert (pane.winfo_width(),pane.winfo_height())==supported_size
         root.withdraw()
         assert unified.presentation.ready.wait(2)
         unified.poll()

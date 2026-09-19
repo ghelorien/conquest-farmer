@@ -2,6 +2,7 @@ import copy
 import json
 import struct
 from types import SimpleNamespace
+from unittest.mock import Mock
 import zlib
 
 import pytest
@@ -375,6 +376,51 @@ def test_tab_visibility_refresh_is_immediate_and_coalesced():
     assert len(pending)==1 and not updated
     pending[0]()
     assert updated==['Spiritual','Dutch'] and ui.visibility_job is None
+
+
+def test_client_tab_compacts_chrome_and_restores_it_for_detail_tabs():
+    from conquest.merchants.ui import (UnifiedUI,client_tab_character,
+        refresh_permission_menu,set_packed)
+
+    class Packed:
+        def __init__(self,mapped=True):self.mapped=mapped;self.calls=[]
+        def winfo_manager(self):return 'pack' if self.mapped else ''
+        def pack(self,**options):self.mapped=True;self.calls.append(('pack',options))
+        def pack_forget(self):self.mapped=False;self.calls.append(('forget',{}))
+
+    selected=['frame-Dutch'];detail={'Spiritual':['client-Spiritual'],'Dutch':['client-Dutch']}
+    notebook=SimpleNamespace(select=lambda:selected[0])
+    frames={'Spiritual':'frame-Spiritual','Dutch':'frame-Dutch'}
+    tabs={name:SimpleNamespace(select=lambda n=name:detail[n][0]) for name in detail}
+    clients={'Spiritual':'client-Spiritual','Dutch':'client-Dutch'}
+    assert client_tab_character(notebook,frames,tabs,clients)=='Dutch'
+    detail['Dutch'][0]='Inventory'
+    assert client_tab_character(notebook,frames,tabs,clients) is None
+    detail['Dutch'][0]='client-Dutch'
+
+    header=Packed();dutch=(Packed(),Packed(),Packed());spiritual=(Packed(),Packed(),Packed())
+    ui=SimpleNamespace(notebook=notebook,frames=frames,detail_tabs=tabs,client_tabs=clients,
+        header=header,merchant_chrome={'Dutch':tuple((widget,{'fill':'x'}) for widget in dutch),
+        'Spiritual':tuple((widget,{'fill':'x'}) for widget in spiritual)})
+    assert UnifiedUI.apply_client_compact_layout(ui)=='Dutch'
+    assert not header.mapped and not any(widget.mapped for widget in dutch)
+    assert all(widget.mapped for widget in spiritual)
+    detail['Dutch'][0]='Inventory'
+    assert UnifiedUI.apply_client_compact_layout(ui) is None
+    assert header.mapped and all(widget.mapped for widget in dutch)
+    before=len(header.calls);set_packed(header,True,fill='x')
+    assert len(header.calls)==before  # Repeated visibility updates do not churn geometry.
+
+    on_change=SimpleNamespace(client_tabs=clients,apply_client_compact_layout=Mock(),schedule_visibility=Mock())
+    UnifiedUI.on_tab_changed(on_change)
+    on_change.apply_client_compact_layout.assert_called_once_with()
+    on_change.schedule_visibility.assert_called_once_with()
+
+    menu=Mock();refresh_permission_menu(menu,(7,8),{'enabled':False,'refill':{'enabled':True}})
+    assert menu.entryconfigure.call_args_list[0].args==(7,)
+    assert menu.entryconfigure.call_args_list[0].kwargs=={'label':'Enable trading & repricing'}
+    assert menu.entryconfigure.call_args_list[1].args==(8,)
+    assert menu.entryconfigure.call_args_list[1].kwargs=={'label':'Pause automatic refill'}
 
 
 def test_resize_defers_during_delivery_without_pausing_permissions():

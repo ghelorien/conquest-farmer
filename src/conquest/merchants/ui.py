@@ -66,6 +66,31 @@ def wait_for_merchant_surface(host, others, check, *, clock=time.monotonic, slee
         sleep(.025)
 
 
+def client_tab_character(notebook, frames, detail_tabs, client_tabs):
+    """Return the merchant whose native Client pane currently owns the view."""
+    selected=notebook.select()
+    for character in CHARACTERS:
+        if (selected==str(frames[character]) and
+                str(detail_tabs[character].select())==str(client_tabs[character])):
+            return character
+    return None
+
+
+def set_packed(widget, visible, **options):
+    """Show or hide packed chrome without disturbing unrelated geometry."""
+    if visible:
+        if not widget.winfo_manager():widget.pack(**options)
+    elif widget.winfo_manager():
+        widget.pack_forget()
+
+
+def refresh_permission_menu(menu, entries, state):
+    """Refresh the saved permission entries without relying on menu offsets."""
+    manage,refill=entries
+    menu.entryconfigure(manage,label=('Pause' if state['enabled'] else 'Enable')+' trading & repricing')
+    menu.entryconfigure(refill,label=('Pause' if state['refill']['enabled'] else 'Enable')+' automatic refill')
+
+
 class UnifiedUI:
     def __init__(self, app):
         self.app,self.root = app,app.root
@@ -79,7 +104,7 @@ class UnifiedUI:
         self.grant_fence=GrantFence()
         self.input_revision_marker=(app.control.snapshot()['revision'],bool(app.mouse_priority.active()))
         self.ui_requests = queue.Queue()
-        self.hosts,self.client_panes,self.detail_tabs = {},{},{}
+        self.hosts,self.client_panes,self.client_tabs,self.detail_tabs = {},{},{},{}
         self.render_sizes,self.resize_jobs = {},{}
         self.visibility_job = None
         self.auto_embedding = False
@@ -92,6 +117,8 @@ class UnifiedUI:
         self.calibration_cancel = {}
         self.input_bookmarks = {}
         self.header_status = {}
+        self.merchant_chrome = {}
+        self.permission_menu_entries = {}
         self.background_probe = {}
         self.background_cancel = threading.Event()
         self.background_surfaces = {}
@@ -115,7 +142,7 @@ class UnifiedUI:
                                                      for label in self.header_labels])
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill='both',expand=True)
-        self.notebook.bind('<<NotebookTabChanged>>',lambda event:self.schedule_visibility())
+        self.notebook.bind('<<NotebookTabChanged>>',lambda event:self.on_tab_changed())
         self.root.bind('<Configure>',lambda event:self.schedule_visibility() if event.widget==self.root else None,add='+')
         self.frames=ProfileMap()
         for name in ('Overview','Farmer',*CHARACTERS):
@@ -729,9 +756,15 @@ class UnifiedUI:
         self.permission_menus[character]=menu
         menu.add_command(label='How shop controls work',command=self.shop_help)
         menu.add_command(label='Full status details',command=lambda:self.show_merchant_details(character))
+        menu.add_command(label='Recovery status',command=lambda:self.show_recovery_status(character))
+        menu.add_command(label='Recheck recovery',command=lambda:self.recheck_merchant_recovery(character))
+        menu.add_command(label='Override recovery & resume',command=lambda:self.override_merchant_recovery(character))
         menu.add_separator()
         menu.add_command(label='Toggle trading & repricing permission',command=lambda:self.toggle_manage(character))
+        manage_entry=menu.index('end')
         menu.add_command(label='Toggle automatic refill permission',command=lambda:self.toggle_refill(character))
+        refill_entry=menu.index('end')
+        self.permission_menu_entries[character]=(manage_entry,refill_entry)
         menu.add_separator()
         from conquest.portable_ui import copy_diagnostics
         menu.add_command(label='Copy attachment diagnostics',command=lambda:copy_diagnostics(self,character))
@@ -754,13 +787,15 @@ class UnifiedUI:
         ttk.Label(recovery,textvariable=recovery_text,width=55).pack(side='left',fill='x',expand=True)
         ttk.Button(recovery,text='Recheck',command=lambda c=character:self.recheck_merchant_recovery(c)).pack(side='left',padx=(6,0))
         ttk.Button(recovery,text='Override & resume',command=lambda c=character:self.override_merchant_recovery(c)).pack(side='left',padx=(6,0))
-        ttk.Label(frame,text='Pause merchant stops both activities without closing the game. Settings keeps separate permissions.',
-                  wraplength=950).pack(anchor='w',padx=12,pady=(3,0))
+        help_text=ttk.Label(frame,text='Pause merchant stops both activities without closing the game. Settings keeps separate permissions.',
+                  wraplength=950)
+        help_text.pack(anchor='w',padx=12,pady=(3,0))
         tabs = ttk.Notebook(frame);tabs.pack(fill='both',expand=True,padx=12,pady=12)
         self.detail_tabs[character] = tabs
-        tabs.bind('<<NotebookTabChanged>>',lambda event:self.schedule_visibility())
+        tabs.bind('<<NotebookTabChanged>>',lambda event:self.on_tab_changed())
         client = ttk.Frame(tabs)
         tabs.add(client,text='Client')
+        self.client_tabs[character] = client
         pane = ttk.Frame(client,width=1,height=1)
         # Expand with the viewport; a fixed requested size clipped in-game windows.
         pane.pack(fill='both',expand=True)
@@ -791,6 +826,10 @@ class UnifiedUI:
                 tree.heading(col,text=col);tree.column(col,width=130 if col!='Details' and col!='Reason' else 440)
             tables[label] = tree
         self.tables[character] = tables
+        self.merchant_chrome[character] = (
+            (status,{'fill':'x','padx':12,'pady':(8,4),'before':controls}),
+            (recovery,{'fill':'x','padx':12,'pady':(3,0),'before':tabs}),
+            (help_text,{'anchor':'w','padx':12,'pady':(3,0),'before':tabs}))
 
     # ------------------------------------------------------------------
     # Merchant recovery holds
@@ -1099,6 +1138,10 @@ class UnifiedUI:
             'Each item has a reason in the Waiting items tab. Unknown prices are never guessed.\n\n'
             'Stop all (including farmer)\nStops farming, merchant actions and auto-refill.',parent=self.root)
 
+    def show_recovery_status(self, character):
+        text=self.recovery_texts.get(character)
+        messagebox.showinfo(character+' recovery',text.get() if text else 'Recovery status is unavailable.',parent=self.root)
+
     def toggle_merchant(self, character):
         from conquest.merchants.simple_controls import toggle
         toggle(self,character)
@@ -1134,6 +1177,28 @@ class UnifiedUI:
             self.root.after_cancel(old)
         self.resize_jobs[character] = self.root.after(150,lambda:self.finish_resize(character))
 
+    def on_tab_changed(self):
+        # Apply the compact geometry synchronously: an embed can validate its
+        # pane before Tk gets a later idle visibility refresh.
+        if len(self.client_tabs)==len(CHARACTERS):self.apply_client_compact_layout()
+        self.schedule_visibility()
+
+    def apply_client_compact_layout(self):
+        """Give the selected native Client pane the vertical space it needs.
+
+        The Client tab retains its pause/stop/settings controls and all detail
+        tabs.  Status and recovery text remain reachable from Settings &
+        details, and reappear immediately outside Client.
+        """
+        # Tab events may be delivered while the notebook is still being built.
+        if len(self.client_tabs)!=len(CHARACTERS):return None
+        character=client_tab_character(self.notebook,self.frames,self.detail_tabs,self.client_tabs)
+        set_packed(self.header,character is None,fill='x',before=self.notebook)
+        for name,widgets in self.merchant_chrome.items():
+            for widget,options in widgets:
+                set_packed(widget,name!=character,**options)
+        return character
+
     def schedule_visibility(self):
         if not self.closed and self.visibility_job is None:
             self.visibility_job = self.root.after_idle(self.refresh_visibility)
@@ -1141,6 +1206,8 @@ class UnifiedUI:
     def refresh_visibility(self):
         self.visibility_job = None
         if not self.closed:
+            layout=getattr(self,'apply_client_compact_layout',None)
+            if layout:layout()
             for character in tuple(self.hosts):
                 self.finish_resize(character)
             self.auto_show_selected()
@@ -1256,6 +1323,7 @@ class UnifiedUI:
             host.detach()
         self.notebook.select(self.frames[character])
         self.detail_tabs[character].select(0)
+        self.apply_client_compact_layout()
         self.root.update_idletasks()
         pane = self.client_panes[character]
         from conquest.character_context import registry
@@ -1300,6 +1368,7 @@ class UnifiedUI:
         self.input_bookmarks[character] = bookmark
         self.notebook.select(self.frames[character])
         self.detail_tabs[character].select(0)
+        self.apply_client_compact_layout()
         self.root.update_idletasks()
         # Switching Tk tabs does not synchronously hide the owned top-level
         # game. Explicitly hide siblings before showing the next input owner.
@@ -1573,10 +1642,9 @@ class UnifiedUI:
                     state='disabled' if active_batch and state['enabled'] else 'normal')
                 self.merchant_buttons[character].configure(text='Pause merchant' if
                     state['enabled'] or state['refill']['enabled'] else 'Resume merchant')
-                if character in getattr(self,'permission_menus',{}):
-                    menu=self.permission_menus[character]
-                    menu.entryconfigure(3,label=('Pause' if state['enabled'] else 'Enable')+' trading & repricing')
-                    menu.entryconfigure(4,label=('Pause' if state['refill']['enabled'] else 'Enable')+' automatic refill')
+                entries=getattr(self,'permission_menu_entries',{}).get(character)
+                if entries and character in getattr(self,'permission_menus',{}):
+                    refresh_permission_menu(self.permission_menus[character],entries,state)
                 from conquest.merchants.simple_controls import summary
                 note=summary(state,now=time.time(),global_stopped=self.coordinator.stopped)
                 recovery_reader=getattr(self,'_merchant_recovery_incidents',None)
