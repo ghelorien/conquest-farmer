@@ -6,6 +6,8 @@ import pytest
 from conquest.character_profiles import ProfileRegistry, context_for, write_json
 from conquest.character_context import (state_path, farmer_name, resolve_merchant, credential_for,
     OwnedMerchants, trusted_delivery, ProfileMap, ProfileName, is_farmer_owner)
+from conquest.profile_editor import (OPEN_SELECTED_CHARACTER, profile_choice_rows,
+    selected_profile_id)
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +31,22 @@ def test_character_and_account_state_are_independent(tmp_path,monkeypatch):
     assert old!=state_path('.runtime/native-controls.json') and farmer_name()=='FreshArcher'
     assert Path(state_path('.runtime/account.dpapi'))==cb.credentials
     assert Path(state_path('.runtime/merchant-input.lock'))==tmp_path/'locks/input.lock'
+
+
+def test_profile_chooser_keeps_character_rows_visible_and_preselects_an_openable_choice(tmp_path):
+    registry=ProfileRegistry(tmp_path)
+    parasite=registry.add('Parasite',role='Farmer')
+    merchant=registry.add('Spiritual',role='Merchant')
+
+    rows=profile_choice_rows(registry)
+
+    assert rows==[(parasite.id,('Parasite','America','Farmer')),
+                  (merchant.id,('Spiritual','America','Merchant'))]
+    assert selected_profile_id(rows)==parasite.id
+    assert selected_profile_id(rows,preferred=merchant.id)==merchant.id
+    assert selected_profile_id(rows,preferred='missing',previous=merchant.id)==merchant.id
+    assert selected_profile_id([]) is None
+    assert OPEN_SELECTED_CHARACTER=='Open selected character'
 
 
 def test_labels_do_not_key_records_or_credentials(tmp_path,monkeypatch):

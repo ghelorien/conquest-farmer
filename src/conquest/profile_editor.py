@@ -6,38 +6,62 @@ from pathlib import Path
 from conquest.character_profiles import SETTING_TYPES, write_json, context_for
 
 
+OPEN_SELECTED_CHARACTER = 'Open selected character'
+
+
+def profile_choice_rows(registry):
+    """Return the concise rows used by the first, always-visible chooser."""
+    return [(profile.id, (profile.label or profile.name, profile.server, profile.role))
+            for profile in registry.profiles()]
+
+
+def selected_profile_id(rows,preferred=None,previous=None):
+    """Keep the chooser actionable: prefer an explicit choice, then a prior one."""
+    ids={profile_id for profile_id,_ in rows}
+    return preferred if preferred in ids else previous if previous in ids else (rows[0][0] if rows else None)
+
+
 def manage_profiles(registry,selected=None):
     from conquest.window_host import use_unaware_dpi
     use_unaware_dpi()  # Must precede the very first Tk HWND in this process.
     root=tk.Tk();root.title('Conquest — characters on this PC');root.geometry('900x670');root.minsize(640,480)
     from conquest.sidebar import ScrollableSidebar
     scroll=ScrollableSidebar(root);scroll.pack(fill='both',expand=True);frame=scroll.content
-    ttk.Label(frame,text='Characters on this PC',font=('Segoe UI',18,'bold')).pack(anchor='w')
-    ttk.Label(frame,text='Each character has its own role, credentials, routes and records. New characters start paused.\n'
-        'Select a farmer to run here. Other PCs run their own selected farmer. Merchants share this desktop input coordinator.',wraplength=780).pack(fill='x',pady=8)
-    tree=ttk.Treeview(frame,columns=('name','server','role'),show='headings',height=6)
+    ttk.Label(frame,text='Choose a character to open',font=('Segoe UI',18,'bold')).pack(anchor='w')
+    chooser_note=tk.StringVar(value='Select a character below, then open it.')
+    ttk.Label(frame,textvariable=chooser_note,wraplength=780).pack(fill='x',pady=(2,8))
+    tree=ttk.Treeview(frame,columns=('name','server','role'),show='headings',height=7)
     for key in ('name','server','role'):tree.heading(key,text=key.title());tree.column(key,width=170)
     tree.pack(fill='x')
     result=[None]
+    quick_actions=ttk.Frame(frame);quick_actions.pack(fill='x',pady=(8,4))
+    open_button=ttk.Button(quick_actions,text=OPEN_SELECTED_CHARACTER)
+    open_button.pack(fill='x')
+    quick_secondary=ttk.Frame(quick_actions);quick_secondary.pack(fill='x',pady=(4,0))
+    ttk.Button(quick_secondary,text='Add character',command=lambda:guarded(add)).pack(side='left',expand=True,fill='x',padx=(0,2))
+    ttk.Button(quick_secondary,text='Import settings',command=lambda:guarded(import_settings)).pack(side='left',expand=True,fill='x',padx=2)
+    advanced_button=ttk.Button(quick_secondary,text='Show character settings',command=lambda:toggle_advanced())
+    advanced_button.pack(side='left',expand=True,fill='x',padx=(2,0))
+
+    advanced=ttk.LabelFrame(frame,text='Character settings and advanced options',padding=8)
     label=tk.StringVar();role=tk.StringVar(value='Farmer');enabled=tk.BooleanVar(value=True)
-    line=ttk.Frame(frame);line.pack(fill='x',pady=6)
+    ttk.Label(advanced,text='Select a character above to edit its settings.').pack(anchor='w',pady=(0,6))
+    line=ttk.Frame(advanced);line.pack(fill='x',pady=6)
     ttk.Label(line,text='Tab label').pack(side='left');ttk.Entry(line,textvariable=label,width=28).pack(side='left',padx=8)
     ttk.Combobox(line,textvariable=role,values=('Farmer','Merchant'),state='readonly',width=12).pack(side='left')
     ttk.Checkbutton(line,text='Enabled on this PC',variable=enabled).pack(side='left',padx=8)
-    ttk.Label(frame,text='Overrides (JSON). {} uses the existing engine’s automatic defaults. Allowed settings:\n'+', '.join(SETTING_TYPES),wraplength=800).pack(fill='x')
-    settings=tk.Text(frame,height=5,wrap='word');settings.pack(fill='x',pady=4)
-    ttk.Label(frame,text='Trusted deliveries (JSON list). Each entry requires name, server and verified character_uid.\n'
-        'These authorize automated delivery sources. Manual visitors are separate below and never enter this list. '
-        'Example structure: [{"name":"Name","server":"America","character_uid":123}]',wraplength=800).pack(fill='x')
-    trust=tk.Text(frame,height=3,wrap='word');trust.pack(fill='x',pady=4)
-    ttk.Label(frame,text='Allowed manual visitors — exact profile-local permissions only. Revocation sends no game input and does not alter trusted delivery sources.',wraplength=800).pack(fill='x',pady=(6,2))
-    visitors=ttk.Treeview(frame,columns=('name','server','uid'),show='headings',height=3,selectmode='extended')
+    ttk.Label(advanced,text='Overrides (JSON) — {} keeps automatic defaults. Allowed: '+', '.join(SETTING_TYPES),wraplength=800).pack(fill='x')
+    settings=tk.Text(advanced,height=5,wrap='word');settings.pack(fill='x',pady=4)
+    ttk.Label(advanced,text='Trusted delivery sources (JSON): name, server, verified character_uid.',wraplength=800).pack(fill='x')
+    trust=tk.Text(advanced,height=3,wrap='word');trust.pack(fill='x',pady=4)
+    ttk.Label(advanced,text='Allowed manual visitors (exact profile-local permissions)',wraplength=800).pack(fill='x',pady=(6,2))
+    visitors=ttk.Treeview(advanced,columns=('name','server','uid'),show='headings',height=3,selectmode='extended')
     for key,title,width in (('name','Visitor',240),('server','Server',160),('uid','Verified UID',160)):
         visitors.heading(key,text=title);visitors.column(key,width=width)
     visitors.pack(fill='x')
     visitor_rows={}
     note=tk.StringVar(value='No client state or credentials are exported.')
-    ttk.Label(frame,textvariable=note,wraplength=800).pack(fill='x',pady=8)
+    ttk.Label(advanced,textvariable=note,wraplength=800).pack(fill='x',pady=8)
 
     def chosen():
         if not tree.selection():raise ValueError('Select a character')
@@ -45,6 +69,7 @@ def manage_profiles(registry,selected=None):
     def load(event=None):
         if not tree.selection():return
         p=chosen();label.set(p.label);role.set(p.role);enabled.set(p.local_enabled)
+        chooser_note.set(f'Selected: {p.label or p.name}. Choose “{OPEN_SELECTED_CHARACTER}” when ready.')
         settings.delete('1.0','end');settings.insert('1.0',json.dumps(registry.effective(p),indent=2))
         trust.delete('1.0','end');trust.insert('1.0',json.dumps(p.trusted_sources,indent=2))
         visitors.delete(*visitors.get_children());visitor_rows.clear()
@@ -61,9 +86,14 @@ def manage_profiles(registry,selected=None):
                 + (f" (+{len(blockers)-1} more)" if len(blockers)>1 else ''))
         note.set(details)
     def refresh(profile_id=None):
+        prior=tree.selection()
         for item in tree.get_children():tree.delete(item)
-        for p in registry.profiles():tree.insert('','end',iid=p.id,values=(p.label or p.name,p.server,p.role))
-        if profile_id and tree.exists(profile_id):tree.selection_set(profile_id);load()
+        rows=profile_choice_rows(registry)
+        for profile_id_value,values in rows:tree.insert('','end',iid=profile_id_value,values=values)
+        target=selected_profile_id(rows,profile_id,prior[0] if prior else None)
+        if target:
+            tree.selection_set(target);tree.focus(target);load()
+        else:chooser_note.set('No characters are saved on this PC. Add or import a character to continue.')
     def guarded(action):
         try:action()
         except (ValueError,KeyError,OSError,TypeError) as error:messagebox.showerror('Character settings',str(error),parent=root)
@@ -129,15 +159,26 @@ def manage_profiles(registry,selected=None):
             save_notification_webhook(context_for(p.id,registry.root),value)
             note.set('Notification destination saved encrypted on this PC.')
     tree.bind('<<TreeviewSelect>>',load)
-    row=ttk.Frame(frame);row.pack(fill='x')
-    for index,(text,action) in enumerate([('Add character',add),('Save changes',save),('Revoke selected manual visitor',revoke_visitors),('Export settings',export),('Import settings',import_settings),('Game installation',installation),('Save as template',save_template),('Account login',login),('Discord destination',notification)]):
+    tree.bind('<Double-1>',lambda event:guarded(start))
+    open_button.configure(command=lambda:guarded(start))
+    row=ttk.Frame(advanced);row.pack(fill='x')
+    for index,(text,action) in enumerate([('Save changes',save),('Revoke selected manual visitor',revoke_visitors),('Export settings',export),('Game installation',installation),('Save as template',save_template),('Account login',login),('Discord destination',notification)]):
         ttk.Button(row,text=text,command=lambda f=action:guarded(f)).grid(row=index//3,column=index%3,sticky='ew',padx=2,pady=2)
         row.columnconfigure(index%3,weight=1)
+
+    def toggle_advanced():
+        if advanced.winfo_manager():
+            advanced.pack_forget();advanced_button.configure(text='Show character settings')
+        else:
+            advanced.pack(fill='x',pady=(6,0));advanced_button.configure(text='Hide character settings')
+
     def wrap(event):
         width=max(240,event.width-24)
-        for widget in frame.winfo_children():
-            if isinstance(widget,ttk.Label) and int(widget.cget('wraplength') or 0)!=width:widget.configure(wraplength=width)
+        def configure_labels(parent):
+            for widget in parent.winfo_children():
+                if isinstance(widget,ttk.Label) and int(widget.cget('wraplength') or 0)!=width:widget.configure(wraplength=width)
+                configure_labels(widget)
+        configure_labels(frame)
     frame.bind('<Configure>',wrap,add='+')
-    ttk.Button(frame,text='Open Conquest with selected profile',command=lambda:guarded(start)).pack(fill='x',pady=12)
     refresh(selected);scroll.bind_children();root.mainloop()
     return result[0]
