@@ -179,9 +179,19 @@ class UnifiedUI:
         self.connect_threads={}
         from conquest.merchants.presentation import MerchantPresentation
         self.presentation = MerchantPresentation(self.runtime)
-        self.coordinator.owner_allowed = lambda character:is_farmer_owner(character) or self.runtime.input_allowed(character) or (
-            not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
-            and character in self.calibrating and not self.calibration_cancel[character].is_set())
+        def owner_allowed(character):
+            if is_farmer_owner(character):
+                return True
+            # A disabled merchant may perform only the single receipt-bound
+            # delivery accept probe.  It must not fall through the historical
+            # broad calibration exception when a delivery/refill fence exists.
+            if self.coordinator.purpose=='delivery_accept_probe':
+                from conquest.merchants.delivery_accept_probe import lease_authorized
+                return lease_authorized(self,character)
+            return self.runtime.input_allowed(character) or (
+                not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
+                and character in self.calibrating and not self.calibration_cancel[character].is_set())
+        self.coordinator.owner_allowed = owner_allowed
         self.coordinator.on_acquire = self.prepare_input
         self.coordinator.on_release = self.release_input
         self.coordinator.fence=self.grant_fence

@@ -34,7 +34,8 @@ def supervised(rig, monkeypatch, tmp_path):
     x.save = lambda: probe.write_probe(x.path, x.probe)
     x.save()
     x.farmer_read = lambda: {**deepcopy(x.farmer), 'timestamp': x.now}
-    x.source = NS(character='Parasite', lock=threading.RLock(), adapter=NS(assert_identity=lambda: None))
+    x.source = NS(character='Parasite', lock=threading.RLock(),
+                  adapter=NS(identity=deepcopy(x.farmer['identity']),assert_identity=lambda: None))
     x.runtime.manual_farmer_provider = lambda: x.source
     class Memory:
         def __init__(self, observer):assert observer is x.source
@@ -57,6 +58,81 @@ def test_exact_probe_precedes_admission_without_granting_delivery_trust(supervis
     assert x.calls == [] and x.runtime.manual_sessions.permissions() == []
     assert x.journal.get('Dutch', 'enabled') is True
     assert x.path.read_text() and x.probe['phase'] == 'request_verified'
+
+
+@pytest.mark.parametrize('failure', ['peer_lock', 'peer_read'])
+def test_unresolved_exact_probe_structurally_suppresses_manual_admission_on_transient_peer_failure(
+        supervised, monkeypatch, failure):
+    """A failed peer read is not permission to mint a competing manual hold."""
+    x=supervised
+    # The request may remain unresolved after a recoverable delivery error;
+    # durable verified snapshots are intentionally old, while local memory is
+    # fresh at this repeated polling boundary.
+    x.now=10_000
+    x.probe.update(error='Character was paused during input', finished_at=x.now)
+    x.save()
+    assert x.runtime._structural_request_probe_owned('Dutch',x.read(),probe.read_probe(),now=x.now)
+    if failure=='peer_lock':
+        x.source.lock=NS(acquire=lambda **_kwargs:False,release=lambda:None)
+    else:
+        class FailingMemory:
+            def __init__(self,_observer):pass
+            def read(self,**_kwargs):raise OSError('observer temporarily busy')
+        monkeypatch.setattr('conquest.merchants.memory.MerchantMemory',FailingMemory)
+    for _ in range(3):
+        assert x.runtime.process_manual('Dutch',x.read(),decline_enabled=True,now=x.now)
+    assert x.runtime.manual_status('Dutch') is None
+    assert x.calls==[] and not x.runtime.manual_sessions.permissions()
+
+
+def test_transient_probe_precedence_never_suppresses_different_visitor(supervised):
+    x=supervised
+    x.source.lock=NS(acquire=lambda **_kwargs:False,release=lambda:None)
+    x.state['request'].update(participant='Visitor',participant_uid=777,
+                              message='Visitor wishes to trade with you.')
+    assert x.runtime.process_manual('Dutch',x.read(),now=x.now)
+    assert x.runtime.manual_status('Dutch')['phase']=='approval_pending'
+    assert x.calls==[]
+
+
+def test_structural_probe_precedence_allows_unselected_farmer_inventory(supervised):
+    x=supervised
+    extra={**deepcopy(x.farmer['inventory'][0]),'uid':100}
+    for where in (x.farmer['inventory'],x.probe['intent']['farmer']['inventory'],x.probe['farmer_after']['inventory']):
+        where.append(deepcopy(extra))
+    x.save();x.source.lock=NS(acquire=lambda **_kwargs:False,release=lambda:None)
+    assert x.runtime.process_manual('Dutch',x.read(),now=x.now)
+    assert x.runtime.manual_status('Dutch') is None and x.calls==[]
+
+
+def test_structural_probe_precedence_rejects_rebound_farmer_before_peer_read(supervised):
+    x=supervised
+    x.source.adapter.identity={**x.source.adapter.identity,'pid':999}
+    x.source.lock=NS(acquire=lambda **_kwargs:False,release=lambda:None)
+    assert x.runtime.process_manual('Dutch',x.read(),now=x.now)
+    assert x.runtime.manual_status('Dutch')['phase']=='approval_pending'
+
+
+@pytest.mark.parametrize('fault',['stale_intent','future_accepted'])
+def test_structural_probe_precedence_rejects_malformed_durable_chronology(supervised,fault):
+    x=supervised;x.source.lock=NS(acquire=lambda **_kwargs:False,release=lambda:None)
+    if fault=='stale_intent':x.probe['intent']['farmer']['timestamp']=90
+    else:x.probe['accepted_at']=101
+    x.save()
+    assert x.runtime.process_manual('Dutch',x.read(),now=x.now)
+    assert x.runtime.manual_status('Dutch')['phase']=='approval_pending'
+
+
+@pytest.mark.parametrize('change',['silver','slot'])
+def test_request_submitted_structural_precedence_requires_exact_live_merchant_ownership(supervised,change):
+    x=supervised
+    x.probe['phase']='request_submitted'
+    x.probe.pop('farmer_after');x.probe.pop('merchant_after');x.save()
+    x.source.lock=NS(acquire=lambda **_kwargs:False,release=lambda:None)
+    if change=='silver':x.state['silver']+=1
+    else:x.state['inventory'][0]['slot']=5
+    assert x.runtime.process_manual('Dutch',x.read(),now=x.now)
+    assert x.runtime.manual_status('Dutch')['phase']=='approval_pending'
 
 
 @pytest.mark.parametrize('phase', ['request_submitted', 'request_verified', 'accept_submitted', 'cancel_submitted'])
@@ -173,6 +249,18 @@ def test_exact_false_manual_admission_is_retracted_durably_without_input(supervi
     message = status_text('Dutch', final)
     assert 'Game Request Still Visible' in message and 'Request Withdrawn' not in message
     assert 'Input fence: released' in message
+
+
+def test_full_preaccept_reconciliation_retracts_false_pending_after_recoverable_error(supervised):
+    x=supervised;store=x.runtime.manual_sessions
+    row=store.begin_request('Dutch',x.read(),now=x.now)
+    x.probe.update(error='Character was paused during input',finished_at=x.now)
+    x.save();x.now+=1
+    assert x.runtime.process_probe_owned('Dutch',x.read(),now=x.now,require_bilateral=True)
+    final=store.get(row['id'])
+    assert final['phase']=='request_withdrawn' and not final['holds_automation']
+    assert final['terminal']['disposition']=='manual_admission_retracted_bot_owned'
+    assert final['terminal']['gameplay_input'] is False and not store.permissions() and x.calls==[]
 
 
 @pytest.mark.parametrize('protected', [

@@ -10,6 +10,60 @@ from conquest.merchants.memory import string
 from conquest.character_context import farmer_name
 
 
+def lease_authorized(ui, character):
+    """Narrow input permission for the one staged native accept operation.
+
+    This deliberately does not reuse ``enabled`` or the broad calibration
+    exception: accepting a durable incoming request is safe only for its
+    current worker and exact receipt-bound merchant.  The coordinator keeps
+    Stop, manual-session and farmer-handoff fences authoritative.
+    """
+    try:
+        coordinator=ui.coordinator;runtime=ui.runtime
+        worker=getattr(ui,'delivery_probe_thread',None)
+        if (coordinator.purpose!='delivery_accept_probe' or worker is None
+                or worker.ident!=threading.get_ident() or not worker.is_alive()
+                or character not in ui.calibrating
+                or ui.calibration_cancel[character].is_set()
+                or getattr(runtime,'delivery_window',None)
+                or getattr(runtime,'refill_window',None)
+                or character in getattr(runtime,'refilling',{})):
+            return False
+        from conquest.merchants.delivery_probe import read_probe
+        state=read_probe()
+        if (not isinstance(state,dict) or state.get('phase') not in ('request_verified','accept_submitted')
+                or state.get('character')!=str(character)
+                or not isinstance(state.get('target_profile_id'),str)):
+            return False
+        intent=state.get('intent');merchant=intent.get('merchant') if isinstance(intent,dict) else None
+        if (not isinstance(merchant,dict) or merchant.get('character')!=str(character)
+                or merchant.get('server')!='America' or not isinstance(merchant.get('identity'),dict)):
+            return False
+        from conquest.character_context import registry, ProfileName
+        profiles=registry();profile_id=state['target_profile_id']
+        if profiles:
+            resolved=profiles.resolve(profile_id,role='Merchant',server='America')
+            if (resolved.id!=profile_id or not resolved.local_enabled
+                    or resolved.name!=str(character) or resolved.server!=merchant['server']):
+                return False
+            profile=ProfileName(resolved.name,resolved.id)
+        elif profile_id!=str(character):
+            return False
+        else:profile=character
+        if coordinator.manual_session_blocked(profile,purpose='delivery_accept_probe'):
+            return False
+        observer=runtime.observers.get(profile)
+        if (observer is None or observer.adapter.identity!=merchant['identity']
+                or type(getattr(observer.operations.target,'hwnd',None)) is not int
+                or observer.operations.target.hwnd<=0):
+            return False
+        observer.adapter.assert_identity()
+        from conquest.merchants.delivery_reservation import active
+        return not active(runtime.journal,profile) and not runtime.journal.pending(profile)
+    except (ValueError, OSError, KeyError, TypeError, AttributeError):
+        return False
+
+
 def control(driver,snapshot):
     s=driver.observer.adapter;g=driver.memory.gui
     model=g.model(15,0x5c4f30)
@@ -22,8 +76,10 @@ def control(driver,snapshot):
     for rva,code in ((0x95fd6,'e835dcfaff'),(0x95fdf,'b201488bcbe857070000')):
         if s.read_block(g.base+rva,len(bytes.fromhex(code)))!=bytes.fromhex(code):
             raise ValueError('Native accept handler changed')
-    windows=[w for w in snapshot['windows'] if w['name']=='Trade###Confirm']
-    if len(windows)!=1:raise ValueError('Trade confirmation window is absent or ambiguous')
+    confirmations=[w for w in snapshot['windows'] if str(w.get('name','')).endswith('###Confirm')]
+    if len(confirmations)!=1 or confirmations[0].get('name')!='Trade###Confirm':
+        raise ValueError('Trade confirmation window is absent or ambiguous')
+    windows=confirmations
     w=windows[0];raw=s.read_block(w['address'],0x250)
     x,y,width,height=w['geometry'];end_x,button_y=struct.unpack_from('<2f',raw,0xe8)
     line=struct.unpack_from('<f',raw,0x114)[0]
@@ -38,6 +94,20 @@ def run(ui,state):
     from conquest.merchants.driver import wait_hover_validation
     from conquest.merchants.farmer_preferences import permits_new_delivery
     character=state['character'];intent=state['intent'];revision=ui.app.control.snapshot()['revision']
+    # The journal serializes names but all managed runtime maps are profile-ID
+    # keyed.  Bind the ID once for this worker; do not resolve by label later.
+    from conquest.character_context import registry, ProfileName
+    profiles=registry();profile_id=state.get('target_profile_id')
+    if profiles:
+        try:resolved=profiles.resolve(profile_id,role='Merchant',server='America')
+        except ValueError as error:raise ValueError('Delivery acceptance merchant profile is unavailable') from error
+        if (resolved.id!=profile_id or resolved.name!=character
+                or intent.get('merchant',{}).get('character')!=character
+                or resolved.server!=intent.get('merchant',{}).get('server')):
+            raise ValueError('Delivery acceptance merchant profile changed')
+        character=ProfileName(resolved.name,resolved.id)
+    elif profile_id not in (None,str(character)):
+        raise ValueError('Delivery acceptance merchant profile changed')
     deadline=time.monotonic()+15
     driver=ui.runtime.controllers[character].driver
     def check():
@@ -61,6 +131,15 @@ def run(ui,state):
     if character in ui.calibrating:raise ValueError('Merchant has another calibration active')
     ui.calibrating.add(character);ui.calibration_cancel[character]=threading.Event()
     try:
+        # A transient observer contention must not have converted this exact
+        # supervised request into a manual hold.  Full bilateral proof is
+        # required here: it retracts only a false unapproved admission and
+        # leaves genuine/claimed holds intact for the coordinator to deny.
+        _farmer,merchant=pair(ui,character)
+        if not ui.runtime.process_probe_owned(character,merchant,require_bilateral=True):
+            raise CaptureUnavailable('Delivery acceptance needs fresh bilateral probe reconciliation')
+        if ui.coordinator.manual_session_blocked(profile_id or character,purpose='delivery_accept_probe'):
+            raise CaptureUnavailable('Manual visitor session holds automation input')
         # This purpose asks the UI handoff to select and re-embed this exact
         # merchant before the first live control read.  The subsequent
         # ``control`` checks remain the only authority for sending a click.

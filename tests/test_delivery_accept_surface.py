@@ -1,10 +1,11 @@
 import struct
+import threading
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
 import pytest
 
-from conquest.merchants.delivery_accept_probe import control
+from conquest.merchants.delivery_accept_probe import control, lease_authorized
 from conquest.merchants.ui import UnifiedUI, callback_failure
 
 
@@ -31,6 +32,28 @@ def test_accept_control_rejects_open_booth_confirmation(monkeypatch):
         control(driver,snapshot)
 
 
+def test_accept_control_rejects_trade_when_open_booth_confirmation_also_exists(monkeypatch):
+    """Two native confirmation windows are ambiguous, even if Trade is present."""
+    base,model,window=0x140000000,0x100000,0x200000
+    handlers={base+0x95fd6:bytes.fromhex('e835dcfaff'),
+              base+0x95fdf:bytes.fromhex('b201488bcbe857070000')}
+    raw=bytearray(0x250)
+    struct.pack_into('<2f',raw,0xe8,1036,373);struct.pack_into('<f',raw,0x114,18)
+    def read(address,size):
+        if address==model+12:return b'\x01'
+        if address==window:return bytes(raw[:size])
+        return handlers[address][:size]
+    labels=['Trade###Confirm','Parasite wishes to trade with you.','Accept','Cancel']
+    monkeypatch.setattr('conquest.merchants.delivery_accept_probe.string',
+        lambda _session,address:labels[(address-model-0x48)//0x20])
+    driver=NS(observer=NS(adapter=NS(read_block=read)),
+              memory=NS(gui=NS(base=base,model=lambda *_args:model)))
+    snapshot={'windows':[{'name':'Trade###Confirm','address':window,'geometry':[844,282,200,100]},
+                         {'name':'Open Booth###Confirm','address':window+0x400,'geometry':[1,1,200,100]}]}
+    with pytest.raises(ValueError,match='ambiguous'):
+        control(driver,snapshot)
+
+
 def request_verified(tmp_path,monkeypatch,identity,character='Spiritual',*,target_profile_id=None,server='America'):
     from conquest.merchants import delivery_probe
     path=tmp_path/'probe.json'
@@ -38,6 +61,64 @@ def request_verified(tmp_path,monkeypatch,identity,character='Spiritual',*,targe
     delivery_probe.write_probe(path,{'phase':'request_verified','character':character,
         'target_profile_id':target_profile_id or character,
         'intent':{'merchant':{'character':character,'server':server,'identity':identity}}})
+
+
+def accept_lease_ui(tmp_path,monkeypatch,identity):
+    request_verified(tmp_path,monkeypatch,identity)
+    monkeypatch.setattr('conquest.character_context.registry',lambda:None)
+    observer=NS(adapter=NS(identity=identity,assert_identity=Mock()),operations=NS(target=NS(hwnd=77)))
+    runtime=NS(observers={'Spiritual':observer},delivery_window=None,refill_window=None,
+               refilling={},journal=NS(pending=lambda _character:False))
+    ui=NS(coordinator=NS(purpose='delivery_accept_probe',manual_session_blocked=lambda *_args,**_kwargs:False),runtime=runtime,
+          delivery_probe_thread=NS(ident=threading.get_ident(),is_alive=lambda:True),
+          calibrating={'Spiritual'},calibration_cancel={'Spiritual':threading.Event()})
+    monkeypatch.setattr('conquest.merchants.delivery_reservation.active',lambda *_args:None)
+    return ui,observer
+
+
+def test_disabled_exact_accept_probe_has_its_own_narrow_lease_permission(tmp_path,monkeypatch):
+    identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
+    ui,observer=accept_lease_ui(tmp_path,monkeypatch,identity)
+    assert lease_authorized(ui,'Spiritual')
+    observer.adapter.assert_identity.assert_called_once_with()
+
+
+@pytest.mark.parametrize('blocker',[
+    'window','refill_window','refilling','reservation','pending','cancelled','wrong_worker','wrong_purpose','wrong_identity',
+])
+def test_accept_probe_lease_rejects_competing_or_changed_work(tmp_path,monkeypatch,blocker):
+    identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
+    ui,observer=accept_lease_ui(tmp_path,monkeypatch,identity)
+    if blocker=='window':ui.runtime.delivery_window='ordinary-delivery'
+    elif blocker=='refill_window':ui.runtime.refill_window='refill'
+    elif blocker=='refilling':ui.runtime.refilling={'Spiritual':0}
+    elif blocker=='reservation':monkeypatch.setattr('conquest.merchants.delivery_reservation.active',lambda *_args:{'phase':'reserved'})
+    elif blocker=='pending':ui.runtime.journal.pending=lambda _character:True
+    elif blocker=='cancelled':ui.calibration_cancel['Spiritual'].set()
+    elif blocker=='wrong_worker':ui.delivery_probe_thread.ident=threading.get_ident()+1
+    elif blocker=='wrong_purpose':ui.coordinator.purpose='trade'
+    elif blocker=='wrong_identity':observer.adapter.identity={**identity,'pid':8}
+    assert not lease_authorized(ui,'Spiritual')
+
+
+@pytest.mark.parametrize('hold_phase',['manual_active','approval_pending'])
+def test_accept_probe_lease_checks_uuid_scoped_manual_hold_before_disabled_probe(tmp_path,monkeypatch,hold_phase):
+    from conquest.character_profiles import ProfileRegistry
+    from conquest.character_context import ProfileMap,ProfileName
+    identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
+    registry=ProfileRegistry(tmp_path/'profiles');profile=registry.add('Spiritual',role='Merchant')
+    monkeypatch.setenv('CONQUEST_DATA_ROOT',str(registry.root))
+    request_verified(tmp_path,monkeypatch,identity,target_profile_id=profile.id)
+    key=ProfileName(profile.name,profile.id);seen=[]
+    observers=ProfileMap();observers[key]=NS(adapter=NS(identity=identity,assert_identity=Mock()),
+                                             operations=NS(target=NS(hwnd=77)))
+    runtime=NS(observers=observers,delivery_window=None,refill_window=None,refilling={},
+               journal=NS(pending=lambda _character:False))
+    ui=NS(coordinator=NS(purpose='delivery_accept_probe',manual_session_blocked=lambda value,**_kwargs:(seen.append(value) or True)),
+          runtime=runtime,delivery_probe_thread=NS(ident=threading.get_ident(),is_alive=lambda:True),
+          calibrating={key},calibration_cancel={key:threading.Event()})
+    assert not lease_authorized(ui,key)
+    assert seen[-1].profile_id==profile.id
 
 
 def bind_accept_binding(ui):

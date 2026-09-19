@@ -170,7 +170,104 @@ class ManualRuntime:
             self._sync_manual_fence()
         return bool(row or self._manual_get(character,'manual_reader_hold'))
 
-    def process_probe_owned(self, character, snapshot, *, now=None):
+    def _structural_request_probe_owned(self, character, snapshot, state, *, now):
+        """Conservatively reserve a still-visible exact probe request.
+
+        This is deliberately weaker than :func:`ownership`: it is used only
+        while the peer observer is briefly unavailable, to prevent that
+        transient observation failure from creating a *new* manual admission.
+        It never retracts a session, changes a fence, or grants input.
+        """
+        import math
+        from conquest.merchants.delivery_probe_ownership import REQUEST_PHASES
+        from conquest.merchants.delivery import validate_snapshot, exact_items
+        from conquest.merchants.delivery_request_reconciliation import ownership as request_ownership
+        from conquest.merchants.manual_sessions import canonical_ownership
+        from conquest.recovery_override import evidence_digest
+        try:
+            request=snapshot.get('request')
+            intent=state['intent'];merchant=intent['merchant'];farmer=intent['farmer']
+            if (not isinstance(state,dict) or state.get('phase') not in REQUEST_PHASES
+                    or snapshot.get('trade') is not None or not isinstance(request,dict)
+                    or state.get('character')!=str(character)
+                    or state.get('target_profile_id',state.get('character'))!=self.manual_target(character)
+                    or state.get('farmer_profile_id','Farmer')!=self.manual_target('Farmer')):
+                return False
+            started=state.get('started_at')
+            if type(started) not in (int,float) or not math.isfinite(started) or not 0<=started<=now:
+                return False
+            for field in ('updated_at','finished_at','accepted_at'):
+                value=state.get(field,started)
+                if (type(value) not in (int,float) or not math.isfinite(value)
+                        or not started<=value<=now):return False
+            for participant in (farmer,merchant):
+                timestamp=participant.get('timestamp') if isinstance(participant,dict) else None
+                if (participant.get('map_id')!=1036 or type(timestamp) not in (int,float)
+                        or not math.isfinite(timestamp) or not 0<=started-timestamp<=5):
+                    return False
+            if farmer.get('identity')==merchant.get('identity'):return False
+            # Both the attached merchant and the incoming requester must be
+            # exactly the durable participants; a same-named visitor is not
+            # enough to suppress manual routing.
+            if any(snapshot.get(key)!=merchant.get(key) for key in
+                   ('identity','character','character_uid','server','position')):
+                return False
+            if (request.get('participant')!=farmer.get('character')
+                    or type(request.get('participant_uid')) is not int
+                    or request['participant_uid']!=farmer.get('character_uid')
+                    or request.get('server',snapshot.get('server'))!=farmer.get('server')
+                    or request.get('message')!=f"{farmer.get('character')} wishes to trade with you."):
+                return False
+            recipient=state.get('recipient',{})
+            if any(recipient.get(left)!=merchant.get(right) for left,right in
+                   (('uid','character_uid'),('name','character'),('position','position'))):
+                return False
+            selected=state.get('selected_uids');items=exact_items(intent['items'])
+            farmer_items=exact_items(farmer['inventory'])
+            if (not isinstance(selected,list) or not selected or any(type(uid) is not int or uid<=0 for uid in selected)
+                    or len(set(selected))!=len(selected) or set(selected)!=set(items)
+                    or any(farmer_items.get(uid)!=item for uid,item in items.items())):
+                return False
+            validate_snapshot(snapshot,merchant['character'],now)
+            # request_verified is an unresolved durable receipt.  Its saved
+            # merchant observation must bind the same modal before it can
+            # provide this narrow structural precedence.
+            if state['phase']!='request_submitted':
+                saved=state.get('merchant_after')
+                if not isinstance(saved,dict) or any(saved.get(key)!=snapshot.get(key) for key in
+                        ('identity','character','character_uid','server','position')):
+                    return False
+                saved_request=saved.get('request')
+                if not isinstance(saved_request,dict) or any(saved_request.get(key)!=request.get(key) for key in
+                        ('participant','participant_uid','message','server')):
+                    return False
+                saved_farmer=state.get('farmer_after')
+                # Saved observations are a durable receipt, not current
+                # memory.  Validate them at their own boundary so an old,
+                # recoverable error cannot reopen manual admission.
+                if not isinstance(saved_farmer,dict):return False
+                saved_now=max(saved_farmer.get('timestamp',float('inf')),saved.get('timestamp',float('inf')))
+                request_ownership(intent,saved_farmer,saved,now=saved_now)
+                expected=saved
+            else:
+                expected=merchant
+            live=canonical_ownership(snapshot,require_closed=False)
+            expected_proof=canonical_ownership(expected,require_closed=False)
+            if ({**live,'request':None}!={**expected_proof,'request':None}
+                    or snapshot.get('position')!=expected.get('position')
+                    or snapshot.get('map_id')!=expected.get('map_id')
+                    or any({item['uid']:item.get('slot') for item in snapshot[field]}!=
+                           {item['uid']:item.get('slot') for item in expected[field]}
+                               for field in ('inventory','booth'))):
+                return False
+            # Do not let a journal replacement race turn an unrelated request
+            # into a suppressed one.
+            from conquest.merchants import delivery_probe
+            return evidence_digest(delivery_probe.read_probe())==evidence_digest(state)
+        except (KeyError, TypeError, ValueError, OSError):
+            return False
+
+    def process_probe_owned(self, character, snapshot, *, now=None, require_bilateral=False):
         """Keep exact supervised input under its own worker, never auto-accept."""
         if not (snapshot.get('request') or snapshot.get('trade')):
             return False
@@ -181,6 +278,8 @@ class ManualRuntime:
         from conquest.capture import CaptureUnavailable
         from conquest.character_context import farmer_name
         with self.coordinator.lock:
+            state = None
+            proof_now = time.time() if now is None else now
             try:
                 state = delivery_probe.read_probe()
                 farmer_side = is_farmer_owner(character)
@@ -189,10 +288,14 @@ class ManualRuntime:
                     return False
                 merchant_character = character_name(state['character']) if farmer_side else character
                 source = self.manual_farmer_provider()
-                if source is None or source.character != farmer_name():
+                intent=state.get('intent');farmer_intent=intent.get('farmer') if isinstance(intent,dict) else None
+                if (source is None or source.character != farmer_name() or not isinstance(farmer_intent,dict)
+                        or getattr(getattr(source,'adapter',None),'identity',None)!=farmer_intent.get('identity')):
                     return False
                 observer = self.observers.get(merchant_character) if farmer_side else source
-                if observer is None or not observer.lock.acquire(blocking=False):return False
+                if observer is None:return False
+                if not observer.lock.acquire(blocking=False):
+                    return False if require_bilateral else self._structural_request_probe_owned(character,snapshot,state,now=proof_now)
                 try:
                     observer.adapter.assert_identity()
                     if farmer_side:
@@ -201,15 +304,21 @@ class ManualRuntime:
                     else:
                         farmer = MerchantMemory(observer).read(farmer_preflight=True)
                         merchant = snapshot
+                except (OSError, CaptureUnavailable, ValueError, KeyError, TypeError, AttributeError):
+                    # Only the peer acquisition/read path may use the
+                    # observation-only structural fallback.  Once both
+                    # snapshots exist, a failed bilateral proof is evidence
+                    # of a changed incident and must route manually.
+                    return False if require_bilateral or farmer_side else self._structural_request_probe_owned(
+                        character,snapshot,state,now=proof_now)
                 finally:observer.lock.release()
-                now = time.time() if now is None else now
+                now = proof_now
                 source_target = self.manual_target('Farmer')
                 proof = ownership(state, merchant_character, self.manual_target(merchant_character), source_target,
                                   farmer, merchant, now=now)
                 if evidence_digest(delivery_probe.read_probe()) != proof['probe_digest']:
                     return False
-            except (ValueError, OSError, KeyError, TypeError, AttributeError, CaptureUnavailable):
-                # Unreadable, changed or unrelated journals cannot hide visitors.
+            except (OSError, CaptureUnavailable, ValueError, KeyError, TypeError, AttributeError):
                 return False
             row = self.manual_sessions.active(self.manual_target(character))
             decline = self._manual_get(character, 'unrelated_request_decline') or {}
