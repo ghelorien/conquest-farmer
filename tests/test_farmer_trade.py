@@ -204,3 +204,60 @@ def test_delivery_contention_retry_is_bounded_and_never_replays_transaction(monk
         assert calls==['lease']*4 and clock[0]==3
     else:
         assert calls==['lease','body'] and clock[0]==0
+
+
+@pytest.mark.parametrize('change',['occupied_move','occupied_order','address','uid','name','position','point',
+                                  'actionability','mode'])
+def test_request_guard_binds_only_exact_target_and_revalidates_before_press(monkeypatch,change):
+    from contextlib import nullcontext
+    from conquest.merchants import farmer_trade as module
+    from conquest import foreground
+    from conquest.target_actionability import TargetNotActionable
+    intent,farmer,merchant=batch()
+    farmer['trade']=merchant['trade']=None
+    record={'address':100,'uid':2,'name':'Dutch','position':[100,200],
+            'point':[400,300],'occupied_tiles':[[100,200],[90,190],[80,180]]}
+    changed=copy.deepcopy(record)
+    if change=='occupied_move':changed['occupied_tiles'][1]=[91,190]
+    if change=='occupied_order':changed['occupied_tiles'].reverse()
+    if change in ('address','uid'):changed[change]+=1
+    if change=='name':changed['name']='Other'
+    if change=='position':changed['position']=[101,200]
+    if change=='point':changed['point']=[401,300]
+    calls=[];pressed=[]
+    def read_recipient(observer,profile,peer,*,farmer=None,targeting=False):
+        assert farmer is not None
+        calls.append(targeting)
+        if len(calls)<3:return copy.deepcopy(record)
+        if change=='actionability':raise TargetNotActionable({'message':'Receiver is covered'})
+        if change=='mode':raise ValueError('Client is not in the qualified trade targeting mode')
+        return changed
+    monkeypatch.setattr(module,'recipient_record',read_recipient)
+    def click(*args,**kwargs):
+        kwargs['before_press']()
+        pressed.append(args)
+    monkeypatch.setattr(foreground,'foreground_click',click)
+    driver=FarmerTradeDriver.__new__(FarmerTradeDriver)
+    driver.report=lambda *args:None;driver.action=lambda _:nullcontext()
+    driver.require_qualified=lambda:{'client_size':[1000,800],'gui_size':[1000,800]}
+    driver.read_pair=lambda _:(farmer,merchant)
+    driver.button=lambda *args,**kwargs:None
+    driver._action_observed=lambda *args:None;driver._before_action=lambda *args:None
+    driver.check=lambda:None;driver.wait_until=lambda *args:None
+    driver.driver=NS(observer=object(),target=object(),
+        layout_revision=lambda:NS(stable=lambda:1,assert_current=lambda _:None))
+    if change.startswith('occupied_'):
+        driver.open_trade(intent)
+        assert len(pressed)==1
+    else:
+        with pytest.raises((ValueError,CaptureUnavailable)):driver.open_trade(intent)
+        assert pressed==[]
+    assert calls==[False,True,True]
+
+
+@pytest.mark.parametrize('record',[{},None,{'uid':2},
+    {'address':0,'uid':2,'name':'Dutch','position':[10,20],'point':[100,100]},
+    {'address':1,'uid':True,'name':'Dutch','position':[10,20],'point':[100,100]}])
+def test_recipient_binding_requires_complete_typed_target_evidence(record):
+    from conquest.merchants.farmer_trade import recipient_binding
+    with pytest.raises(ValueError,match='input binding'):recipient_binding(record)

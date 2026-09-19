@@ -130,6 +130,26 @@ def recipient_record(observer,profile,merchant,*,farmer=None,targeting=False):
     return result['recipient']
 
 
+def recipient_binding(record):
+    """Bind input to one target, excluding scene occupancy used for pathing.
+
+    Each caller still obtains a fresh recipient_record, which validates the
+    complete scene within that read, targeting mode and target actionability.
+    Other players may move or reorder between two valid scene observations.
+    """
+    fields=('address','uid','name','position','point')
+    if not isinstance(record,dict) or any(field not in record for field in fields):
+        raise ValueError('Trade recipient input binding is incomplete')
+    if (any(type(record[key]) is not int or record[key]<=0 for key in ('address','uid'))
+            or not isinstance(record['name'],str) or not record['name']
+            or any(not isinstance(record[key],(list,tuple)) or len(record[key])!=2
+                   or any(type(value) is not int for value in record[key])
+                   for key in ('position','point'))):
+        raise ValueError('Trade recipient input binding is invalid')
+    return (record['address'],record['uid'],record['name'],
+            tuple(record['position']),tuple(record['point']))
+
+
 class FarmerTradeDriver:
     def __init__(self,ui,qualification=None):
         self.ui=ui
@@ -292,12 +312,15 @@ class FarmerTradeDriver:
             targeting_f,targeting_m=self.read_pair(m['character']);unchanged(targeting_f,targeting_m)
             recipient=recipient_record(self.driver.observer,profile,targeting_m,
                                        farmer=targeting_f,targeting=True)
+            binding=recipient_binding(recipient)
             self._action_observed('trade_target_mode',{'targeting_trade':True})
             point=tuple(round(v*p/g) for v,p,g in zip(recipient['point'],profile['client_size'],profile['gui_size']))
             layout=self.driver.layout_revision();layout_revision=layout.stable()
             def before():
                 self.check();fresh_f,fresh_m=self.read_pair(m['character']);unchanged(fresh_f,fresh_m)
-                if recipient_record(self.driver.observer,profile,fresh_m,farmer=fresh_f,targeting=True)!=recipient:
+                fresh_recipient=recipient_record(self.driver.observer,profile,fresh_m,
+                                                 farmer=fresh_f,targeting=True)
+                if recipient_binding(fresh_recipient)!=binding:
                     raise ValueError('Receiver changed before trade request')
                 layout.assert_current(layout_revision)
                 self._before_action('trade_request')

@@ -245,7 +245,7 @@ def run(ui,intent,revision,state):
     from conquest.merchants.memory import MerchantMemory
     from conquest.merchants.driver import wait_hover_validation
     from conquest.merchants.trade_controls import trade_button,targeting_state
-    from conquest.merchants.farmer_trade import recipient_record
+    from conquest.merchants.farmer_trade import recipient_record,recipient_binding
     import ctypes
     deadline=time.monotonic()+15
     observer=ui.app.observer;memory=MerchantMemory(observer)
@@ -280,7 +280,7 @@ def run(ui,intent,revision,state):
         if profile.get('client_sha256')!=observer.adapter.expected_sha256:
             raise ValueError('Trade layout build changed')
         f,m=pair(ui,character);unchanged(intent,f,m)
-        recipient=recipient_record(observer,profile,m)
+        recipient=recipient_record(observer,profile,m,farmer=f)
         point=trade_button(MemoryGui(observer.adapter))
         if targeting_state(observer.adapter)['current']!=16:
             raise ValueError('Farmer already has a targeting action active')
@@ -302,11 +302,14 @@ def run(ui,intent,revision,state):
             if time.monotonic()>=until:raise ValueError('Trade targeting transition not verified')
             time.sleep(.03)
         save('targeting_verified')
-        recipient=recipient_record(observer,profile,m,targeting=True)
+        f,m=pair(ui,character);unchanged(intent,f,m)
+        recipient=recipient_record(observer,profile,m,farmer=f,targeting=True)
+        binding=recipient_binding(recipient)
         def before_peer():
             check()
             f,m=pair(ui,character);unchanged(intent,f,m)
-            if recipient_record(observer,profile,m,targeting=True)!=recipient:
+            fresh_recipient=recipient_record(observer,profile,m,farmer=f,targeting=True)
+            if recipient_binding(fresh_recipient)!=binding:
                 raise ValueError('Trade recipient changed before request')
         save('request_submitted',recipient=recipient)
         foreground_click(observer.operations.target,*recipient['point'],tuple(size),require_foreground=True,
