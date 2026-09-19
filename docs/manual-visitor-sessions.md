@@ -158,3 +158,79 @@ The runtime must gate all normal merchant work while `holds_automation` is
 true, preserve Global Stop/input priority, and route new requests through
 `begin_request` before ordinary observation. There are no runtime timers or
 gameplay side effects in this module.
+
+## Runtime and UI integration (Wave 2)
+
+`MerchantRuntime` constructs the store on its exact `Journal.path`, loads all
+durable holds before workers start, and exposes:
+
+- `manual_status(character=None)`: one active view for a merchant or the
+  logical `Farmer` target, or all active views when omitted. Views retain the
+  exact `approval_binding`, `visitor`, `phase`, `reason`, `expires_at`, and add
+  `deadline` and `fence_scope` (`target` or `global`). All fields are JSON data.
+- `approve_manual(binding, operator='local')`: fresh locked memory recheck;
+  atomic allow-and-activate. Never enters a gameplay lease or focuses a client.
+- `reject_manual(binding, operator='local')`: persist intent only. The observer
+  performs any independently qualified decline at its native input boundary.
+- `revoke_manual(visitor, operator='local')`: revoke the exact future permission.
+  Read saved permissions with `runtime.manual_sessions.permissions(target_id)`.
+- `override_manual(session_id, confirmation_reference=..., operator=...,
+  reason=...)`: explicit disposition followed by a durable target-only hold
+  requiring two fresh equal closed-window ownership observations five seconds
+  apart. No immediate baseline or resumed input is inferred from disposition.
+- `manual_farmer_status()`: the farmer session, current observation availability,
+  qualification/decline blocker and effective input-fence flag.
+
+Pending/unapproved sessions hold only their target. Approved nonterminal sessions
+hold every automated input path in `InputCoordinator`, including farmer
+`check_input`/`input_scope`, merchant leases, refill, calibration and recovery.
+The logical farmer owner resolves to the selected Farmer profile UUID. Manual
+permissions never modify automated trusted sources or saved enablement intent.
+Stop, later pause, physical mouse ownership and existing recovery holds remain
+independent. Memory observers continue while the input fence is held.
+
+Runtime routing gives bot reservations/existing bot-owned trades first priority,
+then observes existing manual sessions, then blocks new admission behind any
+unfinished bot transaction, then binds new manual requests. An exact permission
+activates the bound request; an unknown visitor waits for a persisted 30-second
+decision. Timeout/rejection uses the existing native journaled decline path with
+the domain claim immediately before the native press. Claimed uncertain input
+is never replayed. Approved sessions never enter that decline path.
+
+`configure_manual_farmer(observer_provider, control_provider)` is installed by
+the unified app. A background worker observes while Farming On or Off; native
+farming and town-call boundaries also invoke the observer before gameplay work.
+Modal presence uses the pinned native GUI reader. Complete farmer session
+evidence uses `MerchantMemory.read(farmer_preflight=True)`, currently qualified
+on maps 1002, 1011 and 1036. A visible request/trade elsewhere, or missing full
+evidence, creates a durable target-only `needs_attention` hold and exposes the
+reader blocker. The integration does not claim qualified full session reading
+on other maps. Native farmer decline additionally requires saved `trade_request`
+input qualification; absent qualification is exposed, never bypassed. Manual
+approval itself needs only fresh qualified memory, not an input qualification.
+Bot farmer deliveries/reservations retain priority and bilateral reconciliation.
+
+If the very first request cannot supply domain identity/ownership evidence,
+`manual_reader_hold` retains the failure as `unbound:<target-profile-id>` with
+no approval binding or permission key. Explicit override uses the same API.
+`manual_rebaseline` retains post-override observations; missing evidence or
+identity rollover remains `needs_attention`. An explicit retry uses its
+`rebaseline:<source-id>` and a new confirmation reference; a duplicate reference
+does not restart stabilization. These holds survive restart and never change
+Farming On/Off or merchant/refill preferences.
+
+Evidence settlement atomically appends the domain audit/terminal receipt, a
+`sales_observation_gap`, a stable `sales_baseline`, and a `manual_replans` signal.
+Only genuinely added/changed merchant inventory sets `new_stock`. No manual
+interval writes sale/delivery receipts or attributes stock to a visitor. Normal
+sales inference excludes held intervals, reader failures and rebaseline holds.
+After settlement, the merchant consumer reads fresh current capacity/ownership
+and makes the normal capacity/listing evaluation due, preserving refill pause.
+The farmer consumer clears stale transient combat/pathing/loot state and uses
+fresh map/inventory/valuable evidence; ordinary urgent banking and supply logic
+then decide what follows. Merchant settlements queue only merchant work; farmer
+settlements queue only farmer work. Signals confer no gameplay authority and
+remain pending while the relevant consumer is stopped.
+
+Validation is mocked/native-boundary regression coverage. No live client was
+used to qualify additional memory layouts or native input controls in this wave.

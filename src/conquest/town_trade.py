@@ -270,6 +270,9 @@ class TownTrade:
         # The bridge serializes calls. Never label a failed input attempt as a
         # retryable read: SendInput may have partially succeeded.
         self.input_attempted = False
+        from conquest.merchants.coordination import observe_manual_farmer
+        observer=getattr(self,'observer',None)
+        if observer is not None:observe_manual_farmer(observer)
         try:
             return self.execute(body)
         except ValueError as error:

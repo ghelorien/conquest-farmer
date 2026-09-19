@@ -308,8 +308,8 @@ def test_one_time_batch_never_accepts_incoming_trades(tmp_path):
     runtime.controllers['Dutch'] = SimpleNamespace(driver=SimpleNamespace(read=lambda:snapshot),
         reconcile=lambda s:None,accept_request=lambda s:calls.append('accepted'))
     runtime.disconnected = lambda character:False
-    with pytest.raises(CaptureUnavailable,match='no trade will be accepted'):
-        runtime.step('Dutch')
+    runtime.step('Dutch')
+    assert runtime.manual_status('Dutch')['phase']=='needs_attention'
     assert not calls
     assert journal.get('Dutch','scan')['pending']
 

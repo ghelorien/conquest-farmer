@@ -129,6 +129,7 @@ class UnifiedUI:
         app.pane.lift()
         self.coordinator = InputCoordinator(self.safe_to_yield,app.mouse_priority.active)
         self.runtime = MerchantRuntime(app.catalog,self.coordinator)
+        self.runtime.configure_manual_farmer(lambda:getattr(app,'observer',None),app.control.snapshot)
         from conquest.merchants.delivery_status import enrich
         self.runtime.status_projection=lambda states:enrich(self,states)
         self.connect_threads={}

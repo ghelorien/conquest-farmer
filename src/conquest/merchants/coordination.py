@@ -27,6 +27,31 @@ class InputCoordinator:
         # Production enables this explicitly. Legacy callers retain their
         # existing idle/manual policy; fenced workers also pin its generation.
         self.fence = None
+        # Durable manual-session state is installed by MerchantRuntime. It is
+        # separate from physical mouse ownership and never changes saved intent.
+        self.manual_sessions = {}
+        self.manual_journal = None
+        self.manual_farmer_target = 'Farmer'
+
+    def set_manual_sessions(self, sessions):
+        self.manual_sessions = {row['target_profile_id']: row for row in sessions}
+
+    def manual_session_blocked(self, character=None, *, purpose=None):
+        rows = self.manual_sessions
+        if any(row.get('ever_approved') and row.get('holds_automation') for row in rows.values()):
+            return True
+        key = getattr(character, 'profile_id', character)
+        if is_farmer_owner(character):
+            from conquest.character_context import current
+            context=current()
+            key=context.profile.id if context and context.profile.role=='Farmer' else self.manual_farmer_target
+        row = rows.get(key)
+        if not row or not row.get('holds_automation'):
+            return False
+        # The only exception is the independently qualified native decline of
+        # a still-unapproved request with a durable timeout/rejection intent.
+        return not (purpose == 'manual_decline' and row.get('phase') == 'approval_pending'
+                    and row.get('request_state') == 'decline_pending')
 
     def stop(self):
         # Do not wait behind an in-flight transaction to record the stop.
@@ -44,6 +69,8 @@ class InputCoordinator:
             raise CaptureUnavailable('Client surface needs reattachment and input qualification')
         if self.stopped or self.manual_active():
             raise CaptureUnavailable('Automation stopped or manual input active')
+        if self.manual_session_blocked(self.owner, purpose=self.purpose):
+            raise CaptureUnavailable('Manual visitor session holds automation input')
         if self.owner and self.thread != threading.get_ident():
             raise CaptureUnavailable('Another character owns game input')
         if self.owner and not self.owner_allowed(self.owner):
@@ -112,6 +139,8 @@ def check_input():
         _coordinator.check()
         if _coordinator.owner:
             return
+        if _coordinator.manual_session_blocked('Farmer'):
+            raise CaptureUnavailable('Manual visitor session holds farmer input')
     # Route controllers may run in another process. They honor the same lease.
     path = _coordinator.path if _coordinator else INPUT_LOCK
     if path.exists() and not getattr(_scope,'active',False):
@@ -125,22 +154,25 @@ def check_input():
 
 
 @contextmanager
-def input_scope():
+def input_scope(*, purpose=None):
     fence = getattr(_coordinator, 'fence', None)
     with fence.input_action() if fence is not None else nullcontext():
-        with _input_scope():
+        with _input_scope(purpose=purpose):
             yield
 
 
 @contextmanager
-def _input_scope():
+def _input_scope(*, purpose=None):
     """Hold the shared lease across a complete farmer click/drag/key action."""
     if getattr(_scope,'active',False) or (_coordinator and _coordinator.owner and _coordinator.thread==threading.get_ident()):
+        if _coordinator:_coordinator.check()
         yield
         return
     coordinator = _coordinator
     if coordinator:
         coordinator.check()
+        if coordinator.manual_session_blocked('Farmer',purpose=purpose):
+            raise CaptureUnavailable('Manual visitor session holds farmer input')
         if not coordinator.lock.acquire(blocking=False):
             raise CaptureUnavailable('Waiting for the current input action')
     file = None
@@ -160,6 +192,7 @@ def _input_scope():
             raise CaptureUnavailable('Another character owns foreground input') from error
         if coordinator:
             coordinator.owner,coordinator.thread = 'Farmer',threading.get_ident()
+            coordinator.purpose = purpose
         _scope.active = owned = True
         if coordinator:coordinator.check()
         yield
@@ -168,6 +201,7 @@ def _input_scope():
             _scope.active = False
             if coordinator:
                 coordinator.owner = coordinator.thread = None
+                coordinator.purpose = None
         if file:
             file.close()
         if coordinator:
@@ -180,3 +214,16 @@ def coordinated_input(function):
         with input_scope():
             return function(*args,**kwargs)
     return wrapped
+
+
+def manual_session_blocked(character=None):
+    return bool(_coordinator and _coordinator.manual_session_blocked(character))
+
+
+def manual_replan_journal():
+    return getattr(_coordinator, 'manual_journal', None)
+
+
+def observe_manual_farmer(observer):
+    callback=getattr(_coordinator,'manual_farmer_boundary',None)
+    return callback(observer) if callback else False

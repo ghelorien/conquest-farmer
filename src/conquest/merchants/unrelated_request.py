@@ -120,10 +120,11 @@ def _cancel_control(driver,snapshot,name):
     return w,(accept[0],accept[1]+22)
 
 
-def decline_unrelated_request(controller,snapshot,*,operations_enabled):
+def decline_unrelated_request(controller,snapshot,*,operations_enabled,manual_session=None):
     """Return True only after one unrelated request is durably cleared."""
     if not operations_enabled or not controller.active():return False
-    if (snapshot.get('map_id')!=1036 or type(snapshot.get('hp')) is not int
+    allowed_maps=(1002,1011,1036) if getattr(controller,'manual_farmer',False) else (1036,)
+    if (snapshot.get('map_id') not in allowed_maps or type(snapshot.get('hp')) is not int
             or snapshot['hp']<=0):
         return False
     key='unrelated_request_decline';pending=controller.journal.get(controller.character,key)
@@ -138,15 +139,19 @@ def decline_unrelated_request(controller,snapshot,*,operations_enabled):
     # A trusted name belongs to the delivery path, which performs its own
     # exact UID check. Never turn a temporarily incomplete trusted request
     # observation into an unrelated-request decline.
-    if trusted_delivery(controller.character,name,require_uid=False):return False
+    if manual_session is None and trusted_delivery(controller.character,name,require_uid=False):return False
     identity=requester_identity(controller.driver.observer,name)
-    if trusted_delivery(controller.character,name,identity['uid']):return False
+    if manual_session is None and trusted_delivery(controller.character,name,identity['uid']):return False
     driver=controller.driver;driver.require_qualified('trade_request')
     from conquest.desktop_runtime import physical_coordinates
     from conquest.focus_recovery import activate_client
     from conquest.foreground import foreground_click
     from conquest.merchants.driver import wait_hover_validation
-    with controller.coordinator.lease(controller.character,purpose='decline_request'),physical_coordinates():
+    purpose='manual_decline' if manual_session else 'decline_request'
+    from conquest.merchants.coordination import input_scope
+    scope=(input_scope(purpose=purpose) if getattr(controller,'manual_farmer',False) else
+           controller.coordinator.lease(controller.character,purpose=purpose))
+    with scope,physical_coordinates():
         controller.check();_require_no_owned_work(controller);fresh=driver.read()
         if fresh['identity']!=snapshot['identity'] or fresh.get('trade') or fresh.get('request')!=request:
             raise ValueError('Incoming request changed before decline')
@@ -177,6 +182,10 @@ def decline_unrelated_request(controller,snapshot,*,operations_enabled):
                     or _cancel_control(driver,current,name)!=(window,logical_point)):
                 raise ValueError('Incoming requester or decline control changed')
             driver.memory.gui.assert_hovered(window,'Cancel');layout.assert_current(revision)
+            if manual_session:
+                store,session_id=manual_session
+                if store.claim_decline(session_id,current) is None:
+                    raise CaptureUnavailable('Manual request decline already claimed; observation required')
             controller.journal.set(controller.character,key,{'phase':'submitted','name':name,'uid':identity['uid'],
                 'identity':fresh['identity'],'inventory':_exact_inventory(fresh['inventory']),
                 'booth':_exact_booth(fresh.get('booth',[])),'silver':fresh['silver'],'at':time.time()})

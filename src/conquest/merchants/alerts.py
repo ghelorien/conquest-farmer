@@ -17,6 +17,7 @@ STATE = Path(state_path('.runtime/merchants/shops-alerts.json'))
 STATUS = Path(state_path('reports/merchants/shops-alert-status.json'))
 LIFECYCLE = Path(state_path('.runtime/merchants/app-lifecycle.json'))
 QUIET_WAITS = ('Automation stopped or manual input active','Mouse control is yours',
+               'Manual visitor session holds automation input',
                'Waiting for input owner','Waiting for a safe farmer handoff',
                'Farmer handoff was revoked','Paused; recovery will not change manual intent')
 MONITOR_VERSION = 2
@@ -29,6 +30,11 @@ def safe_note(value):
 
 
 def condition(state):
+    manual = state.get('manual_session') or {}
+    if manual.get('phase') == 'needs_attention':
+        return safe_note('Manual visitor session needs attention: ' + str(manual.get('reason'))),0
+    if manual.get('request_state') == 'decline_claimed':
+        return 'Manual decline input was claimed; fresh unchanged ownership is required. Input will not be retried.',60
     attention = state.get('needs_attention')
     if attention:
         return safe_note(attention['note']),0
@@ -92,6 +98,10 @@ class Alerts:
         stale_ui = status.get('ui_health',{}).get('tick_age_ms',0)>15000
         self.observe('Conquest app',('Conquest UI stopped responding; merchant input may be blocked.',60) if stale_ui else None,now)
         for character,state in status['characters'].items():
+            manual = state.get('manual_session') or {}
+            if (state.get('manual_input_fence') and manual.get('phase') != 'needs_attention'
+                    and manual.get('request_state') != 'decline_claimed' and not state.get('needs_attention')):
+                continue  # A manual wait neither alerts nor confirms recovery.
             returning=state.get('shop_return')
             if (returning and returning['phase'] not in ('complete','operator_overridden') and not state.get('enabled')
                     and not state.get('needs_attention')):

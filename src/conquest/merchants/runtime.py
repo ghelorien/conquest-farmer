@@ -12,6 +12,7 @@ from conquest.merchants.driver import MerchantDriver
 from conquest.merchants.market import MarketSnapshot
 from conquest.merchants.price_history import PriceHistory
 from conquest.merchants.recovery import Recovery, credential_path
+from conquest.merchants.manual_runtime import ManualRuntime
 
 
 def make_observer(client, character):
@@ -31,7 +32,7 @@ def make_observer(client, character):
     return observer
 
 
-class MerchantRuntime:
+class MerchantRuntime(ManualRuntime):
     def __init__(self, catalog, coordinator, *, journal=None, observer_factory=make_observer,
                  market_path=state_path('reports/merchants/market.json'), qualification_dir=state_path('.runtime/merchants')):
         self.catalog,self.coordinator = catalog,coordinator
@@ -68,6 +69,7 @@ class MerchantRuntime:
         self.threads = []
         self.handoff = None
         self.work_deadline = None
+        self.init_manual_sessions()
 
     def can_start_work(self,minimum_seconds=0):
         return self.work_deadline is None or time.time()+minimum_seconds < self.work_deadline
@@ -87,6 +89,8 @@ class MerchantRuntime:
         self.market_guard = MarketGuard(self)
         guard = threading.Thread(target=self.market_guard.run, daemon=True, name='merchant-market-safety')
         self.threads.append(guard); guard.start()
+        farmer=threading.Thread(target=self.run_manual_farmer,daemon=True,name='manual-farmer-observer')
+        self.threads.append(farmer);farmer.start()
         for character in CHARACTERS:
             thread = threading.Thread(target=self.run,args=(character,),daemon=True,name=f'merchant-{character}')
             self.threads.append(thread);thread.start()
@@ -111,6 +115,8 @@ class MerchantRuntime:
         self.journal.event(character,'refill_resumed' if enabled else 'refill_paused')
 
     def input_allowed(self, character):
+        if self.coordinator.manual_session_blocked(character, purpose=getattr(self.coordinator,'purpose',None)):
+            return False
         delivery_window=getattr(self,'delivery_window',None)
         purpose=getattr(self.coordinator,'purpose',None)
         if character in self.connecting:
@@ -303,6 +309,7 @@ class MerchantRuntime:
             try:
                 observer.adapter.assert_identity()
             except (OSError,ValueError):
+                self.manual_unavailable(character, 'Game process is unavailable or changed')
                 self.returns[character].begin()
                 observer.close()
                 with self.lock:
@@ -317,11 +324,13 @@ class MerchantRuntime:
             try:
                 self.attach(character)
             except ValueError:
+                if self.manual_unavailable(character, 'Attached memory reader is unavailable'):return
                 if self.journal.get(character,'crashed',False):
                     self.recover(character,crashed=True)
                     return
                 raise
         if self.disconnected(character):
+            if self.manual_unavailable(character, 'Merchant disconnected during manual session'):return
             self.returns[character].begin()
             with self.lock:
                 self.latest.pop(character,None)
@@ -331,18 +340,49 @@ class MerchantRuntime:
         controller = self.controllers[character]
         returning=self.returns[character].state()
         returning=bool(returning and returning['phase'] not in ('complete','operator_overridden'))
-        with self.observers[character].lock:
-            snapshot = controller.driver.memory.read(recovery=True) if returning else controller.driver.read()
+        try:
+            with self.observers[character].lock:
+                snapshot = controller.driver.memory.read(recovery=True) if returning else controller.driver.read()
+        except (ValueError,OSError,CaptureUnavailable):
+            self.manual_unavailable(character, 'Qualified manual memory observation failed')
+            raise
         with self.lock:
             self.latest[character] = snapshot
-        from conquest.merchants.sales import observe
-        observe(self.journal,snapshot)
-        controller.reconcile(snapshot)
-        if self.journal.get(character,'connect_hold',False):return
-        if not self.can_start_work():
-            return
         from conquest.merchants.delivery_reservation import active as reserved_delivery
         reservation=reserved_delivery(self.journal,character)
+        accepted = self.journal.get(character,'accepted_request') or {}
+        from conquest.character_context import trusted_delivery
+        bot_trade = bool(snapshot.get('trade') and accepted.get('identity') == snapshot['identity']
+                         and accepted.get('participant_uid') == snapshot['trade'].get('participant_uid')
+                         and trusted_delivery(character,snapshot['trade'].get('participant'),snapshot['trade'].get('participant_uid'))
+                         and 0 <= time.time()-accepted.get('opened_at',0) <= 120)
+        manual = self.manual_sessions.active(self.manual_target(character))
+        decline_enabled=(not refill_only and not self.coordinator.stopped
+                         and not self.journal.get(character,'connect_hold',False)
+                         and self.journal.get(character,'enabled',False) is True)
+        if reservation or bot_trade:
+            controller.reconcile(snapshot)
+        elif manual:
+            self.process_manual(character,snapshot,decline_enabled=decline_enabled)
+            return
+        else:
+            # Unresolved automated intent has priority over visitor admission.
+            controller.reconcile(snapshot)
+            if self.journal.pending(character):return
+            if getattr(self,'delivery_window',None):return
+            if self.process_manual(character,snapshot,decline_enabled=decline_enabled):return
+        from conquest.merchants.sales import observe
+        observe(self.journal,snapshot)
+        if self.coordinator.manual_session_blocked(character):return
+        if self.journal.get(character,'connect_hold',False):return
+        if not self.can_start_work():return
+        if not reservation and not bot_trade:
+            from conquest.merchants.manual_recovery import consume_merchant
+            # Only require the richer session evidence when a replan is queued.
+            with self.journal.db() as db:
+                replan = db.execute('SELECT 1 FROM manual_replans WHERE target_profile_id=? AND merchant_pending=1',
+                                    (self.manual_target(character),)).fetchone()
+            if replan:consume_merchant(self.journal,character,snapshot)
         if reservation:
             # Never list new arrivals before the farmer has verified its own
             # inventory. Partial offers must not be accepted as full batches.
@@ -352,6 +392,9 @@ class MerchantRuntime:
                 controller.accept_request(snapshot)
             elif snapshot.get('trade'):
                 controller.accept_delivery()
+            return
+        if bot_trade:
+            if not refill_only and self.enabled(character):controller.accept_delivery()
             return
         if getattr(self,'delivery_window',None):
             # The farmer reserves its exact batch after the safe grant. Do
@@ -600,6 +643,13 @@ class MerchantRuntime:
                     result[character]['activity']=doing+'; earlier recovery incident remains unresolved'
                 result[character]['market_refresh']=self.market_worker.state(character)
                 result[character]['batch_progress']=self.journal.get(character,'batch_progress',{})
+                manual = self.manual_status(character)
+                result[character]['manual_session'] = manual
+                result[character]['manual_input_fence'] = self.coordinator.manual_session_blocked(character)
+                if result[character]['manual_input_fence']:
+                    result[character]['ready'] = False
+                    result[character]['activity'] = ('Manual visitor: ' + manual['phase'].replace('_',' ')
+                        if manual else 'Manual visitor session holds automation input')
             projection=getattr(self,'status_projection',None)
             return projection(result) if projection else result
 

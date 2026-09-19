@@ -85,6 +85,17 @@ class MarketGuard:
         from conquest.memory_life import read_life
         read = read or read_life
         identity = observer.adapter.identity
+        coordinator = getattr(self.runtime,'coordinator',None)
+        if (coordinator and hasattr(coordinator,'manual_session_blocked')
+                and coordinator.manual_session_blocked(character)):
+            # Keep observing location but do not reinterpret manual movement
+            # as permission to pause saved intent, reconnect, or disconnect.
+            try:
+                observer.adapter.assert_identity()
+                life = read(observer.adapter,observer.health_layout,character)
+                self.observations[character] = {'map_id':life.map_id,'observed_at':time.time()}
+            except (ValueError,OSError):pass
+            return
         from conquest.merchants.recovery_safety import arm
         from conquest.reconnect import login_screen
         # A known disconnected client is a recovery trigger, not an unsafe
@@ -137,6 +148,9 @@ class MarketGuard:
                             started = self.unknown_since.setdefault(character, time.monotonic())
                             if time.monotonic() - started >= 2:
                                 from conquest.merchants.recovery_safety import active, observe
+                                coordinator=getattr(r,'coordinator',None)
+                                if (coordinator and hasattr(coordinator,'manual_session_blocked')
+                                        and coordinator.manual_session_blocked(character)):continue
                                 if active(r,character): observe(r,character,identity)
                                 else: protect(r, character, identity, 'Merchant safety reader unavailable for two seconds')
                             continue
