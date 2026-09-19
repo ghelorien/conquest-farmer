@@ -84,6 +84,10 @@ def test_runner_cannot_resume_old_intent_before_runtime_exists(locked_assets):
 def test_route_launch_and_resume_leave_locked_items_stationary(locked_assets,monkeypatch,tmp_path):
     from conquest import route_controller
     from conquest.overnight import OvernightLoop
+    for name in ('src/conquest','profiles/routes','scripts'):
+        (tmp_path/name).mkdir(parents=True)
+    (tmp_path/'pyproject.toml').touch()
+    (tmp_path/'scripts/run_overnight.py').touch()
     marker=tmp_path/'.runtime/overnight.stop';marker.parent.mkdir();marker.write_text('user stop')
     monkeypatch.setattr(route_controller.subprocess,'Popen',lambda *a,**kw:pytest.fail('spawned a route'))
     assert route_controller.ensure_running('bandit',root=tmp_path) is False
