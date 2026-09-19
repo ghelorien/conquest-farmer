@@ -147,6 +147,106 @@ def test_stopped_coordinator_denies_probe_without_new_journal(tmp_path,monkeypat
     assert not started and not probe.JOURNAL.exists()
 
 
+def legacy_probe_setup(monkeypatch,tmp_path):
+    from types import SimpleNamespace
+    farmer,merchant=pair_with_stock()
+    for snapshot in (farmer,merchant):
+        snapshot.update(booth_open=False,own_booth_uid=0)
+        snapshot['identity'].update(creation_time_100ns=123,path='game.exe')
+    state={'phase':'aborted_no_trade_observed','character':'Spiritual',
+           'intent':copy.deepcopy(prepare(farmer,merchant,[farmer['inventory'][0]])),
+           'recovery_note':'Expired request; exact stock and currency unchanged'}
+    # The original game processes are gone. Explicit override can release the
+    # historical hold, but cannot claim anything about their transfer outcome.
+    farmer['identity']['creation_time_100ns']=456
+    merchant['identity']['creation_time_100ns']=789
+    farmer['map_id']=1011
+    monkeypatch.setattr(probe,'JOURNAL',tmp_path/'probe.json')
+    probe.write_json(probe.JOURNAL,state)
+    monkeypatch.setattr(probe,'pair',lambda *args,**kwargs:(farmer,merchant))
+    return SimpleNamespace(),state,farmer,merchant
+
+
+def test_legacy_abort_text_never_implicitly_qualifies_as_terminal(tmp_path,monkeypatch):
+    legacy_probe_setup(monkeypatch,tmp_path)
+    with pytest.raises(ValueError,match='Reconcile existing'):
+        probe.previous_probe()
+
+
+def test_digest_bound_legacy_override_preserves_complete_original_without_transfer_claim(tmp_path,monkeypatch):
+    ui,old,farmer,merchant=legacy_probe_setup(monkeypatch,tmp_path)
+    preview=probe.recheck(ui)
+    assert probe.read_json(probe.JOURNAL)==old
+    assert preview['fresh_evidence']['farmer']['map_id']==1011
+    digest=preview['incident_digest']
+    result=probe.operator_override(ui,operator_confirmed=True,
+        confirmation_reference=digest,incident_digest=digest,operator='supervisor')
+    assert result=={'phase':'operator_overridden','historical_outcome':'unknown',
+                   'incident_digest':digest,'replan_required':True}
+    state=probe.previous_probe()
+    assert state['operator_override']['original_state']==old
+    assert state['operator_override']['fresh_evidence']['historical_outcome']=='unknown'
+    archives=list((tmp_path/'delivery-request-probe-audit').glob('*.json'))
+    assert len(archives)==1 and probe.read_json(archives[0])==old
+    assert probe.operator_override(ui,operator_confirmed=True,
+        confirmation_reference=digest,incident_digest=digest)==result
+
+
+@pytest.mark.parametrize('change',['incident','no_preview','expired','silver','inventory','process',
+                                  'trade','request','wrong_character','wrong_uid','server','stale'])
+def test_operator_override_rejects_changed_or_missing_bound_evidence(tmp_path,monkeypatch,change):
+    ui,old,farmer,merchant=legacy_probe_setup(monkeypatch,tmp_path)
+    preview=probe.recheck(ui);digest=preview['incident_digest']
+    if change=='incident':probe.write_json(probe.JOURNAL,{**old,'new_evidence':True})
+    if change=='no_preview':probe.Path(str(probe.JOURNAL)+'.recheck.json').unlink()
+    if change=='expired':
+        preview['fresh_evidence']['observed_at']-=31
+        probe.write_json(probe.Path(str(probe.JOURNAL)+'.recheck.json'),preview)
+    if change=='silver':merchant['silver']+=1
+    if change=='inventory':farmer['inventory'].pop()
+    if change=='process':farmer['identity']['creation_time_100ns']+=1
+    if change=='trade':merchant['trade']={'participant':'Other'}
+    if change=='request':farmer['request']={'participant':'Other'}
+    if change=='wrong_character':merchant['character']='Dutch'
+    if change=='wrong_uid':farmer['character_uid']+=1
+    if change=='server':merchant['server']='Other'
+    if change=='stale':farmer['timestamp']-=6
+    with pytest.raises(ValueError):
+        probe.operator_override(ui,operator_confirmed=True,
+            confirmation_reference=digest,incident_digest=digest)
+    assert probe.read_json(probe.JOURNAL)['phase']=='aborted_no_trade_observed'
+    assert not (tmp_path/'delivery-request-probe-audit').exists()
+
+
+@pytest.mark.parametrize('arguments',[{}, {'operator_confirmed':True},
+    {'operator_confirmed':False,'confirmation_reference':'digest','incident_digest':'digest'},
+    {'operator_confirmed':True,'confirmation_reference':'other','incident_digest':'digest'}])
+def test_operator_override_requires_explicit_exact_digest_confirmation(tmp_path,monkeypatch,arguments):
+    ui,_,_,_=legacy_probe_setup(monkeypatch,tmp_path)
+    probe.recheck(ui)
+    with pytest.raises(ValueError,match='exact previewed'):
+        probe.operator_override(ui,**arguments)
+    assert probe.read_json(probe.JOURNAL)['phase']=='aborted_no_trade_observed'
+
+
+def test_unrecognized_legacy_phase_cannot_enter_override_path(tmp_path,monkeypatch):
+    ui,old,_,_=legacy_probe_setup(monkeypatch,tmp_path)
+    probe.write_json(probe.JOURNAL,{**old,'phase':'unknown_history'})
+    with pytest.raises(ValueError,match='No known unfinished'):
+        probe.recheck(ui)
+
+
+def test_probe_recheck_and_override_refuse_running_probe(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    ui,_,_,_=legacy_probe_setup(monkeypatch,tmp_path)
+    preview=probe.recheck(ui);digest=preview['incident_digest']
+    ui.delivery_probe_thread=SimpleNamespace(is_alive=lambda:True)
+    with pytest.raises(ValueError,match='Wait for delivery input'):probe.recheck(ui)
+    with pytest.raises(ValueError,match='Wait for delivery input'):
+        probe.operator_override(ui,operator_confirmed=True,
+            confirmation_reference=digest,incident_digest=digest)
+
+
 @pytest.mark.parametrize('change',[None,'position','currency','identity','inventory','request'])
 def test_request_probe_rechecks_both_participants_before_input(change):
     item=dict(uid=10,type_id=720027,plus=0,gem1=0,gem2=0,quantity=1,bound=False,slot=0)

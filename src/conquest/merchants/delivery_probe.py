@@ -15,6 +15,10 @@ from conquest.merchants.journal import character_name
 from conquest.character_context import state_path, farmer_name
 JOURNAL=Path(state_path('reports/merchants/delivery-request-probe.json'))
 TERMINAL={'delivery_verified','cancel_verified','operator_overridden'}
+RECOVERABLE={'prepared','targeting_submitted','targeting_verified','request_submitted',
+             'request_verified','accept_submitted','trade_open_verified','placement_submitted',
+             'offer_verified','farmer_confirm_submitted','farmer_confirm_verified',
+             'merchant_confirm_submitted','cancel_submitted','aborted_no_trade_observed'}
 
 
 def write_probe(path,state):
@@ -25,7 +29,7 @@ def write_probe(path,state):
         os.fsync(stream.fileno())
 
 
-def previous_probe():
+def read_probe():
     # read_json intentionally tolerates malformed diagnostic files. A missing
     # transaction receipt is different: corruption must never authorize input.
     try:
@@ -34,7 +38,17 @@ def previous_probe():
         return None
     except (OSError,ValueError) as error:
         raise ValueError('Trade probe evidence is unreadable; reconcile before input') from error
-    if not isinstance(state,dict) or state.get('phase') not in TERMINAL:
+    if not isinstance(state,dict):
+        raise ValueError('Trade probe evidence is unreadable; reconcile before input')
+    if Path(str(JOURNAL)+'.override-intent.json').exists():
+        from conquest.recovery_override import read_recovered
+        state=read_recovered(JOURNAL)
+    return state
+
+
+def previous_probe():
+    state=read_probe()
+    if state is not None and state.get('phase') not in TERMINAL:
         raise ValueError('Reconcile existing trade request probe before further input')
     return state
 
@@ -52,6 +66,84 @@ def archive_probe(state):
     except FileExistsError:
         if path.read_bytes()!=raw:
             raise ValueError('Trade probe archive differs from its historical receipt')
+
+
+def recovery_available(ui):
+    if (getattr(ui,'delivery_probe_thread',None) and ui.delivery_probe_thread.is_alive()
+            or any(worker.is_alive() for worker in getattr(ui,'delivery_workers',{}).values())):
+        raise ValueError('Wait for delivery input to finish before rechecking its evidence')
+
+
+def recovery_evidence(ui,state):
+    """Current ownership is planning evidence, never proof of an old outcome."""
+    from conquest.merchants.manual_sessions import canonical_ownership
+    from conquest.recovery_override import evidence_digest
+    character=character_name(state.get('character'))
+    intent=state.get('intent',{})
+    farmer,merchant=pair(ui,character,farmer_preflight=True)
+    proof={}
+    now=time.time()
+    for role,snapshot in (('farmer',farmer),('merchant',merchant)):
+        old=intent.get(role,{})
+        proof[role]=canonical_ownership(snapshot)
+        if (any(snapshot.get(key)!=old.get(key) for key in ('character','character_uid','server'))
+                or not 0<=now-snapshot['timestamp']<=5 or snapshot.get('hp',0)<=0):
+            raise ValueError('Recheck requires fresh memory of the original named characters')
+    return {'observed_at':now,'farmer':farmer,'merchant':merchant,
+            'ownership_digest':evidence_digest(proof),'historical_outcome':'unknown'}
+
+
+def recheck(ui):
+    """Preview the exact incident and fresh pair without input or disposition."""
+    from conquest.recovery_override import evidence_digest
+    recovery_available(ui)
+    state=read_probe()
+    if not state or state.get('phase') not in RECOVERABLE:
+        raise ValueError('No known unfinished trade probe is available for operator review')
+    digest=evidence_digest(state)
+    fresh=recovery_evidence(ui,state)
+    if evidence_digest(read_probe())!=digest:
+        raise ValueError('Trade probe changed during recheck')
+    preview={'incident_digest':digest,'fresh_evidence':fresh,
+             'evidence_digest':fresh['ownership_digest'],'original_phase':state['phase']}
+    write_probe(Path(str(JOURNAL)+'.recheck.json'),preview)
+    return preview
+
+
+def operator_override(ui,*,operator_confirmed=False,confirmation_reference=None,
+                      incident_digest=None,operator=None):
+    """Explicitly close a legacy/uncertain probe without inventing a receipt."""
+    from conquest.recovery_override import evidence_digest,operator_override as close
+    recovery_available(ui)
+    if (operator_confirmed is not True or not isinstance(incident_digest,str)
+            or not incident_digest or confirmation_reference!=incident_digest):
+        raise ValueError('Confirm the exact previewed trade-probe incident digest')
+    state=read_probe()
+    if state and state.get('phase')=='operator_overridden':
+        previous=state.get('operator_override',{})
+        if (previous.get('confirmation_reference')==confirmation_reference
+                and previous.get('original_evidence_digest')==incident_digest):
+            return {'phase':'operator_overridden','historical_outcome':'unknown',
+                    'incident_digest':incident_digest,'replan_required':True}
+        raise ValueError('Trade probe was already overridden with a different confirmation')
+    if not state or state.get('phase') not in RECOVERABLE or evidence_digest(state)!=incident_digest:
+        raise ValueError('Trade probe incident changed; recheck before overriding')
+    preview=read_json(Path(str(JOURNAL)+'.recheck.json'))
+    if (preview.get('incident_digest')!=incident_digest
+            or not 0<=time.time()-preview.get('fresh_evidence',{}).get('observed_at',0)<=30):
+        raise ValueError('A fresh trade-probe recheck is required before overriding')
+    fresh=recovery_evidence(ui,state)
+    if fresh['ownership_digest']!=preview.get('evidence_digest'):
+        raise ValueError('Current ownership changed; preview the trade probe again')
+    # The historical text "no trade observed" did not retain after-snapshots.
+    # Preserve it verbatim, but disposition remains an explicit unknown outcome.
+    archive_probe(state)
+    result=close(JOURNAL,pending_phases=RECOVERABLE,operator_confirmed=True,
+        confirmation_reference=confirmation_reference,incident_digest=incident_digest,
+        operator=operator,fresh_evidence=fresh,incident='delivery-request-probe')
+    write_probe(JOURNAL,result)
+    return {'phase':'operator_overridden','historical_outcome':'unknown',
+            'incident_digest':incident_digest,'replan_required':True}
 
 
 def selected_intent(farmer,merchant,uids):

@@ -5,13 +5,14 @@ from conquest.merchants.memory import MerchantMemory
 from conquest.merchants import delivery_reservation as reservations
 
 
-def pair(ui,character):
+def pair(ui,character,*,farmer_preflight=False):
     farmer=ui.app.observer
     receiver=ui.runtime.observers.get(character)
     if farmer is None or farmer.character!=farmer_name() or receiver is None:
         raise ValueError('Delivery requires both verified connected characters')
     with farmer.lock:
-        source=MerchantMemory(farmer).read()
+        source=(MerchantMemory(farmer).read(farmer_preflight=True) if farmer_preflight
+                else MerchantMemory(farmer).read())
     with receiver.lock:
         destination=ui.runtime.controllers[character].driver.read()
     return source,destination
