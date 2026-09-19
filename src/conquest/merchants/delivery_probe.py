@@ -216,7 +216,8 @@ def start(ui,character,*,uids=None):
         raise ValueError('Trade probe requires stopped farming and released input')
     f,m=pair(ui,character)
     intent=selected_intent(f,m,uids)
-    if max(abs(a-b) for a,b in zip(f['position'],m['position']))>12:
+    from conquest.merchants.approach import within_delivery_probe_range
+    if not within_delivery_probe_range(f['position'],m['position']):
         raise ValueError('Approach the memory-identified merchant before the trade probe')
     revision=ui.app.control.snapshot()['revision']
     state={'phase':'prepared','character':character,'intent':intent,'started_at':time.time(),

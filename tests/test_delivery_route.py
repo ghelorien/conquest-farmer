@@ -310,6 +310,41 @@ def test_merchant_already_in_trade_range_does_not_move(rig):
     assert not any(e=='travel' for e,_ in rig.events)
 
 
+def test_actionable_target_at_thirteen_tiles_continues_to_checked_range(rig):
+    rig.f['position']=[226,209];rig.d['position']=[239,213]
+    def send(body):
+        result=rig.send(body)
+        if body['action']=='delivery-target':result['ready']=True
+        return result
+    assert route.approach_merchant(
+        rig.loop,{'merchant':'Dutch','position':[239,213]},send)
+    assert max(abs(a-b) for a,b in zip(rig.f['position'],rig.d['position']))<=12
+    assert any(event=='travel' for event,_ in rig.events)
+
+
+def test_actionable_out_of_range_target_fails_when_no_checked_tile_exists(rig):
+    rig.f['position']=[226,209];rig.d['position']=[239,213]
+    rig.loop.terrain.walkable=lambda point:False
+    def send(body):
+        result=rig.send(body)
+        if body['action']=='delivery-target':result['ready']=True
+        return result
+    assert not route.approach_merchant(
+        rig.loop,{'merchant':'Dutch','position':[239,213]},send)
+    assert not any(event=='travel' for event,_ in rig.events)
+
+
+def test_actionable_target_at_exactly_twelve_tiles_does_not_move(rig):
+    rig.f['position']=[227,209];rig.d['position']=[239,213]
+    def send(body):
+        result=rig.send(body)
+        if body['action']=='delivery-target':result['ready']=True
+        return result
+    assert route.approach_merchant(
+        rig.loop,{'merchant':'Dutch','position':[239,213]},send)
+    assert not any(event=='travel' for event,_ in rig.events)
+
+
 def test_merchant_approach_requires_visible_reachable_tile(rig):
     rig.f['position']=[10,10];rig.d['position']=[40,10]
     assert route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[40,10]},rig.send)

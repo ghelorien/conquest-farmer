@@ -212,7 +212,8 @@ def test_completion_revalidates_payload_after_actionability_read(tmp_path, monke
     monkeypatch.setattr(prep,'_release_window',lambda ui,key:None)
     monkeypatch.setattr(prep,'pair',lambda *args,**fields:tuple(map(copy.deepcopy,next(sequence))))
     monkeypatch.setattr('conquest.merchants.delivery_route.approach_merchant',lambda *args,**fields:True)
-    send=lambda body:{'merchant_position':[10,10],'ready':True}
+    send=lambda body:{'farmer_position':[10,10],'merchant_position':[10,10],
+                      'ready':True,'actionable':True}
     with pytest.raises(ValueError,match='Loose Meteors'):
         prep._run(object(),state,send=send)
     assert state['phase']=='approaching' and 'completed_at' not in state
@@ -252,7 +253,9 @@ def run_market_prep(tmp_path,monkeypatch,state,current_farmer,current_merchant,*
         pytest.fail('Market fast path must not withdraw'))
     monkeypatch.setattr('conquest.merchants.delivery_route.approach_merchant',
         lambda *args,**fields:True)
-    target={'merchant_position':current_merchant['position'],'ready':True}
+    target={'farmer_position':current_farmer['position'],
+            'merchant_position':current_merchant['position'],
+            'ready':True,'actionable':True}
     prep._run(object(),state,send=lambda body:copy.deepcopy(target))
 
 
@@ -387,7 +390,7 @@ def test_market_fast_path_resume_rejects_malformed_or_changed_proof(tmp_path,mon
     assert state['phase']=='banked'
 
 
-@pytest.mark.parametrize(('changed_read','change'),[(4,'trade'),(4,'request'),(5,'map')])
+@pytest.mark.parametrize(('changed_read','change'),[(4,'trade'),(4,'request'),(5,'map'),(5,'position')])
 def test_market_fast_path_revalidates_after_approach_and_before_completion(
         tmp_path,monkeypatch,changed_read,change):
     arrow,selected=market_payload()
@@ -400,9 +403,10 @@ def test_market_fast_path_revalidates_after_approach_and_before_completion(
         if calls[0]>=changed_read:
             if change=='trade':current_farmer['trade']={'participant':'Spiritual'}
             elif change=='request':current_merchant['request']={'participant':'Parasite'}
-            else:current_farmer['map_id']=1002
+            elif change=='map':current_farmer['map_id']=1002
+            else:current_farmer['position']=[23,10]
         return current_farmer,current_merchant
-    with pytest.raises(ValueError,match='idle trade|remain in Market'):
+    with pytest.raises(ValueError,match='idle trade|remain in Market|distance changed'):
         run_market_prep(tmp_path,monkeypatch,state,farmer,merchant,pair_read=pair_read)
     assert state['phase']=='approaching' and 'completed_at' not in state
 
@@ -582,6 +586,18 @@ def test_prep_target_projection_does_not_require_final_delivery_qualification(tm
     result=prep.target_projection(ui,'Spiritual')
     assert result['ready'] is True and result['point']==[500,300]
     assert result['farmer_position']==farmer['position']
+
+
+def test_prep_target_projection_requires_probe_range_with_inclusive_twelve(tmp_path,monkeypatch):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+    farmer['position']=[226,209];merchant['position']=[239,213]
+    result=prep.target_projection(ui,'Spiritual')
+    assert result['actionable'] is True and result['ready'] is False
+    assert result['reason']=='recipient_out_of_range'
+
+    farmer['position']=[227,209]
+    result=prep.target_projection(ui,'Spiritual')
+    assert result['actionable'] is True and result['ready'] is True
 
 
 @pytest.mark.parametrize('failure', ['corrupt','wrong_build','schema','stale'])

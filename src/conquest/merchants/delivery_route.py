@@ -194,7 +194,7 @@ def refill_remainder(loop,send,key,deadline,proof,revision):
 
 def approach_merchant(loop,plan,send,*,deadline=None):
     """World distance ranks candidates; the driver shares the arrival proof."""
-    from conquest.merchants.approach import ingress_position,positions
+    from conquest.merchants.approach import ingress_position,positions,within_delivery_probe_range
     from conquest.travel_progress import TravelStalled
     used=[]
     correction_deadline=time.time()+15
@@ -206,7 +206,9 @@ def approach_merchant(loop,plan,send,*,deadline=None):
         if time.time()>=correction_deadline:return False
         if probe.get('merchant_position')!=plan['position']:
             return False
-        if probe.get('ready'):return True
+        if (probe.get('ready') and within_delivery_probe_range(
+                probe.get('farmer_position'), probe.get('merchant_position'))):
+            return True
         if attempt==3:return False
         if probe.get('reason')=='recipient_absent':
             ingress=ingress_position(loop.terrain,probe,used=used,deadline=correction_deadline)

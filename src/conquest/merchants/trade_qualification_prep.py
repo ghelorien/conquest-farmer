@@ -355,11 +355,15 @@ def target_projection(ui, character):
                 'merchant_position': merchant['position'], 'point': None,
                 'viewport': gui, 'client_size': size, 'anchor': first_anchor,
                 'occupied_tiles': occupied}
-    return {'schema_version': 1, 'ready': first['actionable'], 'reason': first['reason'],
+    from conquest.merchants.approach import within_delivery_probe_range
+    in_range = within_delivery_probe_range(farmer['position'], merchant['position'])
+    ready = first['actionable'] and in_range
+    reason = first['reason'] if in_range or not first['actionable'] else 'recipient_out_of_range'
+    return {'schema_version': 1, **first, 'ready': ready, 'reason': reason,
             'character': farmer['character'], 'farmer_position': farmer['position'],
             'merchant': merchant['character'], 'merchant_position': merchant['position'],
             'point': first['recipient']['point'], 'viewport': gui, 'client_size': size,
-            'anchor': first_anchor, 'occupied_tiles': occupied, **first}
+            'anchor': first_anchor, 'occupied_tiles': occupied}
 
 
 def _validate_request(ui, character, uid):
@@ -784,7 +788,7 @@ def _run(ui, state, *, send=request):
                 _same_participant(merchant, state['merchant'], 'Merchant')
                 _payload_is_safe(source, state)
             target = prep_send({'action': 'delivery-target', 'character': state['character']})
-            if not target.get('ready'):
+            if target.get('ready') is not True or target.get('actionable') is not True:
                 raise ValueError('Merchant is not memory-actionable after approach')
             source, merchant = pair(ui, state['character'])
             if state.get('origin') == 1036:
@@ -792,6 +796,12 @@ def _run(ui, state, *, send=request):
             else:
                 _same_participant(merchant, state['merchant'], 'Merchant')
                 _payload_is_safe(source, state)
+            from conquest.merchants.approach import within_delivery_probe_range
+            if (target.get('farmer_position') != source.get('position')
+                    or target.get('merchant_position') != merchant.get('position')
+                    or not within_delivery_probe_range(source.get('position'),
+                                                       merchant.get('position'))):
+                raise ValueError('Trade-probe distance changed after final target projection')
             _save(state, 'completed', completed_at=time.time(),
                   farmer_position=source['position'], merchant_position=merchant['position'])
     finally:
