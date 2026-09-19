@@ -40,7 +40,16 @@ def read_probe():
         raise ValueError('Trade probe evidence is unreadable; reconcile before input') from error
     if not isinstance(state,dict):
         raise ValueError('Trade probe evidence is unreadable; reconcile before input')
-    if Path(str(JOURNAL)+'.override-intent.json').exists():
+    intent_path=Path(str(JOURNAL)+'.override-intent.json')
+    if intent_path.exists():
+        try:
+            override=json.loads(intent_path.read_text(encoding='utf-8'))
+            if (not isinstance(override,dict) or not isinstance(override.get('record'),dict)
+                    or override.get('terminal_phase')!='operator_overridden'
+                    or not isinstance(override.get('audit'),str) or not override['audit']):
+                raise ValueError('Invalid operator disposition intent')
+        except (OSError,ValueError) as error:
+            raise ValueError('Trade probe override evidence is unreadable; no input is authorized') from error
         from conquest.recovery_override import read_recovered
         state=read_recovered(JOURNAL)
     return state

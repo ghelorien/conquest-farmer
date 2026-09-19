@@ -2,8 +2,7 @@
 import importlib
 import threading
 import time
-from conquest.discord_notify import read_json
-from conquest.merchants.delivery_probe import JOURNAL,write_probe as write_json
+from conquest.merchants.delivery_probe import JOURNAL,read_probe,write_probe as write_json
 
 
 def start(ui,stage):
@@ -17,8 +16,11 @@ def start(ui,stage):
     from conquest.merchants.farmer_identity import ui_character
     permits_new_delivery(ui_character(ui));ui.coordinator.check()
     if not ui.safe_to_yield():raise ValueError('Farmer input has not been released')
-    state=read_json(JOURNAL)
-    if state.get('phase')!={'accept':'request_verified','cancel':'request_verified','offer':'trade_open_verified','confirm':'offer_verified'}[stage]:
+    # Complete any durable operator disposition before considering input.
+    # A crash after override-intent persistence leaves the original phase on
+    # disk; reading that phase directly could restart accept/confirm input.
+    state=read_probe()
+    if not state or state.get('phase')!={'accept':'request_verified','cancel':'request_verified','offer':'trade_open_verified','confirm':'offer_verified'}[stage]:
         raise ValueError('Reconcile the previous delivery stage first')
     module=importlib.import_module('conquest.merchants.delivery_'+stage+'_probe')
     def work():
