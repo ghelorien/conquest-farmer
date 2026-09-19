@@ -2,12 +2,14 @@ import json
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 import pytest
 from conquest.character_profiles import ProfileRegistry, context_for, write_json
 from conquest.character_context import (state_path, farmer_name, resolve_merchant, credential_for,
     OwnedMerchants, trusted_delivery, ProfileMap, ProfileName, is_farmer_owner)
 from conquest.profile_editor import (OPEN_SELECTED_CHARACTER, profile_choice_rows,
-    selected_profile_id)
+    selected_profile_id, new_character_role, open_on_profile_double_click,
+    toggle_advanced_section)
 
 
 @pytest.fixture(autouse=True)
@@ -47,6 +49,33 @@ def test_profile_chooser_keeps_character_rows_visible_and_preselects_an_openable
     assert selected_profile_id(rows,preferred='missing',previous=merchant.id)==merchant.id
     assert selected_profile_id([]) is None
     assert OPEN_SELECTED_CHARACTER=='Open selected character'
+
+
+def test_profile_quick_actions_use_an_explicit_role_and_safe_double_click_and_toggle_wiring(tmp_path):
+    registry=ProfileRegistry(tmp_path);registry.add('Existing seller',role='Merchant')
+    added=registry.add('New farmer',role=new_character_role('Farmer'))
+    assert added.role=='Farmer'
+    assert new_character_role('merchant')=='Merchant'
+    assert new_character_role(' Farmer ')=='Farmer'
+    with pytest.raises(ValueError,match='Farmer or Merchant'):
+        new_character_role('')
+
+    tree=Mock();action=Mock();event=SimpleNamespace(y=20)
+    tree.identify_row.return_value=''
+    open_on_profile_double_click(event,tree,action)
+    action.assert_not_called()
+    tree.identify_row.return_value='profile-id'
+    open_on_profile_double_click(event,tree,action)
+    action.assert_called_once_with()
+    assert tree.identify_row.call_args_list[0].args==(20,)
+
+    section=Mock();button=Mock();section.winfo_manager.side_effect=(True,False)
+    toggle_advanced_section(section,button)
+    section.pack_forget.assert_called_once_with()
+    button.configure.assert_called_with(text='Show character settings')
+    toggle_advanced_section(section,button)
+    section.pack.assert_called_once_with(fill='x',pady=(6,0))
+    assert button.configure.call_args_list[-1].kwargs=={'text':'Hide character settings'}
 
 
 def test_labels_do_not_key_records_or_credentials(tmp_path,monkeypatch):

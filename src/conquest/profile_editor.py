@@ -3,7 +3,7 @@ import json
 import tkinter as tk
 from tkinter import ttk, filedialog, simpledialog, messagebox
 from pathlib import Path
-from conquest.character_profiles import SETTING_TYPES, write_json, context_for
+from conquest.character_profiles import ROLES, SETTING_TYPES, write_json, context_for
 
 
 OPEN_SELECTED_CHARACTER = 'Open selected character'
@@ -19,6 +19,25 @@ def selected_profile_id(rows,preferred=None,previous=None):
     """Keep the chooser actionable: prefer an explicit choice, then a prior one."""
     ids={profile_id for profile_id,_ in rows}
     return preferred if preferred in ids else previous if previous in ids else (rows[0][0] if rows else None)
+
+
+def new_character_role(value):
+    """Validate the explicit role requested while creating a profile."""
+    role=value.strip().title() if isinstance(value,str) else ''
+    if role not in ROLES:raise ValueError('Role must be Farmer or Merchant')
+    return role
+
+
+def open_on_profile_double_click(event,tree,action):
+    """Only activate a profile when the double-click hit a real chooser row."""
+    if tree.identify_row(event.y):action()
+
+
+def toggle_advanced_section(section,button):
+    if section.winfo_manager():
+        section.pack_forget();button.configure(text='Show character settings')
+    else:
+        section.pack(fill='x',pady=(6,0));button.configure(text='Hide character settings')
 
 
 def manage_profiles(registry,selected=None):
@@ -40,7 +59,7 @@ def manage_profiles(registry,selected=None):
     quick_secondary=ttk.Frame(quick_actions);quick_secondary.pack(fill='x',pady=(4,0))
     ttk.Button(quick_secondary,text='Add character',command=lambda:guarded(add)).pack(side='left',expand=True,fill='x',padx=(0,2))
     ttk.Button(quick_secondary,text='Import settings',command=lambda:guarded(import_settings)).pack(side='left',expand=True,fill='x',padx=2)
-    advanced_button=ttk.Button(quick_secondary,text='Show character settings',command=lambda:toggle_advanced())
+    advanced_button=ttk.Button(quick_secondary,text='Show character settings',command=lambda:toggle_advanced_section(advanced,advanced_button))
     advanced_button.pack(side='left',expand=True,fill='x',padx=(2,0))
 
     advanced=ttk.LabelFrame(frame,text='Character settings and advanced options',padding=8)
@@ -102,7 +121,10 @@ def manage_profiles(registry,selected=None):
         if not name:return
         server=simpledialog.askstring('Server','Server (the current engine supports America):',initialvalue='America',parent=root)
         if not server:return
-        p=registry.add(name,server,role.get());refresh(p.id)
+        requested_role=simpledialog.askstring('New character role','Role for this character: Farmer or Merchant',
+            initialvalue='Farmer',parent=root)
+        if requested_role is None:return
+        p=registry.add(name,server,new_character_role(requested_role));refresh(p.id)
     def save():
         p=chosen()
         registry.update(p.id,{'label':label.get(),'role':role.get(),'local_enabled':enabled.get(),
@@ -159,18 +181,12 @@ def manage_profiles(registry,selected=None):
             save_notification_webhook(context_for(p.id,registry.root),value)
             note.set('Notification destination saved encrypted on this PC.')
     tree.bind('<<TreeviewSelect>>',load)
-    tree.bind('<Double-1>',lambda event:guarded(start))
+    tree.bind('<Double-1>',lambda event:open_on_profile_double_click(event,tree,lambda:guarded(start)))
     open_button.configure(command=lambda:guarded(start))
     row=ttk.Frame(advanced);row.pack(fill='x')
     for index,(text,action) in enumerate([('Save changes',save),('Revoke selected manual visitor',revoke_visitors),('Export settings',export),('Game installation',installation),('Save as template',save_template),('Account login',login),('Discord destination',notification)]):
         ttk.Button(row,text=text,command=lambda f=action:guarded(f)).grid(row=index//3,column=index%3,sticky='ew',padx=2,pady=2)
         row.columnconfigure(index%3,weight=1)
-
-    def toggle_advanced():
-        if advanced.winfo_manager():
-            advanced.pack_forget();advanced_button.configure(text='Show character settings')
-        else:
-            advanced.pack(fill='x',pady=(6,0));advanced_button.configure(text='Hide character settings')
 
     def wrap(event):
         width=max(240,event.width-24)
