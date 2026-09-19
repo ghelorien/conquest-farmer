@@ -1323,7 +1323,8 @@ class UnifiedUI:
             host.detach()
         self.notebook.select(self.frames[character])
         self.detail_tabs[character].select(0)
-        self.apply_client_compact_layout()
+        layout=getattr(self,'apply_client_compact_layout',None)
+        if layout:layout()
         self.root.update_idletasks()
         pane = self.client_panes[character]
         from conquest.character_context import registry
@@ -1368,7 +1369,8 @@ class UnifiedUI:
         self.input_bookmarks[character] = bookmark
         self.notebook.select(self.frames[character])
         self.detail_tabs[character].select(0)
-        self.apply_client_compact_layout()
+        layout=getattr(self,'apply_client_compact_layout',None)
+        if layout:layout()
         self.root.update_idletasks()
         # Switching Tk tabs does not synchronously hide the owned top-level
         # game. Explicitly hide siblings before showing the next input owner.
