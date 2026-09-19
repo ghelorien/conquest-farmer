@@ -120,6 +120,25 @@ target identity before any session exists raises an error; the integration must
 hold input on that error. Booth stock is separate from bag capacity, so combined
 bag and booth count may legitimately exceed `capacity`.
 
+Evidence-settled terminal receipts and their immutable `session_terminal` audit
+payload include `ownership_delta` (version 1). Its baseline is the session's
+first immutable request ownership image; approval requires those same holdings
+at activation. `baseline_request_id` and `baseline_evidence_digest` identify that
+source. Additional approved requests may reset stabilization but do not erase
+earlier changes within the same manual interval.
+
+The delta contains canonical before/after ownership digests; UID-sorted
+`items.added`, `removed`, `changed`, and `moved` lists; explicit before/after/net
+`silver` and bag `capacity`; and before/after `booth_state` (`booth_open` and
+`own_booth_uid`). Each UID appears in one item category. Added/removed entries
+retain location and the complete canonical item. Changed/moved entries retain
+both exact records plus `changed_fields`, including binding, quantity, sockets,
+and any booth price addition/removal/change. A move that also changes attributes
+remains one moved entry with all those differences recorded. Unchanged holdings
+produce empty item lists and explicit zero scalar deltas. These facts carry no
+counterparty, sale, delivery, or transaction-success attribution. Operator
+overrides have no settled final evidence and do not synthesize this delta.
+
 `operator_override(session_id, confirmation_reference=..., operator=...,
 reason=..., now=None)` records the explicit `operator_overridden` disposition.
 It is idempotent for that same confirmation reference and never represents a
@@ -145,7 +164,8 @@ Construct the store with the exact `Journal.path`. Supply
 `on_settlement(db, session_view, snapshot, receipt)` to update sales exclusion
 events, reset the sales baseline and record newly observed stock using the
 provided SQLite connection. The hook executes inside the same transaction as
-the final evidence, terminal session transition and audit receipt. Hook failure
+the final evidence, terminal session transition, ownership delta and audit
+receipt. The complete delta is already persisted when the hook runs. Hook failure
 rolls all those writes back; later observation can retry. Do not open another
 connection, commit/rollback, send input, or perform network I/O from this hook.
 The hook runs once for evidence-settled terminals, not for operator overrides.

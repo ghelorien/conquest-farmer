@@ -188,6 +188,45 @@ def _holdings(proof):
     return {**proof, 'request': None, 'trade': None}
 
 
+def _ownership_delta(before, after):
+    """Attribution-free differences between already-qualified canonical proofs.
+
+    Each UID appears in exactly one item category. Moves include both exact
+    records and changed fields, even when the move also changes item attributes
+    or adds/removes a booth price. Neither presence nor absence identifies the
+    source, destination, mechanism, or outcome of a transaction.
+    """
+    def located(proof):
+        return {item['uid']: {'location': location, 'item': item}
+                for location in ('inventory', 'booth') for item in proof[location]}
+
+    old, current = located(before), located(after)
+    items = {'added': [], 'removed': [], 'changed': [], 'moved': []}
+    for uid in sorted(old.keys() | current.keys()):
+        previous, final = old.get(uid), current.get(uid)
+        if previous is None:
+            items['added'].append(final)
+        elif final is None:
+            items['removed'].append(previous)
+        elif previous != final:
+            fields = sorted(field for field in previous['item'].keys() | final['item'].keys()
+                            if previous['item'].get(field) != final['item'].get(field))
+            category = 'moved' if previous['location'] != final['location'] else 'changed'
+            items[category].append({'uid': uid, 'before': previous, 'after': final,
+                                    'changed_fields': fields})
+    booth_fields = ('booth_open', 'own_booth_uid')
+    return {
+        'version': 1,
+        'before_ownership_digest': _digest(_holdings(before)),
+        'after_ownership_digest': _digest(_holdings(after)),
+        'items': items,
+        **{field: {'before': before[field], 'after': after[field],
+                    'delta': after[field] - before[field]} for field in ('silver', 'capacity')},
+        'booth_state': {'before': {field: before[field] for field in booth_fields},
+                        'after': {field: after[field] for field in booth_fields}},
+    }
+
+
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS manual_schema(version INTEGER PRIMARY KEY CHECK(version=1));
 INSERT OR IGNORE INTO manual_schema VALUES(1);
@@ -609,9 +648,20 @@ class ManualSessionStore:
                     self._attention(db, row, 'Unapproved ownership changed', now, evidence_id)
                 elif row['stable_digest'] == digest and snapshot['timestamp'] - row['stable_since'] >= SETTLEMENT_SECONDS:
                     phase = 'completed' if row['ever_approved'] else 'declined_verified' if claimed else 'request_withdrawn'
+                    # Keep the whole manual interval, including earlier requests
+                    # when a later approval reset stabilization. Approval checks
+                    # require these initial holdings to match at activation.
+                    baseline = db.execute('SELECT * FROM manual_requests WHERE session_id=? ORDER BY rowid LIMIT 1',
+                                          (session_id,)).fetchone()
+                    if baseline is None:
+                        raise ManualSessionError('Manual ownership baseline is unavailable')
+                    baseline_binding = json.loads(baseline['binding_json'])
                     receipt = {'phase': phase, 'ownership_digest': digest, 'first_evidence_id': row['stable_evidence_id'],
                                'final_evidence_id': evidence_id, 'stable_since': row['stable_since'],
-                               'settled_at': snapshot['timestamp'], 'sales_receipt': False}
+                               'settled_at': snapshot['timestamp'], 'sales_receipt': False,
+                               'baseline_request_id': baseline['id'],
+                               'baseline_evidence_digest': baseline_binding['evidence_digest'],
+                               'ownership_delta': _ownership_delta(json.loads(baseline['before_json']), proof)}
                     db.execute('UPDATE manual_sessions SET phase=?,terminal_json=?,last_observed_at=?,updated_at=? WHERE id=?',
                                (phase, _json(receipt), snapshot['timestamp'], now, session_id))
                     self._audit(db, session_id, 'session_terminal', receipt, now)

@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+import json
 import sqlite3
 import threading
 
@@ -420,6 +421,11 @@ def test_settlement_hook_commits_sales_state_and_audit_together(store):
     def hook(db, session, evidence, receipt):
         assert session['phase'] == 'completed'
         assert evidence['timestamp'] == 107
+        assert session['terminal']['ownership_delta'] == receipt['ownership_delta']
+        durable = db.execute('SELECT terminal_json FROM manual_sessions WHERE id=?', (session['id'],)).fetchone()[0]
+        assert json.loads(durable)['ownership_delta'] == receipt['ownership_delta']
+        audited = db.execute("SELECT payload_json FROM manual_audit WHERE session_id=? AND event='session_terminal'", (session['id'],)).fetchone()[0]
+        assert json.loads(audited)['ownership_delta'] == receipt['ownership_delta']
         db.execute('INSERT INTO integration_receipts VALUES(?,?)', (session['id'], receipt['ownership_digest']))
         calls.append(session['id'])
     integrated = ManualSessionStore(store.path, on_settlement=hook)
@@ -435,20 +441,110 @@ def test_settlement_hook_commits_sales_state_and_audit_together(store):
 def test_settlement_hook_failure_rolls_back_terminal_audit_evidence_and_external_writes(store):
     with store.db() as db:
         db.execute('CREATE TABLE integration_receipts(session_id TEXT)')
+    observed_deltas = []
     def hook(db, session, evidence, receipt):
         db.execute('INSERT INTO integration_receipts VALUES(?)', (session['id'],))
+        observed_deltas.append(receipt['ownership_delta'])
         raise RuntimeError('sales write failed')
     integrated = ManualSessionStore(store.path, on_settlement=hook)
     row = activate(integrated)
-    integrated.observe(row['id'], snapshot(102, request=False), now=102)
+    integrated.observe(row['id'], snapshot(102, request=False, silver=1250), now=102)
     count = len(integrated.evidence(row['id']))
     with pytest.raises(RuntimeError, match='sales write'):
-        integrated.observe(row['id'], snapshot(107, request=False), now=107)
+        integrated.observe(row['id'], snapshot(107, request=False, silver=1250), now=107)
     assert integrated.get(row['id'])['phase'] == 'settlement_observed'
+    assert integrated.get(row['id'])['terminal'] is None
     assert len(integrated.evidence(row['id'])) == count
     assert not any(a['event'] == 'session_terminal' for a in integrated.audit())
     with store.db() as db:
         assert db.execute('SELECT count(*) FROM integration_receipts').fetchone()[0] == 0
+    retried = store.observe(row['id'], snapshot(108, request=False, silver=1250), now=108)
+    assert retried['terminal']['ownership_delta'] == observed_deltas[0]
+    assert retried['terminal']['ownership_delta']['silver']['delta'] == 250
+    assert store.verify_audit()
+
+
+def test_terminal_delta_records_exact_added_removed_changed_and_moved_items(store):
+    first = snapshot(100, inventory=[item(100), item(102), item(103)],
+                     booth=[item(101, price=200), item(104, price=500)])
+    row = store.begin_request('merchant-id', first, now=100)
+    binding = row['approval_binding']
+    store.allow_and_activate(binding, {**first, 'timestamp': 101}, operator='Floor', now=101)
+    final = snapshot(102, request=False,
+        inventory=[item(200), {**item(102), 'quantity': 2, 'bound': True, 'gem1': 13}, item(101)],
+        booth=[item(104, price=600), {**item(103, price=300), 'plus': 2}], silver=1250)
+    store.observe(row['id'], final, now=102)
+    terminal = store.observe(row['id'], {**final, 'timestamp': 107}, now=107)['terminal']
+    delta = terminal['ownership_delta']
+    before = canonical_ownership(first, require_closed=False)
+    after = canonical_ownership(final)
+    assert terminal['baseline_request_id'] == binding['request_id']
+    assert terminal['baseline_evidence_digest'] == binding['evidence_digest']
+    assert delta['after_ownership_digest'] == terminal['ownership_digest']
+    assert delta['before_ownership_digest'] == ownership_digest({**first, 'request': None})
+    assert delta['items']['added'] == [{'location': 'inventory', 'item': after['inventory'][2]}]
+    assert delta['items']['removed'] == [{'location': 'inventory', 'item': before['inventory'][0]}]
+    changed = delta['items']['changed']
+    assert [change['uid'] for change in changed] == [102, 104]
+    assert changed[0] == {'uid': 102,
+        'before': {'location': 'inventory', 'item': before['inventory'][1]},
+        'after': {'location': 'inventory', 'item': after['inventory'][1]},
+        'changed_fields': ['bound', 'gem1', 'quantity']}
+    assert changed[1]['before']['item']['price'] == 500
+    assert changed[1]['after']['item']['price'] == 600
+    assert changed[1]['changed_fields'] == ['price']
+    moved = delta['items']['moved']
+    assert moved == [
+        {'uid': 101, 'before': {'location': 'booth', 'item': before['booth'][0]},
+         'after': {'location': 'inventory', 'item': after['inventory'][0]}, 'changed_fields': ['price']},
+        {'uid': 103, 'before': {'location': 'inventory', 'item': before['inventory'][2]},
+         'after': {'location': 'booth', 'item': after['booth'][0]}, 'changed_fields': ['plus', 'price']}]
+    assert terminal['sales_receipt'] is False
+    audited = [entry for entry in store.audit(row['id']) if entry['event'] == 'session_terminal'][0]
+    assert audited['payload']['ownership_delta'] == delta
+    assert store.verify_audit()
+
+
+def test_terminal_delta_records_silver_capacity_and_booth_state_without_attribution(store):
+    row = activate(store)
+    final = snapshot(102, request=False, silver=500, capacity=39, booth_open=False, own_booth_uid=0,
+                     inventory=[item(100), item(101)], booth=[])
+    store.observe(row['id'], final, now=102)
+    delta = store.observe(row['id'], {**final, 'timestamp': 107}, now=107)['terminal']['ownership_delta']
+    assert delta['silver'] == {'before': 1000, 'after': 500, 'delta': -500}
+    assert delta['capacity'] == {'before': 40, 'after': 39, 'delta': -1}
+    assert delta['booth_state'] == {'before': {'booth_open': True, 'own_booth_uid': 456},
+                                    'after': {'booth_open': False, 'own_booth_uid': 0}}
+    assert set(delta) == {'version', 'before_ownership_digest', 'after_ownership_digest',
+                          'items', 'silver', 'capacity', 'booth_state'}
+
+
+@pytest.mark.parametrize('approved', [False, True])
+def test_unchanged_terminal_delta_is_explicit_and_empty(store, approved):
+    row = activate(store) if approved else pending(store)
+    store.observe(row['id'], snapshot(102, request=False), now=102)
+    terminal = store.observe(row['id'], snapshot(107, request=False), now=107)['terminal']
+    delta = terminal['ownership_delta']
+    assert delta['before_ownership_digest'] == delta['after_ownership_digest']
+    assert delta['items'] == {'added': [], 'removed': [], 'changed': [], 'moved': []}
+    assert delta['silver'] == {'before': 1000, 'after': 1000, 'delta': 0}
+    assert delta['capacity'] == {'before': 40, 'after': 40, 'delta': 0}
+    assert delta['booth_state']['before'] == delta['booth_state']['after']
+
+
+def test_delta_keeps_session_start_across_additional_approved_requests(store):
+    row = activate(store)
+    first_request = row['current_request_id']
+    interim = snapshot(102, request=False, inventory=[item(100), item(200)], silver=1250)
+    store.observe(row['id'], interim, now=102)
+    new_request = {**interim, 'timestamp': 103, 'request': snapshot()['request']}
+    later = store.begin_request('merchant-id', new_request, session_id=row['id'], now=103)
+    store.activate_allowed(later['approval_binding'], {**new_request, 'timestamp': 104}, now=104)
+    store.observe(row['id'], {**interim, 'timestamp': 105}, now=105)
+    terminal = store.observe(row['id'], {**interim, 'timestamp': 110}, now=110)['terminal']
+    assert terminal['baseline_request_id'] == first_request
+    assert [entry['item']['uid'] for entry in terminal['ownership_delta']['items']['added']] == [200]
+    assert terminal['ownership_delta']['silver'] == {'before': 1000, 'after': 1250, 'delta': 250}
 
 
 def test_canonical_ownership_requires_explicit_windows_and_exact_items():
