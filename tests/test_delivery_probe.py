@@ -279,8 +279,73 @@ def test_unified_ui_rejects_inexact_probe_bridge_commands(body):
     from conquest.merchants.ui import UnifiedUI
     with pytest.raises(ValueError,match='Unsupported'):
         UnifiedUI.dispatch(type('UI',(),{})(),body)
+def test_short_archive_write_never_publishes_partial_receipt_and_retry_succeeds(tmp_path,monkeypatch):
+    monkeypatch.setattr(probe,'JOURNAL',tmp_path/'probe.json')
+    state={'phase':'cancel_verified','intent':{'items':[{'uid':123}]}}
+    fdopen=probe.os.fdopen
+    class ShortWrite:
+        def __init__(self,fd,mode):self.stream=fdopen(fd,mode)
+        def __enter__(self):return self
+        def __exit__(self,*args):self.stream.close()
+        def write(self,raw):return self.stream.write(raw[:len(raw)//2])
+    monkeypatch.setattr(probe.os,'fdopen',ShortWrite)
+    with pytest.raises(OSError,match='Incomplete trade probe archive write'):
+        probe.archive_probe(state)
+    directory=tmp_path/'delivery-request-probe-audit'
+    assert list(directory.iterdir())==[]
+    monkeypatch.setattr(probe.os,'fdopen',fdopen)
+    probe.archive_probe(state)
+    assert [probe.read_json(path) for path in directory.glob('*.json')]==[state]
 
 
+def test_archive_temp_flush_failure_never_publishes_final(tmp_path,monkeypatch):
+    monkeypatch.setattr(probe,'JOURNAL',tmp_path/'probe.json')
+    state={'phase':'delivery_verified','full_evidence':'retained'}
+    fsync=probe.os.fsync
+    def fail(_):raise OSError('temporary flush failed')
+    monkeypatch.setattr(probe.os,'fsync',fail)
+    with pytest.raises(OSError,match='temporary flush failed'):probe.archive_probe(state)
+    directory=tmp_path/'delivery-request-probe-audit'
+    assert list(directory.iterdir())==[]
+    monkeypatch.setattr(probe.os,'fsync',fsync)
+    probe.archive_probe(state)
+    assert [probe.read_json(path) for path in directory.glob('*.json')]==[state]
+
+
+def test_published_archive_is_reopened_and_fsynced_after_final_flush_failure(tmp_path,monkeypatch):
+    monkeypatch.setattr(probe,'JOURNAL',tmp_path/'probe.json')
+    state={'phase':'delivery_verified','full_evidence':'retained'}
+    fsync=probe.os.fsync;calls=[]
+    def fail_second(fd):
+        calls.append(fd)
+        if len(calls)==2:raise OSError('published flush failed')
+        fsync(fd)
+    monkeypatch.setattr(probe.os,'fsync',fail_second)
+    with pytest.raises(OSError,match='published flush failed'):probe.archive_probe(state)
+    directory=tmp_path/'delivery-request-probe-audit'
+    archive=next(directory.glob('*.json'))
+    assert probe.read_json(archive)==state
+    before=archive.read_bytes()
+    def still_fails(fd):raise OSError('retry flush failed')
+    monkeypatch.setattr(probe.os,'fsync',still_fails)
+    with pytest.raises(OSError,match='retry flush failed'):probe.archive_probe(state)
+    calls.clear()
+    def record_flush(fd):calls.append(fd);fsync(fd)
+    monkeypatch.setattr(probe.os,'fsync',record_flush)
+    probe.archive_probe(state)
+    assert len(calls)==1 and archive.read_bytes()==before
+    assert list(directory.glob('*.tmp'))==[]
+
+
+def test_mismatched_existing_archive_is_never_overwritten(tmp_path,monkeypatch):
+    monkeypatch.setattr(probe,'JOURNAL',tmp_path/'probe.json')
+    state={'phase':'delivery_verified','full_evidence':'retained'}
+    probe.archive_probe(state)
+    archive=next((tmp_path/'delivery-request-probe-audit').glob('*.json'))
+    archive.write_bytes(b'partial legacy archive')
+    with pytest.raises(ValueError,match='differs from its historical receipt'):
+        probe.archive_probe(state)
+    assert archive.read_bytes()==b'partial legacy archive'
 @pytest.mark.parametrize('change',[None,'position','currency','identity','inventory','request'])
 def test_request_probe_rechecks_both_participants_before_input(change):
     item=dict(uid=10,type_id=720027,plus=0,gem1=0,gem2=0,quantity=1,bound=False,slot=0)

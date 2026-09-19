@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib
 import json
 import os
+import tempfile
 import threading
 import time
 
@@ -69,12 +70,30 @@ def archive_probe(state):
     digest=hashlib.sha256(raw).hexdigest()
     path=JOURNAL.parent/'delivery-request-probe-audit'/f'{digest}.json'
     path.parent.mkdir(parents=True,exist_ok=True)
+    def verify_and_sync():
+        # A prior attempt may have published complete bytes but failed its
+        # final flush. Equality alone is not a durable archival receipt.
+        with path.open('r+b') as stream:
+            if stream.read()!=raw:
+                raise ValueError('Trade probe archive differs from its historical receipt')
+            stream.flush();os.fsync(stream.fileno())
+    if path.exists():
+        verify_and_sync()
+        return
+    fd,name=tempfile.mkstemp(prefix=digest+'.',suffix='.tmp',dir=path.parent)
+    temporary=Path(name)
     try:
-        with path.open('xb') as out:
-            out.write(raw);out.flush();os.fsync(out.fileno())
-    except FileExistsError:
-        if path.read_bytes()!=raw:
-            raise ValueError('Trade probe archive differs from its historical receipt')
+        with os.fdopen(fd,'wb') as out:
+            if out.write(raw)!=len(raw):raise OSError('Incomplete trade probe archive write')
+            out.flush();os.fsync(out.fileno())
+        # Same-volume hard-link publication is atomic and never overwrites an
+        # existing receipt. A crash while writing the private temporary file
+        # cannot leave a partial final record that poisons future retries.
+        try:os.link(temporary,path)
+        except FileExistsError:pass
+        verify_and_sync()
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def recovery_available(ui):
