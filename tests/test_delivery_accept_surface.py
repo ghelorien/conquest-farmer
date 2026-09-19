@@ -31,12 +31,13 @@ def test_accept_control_rejects_open_booth_confirmation(monkeypatch):
         control(driver,snapshot)
 
 
-def request_verified(tmp_path,monkeypatch,identity,character='Spiritual'):
+def request_verified(tmp_path,monkeypatch,identity,character='Spiritual',*,target_profile_id=None,server='America'):
     from conquest.merchants import delivery_probe
     path=tmp_path/'probe.json'
     monkeypatch.setattr(delivery_probe,'JOURNAL',path)
     delivery_probe.write_probe(path,{'phase':'request_verified','character':character,
-        'intent':{'merchant':{'character':character,'identity':identity}}})
+        'target_profile_id':target_profile_id or character,
+        'intent':{'merchant':{'character':character,'server':server,'identity':identity}}})
 
 
 def bind_accept_binding(ui):
@@ -60,6 +61,29 @@ def bound_show_ui(identity, *, layout=None, pane_size=(1200,800)):
     return ui,host,api,observer
 
 
+def managed_registry_stub():
+    return NS(resolve=lambda profile_id,**_kwargs:NS(id='Spiritual',name='Spiritual',
+        server='America',local_enabled=True))
+
+
+def managed_show_ui(tmp_path,monkeypatch,identity):
+    from conquest.character_profiles import ProfileRegistry
+    from conquest.character_context import ProfileMap,ProfileName
+    registry=ProfileRegistry(tmp_path/'profiles')
+    profile=registry.add('Spiritual',role='Merchant')
+    monkeypatch.setenv('CONQUEST_DATA_ROOT',str(registry.root))
+    request_verified(tmp_path,monkeypatch,identity,target_profile_id=profile.id)
+    ui,host,api,observer=bound_show_ui(identity)
+    key=ProfileName(profile.name,profile.id)
+    for name,value in [('observers',observer),('hosts',host),('frames','spiritual-frame'),
+                       ('detail_tabs',ui.detail_tabs['Spiritual']),('client_panes',ui.client_panes['Spiritual'])]:
+        mapping=ProfileMap();mapping[key]=value
+        if name=='observers':ui.runtime.observers=mapping
+        else:setattr(ui,name,mapping)
+    ui.notebook=NS(select=Mock(return_value='overview'))
+    return registry,profile,key,ui,host,api
+
+
 def test_accept_surface_embeds_only_the_exact_observer(tmp_path,monkeypatch):
     identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
     request_verified(tmp_path,monkeypatch,identity)
@@ -76,7 +100,7 @@ def test_accept_surface_embeds_only_the_exact_observer(tmp_path,monkeypatch):
     assert observer.adapter.assert_identity.call_count>=2
     assert all(call.args==(77,identity) for call in api.assert_owner.call_args_list)
     ui.embed_merchant.assert_not_called()
-    ui.show_delivery_accept_merchant.assert_called_once_with('Spiritual',(77,identity))
+    ui.show_delivery_accept_merchant.assert_called_once_with('Spiritual',(77,identity,'Spiritual'))
     ui.show_merchant.assert_not_called()
 
 
@@ -159,10 +183,10 @@ def test_accept_surface_rechecks_after_specialized_embed_or_show_observer_swap(t
     with pytest.raises(ValueError,match='exact merchant process'):
         UnifiedUI.prepare_delivery_accept_surface(ui,'Spiritual')
     if phase=='embed':
-        ui.embed_delivery_accept_merchant.assert_called_once_with('Spiritual',(77,identity))
+        ui.embed_delivery_accept_merchant.assert_called_once_with('Spiritual',(77,identity,'Spiritual'))
         ui.show_delivery_accept_merchant.assert_not_called()
     else:
-        ui.show_delivery_accept_merchant.assert_called_once_with('Spiritual',(77,identity))
+        ui.show_delivery_accept_merchant.assert_called_once_with('Spiritual',(77,identity,'Spiritual'))
     host.attach.assert_not_called()
     host.detach.assert_not_called()
     ui.embed_merchant.assert_not_called()
@@ -172,10 +196,10 @@ def test_accept_surface_rechecks_after_specialized_embed_or_show_observer_swap(t
 def test_actual_specialized_show_rejects_undersized_attached_pane_before_resize(tmp_path,monkeypatch):
     identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
     request_verified(tmp_path,monkeypatch,identity)
-    monkeypatch.setattr('conquest.character_context.registry',lambda:object())
+    monkeypatch.setattr('conquest.character_context.registry',managed_registry_stub)
     ui,host,api,_observer=bound_show_ui(identity,pane_size=(100,100))
     with pytest.raises(ValueError,match='viewport'):
-        UnifiedUI.show_delivery_accept_merchant(ui,'Spiritual',(77,identity))
+        UnifiedUI.show_delivery_accept_merchant(ui,'Spiritual',(77,identity,'Spiritual'))
     host.resize.assert_not_called()
     host.detach.assert_not_called()
     api.show_async.assert_not_called()
@@ -184,14 +208,14 @@ def test_actual_specialized_show_rejects_undersized_attached_pane_before_resize(
 def test_undersized_accept_pane_does_not_hide_sibling_host(tmp_path,monkeypatch):
     identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
     request_verified(tmp_path,monkeypatch,identity)
-    monkeypatch.setattr('conquest.character_context.registry',lambda:object())
+    monkeypatch.setattr('conquest.character_context.registry',managed_registry_stub)
     ui,host,api,_observer=bound_show_ui(identity,pane_size=(100,100))
     sibling_api=NS(assert_owner=Mock(),show_async=Mock())
     sibling=NS(saved=NS(hwnd=88,identity={'pid':8,'creation_time_100ns':10,'path':'ImConquer.exe'}),
                api=sibling_api,mode='owned',detach=Mock())
     ui.hosts['Dutch']=sibling
     with pytest.raises(ValueError,match='viewport'):
-        UnifiedUI.show_delivery_accept_merchant(ui,'Spiritual',(77,identity))
+        UnifiedUI.show_delivery_accept_merchant(ui,'Spiritual',(77,identity,'Spiritual'))
     host.resize.assert_not_called()
     host.detach.assert_not_called()
     api.show_async.assert_not_called()
@@ -208,10 +232,66 @@ def test_actual_specialized_show_rechecks_observer_after_layout_before_resize(tm
                                assert_identity=Mock()),operations=NS(target=NS(hwnd=88)))
     ui.apply_client_compact_layout=lambda:ui.runtime.observers.update(Spiritual=replacement)
     with pytest.raises(ValueError,match='exact merchant process'):
-        UnifiedUI.show_delivery_accept_merchant(ui,'Spiritual',(77,identity))
+        UnifiedUI.show_delivery_accept_merchant(ui,'Spiritual',(77,identity,'Spiritual'))
     host.resize.assert_not_called()
     host.detach.assert_not_called()
     api.show_async.assert_not_called()
+
+
+@pytest.mark.parametrize('fault',['missing','disabled','renamed','different_profile','other_server'])
+def test_managed_accept_profile_binding_fails_before_any_tab_or_window_mutation(tmp_path,monkeypatch,fault):
+    identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
+    registry,profile,key,ui,host,api=managed_show_ui(tmp_path,monkeypatch,identity)
+    from conquest.merchants import delivery_probe
+    state=delivery_probe.read_probe()
+    if fault=='missing':state['target_profile_id']='missing-profile'
+    elif fault=='disabled':registry.update(profile.id,{'local_enabled':False})
+    elif fault=='renamed':
+        state['character']=state['intent']['merchant']['character']='Renamed'
+    elif fault=='different_profile':
+        other=registry.add('Dutch',role='Merchant')
+        state['target_profile_id']=other.id
+    else:
+        other=registry.add('Spiritual',server='Europe',role='Merchant')
+        state['target_profile_id']=other.id
+    delivery_probe.write_probe(delivery_probe.JOURNAL,state)
+    with pytest.raises(ValueError,match='profile|request-verified'):
+        UnifiedUI.show_delivery_accept_merchant(ui,'Spiritual',(77,identity,profile.id))
+    ui.notebook.select.assert_not_called()
+    ui.root.update_idletasks.assert_not_called()
+    host.resize.assert_not_called()
+    host.detach.assert_not_called()
+    api.show_async.assert_not_called()
+
+
+def test_managed_profile_name_binds_plain_journal_character_for_specialized_show(tmp_path,monkeypatch):
+    identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
+    _registry,profile,key,ui,host,_api=managed_show_ui(tmp_path,monkeypatch,identity)
+    UnifiedUI.show_delivery_accept_merchant(ui,'Spiritual',(77,identity,profile.id))
+    assert ui.notebook.select.call_args_list[-1].args==('spiritual-frame',)
+    host.resize.assert_called_once_with(1200,800)
+    assert key.profile_id==profile.id
+
+
+def test_managed_prepare_input_uses_profile_key_after_callback(tmp_path,monkeypatch):
+    identity={'pid':7,'creation_time_100ns':9,'path':'ImConquer.exe'}
+    _registry,profile,key,ui,host,_api=managed_show_ui(tmp_path,monkeypatch,identity)
+    class ImmediateQueue:
+        def put(self,entry):
+            callback,done,result=entry
+            callback()
+            if done:done.set()
+    waited=Mock()
+    monkeypatch.setattr('conquest.merchants.ui.wait_for_merchant_surface',waited)
+    ui.coordinator=NS(purpose='delivery_accept_probe',check=Mock())
+    ui.safe_to_yield=lambda:True
+    ui.ui_requests=ImmediateQueue()
+    ui.grant_fence=None
+    ui.prepare_delivery_accept_surface=lambda character:UnifiedUI.prepare_delivery_accept_surface(ui,character)
+    ui.show_delivery_accept_merchant=lambda character,expected:UnifiedUI.show_delivery_accept_merchant(ui,character,expected)
+    UnifiedUI.prepare_input(ui,'Spiritual')
+    assert waited.call_args.args[0] is host
+    assert key.profile_id==profile.id
 
 
 def test_ui_callback_failure_preserves_callback_and_cause_details():

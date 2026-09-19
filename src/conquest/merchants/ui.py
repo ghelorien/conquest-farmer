@@ -1460,7 +1460,8 @@ class UnifiedUI:
         # creating it only when none is attached, then wait for its native
         # surface below.  This does not inspect a screen or send game input.
         if self.coordinator.purpose=='delivery_accept_probe':
-            callback=lambda:self.prepare_delivery_accept_surface(character)
+            def callback():
+                result['profile']=self.prepare_delivery_accept_surface(character)
         else:
             callback=lambda:self.show_merchant(character)
         fence=getattr(self,'grant_fence',None)
@@ -1472,22 +1473,23 @@ class UnifiedUI:
             raise ValueError('Embedded merchant pane did not become available')
         if result.get('error'):
             raise ValueError(result['error'])
-        host=self.hosts[character]
-        others=[h for c,h in self.hosts.items() if c!=character]
+        profile=result.get('profile',character)
+        host=self.hosts[profile]
+        others=[other for _key,other in self.hosts.items() if other is not host]
         wait_for_merchant_surface(host,others,self.coordinator.check)
 
     def prepare_delivery_accept_surface(self, character):
         """Show the exact observer's owned host for one acceptance probe."""
-        observer,target,host,identity=self.delivery_accept_binding(character)
-        expected=(target.hwnd,identity)
+        observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character)
+        expected=(target.hwnd,identity,profile_id)
         if not host or not host.saved:
             self.embed_delivery_accept_merchant(character,expected)
             # The attach path may not authorize presentation after a journal,
             # observer, or HWND replacement.
-            observer,target,host,identity=self.delivery_accept_binding(character,expected)
+            observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
         self.show_delivery_accept_merchant(character,expected)
         # Do not return control to the worker after a same-named replacement.
-        self.delivery_accept_binding(character,expected)
+        return self.delivery_accept_binding(character,expected)[4]
 
     def delivery_accept_binding(self, character, expected=None):
         """Read-only journal/observer/HWND binding for a staged accept."""
@@ -1502,24 +1504,44 @@ class UnifiedUI:
         intent=state.get('intent')
         merchant=intent.get('merchant') if isinstance(intent,dict) else None
         if (not isinstance(merchant,dict) or merchant.get('character')!=character
-                or not isinstance(merchant.get('identity'),dict)):
+                or merchant.get('server')!='America' or not isinstance(merchant.get('identity'),dict)):
             raise ValueError('Trade acceptance merchant binding is unreadable; no client action sent')
+        from conquest.character_context import registry,ProfileName
+        profiles=registry();profile_id=state.get('target_profile_id')
+        if not isinstance(profile_id,str) or not profile_id:
+            raise ValueError('Trade acceptance merchant profile binding is unreadable; no client action sent')
+        if profiles:
+            try:
+                resolved=profiles.resolve(profile_id,role='Merchant',server=merchant['server'])
+            except ValueError as error:
+                raise ValueError('Trade acceptance merchant profile is unavailable; no client action sent') from error
+            # The serialized ID is the authority.  ProfileRegistry.resolve also
+            # accepts names for normal UI entry, so reject that fallback here.
+            if (resolved.id!=profile_id or not resolved.local_enabled
+                    or resolved.name!=character or resolved.name!=merchant['character']
+                    or resolved.server!=merchant['server']):
+                raise ValueError('Trade acceptance merchant profile changed; no client action sent')
+            profile=ProfileName(resolved.name,resolved.id)
+        else:
+            if profile_id!=character:
+                raise ValueError('Trade acceptance merchant profile changed; no client action sent')
+            profile=character
         receipt_identity=merchant['identity']
         if (type(receipt_identity.get('pid')) is not int or receipt_identity['pid']<=0
                 or type(receipt_identity.get('creation_time_100ns')) is not int
                 or receipt_identity['creation_time_100ns']<=0
                 or not isinstance(receipt_identity.get('path'),str) or not receipt_identity['path']):
             raise ValueError('Trade acceptance merchant identity is incomplete; no client action sent')
-        observer=self.runtime.observers.get(character)
+        observer=self.runtime.observers.get(profile)
         if (not observer or observer.adapter.identity!=receipt_identity):
             raise ValueError('Waiting for the exact merchant process before trade acceptance')
         observer.adapter.assert_identity()
         target=observer.operations.target
         if type(getattr(target,'hwnd',None)) is not int or target.hwnd<=0:
             raise ValueError('Trade acceptance merchant window is unavailable; no client action sent')
-        if expected is not None and (target.hwnd,receipt_identity)!=expected:
+        if expected is not None and (target.hwnd,receipt_identity,profile_id)!=expected:
             raise ValueError('Trade acceptance merchant mapping changed; no client action sent')
-        host=self.hosts.get(character)
+        host=self.hosts.get(profile)
         # HostApi.assert_owner proves that the current observer's target HWND
         # still belongs to the full journaled process identity.  Use the
         # existing host API when possible; it avoids creating any window or
@@ -1538,13 +1560,13 @@ class UnifiedUI:
                 raise ValueError('Selected merchant host changed; re-embed was not attempted')
             if host.mode!='owned':
                 raise ValueError('Selected merchant is not an owned host; no client action sent')
-        return observer,target,host,receipt_identity
+        return observer,target,host,receipt_identity,profile,profile_id
 
     def embed_delivery_accept_merchant(self, character, expected):
         """Attach only ``expected``; generic merchant fallback is forbidden."""
         if probe_busy(self):
             raise ValueError('Background diagnostic owns the client; no client action sent')
-        observer,target,host,identity=self.delivery_accept_binding(character,expected)
+        observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
         if host and host.saved:
             return
         if not self.safe_to_yield():
@@ -1553,22 +1575,22 @@ class UnifiedUI:
         host=host or EmbeddedWindow(mode='owned')
         if not host.mode=='owned':
             raise ValueError('Selected merchant is not an owned host; no client action sent')
-        self.notebook.select(self.frames[character])
-        self.detail_tabs[character].select(0)
+        self.notebook.select(self.frames[profile])
+        self.detail_tabs[profile].select(0)
         layout=getattr(self,'apply_client_compact_layout',None)
         if layout:layout()
         self.root.update_idletasks()
-        pane=self.client_panes[character]
+        pane=self.client_panes[profile]
         from conquest.character_context import registry
         if registry():
             from conquest.client_attachment import require_viewport
             require_viewport(pane.winfo_width(),pane.winfo_height())
         # Re-read just before the native operation; never replace a stale host
         # with a newly observed same-named process.
-        observer,target,current,identity=self.delivery_accept_binding(character,expected)
+        observer,target,current,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
         if current is not None and current is not host:
             raise ValueError('Selected merchant host changed; no client action sent')
-        self.hosts[character]=host
+        self.hosts[profile]=host
         host.attach(expected[0],expected[1],pane.winfo_id(),pane.winfo_width(),pane.winfo_height())
         self.delivery_accept_binding(character,expected)
 
@@ -1576,7 +1598,7 @@ class UnifiedUI:
         """Present only a receipt-bound owned host, without generic lookup."""
         if self.closed or self.app.closing:
             raise ValueError('App is closing')
-        observer,target,host,identity=self.delivery_accept_binding(character,expected)
+        observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
         if not host or not host.saved:
             raise ValueError('Selected merchant host is unavailable; no client action sent')
         foreground=host.api.gui.GetForegroundWindow()
@@ -1590,24 +1612,24 @@ class UnifiedUI:
                 bookmark['identity']=host.api.backend.identity(pid.value)
             except (OSError,ValueError):
                 pass
-        self.input_bookmarks[character]=bookmark
-        self.notebook.select(self.frames[character])
-        self.detail_tabs[character].select(0)
+        self.input_bookmarks[profile]=bookmark
+        self.notebook.select(self.frames[profile])
+        self.detail_tabs[profile].select(0)
         layout=getattr(self,'apply_client_compact_layout',None)
         if layout:layout()
         self.root.update_idletasks()
         # The layout callback can reconnect a merchant.  Rebind before hiding
         # siblings or making the receipt-bound host visible.  Viewport
         # rejection is also pre-presentation: it must not hide another client.
-        observer,target,host,identity=self.delivery_accept_binding(character,expected)
-        pane=self.client_panes[character]
+        observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
+        pane=self.client_panes[profile]
         from conquest.character_context import registry
         if registry():
             from conquest.client_attachment import require_viewport
             require_viewport(pane.winfo_width(),pane.winfo_height())
         self.delivery_accept_binding(character,expected)
-        for other,other_host in self.hosts.items():
-            if other!=character and other_host.saved:
+        for _key,other_host in self.hosts.items():
+            if other_host is not host and other_host.saved:
                 other_host.api.assert_owner(other_host.saved.hwnd,other_host.saved.identity)
                 other_host.api.show_async(other_host.saved.hwnd,0)
         self.delivery_accept_binding(character,expected)
