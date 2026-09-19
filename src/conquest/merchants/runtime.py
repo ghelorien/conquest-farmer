@@ -179,6 +179,17 @@ class MerchantRuntime(ManualRuntime):
             self.coordinator.resume()
         return state
 
+    def merchant_windows(self):
+        """Discover hosted merchant clients without weakening farmer selection.
+
+        The normal catalog intentionally hides invisible HWNDs.  A merchant
+        can be embedded by the desktop app, though, and its window becomes
+        hidden while its game process remains live.  These candidates are only
+        passed to ``attach``; it still requires exactly one memory-verified
+        character and exact process identity before binding.
+        """
+        return self.catalog.windows(include_hidden=True)
+
     def attach(self, character):
         from conquest.memory_life import read_life
         status=self.attachments[character];status.enter('discovery')
@@ -187,7 +198,7 @@ class MerchantRuntime(ManualRuntime):
         with self.discovery_lock:
             matches = []
             access_failed = False
-            for client in self.catalog.windows():
+            for client in self.merchant_windows():
                 if any(o.adapter.identity == client.identity for o in self.observers.values()):
                     continue
                 observer = None

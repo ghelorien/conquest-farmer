@@ -132,7 +132,10 @@ class MarketGuard:
         r = self.runtime
         while not r.stop_event.is_set():
             try:
-                clients = r.catalog.windows()
+                # Merchant clients can be deliberately hidden by their
+                # embedded host.  Match only their saved exact identity; do
+                # not broaden the normal visible-only farmer catalog.
+                clients = r.merchant_windows()
                 for character in CHARACTERS:
                     identity = r.journal.get(character, 'last_identity')
                     client = next((c for c in clients if c.identity == identity), None)

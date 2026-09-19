@@ -83,16 +83,21 @@ def test_login_reattachment_requires_exact_previously_assigned_process(monkeypat
     observer=NS(adapter=NS(identity=identity),health_layout=None,close=lambda:None,
                 operations=NS(target=NS(hwnd=56)))
     from conquest.client_attachment import AttachmentStatus
-    r=NS(attachments={'Dutch':AttachmentStatus()},discovery_lock=threading.Lock(),catalog=NS(windows=lambda:[candidate]),observers={},
+    requested=[]
+    def windows(*,include_hidden=False):
+        requested.append(include_hidden)
+        return [candidate] if include_hidden else []
+    r=NS(attachments={'Dutch':AttachmentStatus()},discovery_lock=threading.Lock(),catalog=NS(windows=windows),observers={},
         observer_factory=lambda *a:observer,journal=NS(get=lambda *a:identity if same_identity else {'pid':12,'creation_time_100ns':1}),
         bind=lambda c,o:bound.append(o))
+    r.merchant_windows=lambda:MerchantRuntime.merchant_windows(r)
     if same_identity:
         # bind() already schedules the saved itinerary. The login shell has no map.
         MerchantRuntime.attach(r,'Dutch')
-        assert bound==[observer]
+        assert bound==[observer] and requested==[True]
     else:
         with pytest.raises(ValueError):MerchantRuntime.attach(r,'Dutch')
-        assert not bound
+        assert not bound and requested==[True]
 
 
 def test_login_focus_recovery_uses_verified_wrapper_caption(monkeypatch):
