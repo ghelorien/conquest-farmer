@@ -142,6 +142,8 @@ class EmbeddedBridge:
                             if bridge.character_context:result['profile_id']=bridge.character_context.profile.id
                             result['embedded_controls'] = bridge.snapshot()
                             result['embedded_controls']['manual_mouse'] = active()
+                            from conquest.merchants.coordination import manual_session_blocked
+                            result['embedded_controls']['manual_input_fence'] = manual_session_blocked('Farmer')
                             result['window_mode'] = getattr(bridge,'window_mode','unknown')
                     status = 200
                 except (ValueError,OSError,KeyError,TypeError) as error:

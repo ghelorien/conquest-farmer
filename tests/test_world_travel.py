@@ -70,6 +70,25 @@ def test_level_transition_requires_return_path_then_selects_new_route(monkeypatc
     assert loop.route==new and events[-1]=='level_route_changed'
 
 
+def test_identical_pending_route_events_are_limited_without_staling_status(tmp_path,monkeypatch):
+    from conquest import overnight
+    loop=overnight.OvernightLoop.__new__(overnight.OvernightLoop)
+    loop.phase='hunting';loop.cycles=0;loop.state={};loop.output=tmp_path
+    loop.route=SimpleNamespace(id='bandit')
+    now=[100.0]
+    monkeypatch.setattr(overnight.time,'time',lambda:now[0])
+    monkeypatch.setattr(overnight.time,'monotonic',lambda:now[0])
+    fields={'level':73,'next_route':'Next zone','activity':'Waiting for a verified connection'}
+    loop.record('level_route_pending',**fields)
+    now[0]=105;loop.record('level_route_pending',**fields)
+    assert len((tmp_path/'events.jsonl').read_text().splitlines())==1
+    assert json.loads((tmp_path/'status.json').read_text())['updated_at']==105
+    now[0]=160;loop.record('level_route_pending',**fields)
+    assert len((tmp_path/'events.jsonl').read_text().splitlines())==2
+    now[0]=161;loop.record('level_route_pending',**{**fields,'next_route':'Changed zone'})
+    assert len((tmp_path/'events.jsonl').read_text().splitlines())==3
+
+
 def test_teleport_checks_town_before_payment_and_visits_it_after_arrival(monkeypatch):
     from conquest import world_travel as w,city_travel,conductress
     calls=[];life={'map_id':1002}

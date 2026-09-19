@@ -111,6 +111,16 @@ class OvernightLoop:
                 time.sleep(.025)
         if event == 'heartbeat':
             return
+        if event == 'level_route_pending':
+            # Keep status fresh, but an unchanged unavailable route is not a
+            # new incident every five-second level check.
+            fingerprint=json.dumps({'route':getattr(getattr(self,'route',None),'id',None),
+                                    'phase':self.phase,**fields},sort_keys=True)
+            now=time.monotonic()
+            previous=getattr(self,'pending_route_event',None)
+            if previous and previous[0]==fingerprint and 0<=now-previous[1]<60:
+                return
+            self.pending_route_event=(fingerprint,now)
         with (self.output/'events.jsonl').open('a',encoding='utf-8') as out:
             out.write(json.dumps({'time':time.time(),'event':event,'phase':self.phase,**fields})+'\n')
 

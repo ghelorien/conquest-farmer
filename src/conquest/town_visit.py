@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import time
 import uuid
+from copy import deepcopy
 
 from conquest.character_context import current, farmer_name, state_path
 from conquest.discord_notify import read_json, write_json
@@ -14,6 +15,22 @@ from conquest.discord_notify import read_json, write_json
 def profile_id():
     context=current()
     return context.profile.id if context else farmer_name()
+
+
+def _process_identity(target):
+    return (isinstance(target,dict) and type(target.get('pid')) is int and target['pid']>0
+            and type(target.get('creation_time_100ns')) is int and target['creation_time_100ns']>0
+            and isinstance(target.get('path'),str) and bool(target['path']))
+
+
+def _checkpoint_available(observed,now):
+    return (observed.get('available') is True
+            and type(observed.get('session_id')) in (int,float)
+            and math.isfinite(observed['session_id']) and 0<observed['session_id']<=now
+            and type(observed.get('observed_at')) in (int,float)
+            and 0<=now-observed['observed_at']<=5
+            and type(observed.get('cursor')) is int and observed['cursor']>=0
+            and type(observed.get('kills')) is int and observed['kills']>=0)
 
 
 def kill_checkpoint(*, now=None, output=None, after_cursor=None, after_time=None):
@@ -92,11 +109,14 @@ class TownVisit:
     def returning(self,hunt_map_id,*,target):
         row=self.state()
         if row.get('phase') not in ('town_work','returning_to_hunt'):return None
-        if (row.get('phase')=='returning_to_hunt' and row.get('return_map_id')==hunt_map_id
-                and row.get('return_target')==target):
+        if not _process_identity(target):
+            raise ValueError('Required town return needs the exact game process identity')
+        if row.get('phase')=='returning_to_hunt':
+            if row.get('return_map_id')!=hunt_map_id or row.get('return_target')!=target:
+                raise ValueError('Required town return target changed; review the unfinished visit')
             return row  # Restart/hunt re-entry does not discard the first return baseline.
         row.update(phase='returning_to_hunt',return_started_at=self.clock(),
-                   return_map_id=hunt_map_id,return_target=target,return_baseline=self.probe())
+                   return_map_id=hunt_map_id,return_target=deepcopy(target),return_baseline=self.probe())
         write_json(self.path,row)
         return row
 
@@ -105,25 +125,43 @@ class TownVisit:
         if row.get('phase')!='returning_to_hunt':return None
         data=health.get('embedded_controls',{});control=data.get('control',{});life=data.get('life') or {}
         now=self.clock();baseline=row.get('return_baseline') or {}
-        if (control.get('enabled') is not True or control.get('paused') or data.get('manual_mouse')
+        if (control.get('enabled') is not True or control.get('paused') or data.get('manual_mouse') is not False
+                or data.get('manual_input_fence') is not False
                 or life.get('dead_candidate') is not False or life.get('map_id')!=row['return_map_id']
+                or type(life.get('current_hp')) not in (int,float) or not life['current_hp']>0
                 or not 0<=now-data.get('observed_at',0)<=1
-                or not row.get('return_target') or health.get('target')!=row['return_target']):
+                or not _process_identity(row.get('return_target'))
+                or health.get('target')!=row['return_target']):
             return None
         observed=(kill_checkpoint(now=now,after_cursor=baseline.get('cursor'),
                     after_time=max(row['return_started_at'],baseline.get('observed_at',0)))
                   if self.default_probe else self.probe())
-        if not observed.get('available'):return None
+        if not _checkpoint_available(observed,now):return None
         if not baseline.get('available'):
             # Missing telemetry is not a reason to stop hunting. Establish an
             # explicit later baseline, then require a subsequent verified kill.
             row.update(return_baseline=observed,return_baseline_observed_at=now)
             write_json(self.path,row)
             return None
-        first=row.get('baseline') or {}
-        if (observed['session_id']!=baseline['session_id']
-                or first.get('available') and observed['session_id']!=first['session_id']
-                or observed['cursor']<baseline['cursor']
+        if observed['session_id']!=baseline.get('session_id'):
+            # Stop closes SessionKills; a later On starts a new counter without
+            # changing the game process. Preserve the old proof and establish a
+            # fresh baseline only under the same live, unfenced return identity.
+            # The observation doing this can never complete the visit itself.
+            previous=baseline.get('session_id')
+            if (type(previous) not in (int,float) or not math.isfinite(previous)
+                    or observed['session_id']<=previous
+                    or observed['session_id']<baseline.get('observed_at',now)
+                    or observed['cursor']<baseline.get('cursor',0)):
+                return None
+            row.setdefault('return_baseline_history',[]).append({
+                'reason':'kill_session_changed','replaced_at':now,
+                'previous_baseline':baseline,'new_session_id':observed['session_id'],
+                'target':deepcopy(health['target']),'map_id':life['map_id']})
+            row.update(return_baseline=observed,return_baseline_observed_at=now)
+            write_json(self.path,row)
+            return None
+        if (observed['cursor']<baseline['cursor']
                 or observed['kills']<=baseline['kills']):
             return None
         killed=observed.get('resume_kill') if self.default_probe else observed.get('last_kill')
