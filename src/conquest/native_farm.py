@@ -250,8 +250,7 @@ class NativeFarmSupervisor:
         from conquest.mouse_priority import require_idle
         from conquest.merchants.coordination import manual_session_blocked
         from conquest.merchants.coordination import observe_manual_farmer
-        observe_manual_farmer(self.observer)
-        manual = manual_session_blocked('Farmer')
+        manual = bool(observe_manual_farmer(self.observer)) or manual_session_blocked('Farmer')
         if not manual:require_idle()
         with logical_coordinates(),self.observer.lock:
             life=self.read_life()
@@ -264,7 +263,7 @@ class NativeFarmSupervisor:
                 if previous and previous[1]==self.position and life.current_hp<previous[0] and not life.dead_candidate:
                     self.defend_until=time.monotonic()+8
                 self.last_health_position=(life.current_hp,self.position)
-            if manual_session_blocked('Farmer'):
+            if manual or manual_session_blocked('Farmer'):
                 intent = self.control.snapshot()
                 self.pending_loot = None
                 return {'waiting':True, 'manual_session':True,

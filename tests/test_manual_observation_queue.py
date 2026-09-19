@@ -171,3 +171,71 @@ def test_manual_routing_and_admission_share_the_same_mutex(supervised, monkeypat
     monkeypatch.setattr(x.runtime.manual_sessions, 'begin_request', admit)
     assert x.runtime.process_manual('Dutch', x.read())
     assert x.runtime.manual_status('Dutch')['phase'] == 'approval_pending'
+
+
+def queued_farmer_input(x, monkeypatch, kind):
+    x.runtime.farmer_bot_owned = lambda: False
+    if kind == 'bot_trade':open_trade(x, phase='offer_verified', offered=True)
+    else:
+        x.farmer['request'] = {'participant': 'Visitor', 'participant_uid': 777,
+                               'message': 'Visitor wishes to trade with you.'}
+        x.probe['phase'] = 'delivery_verified';x.save()
+    monkeypatch.setattr(manual_farmer, 'presence',
+        lambda _observer: bool(x.farmer['request'] or x.farmer['trade']))
+    monkeypatch.setattr(manual_farmer, 'controller',
+        lambda *_a: pytest.fail('Queued observation cannot qualify a decline'))
+
+
+@pytest.mark.parametrize('kind', ['unknown_request', 'bot_trade'])
+@pytest.mark.parametrize('delay', [.1, 6])
+def test_native_farm_deferral_blocks_dispatch_until_next_fresh_read(supervised, monkeypatch, kind, delay):
+    from test_native_farm import setup
+    x = supervised
+    queued_farmer_input(x, monkeypatch, kind)
+    supervisor, control, life, _notifications = setup(monkeypatch)
+    life.dead_candidate = False
+    life.current_hp = life.max_hp
+    x.source.operations = supervisor.observer.operations
+    x.source.town_trade = supervisor.observer.town_trade
+    supervisor.observer = x.source
+    supervisor.read_life = lambda: life
+    recovery, dispatch = [], []
+    supervisor.recovery.step = lambda *_a: recovery.append(True)
+    supervisor.dispatch = lambda callback: (dispatch.append(True), callback())[1]
+    monkeypatch.setattr('conquest.mouse_priority.require_idle', lambda: None)
+    saved_intent = control.snapshot()
+    result = queued_call(x, supervisor.observe, lambda: advance(x, 'trade_to_terminal', delay))[0]
+    assert result['waiting'] is True and result['manual_session'] is True
+    assert recovery == [] and dispatch == []
+    assert x.runtime.manual_status() == [] and x.guard.manual_sessions == {}
+    assert x.runtime.manual_sessions.audit() == [] and x.calls == []
+    assert control.snapshot() == saved_intent
+    # Presence is read again from memory. No sticky pause or permission was
+    # persisted by the discarded observation; closed windows permit this tick.
+    fresh = supervisor.observe()
+    assert fresh['waiting'] is False
+    assert recovery == [True] and dispatch == [True]
+    assert not x.runtime.manual_farmer_observation.get('observation_deferred')
+
+
+@pytest.mark.parametrize('kind', ['unknown_request', 'bot_trade'])
+@pytest.mark.parametrize('delay', [.1, 6])
+def test_town_trade_deferral_blocks_execute_until_next_fresh_read(supervised, monkeypatch, kind, delay):
+    from conquest.town_trade import TownTrade, TownObservationUnavailable
+    x = supervised
+    queued_farmer_input(x, monkeypatch, kind)
+    trade = TownTrade.__new__(TownTrade)
+    trade.observer = x.source
+    executions = []
+    trade.execute = lambda body: (executions.append(body), {'executed': True})[1]
+    body = {'action': 'warehouse-deposit', 'uid': 99}
+    def blocked():
+        with pytest.raises(TownObservationUnavailable, match='fresh read'):
+            trade(body)
+    queued_call(x, blocked, lambda: advance(x, 'trade_to_terminal', delay))
+    assert executions == [] and trade.input_attempted is False
+    assert x.runtime.manual_status() == [] and x.guard.manual_sessions == {}
+    assert x.runtime.manual_sessions.audit() == [] and x.calls == []
+    assert trade(body) == {'executed': True}
+    assert executions == [body]
+    assert not x.runtime.manual_farmer_observation.get('observation_deferred')

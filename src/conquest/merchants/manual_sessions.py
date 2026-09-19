@@ -771,7 +771,7 @@ class ManualSessionStore:
                                  "('completed','request_withdrawn','declined_verified','operator_overridden')", (target,)).fetchone()
                 if row is None:continue
                 session_id = row['id']
-                if (row['phase'] != 'needs_attention' or row['ever_approved']
+                if (row['phase'] not in ('needs_attention', 'approval_pending') or row['ever_approved']
                         or row['created_at'] < accepted_at or row['stable_digest'] is not None
                         or row['terminal_json'] is not None):
                     raise BindingMismatch('Manual interval predates or exceeds bot admission')
@@ -791,6 +791,8 @@ class ManualSessionStore:
                         raise BindingMismatch('Manual request history is not a pristine stale admission')
                 elif row['current_request_id'] is not None:
                     raise BindingMismatch('Manual request evidence is missing')
+                elif row['phase'] == 'approval_pending':
+                    raise BindingMismatch('Only a pristine merchant request may remain approval-pending')
                 events = db.execute('SELECT event FROM manual_audit WHERE session_id=?', (session_id,)).fetchall()
                 if any(event[0] not in ('session_started', 'approval_pending', 'needs_attention',
                                        'windows_observed', 'observation_ignored') for event in events):

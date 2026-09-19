@@ -100,6 +100,7 @@ def observe(runtime,observer=None):
         if routed is OBSERVATION_DEFERRED:
             runtime.manual_farmer_observation.update(observation_deferred=True,
                 reason='Trade observation waited for input; a fresh memory read is required')
+            return True  # Fence this caller's operation until its next fresh read.
         else:
             runtime.manual_farmer_observation.update(bot_owned=True,
                 reason='Exact supervised farmer delivery has fresh bilateral observation priority')

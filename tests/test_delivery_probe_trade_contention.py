@@ -212,7 +212,7 @@ def test_full_trade_proof_rejects_asymmetric_acceptance_and_surrounding_stock(su
     assert x.calls == []
 
 
-def false_pair(x, *, stale_request=False):
+def false_pair(x, *, stale_request=False, observe_open=True):
     store = x.runtime.manual_sessions
     request = x.read()
     x.now += .2
@@ -221,7 +221,7 @@ def false_pair(x, *, stale_request=False):
     if stale_request:
         merchant = store.begin_request('Dutch', request, now=x.now)
         x.now += .1
-        store.observe(merchant['id'], x.read(), now=x.now)
+        if observe_open:store.observe(merchant['id'], x.read(), now=x.now)
     else:merchant = store.observe_target('Dutch', x.read(), now=x.now)
     x.now += .1
     accepted_at = x.probe['accepted_at']
@@ -234,10 +234,12 @@ def false_pair(x, *, stale_request=False):
     return farmer, merchant
 
 
-@pytest.mark.parametrize('stale_request', [False, True])
-def test_exact_false_pair_retracts_atomically_with_immutable_no_sale_audit(supervised, stale_request):
+@pytest.mark.parametrize('stale_request,observe_open', [(False,True),(True,True),(True,False)])
+def test_exact_false_pair_retracts_atomically_with_immutable_no_sale_audit(supervised, stale_request, observe_open):
     x = supervised
-    rows = false_pair(x, stale_request=stale_request)
+    rows = false_pair(x, stale_request=stale_request, observe_open=observe_open)
+    if stale_request and not observe_open:
+        assert x.runtime.manual_sessions.get(rows[1]['id'])['phase'] == 'approval_pending'
     x.now += .2
     assert x.runtime.reconcile_probe_pair('Dutch', x.farmer_read(), x.read(), now=x.now)
     assert x.runtime.manual_status() == [] and x.calls == []
@@ -259,9 +261,10 @@ def test_exact_false_pair_retracts_atomically_with_immutable_no_sale_audit(super
 
 @pytest.mark.parametrize('fault', ['missing_evidence', 'rollover', 'stock_change', 'predates',
     'decline_pending', 'decline_claimed', 'approved', 'multiple_request', 'journal_race', 'write_failure'])
-def test_any_uncertain_side_rolls_back_both_retractions(supervised, monkeypatch, fault):
+@pytest.mark.parametrize('observe_open', [False, True])
+def test_any_uncertain_side_rolls_back_both_retractions(supervised, monkeypatch, fault, observe_open):
     x = supervised
-    rows = false_pair(x, stale_request=True)
+    rows = false_pair(x, stale_request=True, observe_open=observe_open)
     farmer, merchant = rows
     store = x.runtime.manual_sessions
     if fault in ('missing_evidence', 'rollover', 'stock_change'):
@@ -302,4 +305,39 @@ def test_any_uncertain_side_rolls_back_both_retractions(supervised, monkeypatch,
     assert all(store.get(row['id'])['holds_automation'] for row in rows)
     assert not any(a['event'] == 'manual_admission_retracted_bot_owned' for a in store.audit())
     assert x.guard.manual_session_blocked('Farmer') and x.guard.manual_session_blocked('Dutch')
+    assert x.calls == []
+
+
+@pytest.mark.parametrize('role', ['farmer', 'merchant'])
+def test_no_request_approval_pending_cannot_be_retracted_as_stale_bot_request(supervised, role):
+    x = supervised
+    farmer, merchant = false_pair(x)
+    store = x.runtime.manual_sessions
+    row = farmer if role == 'farmer' else merchant
+    with store.db() as db:
+        db.execute("UPDATE manual_sessions SET phase='approval_pending' WHERE id=?", (row['id'],))
+    x.runtime._sync_manual_fence()
+    x.now += .2
+    x.runtime.reconcile_probe_pair('Dutch', x.farmer_read(), x.read(), now=x.now)
+    assert all(store.get(value['id'])['holds_automation'] for value in (farmer, merchant))
+    assert not any(event['event'] == 'manual_admission_retracted_bot_owned' for event in store.audit())
+    assert x.calls == []
+
+
+def test_pristine_farmer_request_is_never_the_merchant_stale_request_exception(supervised):
+    x = supervised
+    incoming = x.farmer_read()
+    incoming['request'] = {'participant': 'Dutch', 'participant_uid': 123,
+                           'message': 'Dutch wishes to trade with you.'}
+    x.now += .2
+    open_trade(x)
+    x.now += .1
+    store = x.runtime.manual_sessions
+    farmer = store.begin_request('Farmer', incoming, now=x.now)
+    merchant = store.observe_target('Dutch', x.read(), now=x.now)
+    x.runtime._sync_manual_fence()
+    x.now += .1
+    x.runtime.reconcile_probe_pair('Dutch', x.farmer_read(), x.read(), now=x.now)
+    assert all(store.get(row['id'])['holds_automation'] for row in (farmer, merchant))
+    assert not any(event['event'] == 'manual_admission_retracted_bot_owned' for event in store.audit())
     assert x.calls == []

@@ -272,7 +272,8 @@ class TownTrade:
         self.input_attempted = False
         from conquest.merchants.coordination import observe_manual_farmer
         observer=getattr(self,'observer',None)
-        if observer is not None:observe_manual_farmer(observer)
+        if observer is not None and observe_manual_farmer(observer):
+            raise TownObservationUnavailable('Manual trade observation requires a fresh read before town actions')
         try:
             return self.execute(body)
         except ValueError as error:
