@@ -151,4 +151,14 @@ class TravelCare:
                 'expected_size':health.get('window',{}).get('client_size',[1036,793]),'require_foreground':True,'expires_at':time.time()+4,
                 'guard':{'name_address':hex(addresses['name']),'name':farmer_name(),
                          'hp_address':hex(addresses['max_hp']),'max_hp':current['max_hp']}})
-        if self._xp_skill.step(click):raise TravelStateChanged('XP full; activating Fly before continuing travel')
+        from conquest.merchants.coordination import InputAcquisitionBusy
+        try:
+            activated=self._xp_skill.step(click)
+        except InputAcquisitionBusy as error:
+            # The coordinator denied entry before any XP input. Abandon this
+            # care pass, not just the click: the route must recheck Stop/client
+            # identity/life and plan again, then reread XP and its popup point.
+            # Generic focus/OS/SendInput errors can be uncertain; never catch
+            # them here or retry the current dispatch with its old evidence.
+            raise TravelStateChanged('XP input busy; reobserve before continuing travel') from error
+        if activated:raise TravelStateChanged('XP full; activating Fly before continuing travel')

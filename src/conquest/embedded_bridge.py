@@ -151,6 +151,9 @@ class EmbeddedBridge:
                     from conquest.capture import CaptureUnavailable
                     if self.path.strip('/')=='route-jump' and isinstance(error,CaptureUnavailable):
                         result['code']='foreground_unavailable'
+                    from conquest.merchants.coordination import InputAcquisitionBusy
+                    if isinstance(error,InputAcquisitionBusy):
+                        result['code']='input_acquisition_busy'
                     if getattr(error,'code',None) == 'town_observation_unavailable':
                         result['code'] = error.code
                 encoded = json.dumps(result).encode('utf-8')
