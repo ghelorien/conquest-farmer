@@ -314,9 +314,19 @@ class FarmerTradeDriver:
             profile=self.require_qualified();f,m=self.read_pair(intent['merchant']['character'])
             unchanged(f,m);recipient_record(self.driver.observer,profile,m,farmer=f)
             self.button(intent,'start_trade',unchanged,stage='trade_target_mode')
-            targeting_f,targeting_m=self.read_pair(m['character']);unchanged(targeting_f,targeting_m)
-            recipient=recipient_record(self.driver.observer,profile,targeting_m,
-                                       farmer=targeting_f,targeting=True)
+            # Target-mode selection can briefly mutate the receiver collection.
+            # Re-read only; never replay the already-recorded mode-selection input.
+            deadline=time.monotonic()+1.5
+            for attempt in range(5):
+                self.check();targeting_f,targeting_m=self.read_pair(m['character'])
+                unchanged(targeting_f,targeting_m)
+                try:
+                    recipient=recipient_record(self.driver.observer,profile,targeting_m,
+                                               farmer=targeting_f,targeting=True)
+                    break
+                except RecipientSceneChanged:
+                    if attempt==4 or time.monotonic()>=deadline:raise
+                    time.sleep(.05)
             binding=recipient_binding(recipient)
             self._action_observed('trade_target_mode',{'targeting_trade':True})
             point=tuple(round(v*p/g) for v,p,g in zip(recipient['point'],profile['client_size'],profile['gui_size']))
