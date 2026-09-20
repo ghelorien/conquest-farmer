@@ -207,6 +207,35 @@ def test_resume_exact_midpoint_uses_local_flags_and_only_merchant_input(midpoint
     assert x.runtime.manual_status()==[]
 
 
+def test_saved_json_delivery_receipt_validates_at_its_authority_time_not_as_fresh_input(midpoint):
+    from conquest.merchants.delivery import reconcile,reconciliation_outcome,ReconciliationBlocked
+    x=midpoint
+    confirm.run(x.ui,deepcopy(x.probe))
+    saved=probe.read_probe();farmer,merchant=saved['farmer_after'],saved['merchant_after']
+    events=list(x.events);authority=saved['verified_at']
+    assert saved['phase']=='delivery_verified' and reconcile(saved['intent'],farmer,merchant,now=authority)
+    x.now+=150
+    assert not reconcile(saved['intent'],farmer,merchant)  # No historical input authority.
+    with pytest.raises(ReconciliationBlocked,match='fresh, living, identified'):
+        reconciliation_outcome(saved['intent'],farmer,merchant)
+    result=reconciliation_outcome(saved['intent'],farmer,merchant,now=authority)
+    assert result['outcome']=='delivered' and x.events==events and probe.read_probe()==saved
+
+
+@pytest.mark.parametrize('fault',['uid','quantity','silver','identity','trade'])
+def test_historical_receipt_clock_never_bypasses_exact_ownership_checks(midpoint,fault):
+    from conquest.merchants.delivery import reconcile
+    x=midpoint;confirm.run(x.ui,deepcopy(x.probe));saved=probe.read_probe()
+    farmer,merchant=saved['farmer_after'],saved['merchant_after'];events=list(x.events)
+    if fault=='uid':merchant['inventory'][-1]['uid']+=1
+    if fault=='quantity':merchant['inventory'][-1]['quantity']+=1
+    if fault=='silver':merchant['silver']+=1
+    if fault=='identity':merchant['identity']['creation_time_100ns']+=1
+    if fault=='trade':farmer['trade']={'participant':'Other','participant_uid':999}
+    assert not reconcile(saved['intent'],farmer,merchant,now=saved['verified_at'])
+    assert x.events==events
+
+
 @pytest.mark.parametrize('role',['farmer','merchant'])
 def test_asymmetric_midpoint_keeps_bot_precedence_without_manual_admission(midpoint,monkeypatch,role):
     x=midpoint
