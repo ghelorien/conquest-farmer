@@ -382,6 +382,9 @@ class MerchantRuntime(ManualRuntime):
             return
         else:
             # Unresolved automated intent has priority over visitor admission.
+            if controller.recover_unsubmitted_listing(snapshot):
+                snapshot=controller.driver.read()
+                with self.lock:self.latest[character]=snapshot
             controller.reconcile(snapshot)
             if self.journal.pending(character):return
             if getattr(self,'delivery_window',None):return

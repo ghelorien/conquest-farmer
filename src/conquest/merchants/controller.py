@@ -110,6 +110,54 @@ class MerchantController:
                 # Prepared intent is also ambiguous after a process crash.
                 raise ValueError('Unfinished transaction requires reconciliation; input is paused')
 
+    def recover_unsubmitted_listing(self, snapshot):
+        """Cancel one exact price dialog whose confirmation was never attempted."""
+        candidates=[]
+        for record in self.journal.pending(self.character):
+            result=json.loads(record.get('result_json') or '{}')
+            if (record['kind']=='listing' and record['phase']=='uncertain'
+                    and result.get('confirmation_attempted') is False):
+                candidates.append((record,json.loads(record['before_json'])))
+        if not candidates:return False
+        if len(candidates)!=1:
+            raise ValueError('Multiple unsubmitted listing dialogs need operator reconciliation')
+        record,before=candidates[0];uid=before['uid']
+        if (snapshot.get('identity')!=before['snapshot'].get('identity')
+                or snapshot.get('trade') or snapshot.get('request')
+                or not snapshot.get('booth_open')):
+            raise ValueError('Unsubmitted listing ownership or merchant state changed')
+        dialogs=[w for w in snapshot.get('windows',[]) if w['name']=='Add Item to Booth']
+        if not dialogs:return False  # Ordinary read-only reconcile closes this case.
+        if len(dialogs)!=1:
+            raise ValueError('Unsubmitted listing dialog is ambiguous')
+        from conquest.merchants.qualification import modal_controls,stock
+        from conquest.merchants.memory import unpack
+        model=self.driver.memory.gui.model(25,0x5c27f8)
+        expected_stock=stock(snapshot)
+        if (unpack(self.driver.observer.adapter,model+0x50,'<I')[0]!=uid
+                or identities(snapshot['inventory']).get(uid)!=identities([before['item']])[uid]
+                or any(i['uid']==uid for i in snapshot['booth'])):
+            raise ValueError('Price dialog is not bound to the exact unsubmitted item')
+        with self.coordinator.lease(self.character,purpose='unsubmitted_listing_cancel'):
+            self.check_listing()
+            current=self.driver.read()
+            def same_dialog():
+                fresh=self.driver.read()
+                if (stock(fresh)!=expected_stock or fresh.get('trade') or fresh.get('request')
+                        or unpack(self.driver.observer.adapter,model+0x50,'<I')[0]!=uid
+                        or modal_controls(self.driver.observer.adapter,fresh)!=modal_controls(self.driver.observer.adapter,current)):
+                    raise ValueError('Unsubmitted price dialog changed before cancellation')
+            same_dialog()
+            self.driver.click(current,'cancel_listing',validate=same_dialog)
+            after=self.driver.wait_for(lambda s:not any(
+                w['name']=='Add Item to Booth' for w in s['windows']),self.check_listing)
+            if stock(after)!=expected_stock or unpack(self.driver.observer.adapter,model+0x50,'<I')[0]!=0:
+                raise ValueError('Listing cancellation did not preserve exact merchant stock')
+            self.journal.transition(record['id'],'aborted',{'uid':uid,
+                'outcome':'not_submitted','confirmation_attempted':False,
+                'note':'Exact unsubmitted price dialog cancelled; stock unchanged and safe to replan.'})
+            return True
+
     def accept_delivery(self):
         self.driver.require_qualified('trade')
         with self.coordinator.lease(self.character,purpose='trade'):

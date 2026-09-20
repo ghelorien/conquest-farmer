@@ -90,7 +90,17 @@ def execute(trade,body):
     if action=='service-close-panel' and set(body)=={'action','window'}:
         if body['window'] not in ('Inventory','Dialog'):raise ValueError('Unsupported service panel')
         from conquest.memory_shop import MemoryGui
-        gui=MemoryGui(trade.observer.adapter);window=gui.read(body['window'])
+        gui=MemoryGui(trade.observer.adapter)
+        try:window=gui.read(body['window'])
+        except ValueError as error:
+            # The broad travel-panel reader can observe a panel record during
+            # the few frames in which it becomes inactive.  This qualified
+            # reader is authoritative at the input boundary: an inactive or
+            # absent display needs no close click and is already safe for
+            # movement.  Other observation failures remain fail-closed.
+            if str(error)=='Requested GUI window is not active':
+                return {'closed':True,'already_closed':True}
+            raise
         if gui.read(body['window'])!=window:raise ValueError('Service panel moved')
         trade.input_attempted=True
         trade.click((round(window.position[0]+window.size[0]-18),round(window.position[1]+18)))
