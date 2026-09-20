@@ -40,8 +40,8 @@ def shopping_budget(route,bag,level=None):
     # These pack sizes/prices were independently verified in live purchases.
     # Actual purchases still reread the shop price and respect the wallet.
     kind=route.supplies.arrow_type
-    catalog=read_json('profiles/archer-shop-catalog.json',{}).get('cities',{}).get(str(route.restock_map_id),{})
-    products=catalog.get('5',{}).get('products',[])
+    from conquest.archer_shop_catalog import catalog
+    products=catalog().get('cities',{}).get(str(route.restock_map_id),{}).get('5',{}).get('products',[])
     price=next((p['price'] for p in products if p['type_id']==kind),{1050000:200,1050001:4800}.get(kind))
     ammo=bag.get('equipped_ammo')
     limits=[i['limit'] for i in bag['items'] if i['type_id']==kind]
