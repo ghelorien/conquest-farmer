@@ -32,7 +32,7 @@ def positions(terrain,probe,*,used=(),deadline=None):
     ranked=[]
     for _,p in sorted(candidates)[:24]:
         if deadline is not None and time.time()>=deadline:break
-        try:path=terrain.travel_path(source,p)
+        try:path=terrain.travel_path(source,p,avoid=used-{source,p})
         except ValueError:continue
         if not path or tuple(path[0])!=source or tuple(path[-1])!=p:continue
         distance=sum(max(abs(a[0]-b[0]),abs(a[1]-b[1])) for a,b in zip(path,path[1:]))
@@ -52,10 +52,29 @@ def ingress_position(terrain,probe,*,used=(),deadline=None):
     source=tuple(probe['farmer_position']);target=tuple(probe['merchant_position'])
     if source==target:return None
     if deadline is not None and time.time()>=deadline:return None
-    try:path=terrain.travel_path(source,target)
+    avoid=(set(map(tuple,used))|{target}|set(map(tuple,probe.get('occupied_tiles',[]))))-{source}
+    # The recipient is deliberately the terminal path point only.  The
+    # waypoint below still excludes it, so no movement is aimed at its tile.
+    try:path=terrain.travel_path(source,target,avoid=avoid-{target})
     except ValueError:return None
     if not path or tuple(path[0])!=source or tuple(path[-1])!=target:return None
-    avoid=(set(map(tuple,used))|{target}|set(map(tuple,probe.get('occupied_tiles',[]))))-{source}
+    from conquest.navigation import travel_waypoint
+    try:
+        return travel_waypoint(terrain,path,DELIVERY_PROBE_MAX_AXIS_DELTA,
+                               avoid=avoid,viewport=tuple(probe['viewport']))
+    except ValueError:
+        return None
+
+
+def bounded_position(terrain,probe,destination,*,used=(),deadline=None):
+    """Return one checked, visible leg toward a freshly selected standing tile."""
+    source=tuple(probe['farmer_position']);destination=tuple(destination)
+    if source==destination:return None
+    if deadline is not None and time.time()>=deadline:return None
+    avoid=(set(map(tuple,used))|set(map(tuple,probe.get('occupied_tiles',[]))))-{source}
+    try:path=terrain.travel_path(source,destination,avoid=avoid-{destination})
+    except ValueError:return None
+    if not path or tuple(path[0])!=source or tuple(path[-1])!=destination:return None
     from conquest.navigation import travel_waypoint
     try:
         return travel_waypoint(terrain,path,DELIVERY_PROBE_MAX_AXIS_DELTA,

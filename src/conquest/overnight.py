@@ -245,7 +245,7 @@ class OvernightLoop:
                     raise ValueError('Previous death return did not release the route')
                 time.sleep(.1)
 
-    def travel(self, destination, *, activity=None, vendor_type=None, service_name=None, arrival_radius=0):
+    def travel(self, destination, *, activity=None, vendor_type=None, service_name=None, arrival_radius=0, avoid=()):
         from conquest.runback_monitor import RunbackMonitor
         life=self.living()['embedded_controls']['life']
         self.runback_watch=watch=RunbackMonitor(destination,life.get('map_id',self.terrain.map_id),'town',
@@ -260,13 +260,13 @@ class OvernightLoop:
         outcome='interrupted'
         try:
             result=self._travel(destination,activity=activity,vendor_type=vendor_type,service_name=service_name,
-                                arrival_radius=arrival_radius)
+                                arrival_radius=arrival_radius,avoid=avoid)
             outcome='arrived';return result
         finally:
             if stepper is not None:stepper.on_life=previous
             watch.finish(outcome);self.runback_watch=None
 
-    def _travel(self, destination, *, activity=None, vendor_type=None, service_name=None, arrival_radius=0):
+    def _travel(self, destination, *, activity=None, vendor_type=None, service_name=None, arrival_radius=0, avoid=()):
         if type(arrival_radius) is not int or not 0<=arrival_radius<=2:
             raise ValueError('Intermediate arrival radius must be zero to two tiles')
         from conquest.city_travel import service_role
@@ -277,6 +277,10 @@ class OvernightLoop:
                    4:'Armorer to check armor and headgear',
                    1:'Shopkeeper to check ring, boots and necklace'}.get(vendor_role,str(destination))
         self.record('travel',destination=destination,activity=activity or 'Heading to '+purpose)
+        # Read-only memory occupancy is a hard constraint for this trip.  Keep
+        # it distinct from transient failed movement edges, which may be reset
+        # after verified progress.
+        occupied = set(map(tuple,avoid))
         avoided = set()
         recovery_run_until=0
         deadline = time.monotonic()+90
@@ -298,6 +302,7 @@ class OvernightLoop:
             h = self.living()
             life = h['embedded_controls']['life']
             source = tuple(life['position'])
+            occupied.discard(source)
             from conquest.viewport import scene_bounds,clear_scene
             viewport=tuple(h.get('window',{}).get('client_size',(1036,793)))
             bounds=scene_bounds(viewport)
@@ -342,14 +347,15 @@ class OvernightLoop:
                 self.care.check(h)
                 try:
                     planner=getattr(self.terrain,'travel_path',self.terrain.straight_path)
-                    if cached_path and cached_avoid==frozenset(avoided) and source in cached_path:
+                    blocked=occupied|avoided
+                    if cached_path and cached_avoid==frozenset(blocked) and source in cached_path:
                         path=cached_path[cached_path.index(source):]
-                    else:path = planner(source,tuple(destination),avoid=avoided)
-                    cached_path=path;cached_avoid=frozenset(avoided)
+                    else:path = planner(source,tuple(destination),avoid=blocked)
+                    cached_path=path;cached_avoid=frozenset(blocked)
                 except TravelStalled:
                     raise
                 except ValueError:
-                    if not avoided:
+                    if not avoided and not occupied:
                         from conquest.town_corner import recover_corner
                         if recover_corner(self,destination):
                             cached_path=None;cached_avoid=None
@@ -357,9 +363,9 @@ class OvernightLoop:
                         raise
                     # Temporary failed steps can cut the only town corridor.
                     # Revalidate the actual terrain and retry with short runs.
-                    path = planner(source,tuple(destination))
+                    path = planner(source,tuple(destination),avoid=occupied)
                     avoided.clear()
-                    cached_path=path;cached_avoid=frozenset()
+                    cached_path=path;cached_avoid=frozenset(occupied)
                     recovery_run_until=time.monotonic()+6
                     self.record('town_path_retry',activity='Retrying the town corridor with running steps')
                 remaining=sum(max(abs(a[0]-b[0]),abs(a[1]-b[1])) for a,b in zip(path,path[1:]))
@@ -373,12 +379,17 @@ class OvernightLoop:
                     continue
                 from conquest.navigation import travel_waypoint
                 step_limit=4 if blocked_jump_origin is not None or time.monotonic()<recovery_run_until else 12
-                target = (travel_waypoint(self.terrain,path,step_limit,avoid=avoided,viewport=viewport)
+                blocked=occupied|avoided
+                target = (travel_waypoint(self.terrain,path,step_limit,avoid=blocked,viewport=viewport)
                           if hasattr(self.terrain,'travel_path') else native_waypoint(path,step_limit,viewport=viewport))
                 from types import SimpleNamespace
                 from conquest.scene_input import memory_player_anchor,visible_route_delta,clear_route_point
                 anchor=memory_player_anchor(SimpleNamespace(adapter=self.care.session),SimpleNamespace(**life))
-                if self.terrain.map_id in (1036,1011) and market_failures>=2 and len(market_landings)<3:
+                # Generic Market recovery has no occupancy input.  Retain a
+                # fresh merchant probe's hard exclusions instead of bypassing
+                # them with an alternate landing guessed from terrain alone.
+                if (self.terrain.map_id in (1036,1011) and not occupied
+                        and market_failures>=2 and len(market_landings)<3):
                     from conquest.market_navigation import recovery_landing
                     alternate=recovery_landing(self.terrain,source,tuple(destination),anchor,
                                                failed=market_failed,used=market_landings,viewport=viewport)
@@ -395,7 +406,7 @@ class OvernightLoop:
                 if getattr(self,'runback_watch',None) and self.runback_watch.urgent:
                     from conquest.runback_monitor import escape_step
                     escape=escape_step(self.terrain,source,tuple(destination),anchor,
-                                       h['embedded_controls'].get('monsters',[]),avoid=avoided,viewport=viewport)
+                                       h['embedded_controls'].get('monsters',[]),avoid=blocked,viewport=viewport)
                     if escape is not None:
                         target=escape;self.runback_watch.recovery()
                         self.record('runback_evading',activity='Under attack during runback; healing and moving away')
@@ -420,7 +431,7 @@ class OvernightLoop:
                     else:
                         target=(source[0]+shorter[0],source[1]+shorter[1])
                 from conquest.navigation import clear_segment
-                if hasattr(self.terrain,'travel_path') and not clear_segment(self.terrain,source,target,avoid=avoided):
+                if hasattr(self.terrain,'travel_path') and not clear_segment(self.terrain,source,target,avoid=blocked):
                     avoided.add(target);continue
                 result = self.stepper.step_to(target,expected_position=source)
             except TravelStateChanged:
@@ -467,6 +478,9 @@ class OvernightLoop:
                 avoided.add(tuple(path[1]))
                 if len(avoided) > 8:
                     raise ValueError('Town route remains obstructed')
+        if service_deadline is not None and time.time()>=service_deadline:
+            raise TravelStalled('Market merchant-service deadline expired; defer further input',
+                                code='service_deadline')
         raise ValueError('Town travel has made no position progress for 90 seconds')
 
     def sell_junk(self, vendor_type):

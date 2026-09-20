@@ -211,12 +211,17 @@ def refill_remainder(loop,send,key,deadline,proof,revision):
 
 def approach_merchant(loop,plan,send,*,deadline=None):
     """World distance ranks candidates; the driver shares the arrival proof."""
-    from conquest.merchants.approach import ingress_position,positions,within_delivery_probe_range
+    from conquest.merchants.approach import bounded_position,ingress_position,positions,within_delivery_probe_range
     from conquest.travel_progress import TravelStalled
     used=[]
-    correction_deadline=time.time()+15
-    if deadline is not None:correction_deadline=min(correction_deadline,deadline)
-    for attempt in range(4):
+    # Keep the final fifteen seconds of a Market visit for the qualified
+    # transaction and release.  Approach legs get their own short deadline so
+    # one obsolete target cannot consume that budget.
+    correction_deadline=time.time()+40
+    if deadline is not None:correction_deadline=min(correction_deadline,deadline-15)
+    # Every movement leg is a checked visible jump.  Reobserve after it rather
+    # than walking back to a stale intermediate standing tile.
+    for attempt in range(12):
         check_stop(loop)
         if time.time()>=correction_deadline:return False
         probe=send({'action':'delivery-target','character':plan['merchant']})
@@ -226,7 +231,7 @@ def approach_merchant(loop,plan,send,*,deadline=None):
         if (probe.get('ready') and within_delivery_probe_range(
                 probe.get('farmer_position'), probe.get('merchant_position'))):
             return True
-        if attempt==3:return False
+        if attempt==11:return False
         if probe.get('reason')=='recipient_scene_changed':
             # A delivery-target probe is read-only.  Do not route or submit
             # input from a scene that changed during that observation; give a
@@ -242,18 +247,37 @@ def approach_merchant(loop,plan,send,*,deadline=None):
         else:
             candidates=positions(loop.terrain,probe,used=used,deadline=correction_deadline)
         if not candidates:return False
-        target=candidates[0];used.append(target)
+        selected=candidates[0]
+        target=bounded_position(loop.terrain,probe,selected,used=used,deadline=correction_deadline)
+        if target is None:
+            used.append(selected)
+            continue
+        if max(abs(a-b) for a,b in zip(target,probe['farmer_position']))<=2:
+            used.extend(point for point in (selected,target) if point not in used)
+            continue
+        # Never make a later probe walk back to either this old standing tile
+        # or the bounded landing that superseded it.
+        used.extend(point for point in (selected,target) if point not in used)
+        occupied=set(map(tuple,probe.get('occupied_tiles',())))
+        occupied.update(used)
+        occupied.discard(tuple(probe['farmer_position']))
+        # This fresh, checked landing was not an occupied memory tile.  It is
+        # also kept in ``used`` to prevent stale reuse, so remove only this
+        # travel goal from the static path exclusion.
+        occupied.discard(target)
         loop.record('merchant_repositioning',merchant=plan['merchant'],attempt=attempt+1,
                     reason=probe.get('reason'),destination=target,
                     activity=f"Repositioning for a visible trade target: {plan['merchant']}")
         previous=getattr(loop,'market_service_deadline',None)
-        loop.market_service_deadline=(min(previous,correction_deadline)
-                                      if isinstance(previous,(int,float)) else correction_deadline)
-        try:loop.travel(target,arrival_radius=0,activity=f"Approaching verified trade view of {plan['merchant']}")
+        leg_deadline=min(correction_deadline,time.time()+4)
+        loop.market_service_deadline=(min(previous,leg_deadline)
+                                      if isinstance(previous,(int,float)) else leg_deadline)
+        try:loop.travel(target,arrival_radius=2,avoid=occupied,
+                        activity=f"Approaching verified trade view of {plan['merchant']}")
         except TravelStalled:
             loop.record('merchant_approach_deferred',merchant=plan['merchant'],
-                        activity='Merchant approach stalled; selecting another safe destination')
-            return False
+                        activity='Merchant approach stalled; reobserving a safe destination')
+            continue
         finally:loop.market_service_deadline=previous
     return False
 
