@@ -13,6 +13,10 @@ from conquest.capture import CaptureUnavailable
 from conquest.merchants.memory import TransitObservationChanged as _TransitObservationChanged
 
 
+class MerchantRejected(ValueError):
+    """A parsed bridge application rejection, not an uncertain transport loss."""
+
+
 class MerchantBridge:
     def __init__(self, dispatch, path=state_path('.runtime/merchants/bridge.json')):
         self.path,self.dispatch = Path(path),dispatch
@@ -99,6 +103,7 @@ def request(body, path=state_path('.runtime/merchants/bridge.json')):
         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(call,timeout=5) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
+        payload=None
         try:
             payload=json.load(error)
             detail,code=payload.get('error','Merchant request failed'),payload.get('code')
@@ -107,4 +112,7 @@ def request(body, path=state_path('.runtime/merchants/bridge.json')):
         if code=='merchant_transit_observation_changed':
             from conquest.merchants.memory import TransitObservationChanged
             raise TransitObservationChanged(detail) from error
+        if (error.code==400 and isinstance(payload,dict) and set(payload)=={'error'}
+                and isinstance(payload['error'],str) and payload['error']):
+            raise MerchantRejected(payload['error']) from error
         raise ValueError(detail) from error

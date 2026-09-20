@@ -12,7 +12,7 @@ import uuid
 import ctypes
 
 from conquest.discord_notify import read_json,write_json
-from conquest.merchants.bridge import request
+from conquest.merchants.bridge import MerchantRejected,request
 from conquest.merchants.delivery import plan_deliveries
 from conquest.merchants.handoff import WorkWindows
 from conquest.merchants.farmer_preferences import enabled as transfers_enabled
@@ -380,12 +380,18 @@ def _market_storage(loop,*,send=request,items=None,on_admitted=None):
         key='route-delivery:'+uuid.uuid4().hex
         windows=WorkWindows()
         if not windows.reserve(key,town=True,visit=visit):return receipts
-        requested=False
+        release_required=False
         try:
             # Record ownership before issuing the request so an uncertain
             # response still revokes the possible window in finally.
-            requested=True
-            send({'action':'delivery-window','request_id':key})
+            release_required=True
+            try:send({'action':'delivery-window','request_id':key})
+            except MerchantRejected:
+                # A parsed bridge application rejection proves this action
+                # did not publish the key.  Unknown/lost responses remain
+                # release-required so they cannot leave input authorized.
+                release_required=False
+                raise
             deadline=windows.started()
             send({'action':'handoff-grant','request_id':key,'revision':control['revision'],
                   'expires_at':deadline,'safe':True,'scope':'market_visit','visit_id':visit['visit_id']})
@@ -413,7 +419,7 @@ def _market_storage(loop,*,send=request,items=None,on_admitted=None):
                 refill_remainder(loop,send,key,deadline,{'target':health.get('target')},control['revision'])
             windows.finish('completed')
         finally:
-            if requested:
+            if release_required:
                 until=time.monotonic()+12
                 while not send({'action':'handoff-release','request_id':key}).get('released'):
                     if time.monotonic()>=until:
