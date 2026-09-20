@@ -221,22 +221,31 @@ def approach_merchant(loop,plan,send,*,deadline=None):
     if deadline is not None:correction_deadline=min(correction_deadline,deadline-15)
     # Every movement leg is a checked visible jump.  Reobserve after it rather
     # than walking back to a stale intermediate standing tile.
-    for attempt in range(12):
+    moves=0
+    previous_leg_source=None
+    # Scene-control observations are read-only volatility, not movement
+    # attempts.  Keep their count finite while limiting actual repositioning.
+    for observation in range(48):
         check_stop(loop)
         if time.time()>=correction_deadline:return False
         probe=send({'action':'delivery-target','character':plan['merchant']})
         if time.time()>=correction_deadline:return False
+        source=tuple(probe.get('farmer_position',()))
+        if len(source)!=2:return False
+        if previous_leg_source is not None:
+            if source!=previous_leg_source:moves+=1
+            previous_leg_source=None
         if probe.get('merchant_position')!=plan['position']:
             return False
         if (probe.get('ready') and within_delivery_probe_range(
                 probe.get('farmer_position'), probe.get('merchant_position'))):
             return True
-        if attempt==11:return False
+        if moves>=12:return False
         if probe.get('reason')=='recipient_scene_changed':
             # A delivery-target probe is read-only.  Do not route or submit
             # input from a scene that changed during that observation; give a
             # fresh scene a bounded chance to settle instead.
-            loop.record('merchant_target_deferred',merchant=plan['merchant'],attempt=attempt+1,
+            loop.record('merchant_target_deferred',merchant=plan['merchant'],attempt=observation+1,
                         reason='recipient_scene_changed',
                         activity='Trade target scene changed; retrying the memory observation')
             time.sleep(min(.1,max(0,correction_deadline-time.time())))
@@ -252,33 +261,30 @@ def approach_merchant(loop,plan,send,*,deadline=None):
         if target is None:
             used.append(selected)
             continue
-        if max(abs(a-b) for a,b in zip(target,probe['farmer_position']))<=2:
-            used.extend(point for point in (selected,target) if point not in used)
-            continue
-        # Never make a later probe walk back to either this old standing tile
-        # or the bounded landing that superseded it.
-        used.extend(point for point in (selected,target) if point not in used)
+        short_leg=max(abs(a-b) for a,b in zip(target,source))<=2
         occupied=set(map(tuple,probe.get('occupied_tiles',())))
-        occupied.update(used)
-        occupied.discard(tuple(probe['farmer_position']))
-        # This fresh, checked landing was not an occupied memory tile.  It is
-        # also kept in ``used`` to prevent stale reuse, so remove only this
-        # travel goal from the static path exclusion.
-        occupied.discard(target)
-        loop.record('merchant_repositioning',merchant=plan['merchant'],attempt=attempt+1,
+        occupied.add(tuple(probe['merchant_position']))
+        occupied.discard(source)
+        loop.record('merchant_repositioning',merchant=plan['merchant'],attempt=observation+1,
                     reason=probe.get('reason'),destination=target,
                     activity=f"Repositioning for a visible trade target: {plan['merchant']}")
         previous=getattr(loop,'market_service_deadline',None)
         leg_deadline=min(correction_deadline,time.time()+4)
         loop.market_service_deadline=(min(previous,leg_deadline)
                                       if isinstance(previous,(int,float)) else leg_deadline)
-        try:loop.travel(target,arrival_radius=2,avoid=occupied,
+        try:loop.travel(target,arrival_radius=0 if short_leg else 2,avoid=occupied,
                         activity=f"Approaching verified trade view of {plan['merchant']}")
         except TravelStalled:
             loop.record('merchant_approach_deferred',merchant=plan['merchant'],
                         activity='Merchant approach stalled; reobserving a safe destination')
+            used.append(target)
+            previous_leg_source=source
             continue
         finally:loop.market_service_deadline=previous
+        # A bounded hop is no longer a candidate, but its still-unreached
+        # final standing tile remains eligible for the fresh next probe.
+        used.append(target)
+        previous_leg_source=source
     return False
 
 
