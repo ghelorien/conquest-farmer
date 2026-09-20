@@ -84,7 +84,10 @@ def source_checked(source, saved=None):
 
 
 def deliverable_item(item):
-    return eligible(item) and item.get('type_id') != 1088001
+    from conquest.valuables import DRAGONBALL_TYPES
+    plus=item.get('plus')
+    return (eligible(item) and item.get('type_id') not in DRAGONBALL_TYPES
+            and not (type(plus) is int and plus >= 2))
 
 
 def merchant_live(name, status, snapshot, *, require_capacity=True):

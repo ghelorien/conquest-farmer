@@ -745,6 +745,12 @@ class OvernightLoop:
             data = h['embedded_controls']
             if not data['control']['enabled']:
                 raise OvernightStopped('Farming was switched Off')
+            # Banking owns urgent Dragonballs and +2 gear before an optional
+            # merchant-acceptance cycle can reserve an ordinary delivery item.
+            from conquest.banking import urgent_valuables
+            if urgent_valuables(self.town('supplies')['items']):
+                self.stop_farm()
+                return 'urgent_banking'
             from conquest.merchant_loop_acceptance import observe_hunting
             if observe_hunting(self,h):
                 self.stop_farm()
