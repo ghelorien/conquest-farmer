@@ -20,7 +20,8 @@ def snapshot(name, uid, items, *, map_id=1000):
     return {'character':name, 'character_uid':uid, 'server':'America',
         'identity':{'pid':uid, 'creation_time_100ns':uid*100, 'path':f'C:/game/{name}.exe'},
         'timestamp':time.time(), 'hp':100, 'map_id':map_id, 'inventory':items,
-        'silver':1000, 'capacity':40, 'booth':[], 'booth_open':True, 'trade':None, 'request':None}
+        'silver':1000, 'capacity':40, 'booth':[], 'booth_open':True, 'own_booth_uid':uid+100,
+        'trade':None, 'request':None}
 
 
 @pytest.fixture
@@ -29,7 +30,8 @@ def rig(tmp_path,monkeypatch):
     farmer=snapshot('Parasite',1,[item(10),item(11,1050002,0,quantity=5000)])
     merchant=snapshot('Spiritual',2,[],map_id=1036)
     status={'ready':True,'enabled':True,'profile_id':'merchant-profile','snapshot':merchant,
-            'pending':[],'manual_input_fence':False,'qualification':{'booth_input':True},
+            'pending':[],'manual_input_fence':False,
+            'qualification':{capability:True for capability in acceptance.MERCHANT_CAPABILITIES},
             'refill':{'enabled':True,'pending':False}}
     ui=NS(app=NS(control=NS(snapshot=lambda:{'enabled':False,'paused':False}),
                  observer=NS(adapter=NS(identity=farmer['identity'],expected_sha256='build')),
@@ -37,6 +39,12 @@ def rig(tmp_path,monkeypatch):
           coordinator=NS(stopped=False,owner=None,manual_session_blocked=lambda role:False),
           safe_to_yield=lambda:True,runtime=NS(status=lambda:{'Spiritual':deepcopy(status)}))
     qualification=tmp_path/'qualification.json';qualification.write_text('qualified evidence')
+    merchant_qualification=tmp_path/'merchant-qualification.json'
+    merchant_qualification.write_text(json.dumps({'client_sha256':'merchant-build','character':'Spiritual',
+        'server':'America','capabilities':dict(status['qualification']),'evidence':{'verified':True}}))
+    merchant_driver=NS(observer=NS(adapter=NS(identity=merchant['identity'],expected_sha256='merchant-build')),
+        qualification=merchant_qualification,require_qualified=lambda capability:True)
+    ui.runtime.controllers={'Spiritual':NS(driver=merchant_driver)}
     monkeypatch.setattr('conquest.merchants.farmer_qualification.qualification_path',lambda *a,**kw:qualification)
     monkeypatch.setattr('conquest.merchants.farmer_trade.FarmerTradeDriver',lambda ui:NS(require_qualified=lambda:True))
     monkeypatch.setattr('conquest.merchants.delivery_operation.guard_reload',lambda:None)
@@ -72,6 +80,7 @@ def rig(tmp_path,monkeypatch):
         acceptance.town_started(loop,visit,deepcopy(farmer))
         return visit
     return NS(ui=ui,farmer=farmer,merchant=merchant,status=status,qualification=qualification,
+              merchant_qualification=merchant_qualification,merchant_driver=merchant_driver,
               loop=loop,health=health,body=body,trigger=trigger,town=town,observe=observe,fresh=fresh)
 
 
@@ -123,9 +132,9 @@ def test_arm_requires_no_manual_or_running_control_hold(rig,hold):
     assert not acceptance.state()['enabled']
 
 
-@pytest.mark.parametrize('change',['ready','enabled','refill','booth','manual','pending','dead','map','stale','capacity'])
+@pytest.mark.parametrize('change',['enabled','refill','booth','manual','pending','dead','map','stale','capacity'])
 def test_arm_requires_fresh_ready_exact_merchant_and_refill(rig,change):
-    if change in ('ready','enabled'):rig.status[change]=False
+    if change=='enabled':rig.status[change]=False
     elif change=='refill':rig.status['refill']['enabled']=False
     elif change=='booth':rig.status['qualification']['booth_input']=False
     elif change=='manual':rig.status['manual_input_fence']=True
@@ -135,6 +144,81 @@ def test_arm_requires_fresh_ready_exact_merchant_and_refill(rig,change):
     elif change=='capacity':rig.merchant['capacity']=0
     else:rig.merchant['timestamp']-=6
     with pytest.raises(ValueError,match='exact ready merchant'):enable(rig)
+
+
+@pytest.mark.parametrize('capability',acceptance.MERCHANT_CAPABILITIES)
+@pytest.mark.parametrize('value',[False,None,'true'])
+def test_arm_requires_each_exact_trade_and_refill_capability(rig,capability,value):
+    rig.status['qualification'][capability]=value
+    with pytest.raises(ValueError,match='exact ready merchant'):enable(rig)
+    assert acceptance.state()['enabled'] is False
+
+
+def test_arm_and_runtime_ignore_only_unrelated_recovery_qualification(rig):
+    rig.status['ready']=False
+    for capability in ('login','market_return','booth_setup','booth_panel'):
+        rig.status['qualification'][capability]=False
+    checked=[]
+    rig.merchant_driver.require_qualified=lambda capability:checked.append(capability)
+    armed=enable(rig)
+    assert checked==list(acceptance.MERCHANT_CAPABILITIES)
+    assert armed['merchants']['Spiritual']['qualification']['client_sha256']=='merchant-build'
+    rig.trigger();rig.town()
+    assert acceptance.merchant_allowed('Spiritual',rig.status,rig.merchant)
+    assert rig.status['ready'] is False  # No broad/global readiness promotion.
+
+
+@pytest.mark.parametrize('capability',acceptance.MERCHANT_CAPABILITIES)
+def test_arm_rechecks_driver_qualification_instead_of_trusting_status(rig,capability):
+    def require(wanted):
+        if wanted==capability:raise ValueError('live capability missing')
+    rig.merchant_driver.require_qualified=require
+    with pytest.raises(ValueError,match='live capability missing'):enable(rig)
+    assert acceptance.state()['enabled'] is False
+
+
+@pytest.mark.parametrize('changes',[{'client_sha256':'wrong-build'},{'character':'Dutch'},
+    {'server':'other'},{'evidence':{}},{'capabilities':{'booth_input':True}}])
+def test_arm_pins_only_the_qualification_bytes_rechecked_against_live_build(rig,changes):
+    evidence=json.loads(rig.merchant_qualification.read_text())
+    rig.merchant_qualification.write_text(json.dumps({**evidence,**changes}))
+    with pytest.raises(ValueError,match='qualification changed'):enable(rig)
+    assert acceptance.state()['enabled'] is False
+
+
+@pytest.mark.parametrize('change',['process','build','uid','booth_uid','closed_booth','server','character','input','attention'])
+def test_arm_rejects_unbound_merchant_identity_build_booth_and_holds(rig,change):
+    if change=='process':rig.merchant_driver.observer.adapter.identity={**rig.merchant['identity'],'pid':99}
+    elif change=='build':rig.merchant_driver.observer.adapter.expected_sha256=None
+    elif change=='uid':rig.merchant['character_uid']=None
+    elif change=='booth_uid':rig.merchant['own_booth_uid']=0
+    elif change=='closed_booth':rig.merchant['booth_open']=False
+    elif change=='server':rig.merchant['server']='other'
+    elif change=='character':rig.merchant['character']='Dutch'
+    elif change=='input':rig.status['input_active']=True
+    else:rig.status['needs_attention']={'incident':'unresolved'}
+    with pytest.raises(ValueError):enable(rig)
+    assert acceptance.state()['enabled'] is False
+
+
+@pytest.mark.parametrize('capability',acceptance.MERCHANT_CAPABILITIES)
+def test_runtime_rechecks_every_required_capability(rig,capability):
+    enable(rig);rig.trigger();rig.town()
+    rig.status['qualification'][capability]=False
+    assert not acceptance.merchant_allowed('Spiritual',rig.status,rig.merchant)
+
+
+@pytest.mark.parametrize('change',['qualification','booth','trade','request','stale','full','dead'])
+def test_runtime_rechecks_pinned_qualification_and_live_trade_conditions(rig,change):
+    enable(rig);rig.trigger();rig.town()
+    if change=='qualification':rig.merchant_qualification.write_text('changed build or qualification evidence')
+    elif change=='booth':rig.merchant['own_booth_uid']+=1
+    elif change=='trade':rig.merchant['trade']={'participant':'someone'}
+    elif change=='request':rig.merchant['request']={'participant':'someone'}
+    elif change=='stale':rig.merchant['timestamp']-=6
+    elif change=='full':rig.merchant['capacity']=0
+    else:rig.merchant['hp']=0
+    assert not acceptance.merchant_allowed('Spiritual',rig.status,rig.merchant)
 
 
 def test_unqualified_farmer_cannot_arm(rig,monkeypatch):
@@ -360,6 +444,7 @@ def test_native_hunt_returns_immediately_on_verified_new_deliverable(rig,monkeyp
     monkeypatch.setattr('conquest.city_travel.ensure_city_visit',lambda *a:None)
     monkeypatch.setattr('conquest.overnight.request',lambda *a,**kw:None)
     monkeypatch.setattr('conquest.merchants.bridge.request',lambda body:{'farmer':deepcopy(rig.farmer)})
+    rig.fresh()
     assert OvernightLoop.hunt(loop)=='merchant_acceptance' and calls==['stop']
     rig.health['embedded_controls']['control']['enabled']=False
     with pytest.raises(OvernightStopped,match='switched Off'):OvernightLoop.hunt(loop)

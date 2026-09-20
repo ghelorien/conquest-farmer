@@ -5,7 +5,7 @@ from conquest.memory_life import CLIENT_SHA256
 from conquest.merchants.delivery import reconcile,exact_items
 
 
-def promote(receipt_path,candidate_path,farmer_path,merchant_path,*,check=None):
+def promote(receipt_path,candidate_path,farmer_path,merchant_path,*,chain_evidence=None,check=None):
     state=read_json(receipt_path);candidate=read_json(candidate_path)
     intent=state.get('intent',{});farmer=state.get('farmer_after',{});merchant=state.get('merchant_after',{})
     if (state.get('phase')!='delivery_verified' or candidate.get('client_sha256')!=CLIENT_SHA256
@@ -33,6 +33,11 @@ def promote(receipt_path,candidate_path,farmer_path,merchant_path,*,check=None):
         gui_size=[int(hud['geometry'][0]*2+hud['geometry'][2]),int(hud['geometry'][1]+hud['geometry'][3])],
         evidence=str(Path(receipt_path)),capabilities={'farmer_delivery':True})
     profile['client_size']=profile['gui_size']
+    if chain_evidence is not None:
+        chain_evidence=str(Path(chain_evidence))
+        if not Path(chain_evidence).is_file():
+            raise ValueError('Listing-chain audit evidence is unavailable')
+        profile['listing_chain_evidence']=chain_evidence
     peer=read_json(merchant_path)
     if peer.get('character')!=merchant['character'] or peer.get('client_sha256')!=CLIENT_SHA256:
         raise ValueError('Merchant profile does not match the verified recipient')
@@ -42,6 +47,8 @@ def promote(receipt_path,candidate_path,farmer_path,merchant_path,*,check=None):
     peer.setdefault('capabilities',{}).update(trade_request=True,trade=True)
     evidence=str(Path(receipt_path))
     if evidence not in peer.setdefault('trade_evidence',[]):peer['trade_evidence'].append(evidence)
+    if chain_evidence is not None:
+        peer['listing_chain_evidence']=chain_evidence
     from conquest.merchants.farmer_qualification import promotion_destination
     farmer_path,profile=promotion_destination(farmer_path,profile,farmer)
     if check is not None:check()

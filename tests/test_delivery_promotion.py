@@ -1,4 +1,5 @@
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
 import threading
@@ -82,6 +83,159 @@ def rig(tmp_path,monkeypatch):
 
 
 def save(rig):rig.receipt.write_text(json.dumps(rig.state))
+
+
+def listed_delivery(rig, *, uid=10, character=None, phase='verified', item=None):
+    """Create the same complete receipt emitted by MerchantController."""
+    character=character or str(rig.character)
+    original=deepcopy(rig.state['merchant_after']['inventory'][0])
+    item=deepcopy(original if item is None else item)
+    before_snapshot=deepcopy(rig.state['merchant_after'])
+    before_snapshot['timestamp']=time.time()
+    before={'uid':uid,'price':750000,'item':item,'snapshot':before_snapshot}
+    key=f'listing:{character}:promotion-test'
+    rig.runtime.journal.begin(key,character,'listing',before)
+    rig.runtime.journal.transition(key,'submitted')
+    if phase=='verified':
+        rig.runtime.journal.transition(key,'verified',{'uid':uid,'name':'MeteorScroll','old_price':None,'price':750000})
+    current=deepcopy(rig.state['merchant_after'])
+    current['inventory']=[]
+    current['booth']=[{**original,'price':750000}]
+    rig.snapshots[0]=deepcopy(rig.state['farmer_after'])
+    rig.snapshots[1]=current
+    return key
+
+
+def append_listing(rig, snapshot, item, price, suffix):
+    """Append a controller-shaped inventory-to-booth receipt to a replay."""
+    key=f'listing:Spiritual:{suffix}'
+    before_snapshot=deepcopy(snapshot);before_snapshot['timestamp']=time.time()
+    before={'uid':item['uid'],'price':price,'item':deepcopy(item),'snapshot':before_snapshot}
+    rig.runtime.journal.begin(key,'Spiritual','listing',before)
+    rig.runtime.journal.transition(key,'submitted')
+    rig.runtime.journal.transition(key,'verified',
+        {'uid':item['uid'],'name':item.get('name','Item'),'old_price':None,'price':price})
+    after=deepcopy(before_snapshot)
+    after['inventory']=[row for row in after['inventory'] if row['uid']!=item['uid']]
+    after['booth'].append({**item,'price':price})
+    return after
+
+
+def chain(rig):
+    farmer,merchant=module.pair(rig.ui,rig.character)
+    return module._listing_chain_reconciles(rig.state,rig.runtime.journal,farmer,merchant,now=time.time())
+
+
+def test_promotion_accepts_only_a_complete_verified_native_listing_chain(rig):
+    listed_delivery(rig)
+    assert chain(rig)
+    result=module.promote_current(rig.ui)
+    assert result['promoted']
+    manifest=Path(result['listing_chain_evidence'])
+    assert manifest.is_file() and manifest.parent.name=='delivery-promotion-chain-audit'
+    raw=manifest.read_bytes()
+    assert manifest.stem==hashlib.sha256(raw).hexdigest()
+    farmer=json.loads(rig.farmer_path.read_text());merchant=json.loads(rig.peer_path.read_text())
+    assert farmer['listing_chain_evidence']==merchant['listing_chain_evidence']==str(manifest)
+    assert module.promote_current(rig.ui)==result and manifest.read_bytes()==raw
+
+
+def test_listing_chain_manifest_refuses_a_tampered_existing_audit(rig):
+    listed_delivery(rig)
+    farmer,merchant=module.pair(rig.ui,rig.character)
+    manifest=module._chain_manifest(rig.state,rig.runtime.journal,farmer,merchant,now=time.time())
+    receipt=delivery_probe.archive_probe(rig.state)
+    path=module._archive_chain_manifest(receipt,manifest)
+    path.write_bytes(b'tampered')
+    with pytest.raises(ValueError,match='manifest differs'):
+        module._archive_chain_manifest(receipt,manifest)
+
+
+def test_listing_chain_replays_every_verified_listing_before_the_delivered_scroll(rig):
+    bamboo={**rig.state['intent']['items'][0],'uid':11,'type_id':410339,'plus':0}
+    rig.state['intent']['merchant']['inventory']=[deepcopy(bamboo)]
+    rig.state['merchant_after']['inventory']=[deepcopy(bamboo),*rig.state['merchant_after']['inventory']]
+    first=append_listing(rig,rig.state['merchant_after'],bamboo,1_000_000,'bamboo')
+    second=append_listing(rig,first,rig.state['intent']['items'][0],750_000,'scroll')
+    rig.snapshots[0]=deepcopy(rig.state['farmer_after']);rig.snapshots[1]=second
+    assert chain(rig)
+
+
+@pytest.mark.parametrize('case', ['missing','malformed','unrelated','wrong_uid','wrong_merchant','wrong_attributes',
+    'unverified','stale_current','sale_silver','ambiguous','step_tamper','event_tamper','updated_after_snapshot',
+    'historical_trade','loose_meteor'])
+def test_listing_chain_is_fail_closed_for_adversarial_evidence(rig,case):
+    if case=='missing':
+        current=deepcopy(rig.state['merchant_after']);current['inventory']=[]
+        current['booth']=[{**rig.state['intent']['items'][0],'price':750000}]
+        rig.snapshots[1]=current
+    elif case=='wrong_uid':
+        listed_delivery(rig,uid=99)
+    elif case=='wrong_merchant':
+        key=listed_delivery(rig)
+        with rig.runtime.journal.db() as db:
+            db.execute("UPDATE transactions SET character='wrong-merchant' WHERE id=?",(key,))
+    elif case=='wrong_attributes':
+        item={**rig.state['intent']['items'][0],'plus':1}
+        listed_delivery(rig,item=item)
+    elif case=='unverified':
+        listed_delivery(rig,phase='submitted')
+    else:
+        key=listed_delivery(rig)
+        if case=='malformed':
+            with rig.runtime.journal.db() as db:
+                db.execute("UPDATE transactions SET before_json='{' WHERE id=?",(key,))
+        elif case=='unrelated':
+            before=deepcopy(rig.state['merchant_after'])
+            other={**rig.state['intent']['items'][0],'uid':99}
+            before['inventory'].append(other)
+            extra={'uid':99,'price':1,'item':other,'snapshot':before}
+            rig.runtime.journal.begin('listing:Spiritual:unrelated','Spiritual','listing',extra)
+            rig.runtime.journal.transition('listing:Spiritual:unrelated','submitted')
+            rig.runtime.journal.transition('listing:Spiritual:unrelated','verified',
+                {'uid':99,'name':'Other','old_price':None,'price':1})
+        elif case=='stale_current':
+            farmer=deepcopy(rig.state['farmer_after']);merchant=deepcopy(rig.snapshots[1])
+            farmer['timestamp']=time.time();merchant['timestamp']=1
+            assert not module._listing_chain_reconciles(rig.state,rig.runtime.journal,farmer,merchant,now=time.time())
+            return
+        elif case=='sale_silver':
+            rig.snapshots[1]['silver']+=1
+        elif case=='ambiguous':
+            rig.snapshots[1]['inventory']=[deepcopy(rig.state['intent']['items'][0])]
+        elif case=='step_tamper':
+            with rig.runtime.journal.db() as db:
+                db.execute("UPDATE transaction_steps SET payload='{}' WHERE transaction_id=? AND status='submitted'",(key,))
+        elif case=='event_tamper':
+            with rig.runtime.journal.db() as db:
+                db.execute('DELETE FROM events WHERE event=?',('listing_verified',))
+        elif case=='updated_after_snapshot':
+            with rig.runtime.journal.db() as db:
+                db.execute('UPDATE transactions SET updated=? WHERE id=?',(time.time()+3600,key))
+        elif case in ('historical_trade','loose_meteor'):
+            with rig.runtime.journal.db() as db:
+                row=db.execute('SELECT before_json FROM transactions WHERE id=?',(key,)).fetchone()
+                before=json.loads(row[0])
+                if case=='historical_trade':
+                    before['snapshot']['trade']={'participant':'Parasite'}
+                else:
+                    before['item']['type_id']=1088001
+                    before['snapshot']['inventory'][0]['type_id']=1088001
+                db.execute('UPDATE transactions SET before_json=? WHERE id=?',(json.dumps(before),key))
+    assert not chain(rig)
+
+
+def test_listing_chain_rejects_overlapping_transaction_receipts(rig):
+    bamboo={**rig.state['intent']['items'][0],'uid':11,'type_id':410339,'plus':0}
+    rig.state['intent']['merchant']['inventory']=[deepcopy(bamboo)]
+    rig.state['merchant_after']['inventory']=[deepcopy(bamboo),*rig.state['merchant_after']['inventory']]
+    first=append_listing(rig,rig.state['merchant_after'],bamboo,1_000_000,'bamboo')
+    second=append_listing(rig,first,rig.state['intent']['items'][0],750_000,'scroll')
+    rig.snapshots[0]=deepcopy(rig.state['farmer_after']);rig.snapshots[1]=second
+    with rig.runtime.journal.db() as db:
+        prior=db.execute("SELECT updated FROM transactions WHERE id='listing:Spiritual:bamboo'").fetchone()[0]
+        db.execute("UPDATE transactions SET created=? WHERE id='listing:Spiritual:scroll'",(prior-.001,))
+    assert not chain(rig)
 
 
 def test_native_promotion_uses_canonical_archived_evidence_and_preserves_permissions(rig):

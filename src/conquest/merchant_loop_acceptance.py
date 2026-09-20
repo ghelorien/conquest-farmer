@@ -17,6 +17,7 @@ from conquest.merchants.delivery import eligible, exact_items
 
 STATE = Path(state_path('.runtime/farmer-loop-acceptance.sqlite3'))
 PICKUPS = Path(state_path('reports/desktop-farming/pickups.jsonl'))
+MERCHANT_CAPABILITIES = ('trade_request', 'trade', 'booth_input', 'inventory_panel')
 
 
 def profile_id():
@@ -86,6 +87,47 @@ def deliverable_item(item):
     return eligible(item) and item.get('type_id') != 1088001
 
 
+def merchant_live(name, status, snapshot, *, require_capacity=True):
+    """This bounded loop needs trade/refill, not login or recovery controls."""
+    from conquest.merchants.capacity import available_slots
+    return bool(status.get('enabled') is True and status.get('refill', {}).get('enabled') is True
+        and all(status.get('qualification', {}).get(capability) is True for capability in MERCHANT_CAPABILITIES)
+        and isinstance(status.get('profile_id'), str) and status['profile_id']
+        and not status.get('pending') and not status.get('manual_input_fence')
+        and not status.get('input_active') and not status.get('error') and not status.get('needs_attention')
+        and snapshot.get('character') == name and snapshot.get('server') == 'America'
+        and type(snapshot.get('character_uid')) is int and snapshot['character_uid'] > 0
+        and snapshot.get('hp', 0) > 0 and snapshot.get('map_id') == 1036
+        and snapshot.get('booth_open') is True and type(snapshot.get('own_booth_uid')) is int
+        and snapshot['own_booth_uid'] > 0 and not snapshot.get('trade') and not snapshot.get('request')
+        and 0 <= time.time()-snapshot.get('timestamp', 0) <= 5
+        and (available_slots(snapshot) > 0 if require_capacity else available_slots(snapshot) >= 0))
+
+
+def merchant_qualification(ui, name, snapshot):
+    driver=ui.runtime.controllers[name].driver
+    adapter=driver.observer.adapter
+    if (snapshot['identity'] != adapter.identity or not isinstance(adapter.expected_sha256,str)
+            or not adapter.expected_sha256):
+        raise ValueError('Acceptance merchant process or build does not match its attached driver')
+    for capability in MERCHANT_CAPABILITIES:driver.require_qualified(capability)
+    path=Path(driver.qualification)
+    encoded=path.read_bytes();data=json.loads(encoded)
+    if (data.get('client_sha256') != adapter.expected_sha256 or data.get('character') != name
+            or data.get('server') != 'America' or not data.get('evidence')
+            or not all(data.get('capabilities',{}).get(capability) is True for capability in MERCHANT_CAPABILITIES)):
+        raise ValueError('Acceptance merchant qualification changed during observation')
+    return {'path':str(path.resolve()),'sha256':hashlib.sha256(encoded).hexdigest(),
+            'client_sha256':adapter.expected_sha256}
+
+
+def qualification_unchanged(evidence):
+    try:
+        return bool(evidence.get('client_sha256')
+            and hashlib.sha256(Path(evidence['path']).read_bytes()).hexdigest()==evidence['sha256'])
+    except (KeyError,OSError,TypeError):return False
+
+
 def configure(ui, body):
     action = body.get('action')
     if action == 'farmer-loop-acceptance-status' and set(body) == {'action'}:
@@ -139,21 +181,16 @@ def configure(ui, body):
         'sha256': hashlib.sha256(qualification.read_bytes()).hexdigest(),
         'client_sha256': ui.app.observer.adapter.expected_sha256}
     from conquest.merchants.farmer_preferences import permits_new_delivery
-    from conquest.merchants.capacity import available_slots
     permits_new_delivery()
     merchants = {}
     for name, status in ui.runtime.status().items():
         snap = status.get('snapshot') or {}
-        if (status.get('ready') and status.get('enabled') and status.get('refill', {}).get('enabled')
-                and status.get('qualification', {}).get('booth_input') and not status.get('pending')
-                and not status.get('manual_input_fence') and snap.get('hp', 0) > 0
-                and snap.get('map_id') == 1036 and snap.get('booth_open')
-                and not snap.get('trade') and not snap.get('request')
-                and available_slots(snap) > 0
-                and 0 <= time.time()-snap.get('timestamp', 0) <= 5):
+        if merchant_live(name,status,snap):
             process(snap.get('identity'))
+            evidence=merchant_qualification(ui,name,snap)
             merchants[str(name)] = {'profile_id': status.get('profile_id'),
-                'identity': snap['identity'], 'character_uid': snap['character_uid']}
+                'identity': snap['identity'], 'character_uid': snap['character_uid'],
+                'own_booth_uid':snap['own_booth_uid'],'qualification':evidence}
     if not merchants:
         raise ValueError('Acceptance requires an exact ready merchant with trading and refill enabled, qualified booth input, and no manual or transaction holds')
     route = ui.app.selected_route
@@ -235,10 +272,14 @@ def merchant_allowed(name, status, snapshot):
     row = state();cycle = row.get('active')
     if not row.get('enabled') or not cycle:return True
     saved = row['merchants'].get(str(name))
-    return bool(saved and status.get('enabled') and status.get('refill', {}).get('enabled')
-        and status.get('profile_id') == saved['profile_id'] and not status.get('manual_input_fence')
-        and not status.get('pending') and snapshot.get('identity') == saved['identity']
-        and snapshot.get('character_uid') == saved['character_uid'])
+    try:
+        return bool(saved and merchant_live(name,status,snapshot,require_capacity=cycle['phase']=='town')
+            and status.get('profile_id') == saved['profile_id']
+            and snapshot.get('identity') == saved['identity']
+            and snapshot.get('character_uid') == saved['character_uid']
+            and snapshot.get('own_booth_uid') == saved.get('own_booth_uid')
+            and qualification_unchanged(saved.get('qualification') or {}))
+    except (ValueError,KeyError,TypeError):return False
 
 
 def hunt_provenance(row, item):
