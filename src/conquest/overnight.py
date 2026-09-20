@@ -1064,7 +1064,14 @@ class OvernightLoop:
             self.record('stopped',detail=str(error))
         except Exception as error:
             self.phase = 'needs_attention'
-            self.record('failed',detail=str(error))
+            # Preserve the failing boundary without retaining locals or other
+            # process data.  A generic message is not enough to distinguish a
+            # pre-input acquisition denial from an uncertain submitted action.
+            import traceback
+            frames=traceback.extract_tb(error.__traceback__)[-8:]
+            self.record('failed',detail=str(error),error_type=type(error).__module__+'.'+type(error).__qualname__,
+                        failure_trace=[{'file':frame.filename,'line':frame.lineno,
+                                        'function':frame.name} for frame in frames])
         finally:
             try:
                 request(self.info,'controls',{'enabled':False})
