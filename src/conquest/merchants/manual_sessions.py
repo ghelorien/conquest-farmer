@@ -20,6 +20,7 @@ from conquest.character_context import state_path
 TERMINAL_PHASES = ('completed', 'request_withdrawn', 'declined_verified', 'operator_overridden')
 PHASES = ('approval_pending', 'manual_active', 'settlement_observed', 'needs_attention', *TERMINAL_PHASES)
 SETTLEMENT_SECONDS = 5
+APPROVAL_SECONDS = 5
 MAX_EVIDENCE_AGE = 2
 ITEM_FIELDS = ('uid', 'type_id', 'plus', 'gem1', 'gem2', 'quantity', 'bound')
 PROBE_HISTORY_CHECKS = frozenset(('transaction','ownership','saved_boundary','accepted_boundary',
@@ -436,7 +437,7 @@ class ManualSessionStore:
         self._audit(db, session_id, 'session_started', {'visitor': visitor_data, 'phase': phase}, now)
         return self._row(db, session_id)
 
-    def begin_request(self, target_profile_id, snapshot, *, session_id=None, timeout_seconds=30, now=None):
+    def begin_request(self, target_profile_id, snapshot, *, session_id=None, timeout_seconds=APPROVAL_SECONDS, now=None):
         """Persist approval for one request; a new request clears stabilization.
 
         A repeated still-visible request returns its existing binding. To bind a
@@ -605,6 +606,63 @@ class ManualSessionStore:
                    (reason, now, row['id']))
         self._audit(db, row['id'], 'needs_attention', {'reason': reason, 'evidence_id': evidence_id}, now)
 
+    def _recover_reader_gap(self, db, row, request, snapshot, proof, evidence_id, now):
+        """Restore only a pristine unapproved request after its typed reader gap."""
+        if (row['reason'] != 'Request/trade window evidence is unavailable'
+                or row['ever_approved'] or request is None
+                or request['state'] not in ('pending', 'decline_pending')
+                or db.execute('SELECT 1 FROM manual_decline_claims c JOIN manual_requests r '
+                              'ON r.id=c.request_id WHERE r.session_id=?', (row['id'],)).fetchone()
+                or db.execute("SELECT COUNT(*) FROM manual_requests WHERE session_id=? AND state!='closed'",
+                              (row['id'],)).fetchone()[0] != 1):
+            return False
+        binding = json.loads(request['binding_json'])
+        visitor = json.loads(row['visitor_json'])
+        if (binding.get('visitor') != visitor or binding.get('session_id') != row['id']
+                or binding.get('request_id') != request['id']
+                or binding.get('game_process_identity') != proof['identity']):
+            return False
+        baseline = _holdings(json.loads(request['before_json']))
+        if snapshot['trade'] is not None or _holdings(proof) != baseline:
+            return False
+        if snapshot['request'] is not None:
+            try:
+                if request_fingerprint(snapshot) != request['fingerprint']:
+                    return False
+            except ManualSessionError:
+                return False
+        allowed_events = {'session_started', 'approval_pending', 'windows_observed',
+                          'settlement_observed', 'observation_ignored', 'needs_attention',
+                          'reader_gap_recovered'}
+        for audit in db.execute('SELECT event,payload_json FROM manual_audit WHERE session_id=?', (row['id'],)):
+            if audit['event'] not in allowed_events:
+                return False
+            if (audit['event'] == 'needs_attention'
+                    and json.loads(audit['payload_json']).get('reason')
+                    != 'Request/trade window evidence is unavailable'):
+                return False
+        for evidence in db.execute('SELECT snapshot_json,ownership_digest FROM manual_evidence WHERE session_id=?',
+                                   (row['id'],)):
+            prior = json.loads(evidence['snapshot_json'])
+            if isinstance(prior, dict) and prior.get('trade') is not None:
+                return False
+            if evidence['ownership_digest'] is None:
+                continue
+            try:
+                prior_proof = canonical_ownership(prior, require_closed=False)
+                self._same_owner(row, prior_proof)
+                if (prior_proof['request'] is not None
+                        and request_fingerprint(prior) != request['fingerprint']):
+                    return False
+            except (ManualSessionError, KeyError, TypeError):
+                return False
+            if _holdings(prior_proof) != baseline:
+                return False
+        db.execute("UPDATE manual_sessions SET phase='approval_pending',reason=NULL,updated_at=? WHERE id=?",
+                   (now, row['id']))
+        self._audit(db, row['id'], 'reader_gap_recovered', {'evidence_id': evidence_id}, now)
+        return True
+
     def observe(self, session_id, snapshot, *, now=None):
         """Observe and settle without input; missing/changed identity stays held."""
         now = _now(now)
@@ -621,13 +679,15 @@ class ManualSessionStore:
                 self._attention(db, row, str(exc), now, evidence_id)
                 return self._view(db, self._row(db, session_id))
             evidence_id = self._evidence(db, session_id, snapshot, now, proof)
+            request = db.execute('SELECT * FROM manual_requests WHERE id=?', (row['current_request_id'],)).fetchone()
             if row['phase'] == 'needs_attention':
-                # Observation cannot silently forgive a rollover or missing data.
-                return self._view(db, row)
+                if not self._recover_reader_gap(db, row, request, snapshot, proof, evidence_id, now):
+                    # Observation cannot silently forgive a rollover or missing data.
+                    return self._view(db, row)
+                row = self._row(db, session_id)
             if row['last_observed_at'] is not None and snapshot['timestamp'] <= row['last_observed_at']:
                 self._audit(db, session_id, 'observation_ignored', {'reason': 'non_increasing_time', 'evidence_id': evidence_id}, now)
                 return self._view(db, row)
-            request = db.execute('SELECT * FROM manual_requests WHERE id=?', (row['current_request_id'],)).fetchone()
             trade, incoming = snapshot['trade'], snapshot['request']
             visitor = json.loads(row['visitor_json'])
             approved = bool(request and request['state'] == 'approved')
