@@ -25,8 +25,8 @@ def participants_unchanged(intent,farmer,merchant):
 
 def cancelled(intent,farmer,merchant):
     participants_unchanged(intent,farmer,merchant)
-    return (not farmer.get('trade') and not merchant.get('trade')
-            and not farmer.get('request') and not exact_incoming_request(intent,merchant))
+    return not any(snapshot.get('trade') or snapshot.get('request')
+                   for snapshot in (farmer,merchant))
 
 def run(ui,state,*,output_path=JOURNAL,before_submit=None):
     from conquest.desktop_runtime import physical_coordinates

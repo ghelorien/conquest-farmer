@@ -77,7 +77,8 @@ def _idle(ui,character):
     if any(worker.is_alive() for worker in getattr(ui,'delivery_workers',{}).values()):
         raise ValueError('A delivery worker is still running')
     control=ui.app.control.snapshot()
-    if (control.get('enabled') or control.get('paused') or ui.runtime.enabled(character)
+    if (control.get('enabled') or control.get('paused')
+            or ui.runtime.journal.get(character,'enabled',False) is not False
             or not ui.safe_to_yield() or ui.coordinator.owner is not None
             or ui.coordinator.manual_active() or getattr(ui.runtime,'delivery_window',None)
             or getattr(ui.runtime,'refill_window',None) or character in ui.runtime.refilling):
@@ -96,6 +97,22 @@ def _eligible(ui,journal,key,character,intent):
 def _cancel_before_actions(journal,key):
     return [step for step in journal.trace(key)
             if step['stage']=='cancel_request' and step['status']=='before_action']
+
+
+def _record_cancel_boundary(journal,key,character,intent):
+    payload=json.dumps({'request_id':key,'character':character,
+                        'intent_operation_id':intent.get('operation_id')},sort_keys=True)
+    with journal.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT phase FROM transactions WHERE id=?',(key,)).fetchone()
+        if not row or row['phase']!='uncertain':
+            raise ValueError('Source operation changed before cancellation input')
+        exists=db.execute("SELECT 1 FROM transaction_steps WHERE transaction_id=? "
+                          "AND stage='cancel_request' AND status='before_action'",(key,)).fetchone()
+        if exists:
+            raise ValueError('Cancellation input was already submitted; re-entry is read-only')
+        db.execute('INSERT INTO transaction_steps(transaction_id,stage,status,payload,timestamp) VALUES(?,?,?,?,?)',
+                   (key,'cancel_request','before_action',payload,time.time()))
 
 
 def _archive_terminal(output,state):
@@ -174,8 +191,7 @@ def start(ui):
            'character':character,'intent':intent,'created_at':time.time()}
     write_json(output,state)
     def before_submit(current):
-        journal.step(key,'cancel_request','before_action',{
-            'request_id':key,'character':character,'intent_operation_id':intent.get('operation_id')})
+        _record_cancel_boundary(journal,key,character,intent)
     def work():
         try:
             run(ui,state,output_path=output,before_submit=before_submit)
