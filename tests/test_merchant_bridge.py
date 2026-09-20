@@ -34,3 +34,18 @@ def test_recoverable_input_wait_returns_error_without_breaking_authenticated_bri
         bridge.dispatch=lambda body:{'ok':True}
         assert request({'action':'status'},bridge.path)=={'ok':True}
     finally:bridge.close()
+
+
+def test_transit_observation_type_survives_the_authenticated_http_boundary(tmp_path):
+    from conquest.merchants.memory import TransitObservationChanged
+    bridge=MerchantBridge(lambda body:(_ for _ in ()).throw(
+        TransitObservationChanged('Merchant position changed during observation')),
+        tmp_path/'bridge.json')
+    try:
+        with pytest.raises(TransitObservationChanged,match='position changed'):
+            request({'action':'delivery-source'},bridge.path)
+        bridge.dispatch=lambda body:(_ for _ in ()).throw(ValueError('delivery source changed'))
+        with pytest.raises(ValueError,match='delivery source changed') as error:
+            request({'action':'delivery-source'},bridge.path)
+        assert not isinstance(error.value,TransitObservationChanged)
+    finally:bridge.close()

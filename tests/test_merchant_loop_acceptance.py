@@ -288,6 +288,20 @@ def test_precycle_transit_observation_defers_without_writing_or_triggering_input
     assert acceptance.state()['active']['item']==selected
 
 
+def test_precycle_transit_observation_defers_after_real_merchant_bridge_transport(rig,tmp_path):
+    from conquest.merchants.bridge import MerchantBridge,request
+    from conquest.merchants.memory import TransitObservationChanged
+    enable(rig);before=acceptance.STATE.read_bytes()
+    bridge=MerchantBridge(lambda body:(_ for _ in ()).throw(
+        TransitObservationChanged('Merchant position changed during observation')),
+        tmp_path/'bridge.json')
+    try:
+        assert not acceptance.observe_hunting(rig.loop,rig.health,
+            send=lambda body:request(body,bridge.path))
+    finally:bridge.close()
+    assert acceptance.STATE.read_bytes()==before and acceptance.state()['active'] is None
+
+
 def test_precycle_delivery_source_only_defers_the_exact_transit_exception(rig):
     enable(rig)
     def fatal(_):raise ValueError('merchant process changed during observation')
