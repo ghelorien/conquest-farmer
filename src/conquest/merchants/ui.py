@@ -188,6 +188,9 @@ class UnifiedUI:
             if self.coordinator.purpose=='delivery_accept_probe':
                 from conquest.merchants.delivery_accept_probe import lease_authorized
                 return lease_authorized(self,character)
+            if self.coordinator.purpose=='delivery_probe_abort':
+                from conquest.merchants.delivery_abort_probe import lease_authorized
+                return lease_authorized(self,character)
             return self.runtime.input_allowed(character) or (
                 not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
                 and character in self.calibrating and not self.calibration_cancel[character].is_set())
@@ -322,6 +325,9 @@ class UnifiedUI:
         if action=='probe-delivery-request' and set(body)=={'action','character','uids'}:
             from conquest.merchants.delivery_probe import start
             return start(self,body['character'],uids=body['uids'])
+        if isinstance(action,str) and action.startswith('probe-delivery-abort-'):
+            from conquest.merchants.delivery_abort_probe import dispatch
+            return dispatch(self,body)
         if action=='probe-delivery-recheck' and set(body)=={'action'}:
             from conquest.merchants.delivery_probe import recheck
             return recheck(self)
@@ -1469,7 +1475,12 @@ class UnifiedUI:
         # pane.  Select the named observer's owned host on the Tk thread,
         # creating it only when none is attached, then wait for its native
         # surface below.  This does not inspect a screen or send game input.
-        if self.coordinator.purpose=='delivery_accept_probe':
+        if self.coordinator.purpose=='delivery_probe_abort':
+            capability=self.coordinator._probe_abort_capability
+            def callback():
+                from conquest.merchants.delivery_abort_surface import prepare
+                result['profile']=prepare(self,character,capability)
+        elif self.coordinator.purpose=='delivery_accept_probe':
             def callback():
                 result['profile']=self.prepare_delivery_accept_surface(character)
         else:

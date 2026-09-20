@@ -204,6 +204,11 @@ def unchanged(intent,farmer,merchant):
 
 
 def start(ui,character,*,uids=None):
+    with ui.coordinator.lock:
+        return _start(ui,character,uids=uids)
+
+
+def _start(ui,character,*,uids=None):
     from conquest.merchants.farmer_preferences import permits_new_delivery
     from conquest.merchants.farmer_identity import ui_character
     permits_new_delivery(ui_character(ui))
@@ -211,6 +216,8 @@ def start(ui,character,*,uids=None):
     if getattr(ui,'delivery_probe_thread',None) and ui.delivery_probe_thread.is_alive():
         raise ValueError('Trade request probe is running')
     old=previous_probe()
+    from conquest.merchants.delivery_abort_probe import require_rebaseline
+    require_rebaseline(ui,old)
     ui.coordinator.check()
     if not ui.safe_to_yield() or ui.app.control.snapshot()['enabled']:
         raise ValueError('Trade probe requires stopped farming and released input')

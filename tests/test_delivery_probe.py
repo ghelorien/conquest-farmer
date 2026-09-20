@@ -109,9 +109,20 @@ def start_ui(monkeypatch,tmp_path):
         def start(self):started.append(probe.read_json(probe.JOURNAL))
     monkeypatch.setattr(probe.threading,'Thread',NoInputThread)
     control={'enabled':False,'paused':False,'revision':1}
-    ui=SimpleNamespace(coordinator=SimpleNamespace(check=lambda:None),safe_to_yield=lambda:True,
+    ui=SimpleNamespace(coordinator=SimpleNamespace(check=lambda:None,lock=__import__('threading').RLock()),
+        runtime=SimpleNamespace(_manual_rows=lambda:[]),safe_to_yield=lambda:True,
         app=SimpleNamespace(control=SimpleNamespace(snapshot=lambda:control)))
     return ui,control,started
+
+
+def test_new_probe_does_not_archive_or_replace_with_any_manual_hold(tmp_path,monkeypatch):
+    ui,_,started=start_ui(monkeypatch,tmp_path)
+    old={'phase':'cancel_verified','historical_uid':999}
+    probe.write_json(probe.JOURNAL,old)
+    ui.runtime._manual_rows=lambda:[{'id':'manual-hold'}]
+    with pytest.raises(ValueError,match='holds block'):probe.start(ui,'Spiritual',uids=[11])
+    assert probe.read_probe()==old and started==[]
+    assert not (tmp_path/'delivery-request-probe-audit').exists()
 
 
 def test_start_persists_exact_authorized_item_before_worker_and_preserves_terminal_record(tmp_path,monkeypatch):

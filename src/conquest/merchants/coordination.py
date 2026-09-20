@@ -32,6 +32,31 @@ class InputCoordinator:
         self.manual_sessions = {}
         self.manual_journal = None
         self.manual_farmer_target = 'Farmer'
+        self._probe_abort_capability = None
+
+    @contextmanager
+    def probe_abort_scope(self, validate):
+        """Ephemeral close-only worker scope; a purpose string grants nothing.
+
+        The abort module supplies a validator bound to its fsynced journal,
+        exact two holds, operator digest and control revision. It is never
+        retained on restart or shared with another thread.
+        """
+        with self.lock:
+            if self._probe_abort_capability is not None:
+                raise CaptureUnavailable('Another probe abort is active')
+            self._probe_abort_capability = (threading.get_ident(), validate)
+            try:
+                validate()
+                yield
+            finally:
+                self._probe_abort_capability = None
+
+    def probe_abort_authorized(self, target):
+        capability = self._probe_abort_capability
+        if capability is None or capability[0] != threading.get_ident():return False
+        try:return target in capability[1]()
+        except (ValueError,OSError,KeyError,TypeError,AttributeError):return False
 
     def set_manual_sessions(self, sessions):
         self.manual_sessions = {row['target_profile_id']: row for row in sessions}
@@ -47,6 +72,8 @@ class InputCoordinator:
             key=context.profile.id if context and context.profile.role=='Farmer' else self.manual_farmer_target
         row = rows.get(key)
         if not row or not row.get('holds_automation'):
+            return False
+        if purpose == 'delivery_probe_abort' and self.probe_abort_authorized(key):
             return False
         # The only exception is the independently qualified native decline of
         # a still-unapproved request with a durable timeout/rejection intent.
