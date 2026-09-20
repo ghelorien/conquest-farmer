@@ -333,13 +333,18 @@ def observe_hunting(loop, health, *, send=None):
         # A memory reader observed movement while assembling the *pre-cycle*
         # farmer snapshot.  This authorizes no input and has no ownership or
         # transaction meaning.  Defer one native tick only if the durable run
-        # is still exactly the same untouched armed state; a concurrent trigger
-        # or any active service phase must instead be reconciled by its owner.
+        # is still exactly the same untouched armed state, or the same fully
+        # settled cycle awaiting its first resumed hunt observation. A
+        # concurrent trigger or any other active service phase must instead be
+        # reconciled by its owner.
         current=state()
-        if (current.get('enabled') and current.get('run_id')==row.get('run_id')
+        same_run=(current.get('enabled') and current.get('run_id')==row.get('run_id')
                 and current.get('farmer_profile_id')==row.get('farmer_profile_id')
-                and current.get('route_id')==row.get('route_id')
-                and current.get('phase')=='armed' and current.get('active') is None):
+                and current.get('route_id')==row.get('route_id'))
+        same_awaiting=bool(active and current.get('active',{}).get('cycle_id')==active.get('cycle_id')
+            and current.get('active',{}).get('phase')=='awaiting_hunt')
+        if same_run and ((current.get('phase')=='armed' and current.get('active') is None)
+                         or same_awaiting):
             return False
         raise
     inventory = source_checked(source, row)
