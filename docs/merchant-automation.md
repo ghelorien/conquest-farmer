@@ -10,6 +10,36 @@ with the existing farmer. Nothing here starts a route or changes Farming On.
 
 ## Current rollout state
 
+### September 20: operator delivery controls
+
+In the Farmer controls, **Automatic merchant delivery** is the real On/Off
+switch for normal loot deliveries. It is saved locally for that farmer and
+survives app restart. It does not start farming, enable merchant trading, or
+change the separate automatic-refill setting. Packaged rollout remains Off
+unless an operator enables this switch (or a separately armed live acceptance
+run authorizes its exact item). Enabling it is operator permission, not a claim
+that repeatability or another PC's trade controls have been validated.
+
+On permits the native route to deliver eligible unbound +1/Super equipment and
+MeteorScrolls to a qualified owned merchant. Loose Meteors stay bank-only;
+Dragonballs and +2-or-higher equipment keep urgent-banking priority. Recipient
+identity, capacity, manual holds, Stop and transaction reconciliation still apply.
+Off prevents further delivery submissions; it never erases a submitted trade or
+its reconciliation history. Unknown prices leave received items queued.
+
+**Clear stale handoff…**, under Recovery holds, previews an expired reservation
+that never admitted a trade. Stop farming first. Confirmation is bound to the
+exact preview, with fresh ownership and closed-window checks. Clearing keeps an
+immutable audit and leaves farming Off; it cannot clear an admitted, submitted,
+uncertain or manually held transaction. If evidence changes, recheck rather than
+forcing it. The action clears a reservation, not the item or delivery history.
+
+Latest live evidence is **two consecutive complete loops on release AA**, followed
+by an unsubmitted stale-handoff failure on the third. The toggle/clear update is
+not evidence of three completed loops. Spiritual's historical sales-baseline
+problem and live proof of the five-second unknown-request cancellation remain
+separate limitations. No unit or regression suite was run for this control update.
+
 The pre-merge Windows suite passed with **1,650 tests**, including existing farmer
 regressions, shared input guards, merchant isolation, native UI integration and
 sales accounting. Final integration validation is recorded in

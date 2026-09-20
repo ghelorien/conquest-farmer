@@ -90,12 +90,12 @@ def save(state,**fields):
 
 
 def preflight(loop,send,*,require_inventory=True):
-    from conquest.merchants.farmer_preferences import enabled
+    from conquest.merchants.farmer_preferences import enabled,rollout_enabled
     from conquest.merchants.farmer_identity import route_character
     if not enabled(route_character(loop)):return False
     policy=read_json(delivery_route.POLICY)
     from conquest.merchant_loop_acceptance import trial_permitted
-    if (not policy.get('enabled') or not policy.get('parity_verified')) and not trial_permitted(loop):return False
+    if not rollout_enabled(route_character(loop),policy=policy) and not trial_permitted(loop):return False
     try:
         if not send({'action':'delivery-readiness'}).get('qualified'):return False
         states=send({'action':'status'}).get('characters',{})

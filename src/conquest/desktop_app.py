@@ -180,13 +180,13 @@ class DesktopApp:
         ttk.Button(farm_row, text='Farming On · F10', command=lambda:self.update_ids(True)).pack(side='left',fill='x',expand=True)
         ttk.Button(farm_row, text='Off', command=lambda:self.update_ids(False)).pack(side='left',padx=6)
         ttk.Label(farm_row,text='F11 pause · F12 stop').pack(side='right')
-        from conquest.merchants.farmer_preferences import enabled as transfers_enabled
+        from conquest.merchants.farmer_preferences import rollout_enabled as transfers_enabled
         try:
             self.transfer_character=TrialConfig.model_validate(yaml.safe_load(self.profile.read_text())).character
         except (OSError,ValueError,yaml.YAMLError):
             self.transfer_character=None
         self.merchant_transfers=tk.BooleanVar(value=bool(self.transfer_character and transfers_enabled(self.transfer_character)))
-        ttk.Checkbutton(self.sidebar,text='Transfer loot to merchants',variable=self.merchant_transfers,
+        ttk.Checkbutton(self.sidebar,text='Automatic merchant delivery',variable=self.merchant_transfers,
                         state='normal' if self.transfer_character else 'disabled',
                         command=self.save_merchant_transfers).pack(anchor='w',pady=(0,4))
 
@@ -204,6 +204,8 @@ class DesktopApp:
         ttk.Button(recovery_row, text='Recheck', command=self.recheck_farmer_recovery).pack(side='left')
         ttk.Button(recovery_row, text='Override & resume',
                    command=self.override_farmer_recovery).pack(side='left', padx=(6,0))
+        ttk.Button(self.recovery_frame,text='Clear stale handoff…',
+                   command=self.clear_stale_handoff).pack(anchor='w',pady=(4,0))
 
         self.mouse_note=tk.StringVar(value='Mouse control: automatic · move mouse to take over')
         ttk.Label(self.sidebar,textvariable=self.mouse_note).pack(anchor='w',pady=(0,4))
@@ -261,14 +263,61 @@ class DesktopApp:
             self.detail_text.set('Discord notifier could not start; farming is unaffected')
 
     def save_merchant_transfers(self):
-        from conquest.merchants.farmer_preferences import set_enabled,enabled
+        from conquest.merchants.farmer_preferences import set_delivery_enabled,rollout_enabled
         try:
-            set_enabled(self.transfer_character,bool(self.merchant_transfers.get()))
-            self.detail_text.set('Merchant transfers '+('On' if self.merchant_transfers.get() else 'Off')+
+            set_delivery_enabled(self.transfer_character,bool(self.merchant_transfers.get()))
+            self.detail_text.set('Automatic merchant delivery '+('On' if self.merchant_transfers.get() else 'Off')+
                 ' for '+self.transfer_character)
         except (OSError,ValueError) as error:
-            self.merchant_transfers.set(enabled(self.transfer_character))
+            self.merchant_transfers.set(rollout_enabled(self.transfer_character))
             self.detail_text.set('Could not save merchant transfer setting: '+str(error))
+
+    def clear_stale_handoff(self):
+        if getattr(self,'_stale_handoff_checking',False):return
+        dispatch=getattr(self,'stale_handoff_dispatch',None)
+        if dispatch is None:
+            messagebox.showerror('Clear stale handoff','Merchant controls are not ready.',parent=self.root)
+            return
+        self._stale_handoff_checking=True
+        def fail(error):
+            self._stale_handoff_checking=False
+            messagebox.showerror('Cannot clear handoff',str(error),parent=self.root)
+        def after_pointer_idle(callback):
+            # Clicking our own confirmation is physical mouse activity too.
+            # Wait without input/locks; never suppress the mouse guard.
+            deadline=time.monotonic()+10
+            self.detail_text.set('Checking handoff; leave the mouse still briefly.')
+            def check():
+                if self.closing:
+                    self._stale_handoff_checking=False
+                    return
+                try:
+                    if self.mouse_priority.active():
+                        if time.monotonic()>=deadline:
+                            raise ValueError('Mouse is still active. Try again when ready.')
+                        self.root.after(100,check)
+                        return
+                    callback()
+                except (OSError,ValueError) as error:fail(error)
+            self.root.after(100,check)
+        def preview_and_confirm():
+            preview=dispatch({'action':'delivery-stale-pre-admission-preview'})
+            item=preview.get('item') or {}
+            if not messagebox.askyesno('Clear stale handoff',
+                    'Clear this expired, unsubmitted delivery reservation?\n\n'
+                    +str(preview['request_id'])+'\nItem UID: '+str(item.get('uid','unknown'))+'\n\n'
+                    'Trade history is kept. Farming stays Off.',parent=self.root):
+                self._stale_handoff_checking=False
+                return
+            digest=preview['preview_digest']
+            def clear():
+                dispatch({'action':'delivery-stale-pre-admission-clear',
+                    'preview_digest':digest,'confirmation_reference':digest,'operator':'desktop'})
+                self._stale_handoff_checking=False
+                self.detail_text.set('Stale handoff cleared. Farming remains Off.')
+                messagebox.showinfo('Clear stale handoff','Reservation cleared. Farming remains Off.',parent=self.root)
+            after_pointer_idle(clear)
+        after_pointer_idle(preview_and_confirm)
 
     # ------------------------------------------------------------------
     # Durable recovery holds

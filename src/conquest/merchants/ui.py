@@ -111,6 +111,7 @@ def refresh_permission_menu(menu, entries, state):
 class UnifiedUI:
     def __init__(self, app):
         self.app,self.root = app,app.root
+        app.stale_handoff_dispatch=self.dispatch
         host=getattr(app,'host',None)
         if host is not None and getattr(host,'mode',None)=='owned':
             # Preserve the saved standalone preference, but an owned game in
@@ -262,6 +263,9 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action in ('delivery-stale-pre-admission-preview','delivery-stale-pre-admission-clear'):
+            from conquest.merchants.pre_admission_clear import dispatch
+            return dispatch(self,body)
         if action in ('farmer-loop-acceptance', 'farmer-loop-acceptance-status','farmer-loop-acceptance-abort',
                       'farmer-loop-acceptance-override-preview','farmer-loop-acceptance-override'):
             from conquest.merchant_loop_acceptance import configure

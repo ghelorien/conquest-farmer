@@ -15,7 +15,7 @@ from conquest.discord_notify import read_json,write_json
 from conquest.merchants.bridge import MerchantRejected,request
 from conquest.merchants.delivery import plan_deliveries
 from conquest.merchants.handoff import WorkWindows
-from conquest.merchants.farmer_preferences import enabled as transfers_enabled
+from conquest.merchants.farmer_preferences import enabled as transfers_enabled,rollout_enabled
 from conquest.merchants.farmer_identity import route_character
 
 POLICY=Path('profiles/merchant-deliveries.json')
@@ -47,7 +47,7 @@ def warehouse_exhausted(loop,stored,remaining,*,send=request):
     if len(stored['items'])<stored['capacity']:return False
     if remaining:return True
     policy=read_json(POLICY)
-    if not policy.get('enabled') or not policy.get('parity_verified') or not transfers_enabled(route_character(loop)):return True
+    if not rollout_enabled(route_character(loop),policy=policy):return True
     from conquest.merchants.delivery import validate_snapshot
     from conquest.merchants.journal import CHARACTERS
     try:
@@ -326,7 +326,7 @@ def _market_storage(loop,*,send=request,items=None,on_admitted=None):
     if state.get('active'):remaining(settle(loop,send,state))
     policy=read_json(POLICY)
     from conquest.merchant_loop_acceptance import trial_permitted
-    if ((not policy.get('enabled') or not policy.get('parity_verified')) and not trial_permitted(loop)
+    if (not rollout_enabled(route_character(loop),policy=policy) and not trial_permitted(loop)
             or not transfers_enabled(route_character(loop))):return []
     if loop.living()['embedded_controls']['life']['map_id']!=1036:return []
     try:

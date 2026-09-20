@@ -240,13 +240,13 @@ def prepare_new(ui,journal,key,character,uids,action,origin):
         window=getattr(getattr(ui,'runtime',None),'delivery_window',None)
         if window and window!=key:
             raise ValueError('Delivery request ID must match its reserved work window')
-        from conquest.merchants.farmer_preferences import permits_new_delivery
+        from conquest.merchants.farmer_preferences import permits_new_delivery,rollout_enabled
         from conquest.merchants.farmer_identity import ui_character
         permits_new_delivery(ui_character(ui))
         policy=read_json('profiles/merchant-deliveries.json')
         from conquest.merchant_loop_acceptance import trial_delivery_permitted
         trial = action == 'delivery-start' and trial_delivery_permitted(ui,key,character,uids,origin)
-        if action!='delivery-test' and not trial and (not policy.get('enabled') or not policy.get('parity_verified')):
+        if action!='delivery-test' and not trial and not rollout_enabled(ui_character(ui),policy=policy):
             raise ValueError('Merchant delivery rollout is not enabled')
         if action=='delivery-test' and len(uids)>5:
             raise ValueError('Supervised delivery test is limited to five items')

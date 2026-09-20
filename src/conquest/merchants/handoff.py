@@ -72,7 +72,12 @@ def service_window(loop, *, town=False):
     """Run on the existing route controller, retaining its exclusive ownership."""
     policy = read_json(POLICY)
     from conquest.merchant_loop_acceptance import trial_permitted
-    if (not policy.get('parity_verified') and not (town and trial_permitted(loop))) or (not town and not policy.get('hunting_handoffs_enabled')):
+    from conquest.merchants.farmer_preferences import rollout_enabled
+    from conquest.merchants.farmer_identity import route_character
+    # This window serves refill/recovery, not delivery admission. Preserve
+    # its existing authority when the separate delivery preference is Off.
+    permitted = policy.get('parity_verified') or (town and rollout_enabled(route_character(loop),policy=policy))
+    if (not permitted and not (town and trial_permitted(loop))) or (not town and not policy.get('hunting_handoffs_enabled')):
         return False
     from conquest.merchants.bridge import request as merchant
     from conquest.worker import request
