@@ -1043,6 +1043,11 @@ class OvernightLoop:
         self.record('started')
         from conquest.travel_progress import TravelStalled
         try:
+            # A pending acceptance recovery checks the exact live controller
+            # identity before it reaches the ordinary route/life loop.
+            # Establish it from fresh read-only health memory; never infer it
+            # from the acceptance journal.
+            self.health()
             while True:
                 try:
                     self._run_route()
