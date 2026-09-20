@@ -165,6 +165,14 @@ class NativeFarmSupervisor:
                     try:return trade({'action':'consume-healing','uid':uid})
                     except TownObservationUnavailable as error:
                         raise CaptureUnavailable('Healing: reobserving before item use: '+str(error)) from error
+                    except ValueError as error:
+                        if str(error)=='Inventory opening unverified':
+                            # The inventory-open guard fails before the potion
+                            # click.  Drop this attempt and obtain a fresh life
+                            # and bag observation; never infer consumption or
+                            # replay a post-click uncertainty.
+                            raise CaptureUnavailable('Healing: reobserving before item use: '+str(error)) from error
+                        raise
                 finally:
                     # Cleanup is reversible and retried separately. Never mask
                     # a verified receipt or an uncertain consumption error.
