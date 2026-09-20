@@ -340,9 +340,20 @@ class FarmerTradeDriver:
             point=tuple(round(v*p/g) for v,p,g in zip(recipient['point'],profile['client_size'],profile['gui_size']))
             layout=self.driver.layout_revision();layout_revision=layout.stable()
             def before():
-                self.check();fresh_f,fresh_m=self.read_pair(m['character']);unchanged(fresh_f,fresh_m)
-                fresh_recipient=recipient_record(self.driver.observer,profile,fresh_m,
-                                                 farmer=fresh_f,targeting=True)
+                # The target-mode input is already recorded and is never
+                # replayed.  Its renderer transition can still briefly reorder
+                # the remote-player collection before the request click.
+                deadline=time.monotonic()+1.5
+                while True:
+                    self.check();fresh_f,fresh_m=self.read_pair(m['character']);unchanged(fresh_f,fresh_m)
+                    try:
+                        fresh_recipient=recipient_record(self.driver.observer,profile,fresh_m,
+                                                         farmer=fresh_f,targeting=True)
+                        break
+                    except RecipientSceneChanged:
+                        remaining=deadline-time.monotonic()
+                        if remaining<=0:raise
+                        time.sleep(min(.05,remaining))
                 if recipient_binding(fresh_recipient)!=binding:
                     raise ValueError('Receiver changed before trade request')
                 layout.assert_current(layout_revision)
