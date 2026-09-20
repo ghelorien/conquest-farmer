@@ -9,6 +9,11 @@ from conquest.capture import CaptureUnavailable
 
 INPUT_LOCK = Path(state_path('.runtime/merchant-input.lock'))
 
+
+class InputAcquisitionBusy(CaptureUnavailable):
+    """The local input mutex was unavailable; the input body never started."""
+
+
 class InputCoordinator:
     def __init__(self, safe_to_yield=lambda: False, manual_active=lambda: False, path=None):
         self.safe_to_yield = safe_to_yield
@@ -201,7 +206,10 @@ def _input_scope(*, purpose=None):
         if coordinator.manual_session_blocked('Farmer',purpose=purpose):
             raise CaptureUnavailable('Manual visitor session holds farmer input')
         if not coordinator.lock.acquire(blocking=False):
-            raise CaptureUnavailable('Waiting for the current input action')
+            # This is the sole retryable acquisition boundary: no owner/file
+            # lease, cursor move or input body has been entered. Other input
+            # failures may be post-submission and must not use this type.
+            raise InputAcquisitionBusy('Waiting for the current input action')
     file = None
     owned = False
     try:

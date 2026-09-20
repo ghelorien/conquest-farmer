@@ -63,7 +63,7 @@ def expendable_arrow(item, inventory):
 
 
 class TownObservationUnavailable(ValueError):
-    """A transient memory read failed before any input was attempted."""
+    """Observation or input acquisition failed before the action was submitted."""
     code = 'town_observation_unavailable'
 
 
@@ -222,9 +222,15 @@ class TownTrade:
                 raise TownObservationUnavailable(str(error)) from error
             raise
         from conquest.viewport import size_for
+        from conquest.merchants.coordination import InputAcquisitionBusy
         try:
             return foreground_click(self.observer.operations.target,*point,size_for(self.observer),
                 button=button,require_foreground=True,before_press=before_press)
+        except InputAcquisitionBusy as error:
+            # Re-enter the whole town operation on retry, including its fresh
+            # vendor, shop, product, funds and capacity checks. Never retry an
+            # arbitrary CaptureUnavailable or a partially submitted click.
+            raise TownObservationUnavailable(str(error)) from error
         except CaptureUnavailable as error:
             if 'no input sent' in str(error) or 'no button pressed' in str(error):
                 raise TownObservationUnavailable(str(error)) from error
