@@ -323,6 +323,52 @@ def test_pre_submit_crash_can_only_retry_after_new_confirmed_preview(incident,mo
     with pytest.raises(ValueError,match='one-shot'):abort.recheck(x.ui)
 
 
+def native_window_geometry(x):
+    # GuiReader.windows returns struct.unpack tuples, not JSON lists.
+    for snapshot in (x.farmer,x.state):
+        snapshot['windows']=[{'name':'Trade','address':123456,
+                             'geometry':(10.0,20.0,300.0,400.0),'scroll':(0.0,0.0)}]
+
+
+def test_async_abort_uses_durable_representation_of_native_geometry(incident):
+    x=incident;native_window_geometry(x)
+    preview=abort.recheck(x.ui)
+    result=abort.start(x.ui,confirmation_reference=preview['confirmation_reference'],
+                       operator_confirmed=True,operator='Floor')
+    x.ui.delivery_probe_thread.join(10)
+    assert result['started'] and not x.ui.delivery_probe_thread.is_alive()
+    receipt=abort.read()
+    assert receipt['phase']=='cancel_verified' and not receipt.get('error')
+    for role in ('farmer','merchant'):
+        window=receipt['baseline'][role]['windows'][0]
+        assert window['geometry']==[10.0,20.0,300.0,400.0] and window['scroll']==[0.0,0.0]
+    assert x.calls==['focus','hover','close']
+    assert probe.read_probe()['phase']=='cancel_verified'
+
+
+@pytest.mark.parametrize('journal_changed',[False,True])
+def test_async_worker_failure_persists_across_representation_only_difference(incident,monkeypatch,journal_changed):
+    x=incident;native_window_geometry(x);preview=abort.recheck(x.ui)
+    def fail(ui,value):
+        assert value==abort.read()  # The worker starts with the durable shape.
+        window=value['baseline']['merchant']['windows'][0]
+        window.update(geometry=tuple(window['geometry']),scroll=tuple(window['scroll']))
+        assert value!=abort.read() and digest(value)==digest(abort.read())
+        if journal_changed:
+            saved=abort.read();saved['operator']='Different operator';abort.save(saved)
+        raise ValueError('Pre-submit native observation failure')
+    monkeypatch.setattr(abort,'run',fail)
+    abort.start(x.ui,confirmation_reference=preview['confirmation_reference'],operator_confirmed=True,operator='Floor')
+    x.ui.delivery_probe_thread.join(10)
+    assert not x.ui.delivery_probe_thread.is_alive() and x.calls==[]
+    receipt=abort.read()
+    assert receipt['phase']=='abort_prepared' and 'submitted_at' not in receipt
+    if journal_changed:
+        assert receipt['operator']=='Different operator' and 'error' not in receipt
+    else:
+        assert receipt['error']=='Pre-submit native observation failure' and receipt['failed_at']==x.now
+
+
 @pytest.mark.parametrize('fault',['unconfirmed','digest','expired','extra','operator'])
 def test_explicit_bridge_confirmation_schema_and_expiry(incident,fault):
     x=incident;preview=abort.recheck(x.ui)

@@ -165,13 +165,16 @@ def start(ui, *, confirmation_reference, operator_confirmed=False, operator):
         abort={**preview,'phase':'abort_prepared','operator':operator.strip(),
                'baseline':{'farmer':f,'merchant':m},'prepared_at':time.time(),
                'sessions':refreshed,'confirmed_session_history_digest':preview['sessions']['digest']}
+        # Native GUI geometry/scroll observations are tuples. The durable JSON
+        # receipt contains lists; use that same representation in the worker.
+        abort=json.loads(json.dumps(abort))
         _archive_prepared(previous)
         save(abort)
         def work():
             try:run(ui,abort)
             except Exception as error:
                 # Preserve submitted state exactly. Failure never re-arms input.
-                if abort.get('phase') in ('abort_prepared','cancel_submitted') and read()==abort:
+                if abort.get('phase') in ('abort_prepared','cancel_submitted') and digest(read())==digest(abort):
                     abort.update(error=str(error),failed_at=time.time());save(abort)
         ui.delivery_probe_thread=threading.Thread(target=work,daemon=True,name='delivery-probe-abort')
         ui.delivery_probe_thread.start()
@@ -223,7 +226,7 @@ def run(ui, abort):
     from conquest.foreground import foreground_click
     from conquest.merchants.driver import wait_hover_validation
     from conquest.merchants.empty_delivery_cancel import control
-    if abort.get('phase')!='abort_prepared' or read()!=abort:
+    if abort.get('phase')!='abort_prepared' or digest(read())!=digest(abort):
         raise ValueError('A submitted abort cannot send another close')
     character=abort['probe']['character'];driver=ui.runtime.controllers[character].driver
     expected=[digest(abort)];submitted=[False]
