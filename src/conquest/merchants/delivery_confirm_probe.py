@@ -11,6 +11,27 @@ from conquest.merchants.delivery import validate_offers,reconcile
 from conquest.recovery_override import evidence_digest
 
 
+def _merchant_key(state):
+    """Resolve the journal UUID, never a display-name fallback, for runtime maps."""
+    from conquest.character_context import registry,ProfileName
+    name=state.get('character');merchant=state.get('intent',{}).get('merchant',{})
+    profile_id=state.get('target_profile_id')
+    if (not isinstance(name,str) or not name or name!=name.strip()
+            or not isinstance(profile_id,str) or not profile_id
+            or merchant.get('character')!=name or merchant.get('server')!='America'):
+        raise ValueError('Confirmation merchant profile binding is unavailable')
+    profiles=registry()
+    if profiles:
+        resolved=profiles.resolve(profile_id,role='Merchant',server='America')
+        if (resolved.id!=profile_id or resolved.name!=name or resolved.role!='Merchant'
+                or resolved.server!='America' or resolved.local_enabled is not True):
+            raise ValueError('Confirmation merchant profile changed')
+        return ProfileName(resolved.name,resolved.id)
+    if profile_id!=name:
+        raise ValueError('Confirmation merchant profile is unavailable')
+    return name
+
+
 def run(ui,state,*,revision=None):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_click
@@ -23,7 +44,8 @@ def run(ui,state,*,revision=None):
         raise ValueError('Submitted confirmation is read-only; never repeat confirmation input')
     resume_merchant=state['phase']=='farmer_confirm_verified'
     receipt_digest=evidence_digest(state)
-    intent=state['intent'];character=state['character']
+    intent=state['intent'];character=_merchant_key(state)
+    profile_binding=(str(character),getattr(character,'profile_id',None))
     revision=ui.app.control.snapshot()['revision'] if revision is None else revision
     deadline=time.monotonic()+15
     def receipt():
@@ -34,6 +56,9 @@ def run(ui,state,*,revision=None):
                (state.get('farmer_profile_id','Farmer'),state.get('target_profile_id',character))):
             raise CaptureUnavailable('Manual visitor session holds a delivery participant')
     def check():
+        current=_merchant_key(state)
+        if (str(current),getattr(current,'profile_id',None))!=profile_binding:
+            raise CaptureUnavailable('Confirmation merchant profile binding changed')
         permits_new_delivery(intent['farmer']['character']);ui.coordinator.check()
         manual_fence();receipt()
         c=ui.app.control.snapshot()

@@ -15,7 +15,7 @@ def farmer_surface(tmp_path,monkeypatch):
     identity={'pid':7,'creation_time_100ns':12,'path':'C:/Game/ImConquer.exe'}
     state={'phase':'trade_open_verified','farmer_profile_id':'Farmer','target_profile_id':'Dutch',
            'character':'Dutch','intent':{'farmer':{'character':'Parasite','server':'America','identity':identity},
-                                       'merchant':{'character':'Dutch'}}}
+                                       'merchant':{'character':'Dutch','server':'America'}}}
     x=NS(state=state,control={'enabled':False,'paused':False,'revision':3},calls=[],selected='merchant',visible=False)
     x.coordinator=InputCoordinator(lambda:True,path=tmp_path/'input.lock');install(x.coordinator)
     target=NS(hwnd=77)
@@ -222,7 +222,7 @@ def test_confirm_stage_requires_successful_farmer_presentation_before_any_confir
     from contextlib import nullcontext
     from conquest.merchants import delivery_confirm_probe as confirm
     x=farmer_surface;x.state['phase']='offer_verified'
-    x.state['intent']['merchant']={'character':'Dutch'}
+    x.state['intent']['merchant']={'character':'Dutch','server':'America'}
     x.ui.runtime.reconcile_probe_pair=lambda *a:True
     monkeypatch.setattr(confirm,'read_probe',lambda:deepcopy(x.state))
     monkeypatch.setattr('conquest.merchants.farmer_preferences.permits_new_delivery',lambda name:None)

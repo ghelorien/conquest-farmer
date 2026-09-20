@@ -57,6 +57,142 @@ def midpoint(supervised, monkeypatch):
     return x
 
 
+@pytest.fixture
+def managed_midpoint(midpoint,monkeypatch,tmp_path):
+    from conquest.character_context import ProfileMap,ProfileName
+    from conquest.character_profiles import ProfileRegistry
+    from conquest.merchants.delivery_bridge import pair as read_pair
+    from conquest.merchants.ui import UnifiedUI
+    x=midpoint
+    x.profiles=ProfileRegistry(tmp_path/'managed')
+    x.profile=x.profiles.add('Dutch',role='Merchant',local_enabled=True)
+    x.profile_key=ProfileName(x.profile.name,x.profile.id)
+    monkeypatch.setattr('conquest.character_context.registry',lambda:x.profiles)
+    x.probe['target_profile_id']=x.profile.id;x.save()
+    host=x.ui.hosts['Dutch'];observer=x.runtime.observers['Dutch']
+    x.runtime.controllers=ProfileMap();x.runtime.controllers[x.profile_key]=x.controller
+    x.runtime.observers=ProfileMap();x.runtime.observers[x.profile_key]=observer
+    x.ui.hosts=ProfileMap();x.ui.hosts[x.profile_key]=host
+    x.ui.calibration_cancel=ProfileMap()
+    x.ui.app.observer=x.source
+    x.journal.set(x.profile_key,'enabled',True)
+    observer.character=x.profile_key
+    x.driver.read=lambda:{**x.read(),'character':x.profile_key}
+    # Use the real bridge to cover its own ProfileMap lookup; Farmer memory
+    # remains observation-only. Existing resume traps still forbid its surface
+    # preparation and activation, and the click stub accepts only Merchant.
+    monkeypatch.setattr('conquest.merchants.memory.MerchantMemory',
+                        lambda source:NS(read=lambda **kw:x.farmer_read()))
+    monkeypatch.setattr('conquest.merchants.delivery_bridge.MerchantMemory',
+                        lambda source:NS(read=lambda **kw:x.farmer_read()))
+    monkeypatch.setattr(confirm,'pair',read_pair)
+    def present(owner):
+        assert type(owner) is ProfileName and owner.profile_id==x.profile.id
+        assert x.runtime.controllers[owner] is x.controller and x.runtime.observers[owner] is observer
+        assert x.ui.hosts[owner] is host and owner in x.ui.calibrating
+        assert isinstance(x.ui.calibration_cancel[owner],threading.Event)
+        x.events.append(('present',str(owner)))
+    x.ui.show_merchant=present
+    class Queue:
+        def put(self,request):
+            callback,done,result=request
+            try:callback()
+            except Exception as error:result['error']=str(error)
+            finally:done.set()
+    x.ui.ui_requests=Queue()
+    monkeypatch.setattr('conquest.merchants.ui.wait_for_merchant_surface',lambda owner,others,check:check())
+    def acquired(owner):
+        x.events.append(('lease',owner));UnifiedUI.prepare_input(x.ui,owner)
+    x.guard.on_acquire=acquired
+    return x
+
+
+def test_managed_uuid_resolves_one_exact_runtime_key_for_merchant_only_resume(managed_midpoint):
+    from conquest.character_context import ProfileName
+    x=managed_midpoint
+    assert x.runtime.controllers.get('Dutch') is None  # A display-name lookup cannot work.
+    confirm.run(x.ui,deepcopy(x.probe))
+    assert [(event,str(owner)) for event,owner in x.events]==[('lease','Dutch'),('present','Dutch'),('press','Dutch')]
+    assert type(x.events[0][1]) is ProfileName and x.events[0][1].profile_id==x.profile.id
+    saved=probe.read_probe()
+    assert saved['phase']=='delivery_verified' and saved['character']=='Dutch' and type(saved['character']) is str
+    assert saved['target_profile_id']==x.profile.id and saved['confirming_role']=='merchant'
+    assert not x.ui.calibrating and not any(str(owner)=='Farmer' for _,owner in x.events)
+
+
+def test_managed_full_confirmation_preserves_farmer_then_exact_merchant_profile_key(managed_midpoint,monkeypatch):
+    from conquest.character_context import ProfileName
+    x=managed_midpoint;open_trade(x,phase='offer_verified',offered=True)
+    farmer_target=NS(hwnd=88,snapshot=lambda:{'client_size':[1200,900]})
+    x.source.operations=NS(target=farmer_target)
+    identity=deepcopy(x.farmer['identity']);x.ui.app.client=(identity['pid'],88,identity)
+    x.ui.app.host=NS(mode='owned',saved=NS(hwnd=88,identity=identity),api=NS(assert_owner=lambda *a:None))
+    def prepare(ui,state,**kw):
+        assert ui.coordinator.owner=='Farmer' and type(ui.coordinator.owner) is str
+        assert state['phase']=='offer_verified' and state['target_profile_id']==x.profile.id
+        assert kw['purpose']=='delivery_confirm_probe'
+        return lambda:x.events.append(('present','Farmer'))
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.prepare',prepare)
+    monkeypatch.setattr('conquest.focus_recovery.activate_client',lambda *a:x.events.append(('activate','Farmer')) or True)
+    monkeypatch.setattr('conquest.merchants.memory.MerchantMemory',lambda *a:x.driver.memory)
+    def click(target,*a,before_press,**kw):
+        role='Farmer' if target is farmer_target else 'Dutch'
+        if role=='Farmer':assert type(x.guard.owner) is str and x.guard.owner=='Farmer'
+        else:assert type(x.guard.owner) is ProfileName and x.guard.owner.profile_id==x.profile.id
+        assert probe.read_probe()['phase']==('farmer' if role=='Farmer' else 'merchant')+'_confirm_submitted'
+        before_press();x.events.append(('press',role))
+        if role=='Farmer':x.farmer['trade']['accepted']=True
+        else:
+            x.farmer['trade']=x.state['trade']=None;x.farmer['inventory']=[]
+            x.state['inventory']+=deepcopy(x.probe['intent']['items'])
+    monkeypatch.setattr('conquest.foreground.foreground_click',click)
+    confirm.run(x.ui,deepcopy(x.probe))
+    assert [(event,str(owner)) for event,owner in x.events]==[
+        ('lease','Farmer'),('present','Farmer'),('activate','Farmer'),('press','Farmer'),
+        ('lease','Dutch'),('present','Dutch'),('press','Dutch')]
+    saved=probe.read_probe()
+    assert saved['phase']=='delivery_verified' and type(saved['character']) is str and saved['character']=='Dutch'
+    assert saved['target_profile_id']==x.profile.id and type(saved['merchant_after']['character']) is str
+    assert x.runtime.controllers.get('Dutch') is None and not x.ui.calibrating
+
+
+@pytest.mark.parametrize('timing',['before_run','before_press'])
+@pytest.mark.parametrize('fault',['missing','disabled','renamed','role','server','id','name_fallback','registry_missing'])
+def test_managed_profile_changes_never_authorize_merchant_confirmation(managed_midpoint,monkeypatch,timing,fault):
+    x=managed_midpoint
+    def change():
+        if fault=='registry_missing':
+            monkeypatch.setattr('conquest.character_context.registry',lambda:None);return
+        if fault=='name_fallback':
+            # A UUID-shaped *name* must never stand in for the saved UUID.
+            with x.profiles.edit() as data:
+                data['profiles'][0]['name']=x.profile.id
+                data['profiles'][0]['id']='164bfcf7-eae4-481d-8518-41c7b614283b'
+            return
+        with x.profiles.edit() as data:
+            if fault=='missing':data['profiles']=[];return
+            field,value={'disabled':('local_enabled',False),'renamed':('name','Other'),
+                'role':('role','Farmer'),'server':('server','Europe'),
+                'id':('id','164bfcf7-eae4-481d-8518-41c7b614283b')}[fault]
+            data['profiles'][0][field]=value
+    saved=deepcopy(x.probe)
+    if timing=='before_run':change()
+    else:x.before_press=change
+    with pytest.raises((ValueError,OSError)):
+        confirm.run(x.ui,saved)
+    assert not any(event=='press' for event,_ in x.events)
+    assert not any(str(owner)=='Farmer' for _,owner in x.events)
+    if timing=='before_run':assert not x.events and not x.ui.calibrating
+
+
+@pytest.mark.parametrize('field,value',[('target_profile_id','Dutch'),('target_profile_id',''),
+    ('character','Other')])
+def test_managed_receipt_cannot_use_name_or_missing_profile_binding(managed_midpoint,field,value):
+    x=managed_midpoint;x.probe[field]=value;x.save()
+    with pytest.raises(ValueError):confirm.run(x.ui,deepcopy(x.probe))
+    assert x.events==[] and not x.ui.calibrating
+
+
 @pytest.mark.parametrize('saved_remote,current_remote',[(False,False),(False,True),(True,False),(True,True)])
 def test_resume_exact_midpoint_uses_local_flags_and_only_merchant_input(midpoint,saved_remote,current_remote):
     x=midpoint
