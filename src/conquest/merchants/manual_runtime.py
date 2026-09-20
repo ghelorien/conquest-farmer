@@ -11,6 +11,32 @@ from conquest.merchants.manual_sessions import ManualSessionError, ManualSession
 OBSERVATION_DEFERRED = object()
 
 
+def probe_attempt_projection(value):
+    """Bounded metadata only; never echo exception text or cached evidence."""
+    if not isinstance(value,dict):return None
+    enums={
+        'stage':{'probe_read','profile_binding','ownership','probe_recheck','hold_read','manual_history','final_probe_recheck','fence_sync'},
+        'reason':{'probe_read_failed','profile_binding_failed','ownership_unverified','open_trade_required','probe_changed',
+                  'hold_read_failed','reader_or_decline_hold','manual_history_validation_failed','exact_bot_history',
+                  'manual_history_unverified','fence_sync_failed'},
+        'outcome':{'error','protected','validated','reconciled'},'checked_through':{'final_probe_recheck'},
+        'error_type':{'ValueError','OSError','TypeError','KeyError','AttributeError','RuntimeError','OperationalError',
+                      'DatabaseError','IntegrityError','PermissionError','FileNotFoundError','CaptureUnavailable',
+                      'ManualSessionError','BindingMismatch','JSONDecodeError'}}
+    result={key:value[key] for key,allowed in enums.items() if isinstance(value.get(key),str) and value[key] in allowed}
+    if type(value.get('bot_owned')) is bool:result['bot_owned']=value['bot_owned']
+    for key in ('probe_digest','evidence_digest'):
+        item=value.get(key)
+        if isinstance(item,str) and len(item)==64 and all(c in '0123456789abcdef' for c in item):result[key]=item
+    for key in ('target_profile_id','farmer_profile_id'):
+        item=value.get(key)
+        if isinstance(item,str) and 0<len(item)<=128 and item.isascii() and all(c.isalnum() or c in '_-.' for c in item):result[key]=item
+    for key in ('active_session_count','eligible_sessions','outage_intervals','retracted_sessions'):
+        item=value.get(key)
+        if type(item) is int and 0<=item<=10000000:result[key]=item
+    return result
+
+
 class ManualRuntime:
     @contextmanager
     def _manual_observation_scope(self, snapshot, *, now=None):

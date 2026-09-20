@@ -335,12 +335,14 @@ class UnifiedUI:
             if set(body)!={'action'}:raise ValueError('Unsupported reconciliation diagnostic arguments')
             from conquest.merchants.delivery_probe import read_probe
             from conquest.merchants.delivery_bridge import pair
+            from conquest.merchants.manual_runtime import probe_attempt_projection
             with self.coordinator.lock:
+                last=probe_attempt_projection(getattr(self.runtime,'last_probe_reconciliation',None))
                 state=read_probe(read_only=True)
                 if not state:raise ValueError('No supervised delivery probe exists')
                 character=character_name(state['character'])
                 farmer,merchant=pair(self,character)
-                return self.runtime.inspect_probe_reconciliation(character,farmer,merchant)
+                return {**self.runtime.inspect_probe_reconciliation(character,farmer,merchant),'last_attempt':last}
         if action=='probe-delivery-reconcile-request':
             if set(body)!={'action'}:raise ValueError('Unsupported request reconciliation arguments')
             from conquest.merchants.delivery_request_reconciliation import reconcile_request

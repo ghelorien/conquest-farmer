@@ -261,3 +261,26 @@ def test_non_trade_result_includes_finally_fence_sync_failure(supervised,monkeyp
     assert not x.runtime.reconcile_probe_pair('Dutch',x.farmer_read(),x.read(),now=x.now)
     result=x.runtime.last_probe_reconciliation
     assert result['stage']=='fence_sync' and result['reason']=='fence_sync_failed' and result['error_type']=='RuntimeError'
+
+
+def test_bridge_preserves_bounded_last_dispatch_metadata_before_fresh_readonly_inspection(supervised,monkeypatch):
+    x=supervised;gap_pair(x)
+    previous={'stage':'manual_history','reason':'manual_history_validation_failed','outcome':'error',
+              'error_type':'OperationalError','bot_owned':True,'probe_digest':'a'*64,'target_profile_id':'Dutch',
+              'active_session_count':2,'input_authorized':True,'snapshot':{'secret':'never return'},'text':'never return'}
+    x.runtime.last_probe_reconciliation=deepcopy(previous)
+    before=contents(x);fence=deepcopy(x.guard.manual_sessions)
+    monkeypatch.setattr('conquest.merchants.delivery_bridge.pair',lambda *a:(x.farmer_read(),x.read()))
+    result=UnifiedUI.dispatch(NS(coordinator=x.guard,runtime=x.runtime),{'action':'probe-delivery-reconciliation-diagnostic'})
+    assert result['outcome']=='validated' and result['last_attempt']=={k:v for k,v in previous.items() if k not in ('input_authorized','snapshot','text')}
+    assert x.runtime.last_probe_reconciliation==previous and contents(x)==before and x.guard.manual_sessions==fence
+
+
+def test_last_attempt_projection_rejects_unknown_oversized_and_non_metadata_values():
+    from conquest.merchants.manual_runtime import probe_attempt_projection
+    bad={'stage':'arbitrary secret','reason':'x'*10000,'outcome':['error'],'error_type':'private text',
+         'bot_owned':1,'probe_digest':'x'*64,'evidence_digest':'a'*65,'target_profile_id':'secret\ntext',
+         'farmer_profile_id':'x'*129,'active_session_count':True,'outage_intervals':-1,
+         'eligible_sessions':10000001,'checked_through':'unknown','unknown':{'large':'x'*100000}}
+    assert probe_attempt_projection(bad)=={}
+    assert probe_attempt_projection(None) is None
