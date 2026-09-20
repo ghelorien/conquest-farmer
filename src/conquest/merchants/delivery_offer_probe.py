@@ -1,6 +1,5 @@
 """Journaled native item placement for an explicitly authorized live trade."""
 import ctypes
-import threading
 import time
 from contextlib import contextmanager
 from conquest.capture import CaptureUnavailable
@@ -42,14 +41,14 @@ def run(ui,state):
             if not ui.runtime.reconcile_probe_pair(character,f,m):
                 raise CaptureUnavailable('Delivery placement needs fresh bilateral probe reconciliation')
             manual_fence()
-            with ui.coordinator.lease('Farmer'),physical_coordinates():yield
+            with ui.coordinator.lease('Farmer',purpose='delivery_offer_probe'),physical_coordinates():yield
     with lease():
-        done,result=threading.Event(),{}
-        ui.ui_requests.put((ui.app.show_game,done,result))
-        if not done.wait(3):
-            result['expired']=True;raise ValueError('Farmer surface unavailable')
-        if result.get('error'):raise ValueError(result['error'])
+        from conquest.merchants.delivery_farmer_surface import prepare
+        presentation=prepare(ui,state,purpose='delivery_offer_probe',revision=revision,deadline=deadline)
         check();f,m=pair(ui,character);offered=partial_offer(intent,f,m)
+        if any(s['trade']['accepted'] or s['trade']['other_accepted'] for s in (f,m)):
+            raise ValueError('Trade was accepted before placement activation')
+        presentation()
         if not activate_client(target.hwnd,f['identity']):raise ValueError('Farmer focus unavailable; no drag sent')
         size=target.snapshot()['client_size']
         if size!=memory.gui.viewport_size():raise ValueError('Native and GUI sizes differ')

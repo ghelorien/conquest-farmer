@@ -147,7 +147,8 @@ def test_delivery_waits_for_receiver_to_release_input_without_replaying_body(mon
     from conquest import desktop_runtime,focus_recovery
     calls=[]
     @contextmanager
-    def lease(name):
+    def lease(name,*,purpose):
+        assert purpose=='farmer_delivery'
         calls.append('lease')
         if calls.count('lease')==1:raise CaptureUnavailable('Waiting for input owner')
         yield
@@ -158,10 +159,13 @@ def test_delivery_waits_for_receiver_to_release_input_without_replaying_body(mon
     d.ui=NS(runtime=NS(enabled=lambda _:True),coordinator=NS(lease=lease),
             app=NS(show_game=lambda:None),ui_requests=Queue())
     d.driver=NS(target=NS(hwnd=1),observer=NS(adapter=NS(identity={})))
+    d.read_pair=lambda _:({}, {})
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.prepare_delivery',lambda *a,**k:lambda:None)
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.verify_stage_pair',lambda *a,**k:None)
     monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
     monkeypatch.setattr(focus_recovery,'activate_client',lambda *a:True)
     monkeypatch.setattr(module.time,'sleep',lambda _:None)
-    with d.action({'merchant':{'character':'Spiritual'}}):calls.append('body')
+    with d.action({'merchant':{'character':'Spiritual'}},stage='open'):calls.append('body')
     assert calls==['lease','lease','body']
 
 
@@ -180,7 +184,8 @@ def test_delivery_contention_retry_is_bounded_and_never_replays_transaction(monk
     from conquest import desktop_runtime,focus_recovery
     calls=[];clock=[0.0]
     @contextmanager
-    def lease(name):
+    def lease(name,*,purpose):
+        assert purpose=='farmer_delivery'
         calls.append('lease')
         if failure_stage=='acquire_timeout':
             raise CaptureUnavailable('Waiting for input owner')
@@ -192,12 +197,15 @@ def test_delivery_contention_retry_is_bounded_and_never_replays_transaction(monk
     d.ui=NS(runtime=NS(enabled=lambda _:True),coordinator=NS(lease=lease),
             app=NS(show_game=lambda:None),ui_requests=Queue())
     d.driver=NS(target=NS(hwnd=1),observer=NS(adapter=NS(identity={})))
+    d.read_pair=lambda _:({}, {})
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.prepare_delivery',lambda *a,**k:lambda:None)
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.verify_stage_pair',lambda *a,**k:None)
     monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
     monkeypatch.setattr(focus_recovery,'activate_client',lambda *a:True)
     monkeypatch.setattr(module.time,'monotonic',lambda:clock[0])
     monkeypatch.setattr(module.time,'sleep',lambda _:clock.__setitem__(0,clock[0]+1))
     with pytest.raises(CaptureUnavailable,match='Waiting for input owner'):
-        with d.action({'merchant':{'character':'Spiritual'}}):
+        with d.action({'merchant':{'character':'Spiritual'}},stage='open'):
             calls.append('body')
             raise CaptureUnavailable('Waiting for input owner')
     if failure_stage=='acquire_timeout':
@@ -238,7 +246,7 @@ def test_request_guard_binds_only_exact_target_and_revalidates_before_press(monk
         pressed.append(args)
     monkeypatch.setattr(foreground,'foreground_click',click)
     driver=FarmerTradeDriver.__new__(FarmerTradeDriver)
-    driver.report=lambda *args:None;driver.action=lambda _:nullcontext()
+    driver.report=lambda *args:None;driver.action=lambda _,**kwargs:nullcontext()
     driver.require_qualified=lambda:{'client_size':[1000,800],'gui_size':[1000,800]}
     driver.read_pair=lambda _:(farmer,merchant)
     driver.button=lambda *args,**kwargs:None

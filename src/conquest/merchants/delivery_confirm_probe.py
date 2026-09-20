@@ -57,15 +57,18 @@ def run(ui,state):
             if not ui.runtime.reconcile_probe_pair(character,f,m):
                 raise CaptureUnavailable('Delivery confirmation needs fresh bilateral probe reconciliation')
             manual_fence()
-            with ui.coordinator.lease(owner),physical_coordinates():yield
+            with ui.coordinator.lease(owner,purpose='delivery_confirm_probe'),physical_coordinates():yield
     with lease('Farmer'):
-        done,result=threading.Event(),{}
-        ui.ui_requests.put((ui.app.show_game,done,result))
-        if not done.wait(3):
-            result['expired']=True;raise ValueError('Farmer surface unavailable')
-        if result.get('error'):raise ValueError(result['error'])
+        from conquest.merchants.delivery_farmer_surface import prepare
+        presentation=prepare(ui,state,purpose='delivery_confirm_probe',revision=revision,deadline=deadline)
         observer=ui.app.observer
         f,m=pair(ui,character);validate_offers(intent,f,m)
+        if any(s['trade']['accepted'] or s['trade']['other_accepted'] for s in (f,m)):
+            raise ValueError('Trade was accepted before confirmation activation')
+        presentation()
+        from conquest.focus_recovery import activate_client
+        if not activate_client(observer.operations.target.hwnd,f['identity']):
+            raise ValueError('Farmer focus unavailable; no confirmation sent')
         if not f['trade']['accepted']:
             click('farmer',observer,MerchantMemory(observer))
         until=time.monotonic()+3

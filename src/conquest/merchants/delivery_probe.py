@@ -271,13 +271,13 @@ def run(ui,intent,revision,state):
             raise CaptureUnavailable('Trade request probe stopped or expired')
     def save(phase,**fields):
         state.update(phase=phase,updated_at=time.time(),**fields);write_probe(JOURNAL,state)
-    with ui.coordinator.lease('Farmer'),physical_coordinates():
-        done,result=threading.Event(),{}
-        ui.ui_requests.put((ui.app.show_game,done,result))
-        if not done.wait(3):
-            result['expired']=True
-            raise ValueError('Farmer window did not become available')
-        if result.get('error'):raise ValueError(result['error'])
+    with ui.coordinator.lease('Farmer',purpose='delivery_request_probe'),physical_coordinates():
+        from conquest.merchants.delivery_farmer_surface import prepare as present,verify_stage_pair
+        presentation=present(ui,state,purpose='delivery_request_probe',revision=revision,deadline=deadline)
+        f,m=pair(ui,character);verify_stage_pair(intent,f,m,stage='open');presentation()
+        from conquest.focus_recovery import activate_client
+        if not activate_client(observer.operations.target.hwnd,f['identity']):
+            raise ValueError('Farmer focus unavailable; no request input sent')
         check()
         size=observer.operations.target.snapshot()['client_size']
         gui=memory.gui.viewport_size()

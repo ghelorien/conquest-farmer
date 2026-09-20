@@ -52,10 +52,14 @@ def test_supervised_request_guard_ignores_other_players_but_rejects_target_drift
     class Queue:
         def put(self,item):item[1].set()
     ui=NS(closed=False,safe_to_yield=lambda:True,ui_requests=Queue(),
-        coordinator=NS(check=lambda:None,lease=lambda _:nullcontext()),
+        coordinator=NS(check=lambda:None,lease=lambda _,**kw:nullcontext()),
         app=NS(observer=observer,closing=False,show_game=lambda:None,
             control=NS(snapshot=lambda:{'enabled':False,'paused':False,'revision':1})))
     monkeypatch.setattr(farmer_preferences,'permits_new_delivery',lambda _:None)
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.prepare',lambda *a,**k:lambda:None)
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.verify_stage_pair',lambda *a,**k:None)
+    observer.operations.target.hwnd=7
+    monkeypatch.setattr('conquest.focus_recovery.activate_client',lambda *a:True)
     monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
     monkeypatch.setattr(foreground,'foreground_click',click)
     monkeypatch.setattr(memory,'MerchantMemory',lambda _:NS(gui=gui))

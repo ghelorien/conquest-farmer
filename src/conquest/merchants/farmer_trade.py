@@ -7,7 +7,6 @@ from conquest.character_context import state_path
 from contextlib import contextmanager,ExitStack
 from pathlib import Path
 import struct
-import threading
 import time
 
 from conquest.capture import CaptureUnavailable
@@ -205,7 +204,7 @@ class FarmerTradeDriver:
         return pair(self.ui,merchant)
 
     @contextmanager
-    def action(self,intent):
+    def action(self,intent,*,stage):
         self.recipient=intent['merchant']['character']
         self.require_qualified()
         if not self.ui.runtime.enabled(intent['merchant']['character']):
@@ -218,7 +217,7 @@ class FarmerTradeDriver:
             while True:
                 try:
                     self.check()
-                    stack.enter_context(self.ui.coordinator.lease('Farmer'))
+                    stack.enter_context(self.ui.coordinator.lease('Farmer',purpose='farmer_delivery'))
                     break
                 except CaptureUnavailable as error:
                     if (str(error) not in ('Another character owns game input','Waiting for input owner',
@@ -226,16 +225,10 @@ class FarmerTradeDriver:
                             or time.monotonic()>=deadline):raise
                     time.sleep(.03)
             stack.enter_context(physical_coordinates())
-            done=threading.Event();result={}
-            callback=self.ui.app.show_game
-            fence=getattr(self.ui.coordinator,'fence',None)
-            if fence is not None:
-                callback=fence.guard_callback(fence.capture(),callback)
-            self.ui.ui_requests.put((callback,done,result))
-            if not done.wait(3):
-                result['expired']=True
-                raise CaptureUnavailable('Farmer surface did not become available')
-            if result.get('error'):raise ValueError(result['error'])
+            from conquest.merchants.delivery_farmer_surface import prepare_delivery,verify_stage_pair
+            presentation=prepare_delivery(self,intent,stage=stage,deadline=time.monotonic()+3)
+            f,m=self.read_pair(intent['merchant']['character'])
+            verify_stage_pair(intent,f,m,stage=stage);presentation()
             self.check()
             from conquest.focus_recovery import activate_client
             if not activate_client(self.driver.target.hwnd,self.driver.observer.adapter.identity):
@@ -305,7 +298,7 @@ class FarmerTradeDriver:
                         or current['character_uid']!=intent[role]['character_uid']
                         or exact_items(current['inventory'])!=exact_items(intent[role]['inventory'])):
                     raise ValueError('Delivery participants or stock changed before request')
-        with self.action(intent):
+        with self.action(intent,stage='open'):
             profile=self.require_qualified();f,m=self.read_pair(intent['merchant']['character'])
             unchanged(f,m);recipient_record(self.driver.observer,profile,m,farmer=f)
             self.button(intent,'start_trade',unchanged,stage='trade_target_mode')
@@ -332,7 +325,7 @@ class FarmerTradeDriver:
     def place_item(self,intent,item):
         self.report('Placing '+item['name']+' in the trade with '+intent['merchant']['character'])
         from conquest.foreground import foreground_drag
-        with self.action(intent):
+        with self.action(intent,stage='place'):
             f,m=self.read_pair(intent['merchant']['character']);placed=partial_offer(intent,f,m)
             if item['uid'] not in exact_items(intent['items']):raise ValueError('Item is outside reserved batch')
             if item['uid'] in exact_items(placed):raise ValueError('Item already offered; no repeat drag')
@@ -371,7 +364,7 @@ class FarmerTradeDriver:
 
     def confirm(self,intent):
         self.report('Confirming the exact item transfer to '+intent['merchant']['character'])
-        with self.action(intent):
+        with self.action(intent,stage='confirm'):
             f,m=self.read_pair(intent['merchant']['character']);validate_offers(intent,f,m)
             self.button(intent,'confirm_trade',lambda f,m:validate_offers(intent,f,m),stage='farmer_confirm')
 
