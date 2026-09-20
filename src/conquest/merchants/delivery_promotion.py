@@ -70,7 +70,8 @@ def _same_participant(snapshot, receipt):
 def _same_replay_participant(snapshot, receipt):
     """Fields that cannot change while native refill opens an owned booth."""
     return _same_participant(snapshot,receipt) and all(snapshot.get(field)==receipt.get(field) for field in
-        ('capacity','map_id','own_booth_uid')) and snapshot.get('booth_open') is True
+        ('capacity','map_id','own_booth_uid')) and type(receipt.get('own_booth_uid')) is int \
+        and receipt['own_booth_uid']>0 and snapshot.get('booth_open') is True
 
 
 def _stock(snapshot):
@@ -166,7 +167,9 @@ def _listing_chain_reconciles(state, journal, farmer, merchant, *, now):
             or farmer.get('trade') is not None or merchant.get('trade') is not None
             or farmer.get('request') is not None or merchant.get('request') is not None
             or merchant.get('booth_open') is not True
-            or merchant.get('own_booth_uid')!=intent['merchant']['character_uid']):
+            or type(state_merchant.get('own_booth_uid')) is not int
+            or state_merchant['own_booth_uid']<=0
+            or merchant.get('own_booth_uid')!=state_merchant['own_booth_uid']):
         return False
     # The staged receipt must put every offered UID in merchant inventory with
     # its immutable attributes; otherwise no later journal row can repair it.
@@ -225,7 +228,7 @@ def _listing_chain_reconciles(state, journal, farmer, merchant, *, now):
                 or expected_inventory[uid]!=item_attributes or result.get('old_price') is not None
                 or snapshot.get('trade') is not None or snapshot.get('request') is not None
                 or snapshot.get('booth_open') is not True
-                or snapshot.get('own_booth_uid')!=intent['merchant']['character_uid']):
+                or snapshot.get('own_booth_uid')!=state_merchant['own_booth_uid']):
             return False
         expected_inventory.pop(uid)
         expected_booth[uid]=(*item_attributes,before['price'])

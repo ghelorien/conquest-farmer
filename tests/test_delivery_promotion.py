@@ -37,7 +37,7 @@ def rig(tmp_path,monkeypatch):
     state['recipient']['address']=1234
     for role in ('farmer','merchant'):
         for snapshot in (state['intent'][role],state[role+'_after']):
-            snapshot.update(booth_open=True,own_booth_uid=snapshot['character_uid'])
+            snapshot.update(booth_open=True,own_booth_uid=102612 if role=='merchant' else snapshot['character_uid'])
     receipt=Path(state_path('reports/merchants/delivery-request-probe.json'))
     receipt.parent.mkdir(parents=True,exist_ok=True)
     monkeypatch.setattr(delivery_probe,'JOURNAL',receipt)
@@ -174,7 +174,7 @@ def test_listing_chain_allows_only_staged_closed_to_verified_owned_booth_open(ri
 
 @pytest.mark.parametrize('case', ['missing','malformed','unrelated','wrong_uid','wrong_merchant','wrong_attributes',
     'unverified','stale_current','sale_silver','ambiguous','step_tamper','event_tamper','updated_after_snapshot',
-    'historical_trade','loose_meteor','closed_listing','wrong_owned_booth'])
+    'historical_trade','loose_meteor','closed_listing','wrong_owned_booth','zero_owned_booth','missing_owned_booth'])
 def test_listing_chain_is_fail_closed_for_adversarial_evidence(rig,case):
     if case=='missing':
         current=deepcopy(rig.state['merchant_after']);current['inventory']=[]
@@ -223,7 +223,7 @@ def test_listing_chain_is_fail_closed_for_adversarial_evidence(rig,case):
         elif case=='updated_after_snapshot':
             with rig.runtime.journal.db() as db:
                 db.execute('UPDATE transactions SET updated=? WHERE id=?',(time.time()+3600,key))
-        elif case in ('historical_trade','loose_meteor','closed_listing','wrong_owned_booth'):
+        elif case in ('historical_trade','loose_meteor','closed_listing','wrong_owned_booth','zero_owned_booth','missing_owned_booth'):
             with rig.runtime.journal.db() as db:
                 row=db.execute('SELECT before_json FROM transactions WHERE id=?',(key,)).fetchone()
                 before=json.loads(row[0])
@@ -234,8 +234,12 @@ def test_listing_chain_is_fail_closed_for_adversarial_evidence(rig,case):
                     before['snapshot']['inventory'][0]['type_id']=1088001
                 elif case=='closed_listing':
                     before['snapshot']['booth_open']=False
-                else:
+                elif case=='wrong_owned_booth':
                     before['snapshot']['own_booth_uid']=999
+                elif case=='zero_owned_booth':
+                    before['snapshot']['own_booth_uid']=0
+                else:
+                    before['snapshot'].pop('own_booth_uid')
                 db.execute('UPDATE transactions SET before_json=? WHERE id=?',(json.dumps(before),key))
     assert not chain(rig)
 
