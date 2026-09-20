@@ -227,6 +227,15 @@ def approach_merchant(loop,plan,send,*,deadline=None):
                 probe.get('farmer_position'), probe.get('merchant_position'))):
             return True
         if attempt==3:return False
+        if probe.get('reason')=='recipient_scene_changed':
+            # A delivery-target probe is read-only.  Do not route or submit
+            # input from a scene that changed during that observation; give a
+            # fresh scene a bounded chance to settle instead.
+            loop.record('merchant_target_deferred',merchant=plan['merchant'],attempt=attempt+1,
+                        reason='recipient_scene_changed',
+                        activity='Trade target scene changed; retrying the memory observation')
+            time.sleep(min(.1,max(0,correction_deadline-time.time())))
+            continue
         if probe.get('reason')=='recipient_absent':
             ingress=ingress_position(loop.terrain,probe,used=used,deadline=correction_deadline)
             candidates=[ingress] if ingress is not None else []

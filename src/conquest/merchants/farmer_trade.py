@@ -32,6 +32,10 @@ class RecipientAmbiguous(ValueError):
     """More than one live scene object claims the qualified receiver UID."""
 
 
+class RecipientSceneChanged(ValueError):
+    """The receiver scene changed during a read-only target observation."""
+
+
 def partial_offer(intent,farmer,merchant):
     trade=farmer.get('trade')
     if not trade:raise ValueError('Farmer trade is not open')
@@ -101,7 +105,7 @@ def _recipient_record(observer,profile,merchant,*,targeting=False):
             or any(s.read_block(obj,span)[offsets[2]:offsets[2]+8]
                    !=raw[offsets[2]:offsets[2]+8] for obj,raw in occupied_blocks)
             or sample_fields(s,[(a,'u64') for a,_ in trace])!=[v for _,v in trace]):
-        raise ValueError('Receiver scene changed')
+        raise RecipientSceneChanged('Receiver scene changed')
     s.assert_identity()
     if time.monotonic()-started>.5:raise CaptureUnavailable('Receiver observation expired')
     if not matches:
@@ -264,6 +268,14 @@ class FarmerTradeDriver:
             result=recipient_actionability(self.driver.observer,profile,receiver,farmer=farmer)
         except RecipientAbsent as error:
             result=None;absent_occupied=error.occupied_tiles
+            deferred_reason='recipient_absent'
+        except RecipientSceneChanged:
+            # This dispatcher path runs before any focus, lease, or input.  A
+            # changing scene is therefore only a volatile observation: return
+            # a non-actionable projection so the route can retry without
+            # carrying a possibly stale click point into an input phase.
+            result=None;absent_occupied=[]
+            deferred_reason='recipient_scene_changed'
         from conquest.memory_life import read_life
         from conquest.scene_input import memory_player_anchor
         life=read_life(self.driver.observer.adapter,self.driver.observer.health_layout,
@@ -273,7 +285,7 @@ class FarmerTradeDriver:
         anchor=memory_player_anchor(self.driver.observer,life)
         if result is None:
             return {'schema_version':1,'ready':False,'actionable':False,
-                    'reason':'recipient_absent','character':farmer['character'],
+                    'reason':deferred_reason,'character':farmer['character'],
                     'farmer_position':farmer['position'],'merchant':receiver['character'],
                     'merchant_position':receiver['position'],'point':None,
                     'viewport':list(profile['gui_size']),'client_size':list(profile['client_size']),

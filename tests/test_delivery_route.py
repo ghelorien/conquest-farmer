@@ -418,6 +418,27 @@ def test_ambiguous_remote_recipient_is_hard_failure_without_movement(rig):
     assert not any(event=='travel' for event,_ in rig.events)
 
 
+def test_changed_receiver_scene_retries_target_observation_without_movement(rig,monkeypatch):
+    attempts=[]
+    def send(body):
+        if body['action']=='delivery-target':
+            attempts.append(copy.deepcopy(body))
+            if len(attempts)==1:
+                return {'ready':False,'actionable':False,'reason':'recipient_scene_changed',
+                        'farmer_position':list(rig.f['position']),
+                        'merchant_position':list(rig.d['position']),'point':None,
+                        'viewport':[1416,850],'occupied_tiles':[list(rig.f['position'])]}
+        return rig.send(body)
+    monkeypatch.setattr(route.time,'sleep',lambda _:None)
+
+    assert route.approach_merchant(rig.loop,
+                                   {'merchant':'Dutch','position':rig.d['position']},send)
+    assert len(attempts)==2
+    assert not any(event=='travel' for event,_ in rig.events)
+    assert any(event=='merchant_target_deferred' and fields['reason']=='recipient_scene_changed'
+               for event,fields in rig.events)
+
+
 def test_slow_target_observation_cannot_authorize_after_approach_deadline(rig,monkeypatch):
     now=[1000.0];monkeypatch.setattr(route.time,'time',lambda:now[0])
     def send(body):

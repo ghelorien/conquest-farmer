@@ -132,6 +132,27 @@ def test_delivery_target_reports_exact_absent_recipient_without_collapsing_ambig
         driver.target_status('Dutch')
 
 
+def test_delivery_target_defers_a_changed_receiver_scene_before_input(monkeypatch):
+    from conquest.merchants import farmer_trade as module
+    from conquest import memory_life,scene_input
+    farmer={'character':'Parasite','position':[10,20],'windows':[]}
+    merchant={'character':'Dutch','position':[50,40]}
+    driver=FarmerTradeDriver.__new__(FarmerTradeDriver)
+    driver.require_qualified=lambda:{'gui_size':[1000,800],'client_size':[1250,1000]}
+    driver.read_pair=lambda name:(farmer,merchant)
+    driver.driver=NS(observer=NS(adapter=object(),health_layout=object(),character='Parasite'))
+    monkeypatch.setattr(module,'recipient_actionability',lambda *a,**k:
+                        (_ for _ in ()).throw(module.RecipientSceneChanged('Receiver scene changed')))
+    monkeypatch.setattr(memory_life,'read_life',lambda *a:NS(position=(10,20)))
+    monkeypatch.setattr(scene_input,'memory_player_anchor',lambda *a:(500,400))
+
+    assert driver.target_status('Dutch')=={'schema_version':1,'ready':False,'actionable':False,
+        'reason':'recipient_scene_changed','character':'Parasite','farmer_position':[10,20],
+        'merchant':'Dutch','merchant_position':[50,40],'point':None,
+        'viewport':[1000,800],'client_size':[1250,1000],'anchor':[500,400],
+        'occupied_tiles':[[10,20]]}
+
+
 @pytest.mark.parametrize('draw_format',[None,'f32'])
 def test_receiver_memory_rejects_unqualified_projection_before_observation(draw_format):
     from conquest.merchants.farmer_trade import recipient_record

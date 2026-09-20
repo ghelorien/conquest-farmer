@@ -13,7 +13,7 @@ from conquest import foreground,desktop_runtime,memory_shop
 
 
 @pytest.mark.parametrize('change',['occupied_move','occupied_order','address','uid','name','position','point',
-                                  'actionability','mode','post_hud_position'])
+                                  'actionability','mode','scene_changed','post_hud_position'])
 def test_supervised_request_guard_ignores_other_players_but_rejects_target_drift(monkeypatch,change):
     item=dict(uid=10,type_id=410008,plus=1,gem1=0,gem2=0,quantity=1,bound=False,slot=0)
     def account(name,uid,stock):
@@ -38,6 +38,7 @@ def test_supervised_request_guard_ignores_other_players_but_rejects_target_drift
         if len(calls)<3:return deepcopy(recipient)
         if change=='actionability':raise CaptureUnavailable('Receiver is covered')
         if change=='mode':raise ValueError('Client is not in the qualified trade targeting mode')
+        if change=='scene_changed':raise farmer_trade.RecipientSceneChanged('Receiver scene changed')
         return changed
     def click(target,x,y,size,**kwargs):
         kwargs['before_press']()
