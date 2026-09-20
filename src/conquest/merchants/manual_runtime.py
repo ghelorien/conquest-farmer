@@ -438,32 +438,76 @@ class ManualRuntime:
 
     def reconcile_probe_pair(self, character, farmer, merchant, *, now=None):
         """Full bilateral proof and all-or-nothing false-admission cleanup."""
+        result=self._probe_reconciliation(character,farmer,merchant,now=now,read_only=False)
+        self.last_probe_reconciliation=result
+        return result['bot_owned'] and result['outcome']!='error'
+
+    def inspect_probe_reconciliation(self, character, farmer, merchant, *, now=None):
+        """Query-only diagnosis: never retract, synchronize fences or send input."""
+        return self._probe_reconciliation(character,farmer,merchant,now=now,read_only=True)
+
+    def _probe_reconciliation(self, character, farmer, merchant, *, now, read_only):
         from conquest.merchants import delivery_probe
         from conquest.merchants.delivery_probe_ownership import ownership
         from conquest.recovery_override import evidence_digest
+        result={'read_only':read_only,'input_authorized':False,'bot_owned':False,
+                'outcome':'error','stage':'probe_read','reason':'probe_read_failed'}
+        read=(lambda:delivery_probe.read_probe(read_only=True)) if read_only else delivery_probe.read_probe
         with self.coordinator.lock:
             try:
-                state = delivery_probe.read_probe()
+                state = read()
                 now = time.time() if now is None else now
+                result.update(stage='profile_binding',reason='profile_binding_failed')
                 target, source = self.manual_target(character), self.manual_target('Farmer')
+                result.update(target_profile_id=target,farmer_profile_id=source,
+                              stage='ownership',reason='ownership_unverified')
                 proof = ownership(state, str(character), target, source, farmer, merchant, now=now)
-                if proof['modal'] != 'trade':return False
-                if evidence_digest(delivery_probe.read_probe()) != proof['probe_digest']:return False
-            except (ValueError, OSError, KeyError, TypeError, AttributeError):
-                return False
-            try:
-                if any((self._manual_get(owner, 'unrelated_request_decline') or {}).get('phase') == 'submitted'
-                       or self._manual_get(owner, 'manual_reader_hold') for owner in (character, 'Farmer')):
-                    return True  # Exact bot incident, but every existing hold remains.
-                self.manual_sessions.retract_probe_pair(state, farmer, merchant,
-                    target_profile_id=target, farmer_profile_id=source, now=now,
-                    current_probe=delivery_probe.read_probe)
-            except ManualSessionError:
-                pass  # A genuine/uncertain interval keeps both fences.
-            except (ValueError, OSError, KeyError, TypeError, AttributeError):
-                return False
-            finally:self._sync_manual_fence()
-            return True
+                if proof['modal']!='trade':
+                    result['reason']='open_trade_required'
+                    return result
+                result.update(probe_digest=proof['probe_digest'],evidence_digest=proof['evidence_digest'],
+                              stage='probe_recheck',reason='probe_changed')
+                if evidence_digest(read())!=proof['probe_digest']:return result
+                result.update(bot_owned=True,stage='hold_read',reason='hold_read_failed')
+                # Use a query-only connection even for the diagnostic's hold
+                # projection; no evidence append, WAL-mode change or fence sync.
+                with self.manual_sessions._probe_connection(True) as db:
+                    db.execute('BEGIN')
+                    rows=db.execute('SELECT name,value FROM state WHERE character IN (?,?) AND name IN '
+                                    "('unrelated_request_decline','manual_reader_hold')",(target,source)).fetchall()
+                    held=any((value and (row['name']=='manual_reader_hold' or value.get('phase')=='submitted'))
+                             for row in rows for value in (json.loads(row['value']),))
+                    result['active_session_count']=db.execute('SELECT COUNT(*) FROM manual_sessions WHERE target_profile_id IN (?,?) '
+                        "AND phase NOT IN ('completed','request_withdrawn','declined_verified','operator_overridden')",(target,source)).fetchone()[0]
+                if held:
+                    result.update(outcome='protected',reason='reader_or_decline_hold')
+                else:
+                    result.update(stage='manual_history',reason='manual_history_validation_failed')
+                    method=(self.manual_sessions.inspect_probe_pair if read_only else self.manual_sessions.retract_probe_pair)
+                    try:
+                        details=method(state,farmer,merchant,target_profile_id=target,farmer_profile_id=source,
+                                       now=now,current_probe=read)
+                        result.update(outcome='validated' if read_only else 'reconciled',reason='exact_bot_history')
+                        if read_only:result.update(details)
+                        else:result['retracted_sessions']=len(details)
+                    except ManualSessionError:
+                        # A historical gap/divergence is not a failed current
+                        # bot proof. It retains both manual fences for review.
+                        result.update(outcome='protected',reason='manual_history_unverified')
+                decisive_stage=result['stage'];result['stage']='final_probe_recheck'
+                if evidence_digest(read())!=proof['probe_digest']:
+                    result.update(bot_owned=False,outcome='error',reason='probe_changed')
+                else:result.update(stage=decisive_stage,checked_through='final_probe_recheck')
+            except Exception as error:
+                # No arbitrary exception text/snapshots in diagnostics. Storage
+                # and programming failures remain explicit, bounded and closed.
+                result.update(outcome='error',error_type=type(error).__name__)
+            finally:
+                if not read_only:
+                    try:self._sync_manual_fence()
+                    except Exception as error:
+                        result.update(outcome='error',stage='fence_sync',reason='fence_sync_failed',error_type=type(error).__name__)
+            return result
 
     def reconcile_probe_owned(self, character, farmer, merchant, *, now=None):
         """Reconcile an already-read exact pair without reacquiring observers.

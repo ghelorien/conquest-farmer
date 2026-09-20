@@ -111,7 +111,12 @@ def run(ui,state,*,revision=None):
             receipt()
             f,m=pair(ui,character)
             if not ui.runtime.reconcile_probe_pair(character,f,m):
-                raise CaptureUnavailable('Delivery confirmation needs fresh bilateral probe reconciliation')
+                diagnostic=getattr(ui.runtime,'last_probe_reconciliation',{})
+                codes={'probe_read','profile_binding','ownership','probe_recheck','hold_read','manual_history',
+                       'final_probe_recheck','fence_sync'}
+                stage=diagnostic.get('stage')
+                suffix=(' ['+stage+']') if stage in codes else ''
+                raise CaptureUnavailable('Delivery confirmation needs fresh bilateral probe reconciliation'+suffix)
             manual_fence();check()
             with ui.coordinator.lease(owner,purpose='delivery_confirm_probe'),physical_coordinates():yield
     if not resume_merchant:

@@ -745,6 +745,29 @@ class ManualSessionStore:
 
     def retract_probe_pair(self, state, farmer, merchant, *, target_profile_id, farmer_profile_id,
                            current_probe, now=None):
+        return self._probe_pair(state,farmer,merchant,target_profile_id=target_profile_id,
+            farmer_profile_id=farmer_profile_id,current_probe=current_probe,now=now,read_only=False)
+
+    def inspect_probe_pair(self, state, farmer, merchant, *, target_profile_id, farmer_profile_id,
+                           current_probe, now=None):
+        """Validate the same retraction policy using a query-only snapshot."""
+        return self._probe_pair(state,farmer,merchant,target_profile_id=target_profile_id,
+            farmer_profile_id=farmer_profile_id,current_probe=current_probe,now=now,read_only=True)
+
+    @contextmanager
+    def _probe_connection(self, read_only):
+        if not read_only:
+            with self.db() as db:yield db
+            return
+        db=sqlite3.connect(self.path.resolve().as_uri()+'?mode=ro',uri=True,timeout=10)
+        db.row_factory=sqlite3.Row
+        try:
+            db.execute('PRAGMA query_only=ON')
+            yield db
+        finally:db.close()
+
+    def _probe_pair(self, state, farmer, merchant, *, target_profile_id, farmer_profile_id,
+                    current_probe, now=None, read_only=False):
         """Atomically retract only false post-accept admissions on both owners.
 
         The entire evidence history must still identify the exact bot trade.
@@ -753,8 +776,8 @@ class ManualSessionStore:
         from conquest.merchants.delivery_probe_ownership import ownership, historical_local_trade, _saved_boundary, _context
         from conquest.recovery_override import evidence_digest
         now = _now(now)
-        with self.db() as db:
-            db.execute('BEGIN IMMEDIATE')
+        with self._probe_connection(read_only) as db:
+            db.execute('BEGIN' if read_only else 'BEGIN IMMEDIATE')
             proof = ownership(state, merchant['character'], target_profile_id, farmer_profile_id,
                               farmer, merchant, now=now)
             if proof['modal'] != 'trade':raise BindingMismatch('An exact open bot trade is required')
@@ -780,6 +803,8 @@ class ManualSessionStore:
                 visitor = VisitorKey(target, peer['character'], peer['server'], peer['character_uid'])
                 if row['visitor_json'] != _json(asdict(visitor)):
                     raise BindingMismatch('Manual visitor differs from the exact bot peer')
+                if self._allowed(db,visitor):
+                    raise BindingMismatch('Manual visitor permission prevents bot retraction')
                 requests = db.execute('SELECT * FROM manual_requests WHERE session_id=?', (session_id,)).fetchall()
                 if (db.execute('SELECT 1 FROM manual_declines WHERE session_id=?', (session_id,)).fetchone()
                         or db.execute('SELECT 1 FROM manual_decline_claims c JOIN manual_requests r '
@@ -800,16 +825,56 @@ class ManualSessionStore:
                 evidence = db.execute('SELECT * FROM manual_evidence WHERE session_id=? ORDER BY id',
                                       (session_id,)).fetchall()
                 if not evidence:raise BindingMismatch('Original admission evidence is unavailable')
+                gaps=[];gap=None;previous_at=accepted_at
                 for index, record in enumerate(evidence):
-                    original = json.loads(record['snapshot_json'])
-                    if (record['error'] or record['digest'] != _digest(original)
-                            or record['recorded_at'] < accepted_at or original['timestamp'] > now):
-                        raise BindingMismatch('Admission has missing or uncertain historical evidence')
-                    historical = historical_local_trade(state, merchant['character'], target_profile_id,
-                        farmer_profile_id, role, original)
+                    try:original = json.loads(record['snapshot_json'])
+                    except (ValueError,TypeError) as error:
+                        raise BindingMismatch('Historical evidence JSON is malformed') from error
+                    at=record['recorded_at']
+                    if (type(at) not in (int,float) or not math.isfinite(at) or not previous_at<=at<=now
+                            or record['digest'] != _digest(original)):
+                        raise BindingMismatch('Historical evidence chronology or digest changed')
+                    previous_at=at
+                    if record['error']:
+                        # Only explicit reader absence, bracketed by exact bot
+                        # ownership on both sides, can describe a restart gap.
+                        allowed_error={'farmer':'Farmer has no attached memory observer',
+                                       'merchant':'Attached memory reader is unavailable'}[role]
+                        if (requests or index==0 or index==len(evidence)-1
+                                or row['stable_since'] is not None or row['stable_evidence_id'] is not None
+                                or record['error']!='Request/trade window evidence is unavailable'
+                                or record['ownership_digest'] is not None
+                                or record['observed_at'] is not None
+                                or not isinstance(original,dict) or set(original)!={'reader_error'}
+                                or original['reader_error']!=allowed_error):
+                            raise BindingMismatch('Admission has missing or uncertain historical evidence')
+                        if gap is None:
+                            gap={'before_evidence_id':evidence[index-1]['id'],'first_error_id':record['id'],
+                                 'before_digest':evidence[index-1]['digest'],
+                                 'before_ownership_digest':evidence[index-1]['ownership_digest'],
+                                 'before_observed_at':evidence[index-1]['observed_at'],
+                                 'before_recorded_at':evidence[index-1]['recorded_at'],
+                                 'first_recorded_at':at,'error_count':0}
+                        gap.update(last_error_id=record['id'],last_recorded_at=at,error_count=gap['error_count']+1)
+                        continue
+                    try:
+                        if (not isinstance(original,dict) or type(original.get('timestamp')) not in (int,float)
+                                or not math.isfinite(original['timestamp']) or original['timestamp']>at
+                                or record['observed_at']!=original['timestamp']):
+                            raise BindingMismatch('Historical observation time is invalid')
+                        historical = historical_local_trade(state, merchant['character'], target_profile_id,
+                            farmer_profile_id, role, original)
+                    except (ValueError,KeyError,TypeError,AttributeError) as error:
+                        # Current bilateral proof is separate. Unproven old
+                        # history retains the manual fence, not a new incident.
+                        raise BindingMismatch('Historical bot ownership is unverified') from error
                     self._same_owner(row, historical)
                     if record['ownership_digest'] != _digest(historical):
                         raise BindingMismatch('Historical ownership digest differs')
+                    if gap is not None:
+                        gaps.append({**gap,'after_evidence_id':record['id'],'after_digest':record['digest'],
+                                     'after_ownership_digest':record['ownership_digest'],
+                                     'after_observed_at':record['observed_at'],'after_recorded_at':record['recorded_at']});gap=None
                     if index == 0:
                         if requests:
                             request = requests[0]
@@ -828,14 +893,19 @@ class ManualSessionStore:
                                 raise BindingMismatch('Original stale request binding differs')
                         elif original.get('trade') is None:
                             raise BindingMismatch('Original admission was not an open trade')
-                pending.append((row, snapshot, current, evidence[0]['id']))
+                pending.append((row, snapshot, current, evidence[0]['id'],gaps))
+            if any(row[4] for row in pending):
+                from conquest.merchants.delivery_abort_sessions import _audit_chain
+                _audit_chain(db)
             # A replacement during validation must roll back both targets. The
             # coordinator mutex excludes admission/input; the digest excludes
             # concurrent journal advancement by the supervised worker.
             if evidence_digest(current_probe()) != proof['probe_digest']:
                 raise BindingMismatch('Probe changed during bilateral retraction')
+            if read_only:
+                return {'eligible_sessions':len(pending),'outage_intervals':sum(len(row[4]) for row in pending)}
             results = []
-            for row, snapshot, current, original_id in pending:
+            for row, snapshot, current, original_id,gaps in pending:
                 evidence_id = self._evidence(db, row['id'], snapshot, now, current)
                 reason = 'Local manual admission retracted; the exact bot-owned trade remains open'
                 receipt = {**proof, 'phase': 'request_withdrawn',
@@ -843,6 +913,7 @@ class ManualSessionStore:
                     'request_still_visible': False, 'gameplay_input': False, 'sales_receipt': False,
                     'reason': reason, 'original_phase': row['phase'], 'accepted_at': accepted_at,
                     'original_evidence_id': original_id, 'evidence_id': evidence_id,
+                    'reader_outage_intervals':gaps,
                     'probe': state, 'farmer_evidence': farmer, 'merchant_evidence': merchant, 'at': now}
                 db.execute("UPDATE manual_sessions SET phase='request_withdrawn',terminal_json=?,reason=?,"
                            'last_observed_at=?,updated_at=? WHERE id=?',

@@ -30,7 +30,7 @@ def write_probe(path,state):
         os.fsync(stream.fileno())
 
 
-def read_probe():
+def read_probe(*,read_only=False):
     # read_json intentionally tolerates malformed diagnostic files. A missing
     # transaction receipt is different: corruption must never authorize input.
     try:
@@ -43,6 +43,7 @@ def read_probe():
         raise ValueError('Trade probe evidence is unreadable; reconcile before input')
     intent_path=Path(str(JOURNAL)+'.override-intent.json')
     if intent_path.exists():
+        if read_only:raise ValueError('Trade probe disposition requires separate recovery')
         try:
             override=json.loads(intent_path.read_text(encoding='utf-8'))
             if (not isinstance(override,dict) or not isinstance(override.get('record'),dict)
