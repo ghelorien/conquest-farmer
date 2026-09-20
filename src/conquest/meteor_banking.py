@@ -16,6 +16,23 @@ METEOR=1088001
 SCROLL=720027
 
 
+def completed_stored_scroll():
+    """Return delivery intent only; fresh Market memory remains withdrawal authority."""
+    state=read_json(JOURNAL);uid=state.get('scroll_uid')
+    if (state.get('phase')!='completed' or state.get('exchange_verified') is not True
+            or not state.get('market_verified_at') or type(uid) is not int or uid<=0
+            or state.get('user_confirmed_scroll_consumption')
+            or state.get('user_confirmed_scroll_transfer')):
+        return None
+    stored=any(row.get('type_id')==SCROLL and row.get('verified_in_warehouse') is True
+               and row.get('stored',row.get('uid'))==uid for row in state.get('receipts',[]))
+    if not stored:return None
+    from conquest.merchants.delivery_route import receipt_for
+    delivered=receipt_for(uid,SCROLL)
+    if delivered and delivered.get('outcome')=='transferred' and delivered.get('proof_digest'):return None
+    return uid
+
+
 def batch(items):
     meteors=[i for i in items if i['type_id']==METEOR and i['amount']==i['limit']==1]
     if len({i['uid'] for i in meteors})!=len(meteors):

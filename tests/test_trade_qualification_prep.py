@@ -36,6 +36,43 @@ def test_selected_uid_is_exactly_one_ordinary_plus_one(change):
         prep._selected(account('Parasite', 1, [selected]), 7)
 
 
+@pytest.mark.parametrize('selected', [item(7), item(7, 720027, plus=0)])
+def test_selected_accepts_one_exact_ordinary_plus_one_or_meteor_scroll(selected):
+    assert prep._selected(account('Parasite', 1, [selected]), 7) is selected
+
+
+@pytest.mark.parametrize('change', [
+    {'bound': True}, {'bound': None}, {'bound': 0}, {'plus': 1}, {'plus': False},
+    {'gem1': 1}, {'gem1': False}, {'gem2': 1}, {'gem2': False},
+    {'quantity': 2}, {'quantity': True}, {'quantity': 1.0},
+    {'type_id': 1088001}, {'type_id': 720027.0}, {'slot': -1}, {'slot': True},
+])
+def test_selected_scroll_rejects_nonexact_attributes(change):
+    selected = item(7, 720027, plus=0);selected.update(change)
+    with pytest.raises(ValueError, match='Qualification requires'):
+        prep._selected(account('Parasite', 1, [selected]), 7)
+
+
+@pytest.mark.parametrize('inventory', [[], [item(7, 720027, plus=0), item(7, 720027, plus=0)]])
+def test_selected_scroll_requires_unique_carried_uid(inventory):
+    with pytest.raises(ValueError, match='no longer carried'):
+        prep._selected(account('Parasite', 1, inventory), 7)
+
+
+@pytest.mark.parametrize('change', ['loose_meteor', 'extra_item', 'identity', 'selected_item'])
+def test_scroll_payload_preserves_bank_and_identity_guards(change):
+    selected = item(10, 720027, plus=0)
+    farmer = account('Parasite', 1, [selected], map_id=1036)
+    state = {'farmer': copy.deepcopy(farmer), 'selected_uid': 10,
+             'selected_item': copy.deepcopy(selected)}
+    if change == 'loose_meteor':farmer['inventory'].append(item(20, 1088001, plus=0, slot=1))
+    elif change == 'extra_item':farmer['inventory'].append(item(20, slot=1))
+    elif change == 'identity':farmer['identity']['creation_time_100ns'] += 1
+    else:farmer['inventory'][0] = item(10)
+    with pytest.raises(ValueError, match='Loose Meteors|More than one|identity changed|Selected item changed'):
+        prep._payload_is_safe(farmer, state)
+
+
 def test_corrupt_prep_journal_is_a_fail_closed_pending_hold(tmp_path, monkeypatch):
     path = tmp_path/'prep.json';path.write_text('{', encoding='utf-8')
     monkeypatch.setattr(prep, 'JOURNAL', path)
@@ -97,9 +134,11 @@ def test_unchanged_rich_deposit_baseline_is_the_only_retryable_state(tmp_path, m
     assert state['phase'] == 'deposit_pending'
 
 
-def test_banking_keeps_only_selected_item_with_rich_delta_receipts(tmp_path, monkeypatch):
+@pytest.mark.parametrize('scroll', [False, True])
+def test_banking_keeps_only_selected_item_with_rich_delta_receipts(tmp_path, monkeypatch, scroll):
     monkeypatch.setattr(prep, 'JOURNAL', tmp_path/'prep.json')
-    selected = item(10);other = item(11, 111008, slot=1)
+    selected = item(10, 720027, plus=0) if scroll else item(10)
+    other = item(11, 111008, slot=1)
     meteor = item(12, 1088001, plus=0, slot=2)
     arrow = item(13, 1050002, plus=0, slot=3, quantity=5000)
     farmer = account('Parasite', 1, [selected, other, meteor, arrow])
@@ -259,8 +298,10 @@ def run_market_prep(tmp_path,monkeypatch,state,current_farmer,current_merchant,*
     prep._run(object(),state,send=lambda body:copy.deepcopy(target))
 
 
-def test_prepared_market_fast_path_writes_proof_and_never_opens_warehouse(tmp_path,monkeypatch):
+@pytest.mark.parametrize('scroll', [False, True])
+def test_prepared_market_fast_path_writes_proof_and_never_opens_warehouse(tmp_path,monkeypatch,scroll):
     arrow,selected=market_payload()
+    if scroll:selected=item(10,720027,plus=0,slot=1)
     farmer=account('Parasite',1,[arrow,selected],map_id=1036)
     merchant=account('Spiritual',2,[],map_id=1036)
     state=market_prep_state(farmer,merchant)
@@ -555,8 +596,9 @@ def projection_candidate(build='build'):
             'remaining': ['live qualification']}
 
 
-def projection_rig(tmp_path, monkeypatch, *, phase='market'):
-    selected=item(10);farmer=account('Parasite',1,[selected],map_id=1036)
+def projection_rig(tmp_path, monkeypatch, *, phase='market', scroll=False):
+    selected=item(10,720027,plus=0) if scroll else item(10)
+    farmer=account('Parasite',1,[selected],map_id=1036)
     merchant=account('Spiritual',2,[],map_id=1036)
     state={'phase':phase,'character':'Spiritual','selected_uid':10,
            'selected_item':copy.deepcopy(selected),'farmer':copy.deepcopy(farmer),
@@ -573,14 +615,17 @@ def projection_rig(tmp_path, monkeypatch, *, phase='market'):
     monkeypatch.setattr(prep,'pair',lambda *args,**fields:
         (copy.deepcopy(farmer),copy.deepcopy(merchant)))
     actionable={'actionable':True,'reason':'actionable','recipient':{
-        'point':[500,300],'occupied_tiles':[[20,20]],'address':123}}
+        'point':[500,300],'occupied_tiles':[[20,20]],'address':123,
+        'uid':merchant['character_uid'],'name':merchant['character'],
+        'position':list(merchant['position'])}}
     monkeypatch.setattr(prep,'_projection_observation',lambda *args:
         (copy.deepcopy(actionable),[[20,20]],[512,384]))
     return ui,farmer,merchant,candidate,actionable
 
 
-def test_prep_target_projection_does_not_require_final_delivery_qualification(tmp_path,monkeypatch):
-    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+@pytest.mark.parametrize('scroll', [False, True])
+def test_prep_target_projection_does_not_require_final_delivery_qualification(tmp_path,monkeypatch,scroll):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch,scroll=scroll)
     monkeypatch.setattr('conquest.merchants.farmer_trade.delivery_target_status',
         lambda *args:pytest.fail('Final farmer_delivery qualification must not be consulted'))
     result=prep.target_projection(ui,'Spiritual')
@@ -651,6 +696,69 @@ def test_prep_target_projection_rechecks_identity_position_and_actionability(tmp
                 (copy.deepcopy(farmer),changed)])
     monkeypatch.setattr(prep,'pair',lambda *args,**fields:next(pairs))
     with pytest.raises(ValueError,match='identity changed'):
+        prep.target_projection(ui,'Spiritual')
+
+
+@pytest.mark.parametrize('occupied', [
+    [[21,20],[30,30]], [[30,30],[20,20]], [[20,20],[30,30],[40,40]], [],
+])
+def test_prep_target_projection_accepts_crowd_changes_and_returns_fresh_occupancy(
+        tmp_path,monkeypatch,occupied):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch,scroll=True)
+    first=copy.deepcopy(actionable);first['recipient']['occupied_tiles']=[[20,20],[30,30]]
+    second=copy.deepcopy(actionable);second['recipient']['occupied_tiles']=copy.deepcopy(occupied)
+    observations=iter([(first,first['recipient']['occupied_tiles'],[512,384]),
+                       (second,occupied,[512,384])])
+    monkeypatch.setattr(prep,'_projection_observation',lambda *args:next(observations))
+    result=prep.target_projection(ui,'Spiritual')
+    assert result['ready'] is True
+    assert result['recipient']==second['recipient']
+    assert result['occupied_tiles']==[farmer['position'],*occupied]
+
+
+def test_prep_target_projection_absent_receiver_uses_newest_occupancy(tmp_path,monkeypatch):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+    observations=iter([(None,[[20,20]],[512,384]),(None,[[21,20],[21,20]],[512,384])])
+    monkeypatch.setattr(prep,'_projection_observation',lambda *args:next(observations))
+    result=prep.target_projection(ui,'Spiritual')
+    assert result['ready'] is False and result['reason']=='recipient_absent'
+    assert result['occupied_tiles']==[farmer['position'],[21,20]]
+
+
+@pytest.mark.parametrize('change', [
+    'address','uid','name','position','point','actionable','reason','blocking_panel',
+    'anchor','receiver_disappears','receiver_appears',
+])
+def test_prep_target_projection_still_rejects_target_or_actionability_change(
+        tmp_path,monkeypatch,change):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch)
+    first=copy.deepcopy(actionable);second=copy.deepcopy(actionable);anchor=[512,384]
+    if change in ('address','uid'):second['recipient'][change]+=1
+    elif change=='name':second['recipient']['name']='Dutch'
+    elif change in ('position','point'):second['recipient'][change][0]+=1
+    elif change=='actionable':second['actionable']=False
+    elif change=='reason':second['reason']='panel_occlusion'
+    elif change=='blocking_panel':second['blocking_panel']='Inventory'
+    elif change=='anchor':anchor[0]+=1
+    elif change=='receiver_disappears':second=None
+    else:first=None
+    observations=iter([(first,[[20,20]],[512,384]),(second,[[21,20]],anchor)])
+    monkeypatch.setattr(prep,'_projection_observation',lambda *args:next(observations))
+    with pytest.raises(ValueError,match='actionability changed'):
+        prep.target_projection(ui,'Spiritual')
+
+
+@pytest.mark.parametrize('change', ['identity','selected_item','trade','request'])
+def test_prep_target_projection_crowd_tolerance_preserves_fresh_participant_guards(
+        tmp_path,monkeypatch,change):
+    ui,farmer,merchant,candidate,actionable=projection_rig(tmp_path,monkeypatch,scroll=True)
+    changed=copy.deepcopy(farmer)
+    if change=='identity':changed['identity']['creation_time_100ns']+=1
+    elif change=='selected_item':changed['inventory'][0]=item(10)
+    else:changed[change]={'participant':'Spiritual'}
+    pairs=iter([(copy.deepcopy(farmer),copy.deepcopy(merchant)),(changed,copy.deepcopy(merchant))])
+    monkeypatch.setattr(prep,'pair',lambda *args,**fields:next(pairs))
+    with pytest.raises(ValueError,match='identity changed|Selected item changed|trade state changed'):
         prep.target_projection(ui,'Spiritual')
 
 

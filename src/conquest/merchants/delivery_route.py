@@ -73,7 +73,8 @@ def warehouse_exhausted(loop,stored,remaining,*,send=request):
     return True
 
 
-def candidates(loop,send,*,excluded=()):
+def candidates(loop,send,*,excluded=(),items=None):
+    if items==[]:return []
     status=send({'action':'status'})
     states=[];farmer=None
     for name,state in status.get('characters',{}).items():
@@ -92,7 +93,14 @@ def candidates(loop,send,*,excluded=()):
         except (ValueError,OSError):
             continue
     if farmer is None:return []
-    plans=plan_deliveries(farmer,states)['deliveries']
+    reserved=()
+    if items is not None:
+        from conquest.merchants.delivery import exact_items
+        wanted=exact_items(items);current=exact_items(farmer['inventory'])
+        if any(current.get(uid)!=value for uid,value in wanted.items()):
+            raise ValueError('Exact requested delivery items changed before merchant planning')
+        reserved=set(current)-set(wanted)
+    plans=plan_deliveries(farmer,states,reserved=reserved)['deliveries']
     by_name={s['character']:s['snapshot'] for s in states}
     for plan in plans:plan['position']=by_name[plan['merchant']]['position']
     return plans
@@ -232,25 +240,32 @@ def approach_merchant(loop,plan,send,*,deadline=None):
     return False
 
 
-def market_storage(loop,*,send=request):
+def market_storage(loop,*,send=request,items=None,on_admitted=None):
     previous=getattr(loop,'market_service_deadline',None)
-    try:return _market_storage(loop,send=send)
+    try:return _market_storage(loop,send=send,items=items,on_admitted=on_admitted)
     finally:loop.market_service_deadline=previous
 
 
-def _market_storage(loop,*,send=request):
+def _market_storage(loop,*,send=request,items=None,on_admitted=None):
     state=read_json(STATE)
+    selected=None if items is None else list(items)
+    def remaining(record):
+        nonlocal selected
+        if selected is not None:
+            delivered={i['uid'] for i in record.get('items',[])}
+            selected=[i for i in selected if i['uid'] not in delivered]
+    def plans_for(excluded=()):return candidates(loop,send,excluded=excluded,items=selected)
     if state.get('cleanup_pending'):
         raise ValueError('Reconciled partial delivery still needs its empty trade window closed')
     # Reconcile an earlier submission even after the rollout is disabled.
     # Disabling policy never authorizes abandoning an in-flight transaction.
-    if state.get('active'):settle(loop,send,state)
+    if state.get('active'):remaining(settle(loop,send,state))
     policy=read_json(POLICY)
     if not policy.get('enabled') or not policy.get('parity_verified') or not transfers_enabled(route_character(loop)):return []
     if loop.living()['embedded_controls']['life']['map_id']!=1036:return []
     try:
         if not send({'action':'delivery-readiness'}).get('qualified'):return []
-        plans=candidates(loop,send)
+        plans=plans_for()
     except (ValueError,OSError):return []
     receipts=[]
     if not plans:return receipts
@@ -277,9 +292,9 @@ def _market_storage(loop,*,send=request):
         if not approach_merchant(loop,plan,send,deadline=deadline):
             MarketVisit().attempt(plan['merchant'],plan['position'],'deferred_before_input')
             deferred_merchants.add(plan['merchant'])
-            plans=candidates(loop,send,excluded=deferred_merchants)
+            plans=plans_for(deferred_merchants)
             continue
-        fresh=candidates(loop,send,excluded=deferred_merchants)
+        fresh=plans_for(deferred_merchants)
         if not fresh:return receipts
         current=fresh[0]
         if (current['merchant']!=plan['merchant'] or current['position']!=plan['position']
@@ -313,13 +328,15 @@ def _market_storage(loop,*,send=request):
                              'visit_id':visit['visit_id'],'farmer_profile_id':visit['farmer_profile_id']}
             state['active']['town_visit_id']=visit.get('town_visit_id')
             write_json(STATE,state)
+            if on_admitted is not None:on_admitted(dict(state['active']))
             result=settle(loop,send,state,start=True)
             MarketVisit().attempt(current['merchant'],current['position'],result['outcome'])
             if result['items']:receipts.append(result)
+            remaining(result)
             if result['outcome']!='transferred':deferred_merchants.add(current['merchant'])
             # Transfer the remaining batch before consuming the visit on listings.
-            remaining=candidates(loop,send,excluded=deferred_merchants)
-            if not remaining and result['outcome']=='transferred':
+            remaining_plans=plans_for(deferred_merchants)
+            if not remaining_plans and result['outcome']=='transferred':
                 refill_remainder(loop,send,key,deadline,{'target':health.get('target')},control['revision'])
             windows.finish('completed')
         finally:
@@ -337,5 +354,5 @@ def _market_storage(loop,*,send=request):
             from conquest.overnight import OvernightStopped
             raise OvernightStopped('Manual control changed during merchant delivery')
         loop.focus(after)
-        plans=candidates(loop,send,excluded=deferred_merchants)
+        plans=plans_for(deferred_merchants)
     raise ValueError('Merchant capacity keeps changing; defer further delivery input')

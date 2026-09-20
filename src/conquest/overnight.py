@@ -912,8 +912,12 @@ class OvernightLoop:
 
     def _run_route(self):
         from conquest.merchants.delivery_operation import guard_protected_assets
-        guard_protected_assets()
         from conquest.merchants import delivery_journey
+        # A journal-matching scroll operation gets one read-only reconciliation
+        # before generic asset guards. No farming stop, focus or movement input
+        # is allowed until that read has released the durable ownership hold.
+        delivery_journey.reconcile_pending_scroll(self)
+        guard_protected_assets()
         if delivery_journey.pending():
             self.stop_farm()
             delivery_journey.resume(self)

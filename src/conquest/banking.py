@@ -231,7 +231,10 @@ def stash_valuables(loop,*,deliver=False):
     if deliver:
         deposit_stash_items(loop,only_meteors=True)
         from conquest.merchants.delivery_journey import start
-        start(loop)
+        from conquest.meteor_banking import completed_stored_scroll
+        scroll=completed_stored_scroll()
+        if scroll is None:start(loop)
+        else:start(loop,stored_scroll_uid=scroll)
     deposit_stash_items(loop)
 
 

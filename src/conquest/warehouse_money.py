@@ -67,6 +67,30 @@ def type_amount(target,amount,*,expected_size=None,maximum=999999999):
 def transfer(trade,direction,amount):
     if direction not in ('deposit','withdraw') or type(amount) is not int or not 1<=amount<=999999999:
         raise ValueError('Invalid warehouse transfer')
+    from conquest.capture import CaptureUnavailable
+    from conquest.merchants.coordination import input_scope,InputAcquisitionBusy
+    from conquest.town_trade import TownObservationUnavailable
+    entered=False
+    try:
+        # Own input before taking the evidence used by this transaction. The
+        # nested click/key scopes retain this lease through amount entry,
+        # submission and the bilateral receipt, while still checking Stop,
+        # manual priority, focus and the current control generation.
+        with input_scope(purpose='warehouse_money_transfer'):
+            entered=True
+            return _transfer_owned(trade,direction,amount)
+    except (InputAcquisitionBusy,TownObservationUnavailable) as error:
+        if not entered and isinstance(error,InputAcquisitionBusy):
+            # Only the outer, pre-input mutex denial can re-enter the whole
+            # transfer with fresh funds/vendor/window observations.
+            raise TownObservationUnavailable(str(error)) from error
+        # A nested action's pre-click classification says nothing about earlier
+        # input in this multi-step operation. Never let it replay a transfer.
+        raise CaptureUnavailable(
+            f'{error}; warehouse money input interrupted; no repeat input issued') from error
+
+
+def _transfer_owned(trade,direction,amount):
     npc=trade.vendor(0);reader=WarehouseMoneyReader(trade.observer.adapter)
     before=trade.inventory.read();bank=reader.read();points=money_points(reader,bank)
     available=before.silver if direction=='deposit' else bank.silver

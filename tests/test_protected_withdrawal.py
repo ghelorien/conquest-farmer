@@ -45,7 +45,8 @@ def observation(bag=(),stash=()):
         rich.append({**value,'name':'Reviewed','slot':slot,'price':None,'category':None})
     return {'source':source(bag),'equipped_ammo':{'uid':8,'type_id':1050001,'amount':900,
              'limit':1000,'plus':0},'warehouse':{'items':rich,'capacity':20},
-            'npc':{'entity_id':77,'type_id':0,'position':[252,221]},
+            'npc':{'entity_id':77,'object_address':123,'name':'Warehouseman','map_id':1036,
+                   'type_id':0,'position':[252,221],'draw_position':[400,300]},
             'grid':{'address':700,'name':'Warehouse/ScrollingRegion_A','position':[71.,195.],
                     'size':[272.,326.],'scroll':[0.,0.]}}
 
@@ -254,6 +255,56 @@ def test_control_revoked_after_final_observation_never_presses(tmp_path,monkeypa
     monkeypatch.setattr('conquest.foreground.foreground_click',foreground)
     result=work._run('plan-one','withdraw-one',1)
     assert result['phase']=='blocked' and pressed==[] and checks[0]==3
+
+
+@pytest.mark.parametrize('change,accepted',[
+    ({'draw_position':[401,299]},True),
+    ({'map_id':1011},False),({'entity_id':78},False),({'object_address':124},False),
+    ({'name':'Other'},False),({'type_id':1},False),({'position':[253,221]},False),
+])
+def test_warehouse_input_guard_ignores_only_npc_draw_drift(tmp_path,monkeypatch,change,accepted):
+    one,two=item(1),item(2,130403)
+    before=observation(stash=(one,two));changed=deepcopy(before);changed['npc'].update(change)
+    after=observation(bag=(one,),stash=(two,))
+    work,journal,approved,calls=operation(tmp_path,monkeypatch,[before,changed,after if accepted else before])
+    pressed=[]
+    def foreground(*args,**kwargs):
+        kwargs['layout_guard']()
+        kwargs['before_press']()
+        pressed.append(True)
+        raise OSError('read-only settlement after one click')
+    monkeypatch.setattr('conquest.foreground.foreground_click',foreground)
+    result=work._run('plan-one','withdraw-one',1)
+    assert pressed==([True] if accepted else [])
+    assert result['phase']==('withdrawn' if accepted else 'no_transfer')
+
+
+@pytest.mark.parametrize('change,accepted',[
+    ({'draw_position':(401,299)},True),({'entity_id':78},False),({'position':(253,221)},False),
+])
+def test_double_warehouse_observation_uses_stable_npc_identity(tmp_path,monkeypatch,change,accepted):
+    from dataclasses import make_dataclass
+    from conquest.memory_npcs import NpcObservation
+    from conquest import memory_warehouse
+    from conquest.merchants import memory
+    one,two=item(1),item(2,130403);before=observation(stash=(one,two))
+    def record(row):return make_dataclass('Record',[(key,object) for key in row])(**row)
+    stored=[record(row) for row in before['warehouse']['items']]
+    grid=record({**before['grid'],'position':(71.,195.),'size':(272.,326.),'scroll':(0.,0.)})
+    monkeypatch.setattr(memory_warehouse,'MemoryWarehouseReader',lambda adapter:NS(
+        read=lambda **kw:NS(items=stored,capacity=20),gui=NS(read=lambda name:grid)))
+    monkeypatch.setattr(memory,'MerchantMemory',lambda observer:NS(read=lambda **kw:source(),item=None))
+    town=Town();town.inventory=NS(read=lambda:NS(items=(),equipped_ammo=None))
+    npc={**before['npc'],'position':(252,221),'draw_position':(400,300)}
+    values=iter([NpcObservation(**npc),NpcObservation(**{**npc,**change})])
+    def vendor(kind,*,stable_identity_only=False):
+        assert kind==0 and stable_identity_only is True
+        return next(values)
+    town.vendor=vendor
+    task=ProtectedWithdrawal(town,journal=ProtectedWithdrawalJournal(tmp_path/'sample.sqlite3'))
+    if accepted:assert task._observe()['npc']['draw_position']==(401,299)
+    else:
+        with pytest.raises(ValueError,match='changed across'):task._observe()
 
 
 def test_preflight_rejects_wrong_process_map_and_exact_item(tmp_path,monkeypatch):

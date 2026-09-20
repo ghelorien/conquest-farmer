@@ -409,6 +409,11 @@ def _plain_observation(value):
             'warehouse':value['warehouse'],'npc':value['npc'],'grid':value['grid']}
 
 
+def _npc_identity(npc):
+    """NPC identity needed for warehouse grid input; draw animation is not identity."""
+    return {key:npc[key] for key in ('map_id','entity_id','object_address','name','type_id','position')}
+
+
 def _same_ownership(one,two):
     a,b=_source(one['source']),_source(two['source'])
     return (a==b and _ammo(one['equipped_ammo'])==_ammo(two['equipped_ammo'])
@@ -447,7 +452,7 @@ class ProtectedWithdrawal:
             rich={item['uid']:(item['type_id'],item['plus'],item['quantity']) for item in source['inventory']}
             if basic!=rich:raise ValueError('Rich farmer inventory disagrees with the verified inventory deque')
             warehouse=reader.read(rich_item=memory.item)
-            npc=self.town.vendor(0);grid=reader.gui.read('Warehouse/ScrollingRegion_')
+            npc=self.town.vendor(0,stable_identity_only=True);grid=reader.gui.read('Warehouse/ScrollingRegion_')
             if (grid.size!=(272.,326.) or grid.scroll!=(0.,0.)
                     or len(warehouse.items)>warehouse.capacity):
                 raise ValueError('Protected warehouse grid differs from its qualified layout')
@@ -455,7 +460,7 @@ class ProtectedWithdrawal:
                     'warehouse':{'items':[asdict(item) for item in warehouse.items],'capacity':warehouse.capacity},
                     'npc':asdict(npc),'grid':asdict(grid)}
         before=sample();after=sample()
-        if (not _same_ownership(before,after) or before['npc']!=after['npc']
+        if (not _same_ownership(before,after) or _npc_identity(before['npc'])!=_npc_identity(after['npc'])
                 or before['grid']!=after['grid']):
             raise ValueError('Farmer or warehouse changed across the protected observation')
         return after
@@ -607,7 +612,7 @@ class ProtectedWithdrawal:
             layout.assert_current(layout_revision)
             fresh=self._observe()
             if (not _same_ownership(observation,fresh)
-                    or fresh['npc']!=observation['npc'] or fresh['grid']!=observation['grid']
+                    or _npc_identity(fresh['npc'])!=_npc_identity(observation['npc']) or fresh['grid']!=observation['grid']
                     or self.town.warehouse_native_point(
                         self._point(fresh,selected['item']),layout_revision)!=point):
                 raise ValueError('Protected warehouse layout, slot or ownership changed before input')

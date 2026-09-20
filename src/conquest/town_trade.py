@@ -256,18 +256,27 @@ class TownTrade:
             wait_scene_pointer(self.observer.adapter,point,unchanged)
         return self.click(point,before_press=before_press)
 
-    def vendor(self, type_id):
+    def vendor(self, type_id, *, stable_identity_only=False):
         life = self.life(any_map=True) if type_id==0 else self.life()
         from conquest.memory_npcs import vendor_identity
-        if type_id==0:
+        if stable_identity_only:
+            if type_id!=0 or life.map_id!=1036:
+                raise ValueError('Stable warehouse identity is restricted to Market item withdrawal')
+            from conquest.market_services import discover
+            # The selected NPC remains in a freshly bounded scene with its
+            # object, model, UID, name/type and world tile pinned. Unrelated
+            # player reordering and draw animation cannot alter grid input.
+            npc=discover(self.observer.entities,life.map_id,'Warehouseman',stable_identity_only=True)[1]
+        elif type_id==0:
             from conquest.memory_npcs import warehouse_identity
             expected=warehouse_identity(self.observer.entities,life.map_id)
             reader=MemoryNpcReader(self.observer.entities,vendors=[expected])
         else:expected=vendor_identity(life.map_id,type_id);reader=self.npcs
-        choices = [n for n in reader.read(life.map_id).npcs if n.type_id == expected.type_id]
-        if len(choices) != 1:
-            raise ValueError('Vendor is not in the current scene')
-        npc = choices[0]
+        if not stable_identity_only:
+            choices = [n for n in reader.read(life.map_id).npcs if n.type_id == expected.type_id]
+            if len(choices) != 1:
+                raise ValueError('Vendor is not in the current scene')
+            npc = choices[0]
         if max(abs(a-b) for a,b in zip(life.position,npc.position)) > 18:
             raise ValueError('Travel closer to the vendor before opening its shop')
         return npc
@@ -504,6 +513,12 @@ class TownTrade:
                 'action','plan_id','operation_id','uid'}:
             from conquest.protected_withdrawal import withdraw
             return withdraw(self,body['plan_id'],body['operation_id'],body['uid'])
+        if action=='warehouse-withdraw-scroll' and set(body)=={'action','operation_id','uid'}:
+            from conquest.scroll_withdrawal import withdraw
+            return withdraw(self,body['operation_id'],body['uid'])
+        if action=='warehouse-reconcile-scroll' and set(body)=={'action','operation_id','uid'}:
+            from conquest.scroll_withdrawal import reconcile
+            return reconcile(self,body['operation_id'],body['uid'])
         if action == 'warehouse-open' and set(body)=={'action'}:
             npc=self.vendor(0)
             if self.vendor(0)!=npc:

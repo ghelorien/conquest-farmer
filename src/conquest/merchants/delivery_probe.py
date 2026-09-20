@@ -176,20 +176,24 @@ def operator_override(ui,*,operator_confirmed=False,confirmation_reference=None,
 
 
 def selected_intent(farmer,merchant,uids):
-    """The operator selects one ordinary +1; never infer a test batch/value."""
+    """Select one exact ordinary +1 or MeteorScroll; never infer a batch/value."""
     if (not isinstance(uids,list) or len(uids)!=1
             or type(uids[0]) is not int or uids[0]<=0):
-        raise ValueError('Select exactly one carried +1 equipment UID for qualification')
+        raise ValueError('Select exactly one carried +1 equipment or MeteorScroll UID for qualification')
     if any(item.get('type_id')==1088001 for item in farmer['inventory']):
         raise ValueError('Bank loose Meteors before the supervised trade probe')
     items=[item for item in farmer['inventory'] if item.get('uid')==uids[0]]
     if len(items)!=1:
         raise ValueError('The selected qualification item is no longer carried')
     item=items[0];kind=item.get('type_id')
-    if (not eligible(item) or type(kind) is not int or not 100000<=kind<600000
-            or kind%10==9 or type(item.get('plus')) is not int or item['plus']!=1
+    equipment=(type(kind) is int and 100000<=kind<600000 and kind%10!=9
+               and type(item.get('plus')) is int and item['plus']==1)
+    scroll=(type(kind) is int and kind==720027
+            and all(type(item.get(key)) is int and item[key]==value
+                    for key,value in (('plus',0),('gem1',0),('gem2',0),('quantity',1))))
+    if (not eligible(item) or not (equipment or scroll)
             or item.get('gem1')!=0 or item.get('gem2')!=0 or item.get('quantity')!=1):
-        raise ValueError('Qualification requires one unbound, unsocketed, non-Super +1 equipment item')
+        raise ValueError('Qualification requires one unbound, unsocketed, non-Super +1 equipment item or one exact MeteorScroll')
     return prepare(farmer,merchant,items)
 
 

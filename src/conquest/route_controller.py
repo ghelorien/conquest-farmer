@@ -20,8 +20,11 @@ def ensure_running(route_id,*,root=None):
     script=layout.script('run_overnight.py')
     python=layout.python(windowed=True)
     from conquest.protected_withdrawal import pending
-    if pending(root/state_path('reports/banking/protected-withdrawals.sqlite3')):
-        return False
+    locks=pending(root/state_path('reports/banking/protected-withdrawals.sqlite3'))
+    if locks:
+        from conquest.merchants.delivery_journey import matching_scroll_recovery
+        if not matching_scroll_recovery(locks,path=root/state_path('reports/banking/merchant-journey.json')):
+            return False
     if read_json(root/state_path('.runtime/storage-halt.json')).get('active'):return False
     now=time.time()
     status=read_json(root/state_path('reports/overnight/status.json'))

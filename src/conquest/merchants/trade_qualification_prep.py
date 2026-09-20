@@ -1,8 +1,9 @@
 """One-shot, app-owned positioning for a supervised delivery qualification.
 
 This deliberately stops before opening a trade.  It protects all carried
-valuables except one operator-selected ordinary +1, takes the already-qualified
-town-to-Market route, and approaches the selected merchant using fresh memory.
+valuables except one operator-selected ordinary +1 or exact MeteorScroll, takes
+the already-qualified town-to-Market route, and approaches the selected merchant
+using fresh memory.
 """
 from pathlib import Path
 import ctypes
@@ -108,17 +109,21 @@ def _archive(state):
 
 def _selected(source, uid):
     if type(uid) is not int or uid <= 0:
-        raise ValueError('Select one exact carried +1 equipment UID')
+        raise ValueError('Select one exact carried +1 equipment or MeteorScroll UID')
     matches = [item for item in source['inventory'] if item.get('uid') == uid]
     if len(matches) != 1:
         raise ValueError('The selected qualification item is no longer carried')
     item = matches[0]
     kind = item.get('type_id')
-    if (not eligible(item) or type(kind) is not int or not 100000 <= kind < 600000
-            or kind % 10 == 9 or type(item.get('plus')) is not int or item['plus'] != 1
+    equipment = (type(kind) is int and 100000 <= kind < 600000 and kind % 10 != 9
+                 and type(item.get('plus')) is int and item['plus'] == 1)
+    scroll = (type(kind) is int and kind == 720027
+              and all(type(item.get(key)) is int and item[key] == value
+                      for key, value in (('plus', 0), ('gem1', 0), ('gem2', 0), ('quantity', 1))))
+    if (not eligible(item) or not (equipment or scroll)
             or item.get('gem1') != 0 or item.get('gem2') != 0
             or item.get('quantity') != 1):
-        raise ValueError('Qualification requires one unbound, unsocketed, non-Super +1 equipment item')
+        raise ValueError('Qualification requires one unbound, unsocketed, non-Super +1 equipment item or one exact MeteorScroll')
     return item
 
 
@@ -131,11 +136,11 @@ def _same_participant(current, saved, role):
 
 
 def _payload_is_safe(source, state):
-    """Require the saved +1 to be the only protected/deliverable payload."""
+    """Require the selected item to be the only protected/deliverable payload."""
     _same_participant(source, state['farmer'], 'Farmer')
     selected = _selected(source, state['selected_uid'])
     if exact_items([selected]) != exact_items([state['selected_item']]):
-        raise ValueError('Selected +1 changed during supervised prep')
+        raise ValueError('Selected item changed during supervised prep')
     extras = [item for item in source['inventory']
               if item['uid'] != state['selected_uid']
               and (stash_candidate(item) or eligible(item))]
@@ -319,7 +324,7 @@ def target_projection(ui, character):
     if farmer.get('trade') or farmer.get('request') or merchant.get('trade') or merchant.get('request'):
         raise ValueError('Prep target projection requires idle trade participants')
     _payload_is_safe(farmer, state)
-    first, first_occupied, first_anchor = _projection_observation(
+    first, _, first_anchor = _projection_observation(
         observer, profile, farmer, merchant)
 
     fresh_farmer, fresh_merchant = pair(ui, character)
@@ -334,7 +339,15 @@ def target_projection(ui, character):
     _payload_is_safe(fresh_farmer, state)
     second, second_occupied, second_anchor = _projection_observation(
         observer, profile, fresh_farmer, fresh_merchant)
-    if first != second or first_occupied != second_occupied or first_anchor != second_anchor:
+    from conquest.merchants.farmer_trade import recipient_binding
+    def projection_binding(observation):
+        if observation is None:
+            return None
+        return {**observation, 'recipient': recipient_binding(observation['recipient'])}
+    # Each observation independently validates its scene. Other players can
+    # move between reads; bind only the exact receiver and its actionability,
+    # then use the newest occupancy for checked pathing.
+    if projection_binding(first) != projection_binding(second) or first_anchor != second_anchor:
         raise ValueError('Trade recipient actionability changed during target projection')
 
     current = _read()
@@ -346,24 +359,24 @@ def target_projection(ui, character):
     if current_incident != incident or candidate_still != candidate_raw:
         raise ValueError('Prep or trade layout candidate changed during projection')
 
-    occupied = [farmer['position'], *first_occupied]
+    occupied = [fresh_farmer['position'], *second_occupied]
     occupied = list(map(list, dict.fromkeys(map(tuple, occupied))))
-    if first is None:
+    if second is None:
         return {'schema_version': 1, 'ready': False, 'actionable': False,
                 'reason': 'recipient_absent', 'character': farmer['character'],
                 'farmer_position': farmer['position'], 'merchant': merchant['character'],
                 'merchant_position': merchant['position'], 'point': None,
-                'viewport': gui, 'client_size': size, 'anchor': first_anchor,
+                'viewport': gui, 'client_size': size, 'anchor': second_anchor,
                 'occupied_tiles': occupied}
     from conquest.merchants.approach import within_delivery_probe_range
     in_range = within_delivery_probe_range(farmer['position'], merchant['position'])
-    ready = first['actionable'] and in_range
-    reason = first['reason'] if in_range or not first['actionable'] else 'recipient_out_of_range'
-    return {'schema_version': 1, **first, 'ready': ready, 'reason': reason,
+    ready = second['actionable'] and in_range
+    reason = second['reason'] if in_range or not second['actionable'] else 'recipient_out_of_range'
+    return {'schema_version': 1, **second, 'ready': ready, 'reason': reason,
             'character': farmer['character'], 'farmer_position': farmer['position'],
             'merchant': merchant['character'], 'merchant_position': merchant['position'],
-            'point': first['recipient']['point'], 'viewport': gui, 'client_size': size,
-            'anchor': first_anchor, 'occupied_tiles': occupied}
+            'point': second['recipient']['point'], 'viewport': gui, 'client_size': size,
+            'anchor': second_anchor, 'occupied_tiles': occupied}
 
 
 def _validate_request(ui, character, uid):

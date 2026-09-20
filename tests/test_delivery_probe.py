@@ -32,6 +32,41 @@ def test_supervised_probe_cannot_expand_selection_to_other_gear_or_supplies():
     assert [item['uid'] for item in intent['farmer']['inventory']]==[10,11,12]
 
 
+def test_supervised_probe_accepts_only_the_explicit_exact_meteor_scroll():
+    farmer,merchant=pair_with_stock()
+    farmer['inventory'][0].update(type_id=720027,plus=0)
+    intent=probe.selected_intent(farmer,merchant,[10])
+    assert intent['items']==[farmer['inventory'][0]]
+    assert [item['uid'] for item in intent['farmer']['inventory']]==[10,11,12]
+    assert intent['items'][0]['type_id']==720027
+
+
+@pytest.mark.parametrize('change',[
+    {'bound':True},{'bound':None},{'plus':1},{'plus':False},
+    {'gem1':1},{'gem2':1},{'gem1':False},{'gem2':False},
+    {'quantity':2},{'quantity':True},{'quantity':0},{'slot':None},
+    {'type_id':1088001},{'type_id':1088000},
+])
+def test_supervised_scroll_rejects_nonexact_or_loose_item(change):
+    farmer,merchant=pair_with_stock()
+    farmer['inventory'][0].update(type_id=720027,plus=0)
+    farmer['inventory'][0].update(change)
+    with pytest.raises(ValueError,match='Qualification requires|Bank loose Meteors'):
+        probe.selected_intent(farmer,merchant,[10])
+
+
+@pytest.mark.parametrize('change',['full','request','trade','map','stale'])
+def test_supervised_scroll_retains_bilateral_capacity_modal_and_freshness_guards(change):
+    farmer,merchant=pair_with_stock()
+    farmer['inventory'][0].update(type_id=720027,plus=0)
+    if change=='full':merchant['capacity']=0
+    if change=='request':merchant['request']={'participant':'Other'}
+    if change=='trade':farmer['trade']={'participant':'Spiritual'}
+    if change=='map':merchant['map_id']=1002
+    if change=='stale':farmer['timestamp']-=6
+    with pytest.raises(ValueError):probe.selected_intent(farmer,merchant,[10])
+
+
 @pytest.mark.parametrize('change',[
     {'bound':True},{'bound':None},{'plus':0},{'plus':2},{'plus':True},
     {'type_id':410009},{'type_id':1050002},{'type_id':720027},
@@ -133,6 +168,18 @@ def test_start_persists_exact_authorized_item_before_worker_and_preserves_termin
     assert started[0]['selected_uids']==[11]
     assert [item['uid'] for item in started[0]['intent']['items']]==[11]
     assert probe.read_json(next((tmp_path/'delivery-request-probe-audit').glob('*.json')))==old
+    with pytest.raises(ValueError,match='Reconcile existing'):
+        probe.start(ui,'Spiritual',uids=[10])
+    assert len(started)==1
+
+
+def test_scroll_start_persists_one_exact_uid_before_staged_worker(tmp_path,monkeypatch):
+    ui,_,started=start_ui(monkeypatch,tmp_path)
+    farmer,merchant=pair_with_stock();farmer['inventory'][0].update(type_id=720027,plus=0)
+    monkeypatch.setattr(probe,'pair',lambda *args:(farmer,merchant))
+    assert probe.start(ui,'Spiritual',uids=[10])['uids']==[10]
+    assert started[0]['selected_uids']==[10]
+    assert started[0]['intent']['items']==[farmer['inventory'][0]]
     with pytest.raises(ValueError,match='Reconcile existing'):
         probe.start(ui,'Spiritual',uids=[10])
     assert len(started)==1

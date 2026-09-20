@@ -102,6 +102,27 @@ def test_full_merchants_do_not_cause_travel(rig):
     assert not any(e=='travel' for e,_ in rig.events)
 
 
+def test_exact_requested_scroll_wins_only_slot_over_competing_plus_two(rig):
+    wanted=item(99,720027);urgent={**item(98),'plus':2}
+    rig.f['inventory']=[urgent,wanted]
+    rig.s['inventory'].append(item(999))
+    receipts=route.market_storage(rig.loop,send=rig.send,items=[wanted])
+    assert [row['uid'] for record in receipts for row in record['items']]==[99]
+    assert [row['uid'] for row in rig.f['inventory']]==[98]
+    assert [event['uids'] for action,event in rig.events if action=='delivery-start']==[[99]]
+
+
+def test_exact_delivery_admission_is_reported_before_native_trade_submission(rig):
+    wanted=item(99,720027);rig.f['inventory']=[wanted];admitted=[]
+    def on_admitted(active):
+        assert not any(action=='delivery-start' for action,body in rig.events)
+        assert active['items']==[wanted]
+        assert read_json(route.STATE)['active']['request_id']==active['request_id']
+        admitted.append(active['request_id'])
+    receipts=route.market_storage(rig.loop,send=rig.send,items=[wanted],on_admitted=on_admitted)
+    assert [receipt['request_id'] for receipt in receipts]==admitted
+
+
 def test_unreachable_first_merchant_defers_to_second_without_repeated_approach(rig,monkeypatch):
     visits=[]
     original=route.approach_merchant
