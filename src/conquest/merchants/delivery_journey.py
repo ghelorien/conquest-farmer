@@ -424,18 +424,28 @@ def resume(loop,*,send=request):
     from conquest.navigation import read_terrain
     state=read_json(JOURNAL);origin=state['origin']
     if state.get('acceptance_scope'):
-        from conquest.merchant_loop_acceptance import journey_scope,pending_delivery_matches
-        if state['acceptance_scope']!=journey_scope():
-            raise ValueError('Acceptance journey scope changed; reconcile without new input')
-        native=read_json(delivery_route.STATE).get('active')
-        if native and not pending_delivery_matches(native):
-            raise ValueError('Acceptance delivery admission changed; reconcile without new input')
+        from conquest.merchant_loop_acceptance import journey_scope,journey_scope_completed,pending_delivery_matches
+        current_scope=journey_scope()
+        if state['acceptance_scope']!=current_scope:
+            if not journey_scope_completed(state['acceptance_scope']):
+                raise ValueError('Acceptance journey scope changed; reconcile without new input')
+            # The exact acceptance transfer and refill became terminal before
+            # this follow-on journey started.  Detach that finished scope and
+            # restore an untouched deferred scroll to the ordinary queue.
+            state.pop('acceptance_scope',None)
+            deferred=state.pop('deferred_stored_scroll_uid',None)
+            if deferred is not None:state['stored_scroll_uid']=deferred
+            save(state)
+        if state.get('acceptance_scope'):
+            native=read_json(delivery_route.STATE).get('active')
+            if native and not pending_delivery_matches(native):
+                raise ValueError('Acceptance delivery admission changed; reconcile without new input')
         # Recover journals written before acceptance journeys stopped claiming
         # unrelated stored scrolls.  This is read-only with respect to the
         # game: no withdrawal was admitted and the exact scroll remains stored.
         scoped_uid=state.get('acceptance_scope',{}).get('item',{}).get('uid')
         stored_uid=state.get('stored_scroll_uid')
-        if (stored_uid is not None and stored_uid!=scoped_uid
+        if (state.get('acceptance_scope') and stored_uid is not None and stored_uid!=scoped_uid
                 and not state.get('scroll_withdrawal')
                 and not state.get('scroll_withdrawal_receipt')
                 and not state.get('scroll_preparation_done')):

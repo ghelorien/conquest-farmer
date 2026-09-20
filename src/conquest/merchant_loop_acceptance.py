@@ -235,8 +235,20 @@ def cycle_pending():
 
 def journey_scope():
     row = state();cycle = row.get('active')
-    if not row.get('enabled') or not cycle:return None
+    if (not row.get('enabled') or not cycle
+            or cycle.get('phase') not in ('triggered','town','delivered')):
+        return None
     return {'run_id': row['run_id'], 'cycle_id': cycle['cycle_id'], 'item': cycle['item']}
+
+
+def journey_scope_completed(scope):
+    """Prove an old journey scope became terminal while town work continued."""
+    row=state();cycle=row.get('active') or {}
+    delivery=cycle.get('delivery') or {}
+    return bool(row.get('enabled') and isinstance(scope,dict)
+        and scope=={'run_id':row.get('run_id'),'cycle_id':cycle.get('cycle_id'),'item':cycle.get('item')}
+        and cycle.get('phase')=='awaiting_hunt' and cycle.get('refill')
+        and delivery.get('outcome')=='transferred' and delivery.get('proof_digest'))
 
 
 def trial_permitted(loop=None):
