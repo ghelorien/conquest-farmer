@@ -127,7 +127,7 @@ def recheck(ui):
         previous=_prior(state)
         f,m=pair(ui,state['character'],farmer_preflight=True);now=time.time()
         proof=ownership(state,f,m,now=now)
-        bound=sessions.binding(ui.runtime,state,now=now)
+        bound=sessions.binding(ui.runtime,state)
         if digest(probe.read_probe()) != digest(state):raise ValueError('Probe changed during abort preview')
         preview=dict(probe=state,probe_digest=digest(state),baseline={'farmer':f,'merchant':m},
             baseline_digest=digest(proof),sessions=bound,control_revision=control['revision'],
@@ -160,7 +160,7 @@ def start(ui, *, confirmation_reference, operator_confirmed=False, operator):
         if (digest(previous) if previous else None)!=preview.get('prior_prepared_digest'):
             raise ValueError('Previous abort attempt changed after preview')
         f,m=pair(ui,state['character'],farmer_preflight=True);_same_open(preview,f,m,now=time.time())
-        refreshed=sessions.refresh_binding(ui.runtime,state,preview['sessions'],now=time.time())
+        refreshed=sessions.refresh_binding(ui.runtime,state,preview['sessions'])
         f,m=pair(ui,state['character'],farmer_preflight=True);_same_open(preview,f,m,now=time.time())
         abort={**preview,'phase':'abort_prepared','operator':operator.strip(),
                'baseline':{'farmer':f,'merchant':m},'prepared_at':time.time(),
@@ -328,7 +328,7 @@ def disposition_recheck(ui):
         f,m=pair(ui,abort['probe']['character'],farmer_preflight=True)
         current=_disposition_ownership(abort,f,m)
         preview=dict(abort_receipt_digest=digest(abort),probe_digest=digest(state),
-            sessions=sessions.binding(ui.runtime,abort['probe'],now=time.time(),closed_after=abort['verified_at']),
+            sessions=sessions.binding(ui.runtime,abort['probe'],closed_after=abort['verified_at']),
             current={'farmer':f,'merchant':m},current_digest=digest(current),
             created_at=time.time(),expires_at=time.time()+30,
             historical_outcome='unknown',sales_receipt=False,delivery_receipt=False)
@@ -356,7 +356,7 @@ def disposition_override(ui, *, confirmation_reference, operator_confirmed=False
                 raise ValueError('Current closed ownership changed after disposition preview')
         try:
             result=sessions.disposition(ui.runtime,abort['probe'],abort,preview['sessions'],
-                confirmation_reference=confirmation_reference,operator=operator.strip(),now=time.time(),recheck=recheck)
+                confirmation_reference=confirmation_reference,operator=operator.strip(),recheck=recheck)
         finally:ui.runtime._sync_manual_fence()
         return {'phase':'operator_overridden','session_ids':result,'rebaseline_required':True,
                 'historical_outcome':'unknown','sales_receipt':False,'delivery_receipt':False}

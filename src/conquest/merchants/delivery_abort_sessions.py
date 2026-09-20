@@ -6,7 +6,7 @@ from conquest.merchants.delivery import exact_items
 
 from conquest.merchants.manual_sessions import (
     BindingMismatch, TERMINAL_PHASES, _digest, _json, canonical_ownership,
-    request_fingerprint, _fresh,
+    request_fingerprint, _fresh, _now,
 )
 
 
@@ -41,7 +41,19 @@ def _audit_chain(db):
         previous=record['digest']
 
 
-def capture(store, db, probe, *, now, closed_after=None):
+def _snapshot_time(db, clock=None):
+    """Pin one SQLite snapshot before sampling its chronology authority.
+
+    BEGIN alone is deferred: the first read must complete before choosing the
+    clock value. A caller-held BEGIN IMMEDIATE already excludes new writes,
+    but performs the same harmless read for one unambiguous API contract.
+    """
+    if not db.in_transaction:db.execute('BEGIN')
+    db.execute('SELECT id FROM manual_sessions ORDER BY id LIMIT 1').fetchone()
+    return _now(clock() if clock is not None else None)
+
+
+def capture(store, db, probe, *, clock=None, closed_after=None):
     """Bind both false admissions and their complete immutable history.
 
     This does not certify their historical outcome. Later reader errors are
@@ -49,6 +61,7 @@ def capture(store, db, probe, *, now, closed_after=None):
     qualify the narrowly scoped close operation.
     """
     from conquest.merchants.delivery_probe_ownership import historical_local_trade
+    now=_snapshot_time(db,clock)
     source, target = probe['farmer_profile_id'], probe['target_profile_id']
     accepted = probe['accepted_at']
     _no_extra_holds(db)
@@ -159,14 +172,13 @@ def capture(store, db, probe, *, now, closed_after=None):
     return records
 
 
-def binding(runtime, probe, *, now, closed_after=None):
+def binding(runtime, probe, *, clock=None, closed_after=None):
     store = runtime.manual_sessions
     with store.db() as db:
-        records = capture(store, db, probe, now=now,closed_after=closed_after)
-    views = runtime._manual_rows()
-    ids = {record['row']['id'] for record in records}
-    if len(views) != 2 or {row['id'] for row in views} != ids:
-        raise BindingMismatch('Additional reader or rebaseline holds block the abort')
+        records = capture(store, db, probe, clock=clock,closed_after=closed_after)
+        # Derive presentation bindings from the same snapshot, not a new
+        # connection that may already include an observational suffix.
+        views=[store._view(db,record['row']) for record in records]
     return {'records': records, 'digest': _digest(records),
             'holds': sorted(views, key=lambda row: row['id'])}
 
@@ -187,16 +199,14 @@ def _prefix(db, expected, records):
             if _summary(prefix)!=before[field]:raise BindingMismatch('Confirmed immutable history prefix changed')
 
 
-def refresh_binding(runtime, probe, expected, *, now, closed_after=None):
+def refresh_binding(runtime, probe, expected, *, clock=None, closed_after=None):
     # Full semantic validation covers every observational suffix; then prefix
     # equality retains exactly what the operator saw. The resulting H1 binding
     # is frozen under coordinator ownership for all hot input checks.
     with runtime.manual_sessions.db() as db:
-        records=capture(runtime.manual_sessions,db,probe,now=now,closed_after=closed_after)
+        records=capture(runtime.manual_sessions,db,probe,clock=clock,closed_after=closed_after)
         _prefix(db,expected,records)
-    views=sorted(runtime._manual_rows(),key=lambda row:row['id'])
-    if {row['id'] for row in views}!={record['row']['id'] for record in records}:
-        raise BindingMismatch('Additional manual holds appeared')
+        views=sorted((runtime.manual_sessions._view(db,record['row']) for record in records),key=lambda row:row['id'])
     return dict(records=records,digest=_digest(records),holds=views)
 
 
@@ -230,11 +240,12 @@ def check_binding(runtime, expected):
     return expected
 
 
-def disposition(runtime, probe, receipt, expected, *, confirmation_reference, operator, now, recheck):
+def disposition(runtime, probe, receipt, expected, *, confirmation_reference, operator, recheck, clock=None):
     """One transaction: install process-bound rebaseline, then override both."""
     store = runtime.manual_sessions
     with store.db() as db:
         db.execute('BEGIN IMMEDIATE')
+        now=_snapshot_time(db,clock)
         already=[]
         for record in expected['records']:
             row=store._row(db,record['row']['id'])
@@ -252,7 +263,7 @@ def disposition(runtime, probe, receipt, expected, *, confirmation_reference, op
             if len(already)!=len(expected['records']):raise BindingMismatch('Partial terminal disposition is not retryable')
             recheck()
             return already
-        records = capture(store, db, probe, now=now,closed_after=receipt['verified_at'])
+        records = capture(store, db, probe, clock=lambda:now,closed_after=receipt['verified_at'])
         _prefix(db,expected,records)
         recheck()
         results = []

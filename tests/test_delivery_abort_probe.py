@@ -546,3 +546,132 @@ def test_corrupt_evidence_or_audit_digest_cannot_prepare_abort(incident,fault):
                             error='reader error' if fault=='error_authority' else None)
     with pytest.raises(ValueError):abort.recheck(x.ui)
     assert x.calls==[]
+
+
+@pytest.mark.parametrize('entry',['capture','binding','refresh'])
+def test_full_history_capture_keeps_one_snapshot_while_observer_appends(incident,monkeypatch,entry):
+    import threading
+    x=incident;store=x.runtime.manual_sessions
+    before=sessions.binding(x.runtime,x.probe)
+    reading,appended=threading.Event(),threading.Event();errors=[];clock_values=[]
+    original=sessions._audit_chain
+    def pause(db):
+        assert db.in_transaction
+        reading.set()
+        assert appended.wait(5)
+        original(db)
+    monkeypatch.setattr(sessions,'_audit_chain',pause)
+    def writer():
+        try:
+            assert reading.wait(5)
+            x.now+=1
+            store.observe(x.rows[0]['id'],x.farmer_read(),now=x.now)
+            # This also changes session reason/updated_at and the audit chain:
+            # returned hold views must come from the original snapshot too.
+            store.observe(x.rows[1]['id'],{'reader_error':'concurrent observer'},now=x.now)
+        except BaseException as error:errors.append(error)
+        finally:appended.set()
+    worker=threading.Thread(target=writer);worker.start()
+    def clock():
+        clock_values.append(x.now)
+        return x.now
+    try:
+        if entry=='capture':
+            with store.db() as db:records=sessions.capture(store,db,x.probe,clock=clock)
+            assert records==before['records']
+        else:
+            current=(sessions.binding(x.runtime,x.probe,clock=clock) if entry=='binding' else
+                     sessions.refresh_binding(x.runtime,x.probe,before,clock=clock))
+            assert current==before
+    finally:
+        worker.join(5)
+    assert not worker.is_alive() and errors==[]
+    assert len(clock_values)==1 and clock_values[0]<x.now
+    monkeypatch.setattr(sessions,'_audit_chain',original)
+    refreshed=sessions.refresh_binding(x.runtime,x.probe,before)
+    assert refreshed['digest']!=before['digest']
+    assert sum(record['evidence']['count'] for record in refreshed['records'])==sum(
+        record['evidence']['count'] for record in before['records'])+2
+    assert x.calls==[]
+
+
+def test_capture_clock_is_chosen_after_first_read_pins_snapshot(incident,monkeypatch):
+    import threading
+    from contextlib import contextmanager
+    x=incident;store=x.runtime.manual_sessions;original=store.db
+    before=sessions.binding(x.runtime,x.probe);waiting,appended=threading.Event(),threading.Event()
+    pinned=[False];errors=[]
+    reader_id=threading.get_ident()
+    class Connection:
+        def __init__(self,db):self.db=db
+        def __getattr__(self,name):return getattr(self.db,name)
+        def execute(self,sql,*args):
+            if sql=='SELECT id FROM manual_sessions ORDER BY id LIMIT 1' and threading.get_ident()==reader_id:
+                assert self.db.in_transaction
+                waiting.set();assert appended.wait(5)
+                result=self.db.execute(sql,*args)
+                pinned[0]=True
+                return result
+            return self.db.execute(sql,*args)
+    @contextmanager
+    def wrapped():
+        with original() as db:yield Connection(db)
+    monkeypatch.setattr(store,'db',wrapped)
+    def writer():
+        try:
+            assert waiting.wait(5)
+            x.now+=1
+            store.observe(x.rows[0]['id'],x.farmer_read(),now=x.now)
+        except BaseException as error:errors.append(error)
+        finally:appended.set()
+    worker=threading.Thread(target=writer);worker.start()
+    def clock():
+        assert pinned[0]
+        return x.now
+    try:current=sessions.binding(x.runtime,x.probe,clock=clock)
+    finally:worker.join(5)
+    assert not worker.is_alive() and errors==[]
+    assert current['digest']!=before['digest']
+    assert sum(record['evidence']['count'] for record in current['records'])==sum(
+        record['evidence']['count'] for record in before['records'])+1
+
+
+def test_disposition_clock_follows_blocked_immediate_transaction_acquisition(incident,monkeypatch):
+    import threading
+    from contextlib import contextmanager
+    x=incident;receipt=completed(x);store=x.runtime.manual_sessions
+    expected=sessions.binding(x.runtime,x.probe,closed_after=receipt['verified_at'])
+    original=store.db;attempting=threading.Event();errors=[];results=[];clock_values=[]
+    worker=None
+    class Connection:
+        def __init__(self,db):self.db=db
+        def __getattr__(self,name):return getattr(self.db,name)
+        def execute(self,sql,*args):
+            if sql=='BEGIN IMMEDIATE' and threading.current_thread() is worker:attempting.set()
+            return self.db.execute(sql,*args)
+    @contextmanager
+    def wrapped():
+        with original() as db:yield Connection(db)
+    monkeypatch.setattr(store,'db',wrapped)
+    def clock():
+        clock_values.append(x.now)
+        return x.now
+    def dispose():
+        try:
+            results.append(sessions.disposition(x.runtime,x.probe,receipt,expected,
+                confirmation_reference='snapshot-race',operator='Floor',recheck=lambda:None,clock=clock))
+        except BaseException as error:errors.append(error)
+    old=x.now
+    with original() as db:
+        db.execute('BEGIN IMMEDIATE')
+        worker=threading.Thread(target=dispose);worker.start()
+        assert attempting.wait(5)
+        x.now+=1
+        sample=x.farmer_read()
+        store._evidence(db,x.rows[0]['id'],sample,x.now,sessions.canonical_ownership(sample))
+    worker.join(5)
+    assert not worker.is_alive() and errors==[] and len(results)==1
+    assert clock_values==[x.now] and x.now>old
+    for row in x.rows:
+        assert store.get(row['id'])['terminal']['at']==x.now
+    assert x.calls.count('close')==1  # Disposition never sends another input.
