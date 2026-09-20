@@ -34,7 +34,7 @@ def rig(tmp_path,monkeypatch):
     state=evidence()
     state.update(character='Spiritual',farmer_profile_id=farmer_profile.id,
                  target_profile_id=merchant_profile.id)
-    state['recipient']['address']=1234
+    state['recipient'].update(address=1234,position=deepcopy(state['intent']['merchant']['position']),point=[10,10])
     for role in ('farmer','merchant'):
         for snapshot in (state['intent'][role],state[role+'_after']):
             snapshot.update(booth_open=True,own_booth_uid=102612 if role=='merchant' else snapshot['character_uid'])
@@ -365,23 +365,29 @@ def test_status_and_readiness_observe_promoted_flags_without_resuming_any_permis
     assert not status['refill']['enabled']
 
 
-@pytest.mark.parametrize('change', [None,'viewport','actor','mode'])
+@pytest.mark.parametrize('change', [None,'viewport','actor','uid','name','mode'])
 def test_candidate_validation_uses_live_memory_reader_and_pinned_native_mode(monkeypatch,change):
     # No actionability or input is required: Inventory may still obscure the
     # completed trade target while its exact scene object remains readable.
     from conquest.merchants import farmer_trade, memory, trade_controls
     observer=NS(adapter=object(),operations=NS(target=NS(snapshot=lambda:{'client_size':[800,600]})))
-    actor={'address':1234,'uid':2,'name':'Spiritual'}
+    actor={'address':1234,'uid':2,'name':'Spiritual','position':[10,10],'point':[400,300]}
     monkeypatch.setattr(memory,'GuiReader',lambda _:NS(viewport_size=lambda:[801,600] if change=='viewport' else [800,600]))
     calls=[]
     def read(source,candidate,merchant):
         calls.append((source,candidate,merchant))
-        return {**actor,'address':4321} if change=='actor' else actor
+        if change=='actor':return {**actor,'address':4321}
+        if change=='uid':return {**actor,'uid':3}
+        if change=='name':return {**actor,'name':'Dutch'}
+        return actor
     monkeypatch.setattr(farmer_trade,'_recipient_record',read)
     monkeypatch.setattr(trade_controls,'targeting_state',lambda _:{'rva':123,'value':19})
     candidate={'recipient':{'proven':'layout'},'target_mode':{'rva':123,'value':18 if change=='mode' else 19}}
-    if change:
-        with pytest.raises(ValueError):module.validate_candidate(observer,candidate,{}, {'character_uid':2},{'recipient':actor})
+    state={'recipient':actor,'intent':{'merchant':{'character_uid':2,'character':'Spiritual','position':[10,10]}}}
+    merchant={'character_uid':2,'character':'Spiritual','position':[10,10]}
+    if change in ('viewport','uid','name','mode'):
+        with pytest.raises(ValueError):module.validate_candidate(observer,candidate,{},merchant,state)
     else:
-        module.validate_candidate(observer,candidate,{}, {'character_uid':2},{'recipient':actor})
-        assert calls==[(observer,{**candidate,'gui_size':[800,600]},{'character_uid':2})]
+        result=module.validate_candidate(observer,candidate,{},merchant,state)
+        assert result['uid']==2 and result['name']=='Spiritual'
+        assert calls==[(observer,{**candidate,'gui_size':[800,600]},merchant)]

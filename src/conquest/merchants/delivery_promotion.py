@@ -33,17 +33,33 @@ def validate_candidate(observer,candidate,farmer,merchant,state):
     from conquest.merchants.farmer_trade import _recipient_record
     from conquest.merchants.memory import GuiReader
     from conquest.merchants.trade_controls import targeting_state
+    intent=state.get('intent',{});saved=state.get('recipient',{});expected=intent.get('merchant',{})
+    def point(value):
+        return isinstance(value,list) and len(value)==2 and all(type(axis) is int for axis in value)
+    if (type(saved.get('address')) is not int or saved['address']<=0
+            or type(saved.get('uid')) is not int or saved['uid']<=0
+            or not isinstance(saved.get('name'),str) or not saved['name']
+            or not point(saved.get('position')) or not point(saved.get('point'))
+            or saved['uid']!=expected.get('character_uid')
+            or saved['name']!=expected.get('character')
+            or saved['position']!=expected.get('position')):
+        raise ValueError('Verified recipient receipt is incomplete or differs from the delivery merchant')
     gui_size=GuiReader(observer.adapter).viewport_size()
     if observer.operations.target.snapshot()['client_size']!=gui_size:
         raise ValueError('Trade layout requires matching native and memory GUI dimensions')
     # Promotion reads the layout only. An Inventory panel left open after the
     # completed offer need not leave this actor's point clickable.
     actor=_recipient_record(observer,{**candidate,'gui_size':gui_size},merchant)
-    if any(actor.get(key)!=state.get('recipient',{}).get(key) for key in ('address','uid','name')):
+    # Scene-object addresses are heap allocations, not player identities.  A
+    # completed trade can legitimately rebuild the receiver's scene object;
+    # promotion sends no target input and therefore only the immutable UID and
+    # name bind the historical recipient to this fresh, qualified projection.
+    if any(actor.get(key)!=saved.get(key) for key in ('uid','name')):
         raise ValueError('Current recipient layout differs from the verified request')
     native=targeting_state(observer.adapter)
     if any(candidate.get('target_mode',{}).get(key)!=native[key] for key in ('rva','value')):
         raise ValueError('Trade target mode differs from the verified native accessor')
+    return actor
 
 
 _MALFORMED=object()
