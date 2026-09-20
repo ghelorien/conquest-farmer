@@ -379,6 +379,7 @@ def _market_storage(loop,*,send=request,items=None,on_admitted=None):
                              'merchant_identity':current['merchant_identity'],
                              'merchant_uid':current['merchant_uid'],
                              'items':current['items'],'started_at':time.time(),
+                             'controller':{'pid':loop.state['pid'],'started_at':loop.state['started_at']},
                              'visit_id':visit['visit_id'],'farmer_profile_id':visit['farmer_profile_id']}
             state['active']['town_visit_id']=visit.get('town_visit_id')
             write_json(STATE,state)

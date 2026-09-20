@@ -155,7 +155,7 @@ def _terminal_idle(ui, visit, body, row, request_id):
 
 def _canonical_terminal(ui, visit, cycle):
     """Return the one current no-transfer receipt, rejecting all ambiguity."""
-    from conquest.merchants import delivery_operation,delivery_route
+    from conquest.merchants import delivery_operation,delivery_route,delivery_reservation
     from conquest.merchants.delivery import exact_items
     admissions=cycle.get('admissions')
     if not isinstance(admissions,list) or not admissions or any(not isinstance(row,dict) for row in admissions):
@@ -165,6 +165,7 @@ def _canonical_terminal(ui, visit, cycle):
     route=read_json(delivery_route.STATE)
     if route.get('active') or route.get('cleanup_pending'):
         raise ValueError('Terminal delivery retry requires a settled route operation')
+    delivery_operation.guard_reload()
     wanted=exact_items([cycle['item']]);operations=[]
     request_ids={row.get('request_id') for row in admissions}
     route_history=[record for record in route.get('operations',[])+route.get('receipts',[])
@@ -178,6 +179,9 @@ def _canonical_terminal(ui, visit, cycle):
     with source_journal.db() as db:
         source_history=[dict(row) for row in db.execute(
             "SELECT id,phase,before_json FROM transactions WHERE kind='farmer_delivery'")]
+        admissions_history=[row[0] for row in db.execute('SELECT phase FROM delivery_admissions')]
+    if any(phase=='admitted' for phase in admissions_history):
+        raise ValueError('A source delivery admission remains unresolved')
     same_source=[row for row in source_history
                  if _same_origin(json.loads(row['before_json']),visit)]
     if (any(row['id'] not in request_ids or row['phase'] not in ('aborted','verified','operator_overridden')
@@ -185,6 +189,8 @@ def _canonical_terminal(ui, visit, cycle):
         raise ValueError('Acceptance source history is unresolved or ambiguous')
     with ui.runtime.journal.db() as db:
         receiver_history=[json.loads(row[0]) for row in db.execute('SELECT state FROM delivery_reservations')]
+    if any(record.get('phase') not in delivery_reservation.TERMINAL for record in receiver_history):
+        raise ValueError('A receiver delivery reservation remains unresolved')
     same_receiver=[record for record in receiver_history
                    if _same_origin(record.get('intent',{}),visit)]
     if (any(record.get('request_id') not in request_ids
@@ -230,9 +236,20 @@ def _terminal_retry(ui, body, row, cycle, visit, visit_store):
     from conquest import merchant_loop_acceptance as acceptance
     from conquest.merchants import delivery_bridge,delivery_journey
     from conquest.merchants.delivery import exact_items
-    admission,receipt,_operation=_canonical_terminal(ui,visit,cycle)
+    admission,receipt,operation=_canonical_terminal(ui,visit,cycle)
     controller={'pid':body['route_pid'],'started_at':body['route_started_at']}
     records=[*_retry_records(cycle),*_terminal_retry_records(cycle)]
+    provenance=[record for record in records
+                if record.get('visit',{}).get('visit_id')==admission.get('visit_id')]
+    if len(provenance)!=1 or not isinstance(provenance[0].get('controller'),dict):
+        raise ValueError('Latest failed admission lacks a sealed retry controller')
+    if provenance[0]['controller']==controller:
+        raise ValueError('Terminal delivery retry requires a fresh native town controller')
+    admission_controller=admission.get('controller');operation_controller=operation.get('controller')
+    if admission_controller!=operation_controller:
+        raise ValueError('Latest failed admission controller differs from its route operation')
+    if admission_controller is not None and admission_controller==controller:
+        raise ValueError('Terminal delivery retry requires a fresh native town controller')
     previous=next((record for record in _terminal_retry_records(cycle)
                   if record.get('controller')==controller
                   and record.get('previous_visit',{}).get('visit_id')==body['visit_id']),None)
