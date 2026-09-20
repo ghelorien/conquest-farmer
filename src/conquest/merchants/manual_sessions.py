@@ -616,6 +616,11 @@ class ManualSessionStore:
                 or db.execute("SELECT COUNT(*) FROM manual_requests WHERE session_id=? AND state!='closed'",
                               (row['id'],)).fetchone()[0] != 1):
             return False
+        decline = db.execute('SELECT reason FROM manual_declines WHERE request_id=?', (request['id'],)).fetchone()
+        if ((request['state'] == 'pending' and decline is not None)
+                or (request['state'] == 'decline_pending'
+                    and (decline is None or decline['reason'] != 'timeout'))):
+            return False
         binding = json.loads(request['binding_json'])
         visitor = json.loads(row['visitor_json'])
         if (binding.get('visitor') != visitor or binding.get('session_id') != row['id']
@@ -633,13 +638,17 @@ class ManualSessionStore:
                 return False
         allowed_events = {'session_started', 'approval_pending', 'windows_observed',
                           'settlement_observed', 'observation_ignored', 'needs_attention',
-                          'reader_gap_recovered'}
+                          'reader_gap_recovered', 'decline_requested'}
         for audit in db.execute('SELECT event,payload_json FROM manual_audit WHERE session_id=?', (row['id'],)):
             if audit['event'] not in allowed_events:
                 return False
+            payload = json.loads(audit['payload_json'])
             if (audit['event'] == 'needs_attention'
-                    and json.loads(audit['payload_json']).get('reason')
+                    and payload.get('reason')
                     != 'Request/trade window evidence is unavailable'):
+                return False
+            if (audit['event'] == 'decline_requested'
+                    and (payload.get('request_id') != request['id'] or payload.get('reason') != 'timeout')):
                 return False
         for evidence in db.execute('SELECT snapshot_json,ownership_digest FROM manual_evidence WHERE session_id=?',
                                    (row['id'],)):
