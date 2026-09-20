@@ -14,7 +14,7 @@ from conquest.merchants import delivery_probe as probe
 from conquest.merchants import delivery_abort_sessions as sessions
 from conquest.merchants.delivery import exact_items, validate_snapshot
 from conquest.merchants.delivery_bridge import pair
-from conquest.merchants.manual_sessions import canonical_ownership, _fresh
+from conquest.merchants.manual_sessions import canonical_ownership, _fresh, _number
 from conquest.recovery_override import evidence_digest as digest
 
 PURPOSE = 'delivery_probe_abort'
@@ -318,17 +318,36 @@ def _disposition_ownership(abort, farmer, merchant):
     return closed(baseline,farmer,merchant,now=time.time())
 
 
+def _verified_receipt():
+    """Revalidate published restoration before admitting post-submit history."""
+    abort=read();state=probe.read_probe()
+    if (not abort or abort.get('phase')!='cancel_verified' or not state
+            or state.get('phase')!='cancel_verified'
+            or state.get('abort_receipt_digest')!=digest(abort)
+            or digest(state.get('abort_receipt'))!=digest(abort)
+            or digest(abort['probe'])!=abort['probe_digest']):
+        raise ValueError('Verified abort receipt required before session disposition')
+    prepared=_number(abort.get('prepared_at'),'Abort preparation time')
+    submitted=_number(abort.get('submitted_at'),'Abort submission time')
+    verified=_number(abort.get('verified_at'),'Abort verification time')
+    if not prepared<=submitted<=verified<=time.time():
+        raise ValueError('Verified abort receipt chronology changed')
+    if digest(ownership(abort['probe'],abort['baseline']['farmer'],abort['baseline']['merchant'],
+                        now=prepared))!=abort['baseline_digest']:
+        raise ValueError('Verified abort baseline changed')
+    closed(abort,abort['after']['farmer'],abort['after']['merchant'],now=verified)
+    return abort,state
+
+
 def disposition_recheck(ui):
     probe.recovery_available(ui)
     with ui.coordinator.lock:
-        abort=read();state=probe.read_probe()
-        if not abort or abort.get('phase')!='cancel_verified' or state.get('abort_receipt_digest')!=digest(abort):
-            raise ValueError('Verified abort receipt required before session disposition')
+        abort,state=_verified_receipt()
         _profiles(ui,abort['probe'])
         f,m=pair(ui,abort['probe']['character'],farmer_preflight=True)
         current=_disposition_ownership(abort,f,m)
         preview=dict(abort_receipt_digest=digest(abort),probe_digest=digest(state),
-            sessions=sessions.binding(ui.runtime,abort['probe'],closed_after=abort['verified_at']),
+            sessions=sessions.binding(ui.runtime,abort['probe'],closed_after=abort['submitted_at']),
             current={'farmer':f,'merchant':m},current_digest=digest(current),
             created_at=time.time(),expires_at=time.time()+30,
             historical_outcome='unknown',sales_receipt=False,delivery_receipt=False)
@@ -341,9 +360,10 @@ def disposition_override(ui, *, confirmation_reference, operator_confirmed=False
     with ui.coordinator.lock:
         preview=read('-disposition-preview')
         _confirmed(preview,confirmation_reference,operator_confirmed,operator,allow_expired=True)
-        abort=read();_profiles(ui,abort['probe'])
+        abort,_state=_verified_receipt();_profiles(ui,abort['probe'])
         def recheck():
-            if digest(read())!=preview['abort_receipt_digest'] or digest(probe.read_probe())!=preview['probe_digest']:
+            current,state=_verified_receipt()
+            if digest(current)!=preview['abort_receipt_digest'] or digest(state)!=preview['probe_digest']:
                 raise ValueError('Abort receipt changed after session disposition preview')
         recheck()
         terminal=all(ui.runtime.manual_sessions.get(record['row']['id'])['phase']=='operator_overridden'

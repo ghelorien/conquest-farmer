@@ -16,6 +16,9 @@ The authenticated desktop bridge supports these exact actions:
    `action`). This never clicks. It can finalize only exact closed/restored
    ownership. Never repeat a submitted close. A failed `abort_prepared` attempt
    can be archived and replaced only through a new explicit preview/confirmation.
+   After exact cancellation proof is verified, closed observations since durable
+   submission remain eligible even if Stop or a read failure delayed verification;
+   closed history from before submission never qualifies.
 4. After `cancel_verified`, use `probe-delivery-abort-disposition-recheck`, then
    `probe-delivery-abort-disposition-override` with a **new** exact confirmation
    reference, `operator_confirmed: true`, and `operator`. This atomically disposes

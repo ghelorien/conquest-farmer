@@ -6,7 +6,7 @@ from conquest.merchants.delivery import exact_items
 
 from conquest.merchants.manual_sessions import (
     BindingMismatch, TERMINAL_PHASES, _digest, _json, canonical_ownership,
-    request_fingerprint, _fresh, _now,
+    request_fingerprint, _fresh, _now, _number,
 )
 
 
@@ -143,7 +143,7 @@ def capture(store, db, probe, *, clock=None, closed_after=None):
             if (observed.get('request') is None and observed.get('trade') is None
                     and record['error'] is None):
                 if closed_after is None or observed.get('timestamp',0)<closed_after:
-                    raise BindingMismatch('Unexpected closed-window history predates the verified abort')
+                    raise BindingMismatch('Unexpected closed-window history predates durable abort submission')
                 current=canonical_ownership(observed)
                 expected=deepcopy(original)
                 if role=='merchant':expected.update(booth=current['booth'],silver=current['silver'])
@@ -246,6 +246,12 @@ def disposition(runtime, probe, receipt, expected, *, confirmation_reference, op
     with store.db() as db:
         db.execute('BEGIN IMMEDIATE')
         now=_snapshot_time(db,clock)
+        if (receipt.get('phase')!='cancel_verified'
+                or not _number(receipt.get('prepared_at'),'Abort preparation time')
+                       <=_number(receipt.get('submitted_at'),'Abort submission time')
+                       <=_number(receipt.get('verified_at'),'Abort verification time')<=now):
+            raise BindingMismatch('A verified chronological abort receipt is required')
+        recheck()  # Includes exact sidecar/main restoration proof in the bridge.
         already=[]
         for record in expected['records']:
             row=store._row(db,record['row']['id'])
@@ -263,7 +269,10 @@ def disposition(runtime, probe, receipt, expected, *, confirmation_reference, op
             if len(already)!=len(expected['records']):raise BindingMismatch('Partial terminal disposition is not retryable')
             recheck()
             return already
-        records = capture(store, db, probe, clock=lambda:now,closed_after=receipt['verified_at'])
+        # Verification may be delayed by Stop/read failure. Once its exact
+        # receipt is revalidated, observations since durable submission are
+        # eligible; pre-submission closed history is never excused.
+        records = capture(store, db, probe, clock=lambda:now,closed_after=receipt['submitted_at'])
         _prefix(db,expected,records)
         recheck()
         results = []

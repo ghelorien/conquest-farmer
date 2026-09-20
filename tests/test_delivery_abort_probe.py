@@ -675,3 +675,68 @@ def test_disposition_clock_follows_blocked_immediate_transaction_acquisition(inc
     for row in x.rows:
         assert store.get(row['id'])['terminal']['at']==x.now
     assert x.calls.count('close')==1  # Disposition never sends another input.
+
+
+def interrupted_close(x,monkeypatch):
+    x.now+=1
+    value=prepared(x)
+    def interrupted(*args,**kwargs):
+        kwargs['before_press']();x.calls.append('close');x.close()
+        raise CaptureUnavailable('Stop/read failure before closure verification')
+    monkeypatch.setattr('conquest.foreground.foreground_click',interrupted)
+    with pytest.raises(CaptureUnavailable):abort.run(x.ui,value)
+    assert abort.read()['phase']=='cancel_submitted'
+    assert probe.read_probe()['phase']=='offer_verified'
+    return abort.read()['submitted_at']
+
+
+@pytest.mark.parametrize('offset',[0,.2])
+def test_verified_late_abort_accepts_exact_closed_history_since_submission(incident,monkeypatch,offset):
+    x=incident;submitted=interrupted_close(x,monkeypatch)
+    x.now=submitted+.5
+    for row,snapshot in ((x.rows[0],x.farmer_read()),(x.rows[1],x.read())):
+        snapshot['timestamp']=submitted+offset
+        x.runtime.manual_sessions.observe(row['id'],snapshot,now=x.now)
+    x.runtime._sync_manual_fence()
+    x.now=submitted+2
+    receipt=abort.reconcile(x.ui)
+    assert receipt['verified_at']>submitted+offset
+    result=disposition(x)
+    assert result['phase']=='operator_overridden' and x.calls.count('close')==1
+
+
+def test_verified_late_abort_rejects_closed_history_before_submission(incident,monkeypatch):
+    x=incident;submitted=interrupted_close(x,monkeypatch)
+    x.now=submitted+.5
+    snapshot=x.farmer_read();snapshot['timestamp']=submitted-.1
+    x.runtime.manual_sessions.observe(x.rows[0]['id'],snapshot,now=x.now)
+    x.runtime._sync_manual_fence();x.now=submitted+2
+    abort.reconcile(x.ui)
+    with pytest.raises(ValueError,match='predates'):abort.disposition_recheck(x.ui)
+    assert all(x.runtime.manual_sessions.get(row['id'])['phase']=='needs_attention' for row in x.rows)
+    assert x.calls.count('close')==1
+
+
+def test_submitted_but_unverified_abort_cannot_authorize_disposition(incident,monkeypatch):
+    x=incident;submitted=interrupted_close(x,monkeypatch)
+    x.now=submitted+.5
+    x.runtime.manual_sessions.observe(x.rows[0]['id'],x.farmer_read(),now=x.now)
+    with pytest.raises(ValueError,match='Verified abort receipt'):abort.disposition_recheck(x.ui)
+    expected=sessions.binding(x.runtime,x.probe,closed_after=submitted)
+    with pytest.raises(ValueError,match='verified chronological'):
+        sessions.disposition(x.runtime,x.probe,abort.read(),expected,confirmation_reference='invalid',
+                             operator='Floor',recheck=lambda:None)
+    assert all(x.runtime.manual_sessions.get(row['id'])['phase']=='needs_attention' for row in x.rows)
+
+
+@pytest.mark.parametrize('role',['farmer','merchant'])
+def test_post_submit_closed_history_with_unrelated_inventory_change_is_still_protected(incident,monkeypatch,role):
+    x=incident;submitted=interrupted_close(x,monkeypatch);x.now=submitted+.5
+    snapshot=x.farmer_read() if role=='farmer' else x.read()
+    snapshot['inventory'].append({**deepcopy(x.probe['intent']['items'][0]),'uid':9876})
+    row=x.rows[0] if role=='farmer' else x.rows[1]
+    x.runtime.manual_sessions.observe(row['id'],snapshot,now=x.now)
+    x.runtime._sync_manual_fence();x.now=submitted+2
+    abort.reconcile(x.ui)
+    with pytest.raises(ValueError,match='unrelated ownership'):abort.disposition_recheck(x.ui)
+    assert all(x.runtime.manual_sessions.get(row['id'])['phase']=='needs_attention' for row in x.rows)
