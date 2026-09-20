@@ -213,7 +213,7 @@ class TownTrade:
                 'Warehouse deposit was not verified; no repeat input issued',timeout=5)
             return {'stored':item.uid,'type_id':item.type_id,'verified_in_warehouse':True}
 
-    def click(self, point, button='left', *, before_press=None):
+    def click(self, point, button='left', *, before_press=None, before_mouse_down=None):
         try:self.life(any_map=True)
         except ValueError as error:
             # This check precedes the button event, even if opening a panel
@@ -225,7 +225,8 @@ class TownTrade:
         from conquest.merchants.coordination import InputAcquisitionBusy
         try:
             return foreground_click(self.observer.operations.target,*point,size_for(self.observer),
-                button=button,require_foreground=True,before_press=before_press)
+                button=button,require_foreground=True,before_press=before_press,
+                before_mouse_down=before_mouse_down)
         except InputAcquisitionBusy as error:
             # Re-enter the whole town operation on retry, including its fresh
             # vendor, shop, product, funds and capacity checks. Never retry an
@@ -560,6 +561,14 @@ class TownTrade:
                 if 'not active' in str(error) or 'absent' in str(error):
                     return {'closed':True}
                 raise
+            from conquest.game_panels import PANELS,TRANSACTIONS
+            from conquest.merchants.memory import GuiReader
+            def panel_signature():
+                return tuple(sorted((item['name'],item['address'],tuple(item['geometry']),tuple(item['scroll']))
+                    for item in GuiReader(self.observer.adapter).windows()
+                    if (item['name'] in PANELS or item['name'] in TRANSACTIONS
+                        or item['name'].startswith(body['window']+'/'))))
+            panels=panel_signature()
             self.input_attempted = True
             from conquest.panel_close import click_close
             click_close(self,body['window'])
@@ -569,7 +578,35 @@ class TownTrade:
                     if 'not active' in str(error) or 'absent' in str(error):return True
                     raise
                 return False
-            self.verified_read(closed,bool,'Town panel close was not verified',timeout=2)
+            try:
+                self.verified_read(closed,bool,'Town panel close was not verified',timeout=2)
+            except ValueError as error:
+                if str(error) != 'Town panel close was not verified':
+                    raise
+                # Closing a display panel has no financial or ownership side
+                # effect.  Retry it once only after fresh memory proves that
+                # this is the exact same still-open panel instance.
+                self.observer.adapter.assert_identity()
+                try:current=self.shop.gui.read(body['window'])
+                except ValueError as current_error:
+                    if 'not active' in str(current_error) or 'absent' in str(current_error):
+                        return {'closed':True}
+                    raise
+                if current != window:
+                    raise ValueError('Town panel changed after its close attempt') from error
+                def retry_guard():
+                    self.observer.adapter.assert_identity()
+                    current_panels=panel_signature()
+                    if current_panels != panels:
+                        raise ValueError('Town panel set changed before retrying its close')
+                    if any(name in TRANSACTIONS for name,*_ in current_panels):
+                        raise ValueError('Transaction dialog appeared before retrying panel close')
+                retry={'submitted':False}
+                click_close(self,body['window'],validate=retry_guard,
+                            before_mouse_down=lambda:retry.update(submitted=True))
+                if not retry['submitted']:
+                    raise ValueError('Town panel close retry did not reach its input boundary')
+                self.verified_read(closed,bool,'Town panel close was not verified',timeout=2)
             return {'closed':True}
         if action == 'buy' and set(body) == {'action','vendor_type','type_id'}:
             if body['type_id'] not in (1000020,1050000,1050001,1050002,1060020):

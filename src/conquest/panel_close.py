@@ -4,7 +4,7 @@ from conquest.merchants.memory import GuiReader,GuiObservationChanged
 from conquest.merchants.driver import wait_hover_validation
 
 
-def click_close(trade,name):
+def click_close(trade,name,*,validate=None,before_mouse_down=None):
     if name not in ('Inventory','Shop','Warehouse'):raise ValueError('Unsupported display panel')
     gui=GuiReader(trade.observer.adapter)
     def read_windows():
@@ -35,9 +35,11 @@ def click_close(trade,name):
         fresh=current()
         if any(fresh[k]!=window[k] for k in ('address','geometry')):
             raise CaptureUnavailable('Display panel moved before closing')
+        if validate is not None:validate()
         gui.assert_hovered(fresh,'#CLOSE')
     def check():
         check_input=getattr(trade,'check_input',None)
         if check_input is not None:check_input()
         if layout is not None:layout.assert_current(revision)
-    trade.click(point,before_press=lambda:wait_hover_validation(guard,check))
+    trade.click(point,before_press=lambda:wait_hover_validation(guard,check),
+                before_mouse_down=before_mouse_down)
