@@ -1329,6 +1329,13 @@ class UnifiedUI:
         self.resize_jobs.pop(character,None)
         if self.closed or probe_busy(self):
             return
+        # A delayed Tk layout event is not allowed to alter merchant permission
+        # while a delivery or another native input handoff owns the surface.
+        # Explicit input preparation still validates geometry with automatic=True;
+        # this merely defers the stale resize callback until that handoff ends.
+        if (getattr(getattr(self,'coordinator',None),'owner',None)
+                or getattr(self.runtime,'delivery_window',None)):
+            return
         try:
             host=self.hosts.get(character)
             if host and host.saved and not host.is_alive():
