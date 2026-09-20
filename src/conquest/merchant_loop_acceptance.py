@@ -341,8 +341,10 @@ def observe_hunting(loop, health, *, send=None):
         same_run=(current.get('enabled') and current.get('run_id')==row.get('run_id')
                 and current.get('farmer_profile_id')==row.get('farmer_profile_id')
                 and current.get('route_id')==row.get('route_id'))
-        same_awaiting=bool(active and current.get('active',{}).get('cycle_id')==active.get('cycle_id')
-            and current.get('active',{}).get('phase')=='awaiting_hunt')
+        current_active=current.get('active') or {}
+        same_awaiting=bool(active and active.get('phase')=='awaiting_hunt'
+            and current_active.get('cycle_id')==active.get('cycle_id')
+            and current_active.get('phase')=='awaiting_hunt')
         if same_run and ((current.get('phase')=='armed' and current.get('active') is None)
                          or same_awaiting):
             return False
