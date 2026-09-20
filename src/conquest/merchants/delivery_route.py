@@ -213,7 +213,11 @@ def approach_merchant(loop,plan,send,*,deadline=None):
     """World distance ranks candidates; the driver shares the arrival proof."""
     from conquest.merchants.approach import bounded_position,ingress_position,positions,within_delivery_probe_range
     from conquest.travel_progress import TravelStalled
+    # ``used`` excludes only final standing candidates.  A bounded visible
+    # hop is not itself a standing candidate and must not be turned into a
+    # terrain obstacle after it stalls.
     used=[]
+    failed_legs=set()
     # Keep the final fifteen seconds of a Market visit for the qualified
     # transaction and release.  Approach legs get their own short deadline so
     # one obsolete target cannot consume that budget.
@@ -256,11 +260,22 @@ def approach_merchant(loop,plan,send,*,deadline=None):
         else:
             candidates=positions(loop.terrain,probe,used=used,deadline=correction_deadline)
         if not candidates:return False
-        selected=candidates[0]
-        target=bounded_position(loop.terrain,probe,selected,used=used,deadline=correction_deadline)
-        if target is None:
-            used.append(selected)
-            continue
+        selected=target=None
+        # A failed bounded hop used to be appended to ``used``.  The selector
+        # only understands final standing candidates, so the same top-ranked
+        # candidate could recompute that exact failed first hop forever.  Keep
+        # the failure tied to the observed source and try the next freshly
+        # qualified endpoint instead; this is deliberately not path avoidance.
+        for candidate in candidates:
+            if time.time()>=correction_deadline:return False
+            possible=bounded_position(loop.terrain,probe,candidate,used=used,
+                                      deadline=correction_deadline)
+            if possible is None or (source,tuple(possible)) in failed_legs:
+                used.append(candidate)
+                continue
+            selected,target=candidate,tuple(possible)
+            break
+        if target is None:return False
         short_leg=max(abs(a-b) for a,b in zip(target,source))<=2
         occupied=set(map(tuple,probe.get('occupied_tiles',())))
         occupied.add(tuple(probe['merchant_position']))
@@ -277,13 +292,14 @@ def approach_merchant(loop,plan,send,*,deadline=None):
         except TravelStalled:
             loop.record('merchant_approach_deferred',merchant=plan['merchant'],
                         activity='Merchant approach stalled; reobserving a safe destination')
-            used.append(target)
+            failed_legs.add((source,target))
+            used.append(selected)
             previous_leg_source=source
             continue
         finally:loop.market_service_deadline=previous
-        # A bounded hop is no longer a candidate, but its still-unreached
-        # final standing tile remains eligible for the fresh next probe.
-        used.append(target)
+        # Leave the still-unreached final standing tile eligible for the fresh
+        # next probe.  It has not failed merely because this bounded hop made
+        # verified progress.
         previous_leg_source=source
     return False
 
