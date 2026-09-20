@@ -731,6 +731,10 @@ class OvernightLoop:
             data = h['embedded_controls']
             if not data['control']['enabled']:
                 raise OvernightStopped('Farming was switched Off')
+            from conquest.merchant_loop_acceptance import observe_hunting
+            if observe_hunting(self,h):
+                self.stop_farm()
+                return 'merchant_acceptance'
             if data['control'].get('execution_state')=='runner_stopped':
                 note=data['control']['note']
                 reason=note.removeprefix('Farm runner stopped: ')
@@ -764,6 +768,7 @@ class OvernightLoop:
                         elapsed_seconds=completed['elapsed_seconds'],
                         verified_resume_kill=completed['first_verified_resume_kill'],
                         activity='Required town visit complete; resumed hunting is verified')
+                    observe_hunting(self,h)
             left,top,right,bottom = self.route.hunting_boundary
             margin = self.route.patrol_search.expansion_tiles*self.route.patrol_search.maximum_expansions
             if left-margin <= life['position'][0] <= right+margin and top-margin <= life['position'][1] <= bottom+margin:
@@ -935,6 +940,8 @@ class OvernightLoop:
             resume(self)
             from conquest.banking import close_warehouse
             close_warehouse(self)
+        from conquest.merchant_loop_acceptance import cycle_pending
+        if cycle_pending():self.bank_acceptance_delivery()
         if self.living()['embedded_controls']['life']['map_id']!=self.route.map_id:
             self.return_to_route_map()
         from conquest.city_travel import ensure_city_visit
@@ -943,6 +950,9 @@ class OvernightLoop:
         self.select_level_route()
         while True:
             outcome=self.hunt()
+            if outcome=='merchant_acceptance':
+                self.bank_acceptance_delivery()
+                continue
             if outcome=='urgent_banking':
                 self.bank_urgent_valuables()
                 continue
@@ -951,6 +961,35 @@ class OvernightLoop:
                 if finish_in_town(self):return
                 continue
             if outcome!='route_changed':self.restock()
+
+    def bank_acceptance_delivery(self):
+        """Temporary early town obligation; reuse only native bank/trade paths."""
+        from conquest import merchant_loop_acceptance as acceptance
+        if not acceptance.cycle_pending():return
+        self.check_stop()
+        acceptance.reconcile_route_receipts()
+        from conquest.merchants.bridge import request as merchant
+        source=merchant({'action':'delivery-source'})['farmer']
+        carried=acceptance.verify_carried_or_delivered(source)
+        visit=self.town_visit.begin('merchant_acceptance',hunt_map_id=self.route.map_id,route_id=self.route.id)
+        acceptance.town_started(self,visit,source)
+        self.phase='restocking'
+        if carried:
+            self.record('merchant_acceptance_return',activity='Acceptance: newly looted deliverable; returning for native merchant delivery')
+            from conquest.return_scroll import return_to_town
+            from conquest.world_travel import travel_to_map
+            from conquest.banking import after_shopping
+            acceptance.town_input_boundary()
+            return_to_town(self)
+            travel_to_map(self,self.route.restock_map_id)
+            self.town('close',window='Shop');self.town('close',window='Inventory')
+            if not after_shopping(self):raise ValueError('Acceptance requires the normal native banking policy')
+        from conquest.merchants.handoff import service_window
+        acceptance.refill_observed(merchant({'action':'status'}).get('characters',{}))
+        if not acceptance.refill_complete():service_window(self,town=True)
+        acceptance.finish_town(self,send=merchant)
+        bag=self.town('supplies')
+        if needs_town(supply_counts(bag,self.route),self.route):self.restock()
 
     def protect_during_movement_retry(self):
         """Retain the controller and life care instead of abandoning a runback."""

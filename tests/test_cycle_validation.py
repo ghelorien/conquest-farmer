@@ -37,6 +37,17 @@ def test_burst_or_early_success_does_not_qualify():
     assert not result['qualified']
 
 
+@pytest.mark.parametrize('fields',[
+    {'reasons':['merchant_acceptance']}, {'reasons':['restock','merchant_acceptance']},
+    {'validation_cycle':True}, {'acceptance_scope':{'run_id':'trial'}},
+])
+def test_forced_acceptance_visits_never_qualify_as_natural_cycles(fields):
+    values=data();values['visits'][0].update(fields)
+    result=evaluate(**values)
+    assert not result['qualified'] and result['covered_cycles']==[]
+    assert result['excluded_forced_visit_ids']==['v']
+
+
 def test_assisted_recovery_pending_work_and_old_cycle_never_pass():
     values=data();values['interruptions']=['App process changed during qualification']
     assert not evaluate(**values)['qualified']

@@ -82,6 +82,8 @@ def candidates(loop,send,*,excluded=(),items=None):
         try:
             pair=send({'action':'delivery-pair','character':name})
             f,m=pair['farmer'],pair['merchant']
+            from conquest.merchant_loop_acceptance import merchant_allowed
+            if not merchant_allowed(name,state,m):continue
             if f['map_id']!=1036 or m['map_id']!=1036:continue
             # The tie-break distance is measured on checked terrain, not an
             # unchecked straight-line distance through Market booths.
@@ -93,6 +95,9 @@ def candidates(loop,send,*,excluded=(),items=None):
         except (ValueError,OSError):
             continue
     if farmer is None:return []
+    from conquest.merchant_loop_acceptance import plan_items
+    items=plan_items(farmer,items)
+    if items==[]:return []
     reserved=()
     if items is not None:
         from conquest.merchants.delivery import exact_items
@@ -168,6 +173,8 @@ def settle(loop,send,state,*,start=False):
             if delivered:state.setdefault('receipts',[]).append(record)
             state['active']=None
             write_json(STATE,state)
+            from conquest.merchant_loop_acceptance import settled
+            settled(record)
             loop.record('merchant_delivery_verified' if delivered else 'merchant_delivery_deferred',
                         request_id=key,merchant=active['merchant'],items=delivered,outcome=outcome,
                         activity='Valuables delivered and verified in both inventories' if delivered else
@@ -195,6 +202,8 @@ def refill_remainder(loop,send,key,deadline,proof,revision):
         health=loop.health()
         if not resumable(health,proof,revision) or not clear_observation(health):break
         states=send({'action':'status'}).get('characters',{})
+        from conquest.merchant_loop_acceptance import refill_observed
+        refill_observed(states)
         if not any(s.get('refill',{}).get('enabled') and s['refill'].get('pending') for s in states.values()):break
         time.sleep(min(.2,max(0,deadline-time.time())))
     return True
@@ -261,7 +270,9 @@ def _market_storage(loop,*,send=request,items=None,on_admitted=None):
     # Disabling policy never authorizes abandoning an in-flight transaction.
     if state.get('active'):remaining(settle(loop,send,state))
     policy=read_json(POLICY)
-    if not policy.get('enabled') or not policy.get('parity_verified') or not transfers_enabled(route_character(loop)):return []
+    from conquest.merchant_loop_acceptance import trial_permitted
+    if ((not policy.get('enabled') or not policy.get('parity_verified')) and not trial_permitted(loop)
+            or not transfers_enabled(route_character(loop))):return []
     if loop.living()['embedded_controls']['life']['map_id']!=1036:return []
     try:
         if not send({'action':'delivery-readiness'}).get('qualified'):return []
@@ -324,10 +335,14 @@ def _market_storage(loop,*,send=request,items=None,on_admitted=None):
             # Persist before the first bridge submission, including uncertain
             # HTTP results. Restart recovery never blindly resubmits input.
             state['active']={'request_id':key,'merchant':current['merchant'],
+                             'merchant_identity':current['merchant_identity'],
+                             'merchant_uid':current['merchant_uid'],
                              'items':current['items'],'started_at':time.time(),
                              'visit_id':visit['visit_id'],'farmer_profile_id':visit['farmer_profile_id']}
             state['active']['town_visit_id']=visit.get('town_visit_id')
             write_json(STATE,state)
+            from conquest.merchant_loop_acceptance import admitted
+            admitted(dict(state['active']))
             if on_admitted is not None:on_admitted(dict(state['active']))
             result=settle(loop,send,state,start=True)
             MarketVisit().attempt(current['merchant'],current['position'],result['outcome'])

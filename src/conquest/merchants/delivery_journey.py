@@ -94,7 +94,8 @@ def preflight(loop,send,*,require_inventory=True):
     from conquest.merchants.farmer_identity import route_character
     if not enabled(route_character(loop)):return False
     policy=read_json(delivery_route.POLICY)
-    if not policy.get('enabled') or not policy.get('parity_verified'):return False
+    from conquest.merchant_loop_acceptance import trial_permitted
+    if (not policy.get('enabled') or not policy.get('parity_verified')) and not trial_permitted(loop):return False
     try:
         if not send({'action':'delivery-readiness'}).get('qualified'):return False
         states=send({'action':'status'}).get('characters',{})
@@ -145,6 +146,9 @@ def start(loop,*,send=request,stored_scroll_uid=None):
     if needed>bank['stored_silver']:return False
     if needed:transfer(loop,'withdraw',needed)
     state={'phase':'prepared','origin':origin,'route':route,'started_at':time.time(),'receipts':[]}
+    from conquest.merchant_loop_acceptance import journey_scope
+    scope=journey_scope()
+    if scope is not None:state['acceptance_scope']=scope
     if stored_scroll_uid is not None:state['stored_scroll_uid']=stored_scroll_uid
     write_json(JOURNAL,state)
     loop.record('merchant_journey_started',activity='Shopping complete; taking eligible loot to the Market merchants')
@@ -326,6 +330,7 @@ def prepare_market_scroll(loop,state,*,send=request):
     This stage ends at inventory ownership. The existing delivery route still
     plans, revalidates and receipts the merchant's independent ownership.
     """
+    if state.get('acceptance_scope'):return False  # Never withdraw unrelated trial stock, including after restart.
     from conquest.banking import open_warehouse,close_warehouse
     from conquest.meteor_banking import approach_market_warehouse
     if state.get('scroll_preparation_done'):return False
@@ -404,6 +409,13 @@ def resume(loop,*,send=request):
     from conquest.banking import open_warehouse,close_warehouse
     from conquest.navigation import read_terrain
     state=read_json(JOURNAL);origin=state['origin']
+    if state.get('acceptance_scope'):
+        from conquest.merchant_loop_acceptance import journey_scope,pending_delivery_matches
+        if state['acceptance_scope']!=journey_scope():
+            raise ValueError('Acceptance journey scope changed; reconcile without new input')
+        native=read_json(delivery_route.STATE).get('active')
+        if native and not pending_delivery_matches(native):
+            raise ValueError('Acceptance delivery admission changed; reconcile without new input')
     loop.phase='restocking'
     world=loop.living()['embedded_controls']['life']['map_id']
     loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),world)

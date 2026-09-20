@@ -26,6 +26,9 @@ def isolate_live_session_plan(tmp_path,monkeypatch):
     from conquest import safe_reload
     monkeypatch.setattr(safe_reload,'RESUME',tmp_path/'reload-resume.json')
     from conquest import banking
+    from conquest import merchant_loop_acceptance
+    monkeypatch.setattr(merchant_loop_acceptance,'STATE',tmp_path/'farmer-loop-acceptance.sqlite3')
+    monkeypatch.setattr(merchant_loop_acceptance,'PICKUPS',tmp_path/'acceptance-pickups.jsonl')
     monkeypatch.setattr(banking,'CONFIG',tmp_path/'banking.json')
     monkeypatch.setattr(banking,'STATUS',tmp_path/'bank-status.json')
     monkeypatch.setattr(banking,'LEDGER',tmp_path/'bank-transfers.jsonl')

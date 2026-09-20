@@ -244,7 +244,9 @@ def prepare_new(ui,journal,key,character,uids,action,origin):
         from conquest.merchants.farmer_identity import ui_character
         permits_new_delivery(ui_character(ui))
         policy=read_json('profiles/merchant-deliveries.json')
-        if action!='delivery-test' and (not policy.get('enabled') or not policy.get('parity_verified')):
+        from conquest.merchant_loop_acceptance import trial_delivery_permitted
+        trial = action == 'delivery-start' and trial_delivery_permitted(ui,key,character,uids,origin)
+        if action!='delivery-test' and not trial and (not policy.get('enabled') or not policy.get('parity_verified')):
             raise ValueError('Merchant delivery rollout is not enabled')
         if action=='delivery-test' and len(uids)>5:
             raise ValueError('Supervised delivery test is limited to five items')
@@ -256,6 +258,13 @@ def prepare_new(ui,journal,key,character,uids,action,origin):
         receiver.driver.require_qualified('trade_request')
         receiver.driver.require_qualified('trade')
         farmer,merchant=driver.read_pair(character)
+        if trial:
+            from conquest.merchant_loop_acceptance import state, source_checked
+            source_checked(farmer,state())
+            if (not trial_delivery_permitted(ui,key,character,uids,origin)
+                    or merchant['identity']!=state()['merchants'][str(character)]['identity']
+                    or merchant['character_uid']!=state()['merchants'][str(character)]['character_uid']):
+                raise ValueError('Acceptance merchant or trial permission changed before delivery admission')
         items=[item for item in farmer['inventory'] if item['uid'] in uids]
         if len(items)!=len(uids):raise ValueError('Selected delivery items are not carried')
         journal.update_delivery_admission(key,'admitted',items=items)

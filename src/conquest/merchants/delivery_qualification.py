@@ -5,7 +5,7 @@ from conquest.memory_life import CLIENT_SHA256
 from conquest.merchants.delivery import reconcile,exact_items
 
 
-def promote(receipt_path,candidate_path,farmer_path,merchant_path):
+def promote(receipt_path,candidate_path,farmer_path,merchant_path,*,check=None):
     state=read_json(receipt_path);candidate=read_json(candidate_path)
     intent=state.get('intent',{});farmer=state.get('farmer_after',{});merchant=state.get('merchant_after',{})
     if (state.get('phase')!='delivery_verified' or candidate.get('client_sha256')!=CLIENT_SHA256
@@ -40,8 +40,10 @@ def promote(receipt_path,candidate_path,farmer_path,merchant_path):
         accept_request=dict(window='###Confirm',mode='native_trade_request',label='Accept'),
         accept_trade=dict(window='Trade##TradeWindow',mode='native_trade_confirm',label='Accept Trade'))
     peer.setdefault('capabilities',{}).update(trade_request=True,trade=True)
-    peer.setdefault('trade_evidence',[]).append(str(Path(receipt_path)))
+    evidence=str(Path(receipt_path))
+    if evidence not in peer.setdefault('trade_evidence',[]):peer['trade_evidence'].append(evidence)
     from conquest.merchants.farmer_qualification import promotion_destination
     farmer_path,profile=promotion_destination(farmer_path,profile,farmer)
+    if check is not None:check()
     write_json(farmer_path,profile);write_json(merchant_path,peer)
     return {'farmer':farmer['character'],'merchant':merchant['character'],'items':len(intent['items'])}

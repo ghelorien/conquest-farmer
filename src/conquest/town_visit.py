@@ -90,7 +90,7 @@ class TownVisit:
         return row.get('town_visit_id') if row.get('phase') in ('town_work','returning_to_hunt') else None
 
     def begin(self,reason,*,hunt_map_id,route_id=None):
-        if reason not in ('restock','urgent_banking'):
+        if reason not in ('restock','urgent_banking','merchant_acceptance'):
             raise ValueError('A town visit requires an existing restock or urgent-bank obligation')
         old=self.state()
         if old.get('phase') in ('town_work','returning_to_hunt'):

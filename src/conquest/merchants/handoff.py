@@ -71,7 +71,8 @@ def service_candidate(character):
 def service_window(loop, *, town=False):
     """Run on the existing route controller, retaining its exclusive ownership."""
     policy = read_json(POLICY)
-    if not policy.get('parity_verified') or (not town and not policy.get('hunting_handoffs_enabled')):
+    from conquest.merchant_loop_acceptance import trial_permitted
+    if (not policy.get('parity_verified') and not (town and trial_permitted(loop))) or (not town and not policy.get('hunting_handoffs_enabled')):
         return False
     from conquest.merchants.bridge import request as merchant
     from conquest.worker import request

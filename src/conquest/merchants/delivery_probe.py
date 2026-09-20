@@ -80,7 +80,7 @@ def archive_probe(state):
             stream.flush();os.fsync(stream.fileno())
     if path.exists():
         verify_and_sync()
-        return
+        return path
     fd,name=tempfile.mkstemp(prefix=digest+'.',suffix='.tmp',dir=path.parent)
     temporary=Path(name)
     try:
@@ -95,6 +95,7 @@ def archive_probe(state):
         verify_and_sync()
     finally:
         temporary.unlink(missing_ok=True)
+    return path
 
 
 def recovery_available(ui):

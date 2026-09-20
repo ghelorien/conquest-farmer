@@ -262,6 +262,10 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action in ('farmer-loop-acceptance', 'farmer-loop-acceptance-status','farmer-loop-acceptance-abort',
+                      'farmer-loop-acceptance-override-preview','farmer-loop-acceptance-override'):
+            from conquest.merchant_loop_acceptance import configure
+            return configure(self, body)
         if action=='notification-workers-restart' and set(body)=={'action','worker'}:
             from conquest.notification_workers import restart
             return restart(body['worker'])
@@ -331,6 +335,10 @@ class UnifiedUI:
         if action=='probe-delivery-recheck' and set(body)=={'action'}:
             from conquest.merchants.delivery_probe import recheck
             return recheck(self)
+        if action=='probe-delivery-promote':
+            if set(body)!={'action'}:raise ValueError('Unsupported delivery promotion arguments')
+            from conquest.merchants.delivery_promotion import promote_current
+            return promote_current(self)
         if action=='probe-delivery-reconciliation-diagnostic':
             if set(body)!={'action'}:raise ValueError('Unsupported reconciliation diagnostic arguments')
             from conquest.merchants.delivery_probe import read_probe
@@ -475,12 +483,14 @@ class UnifiedUI:
                 if self.coordinator.owner:raise ValueError('Merchant still owns delivery input')
                 self.runtime.refill_window=key
                 self.runtime.delivery_window=None
+                from conquest.merchant_loop_acceptance import refill_source
                 for character in CHARACTERS:
                     if self.runtime.refill_enabled(character) and (
                             self.runtime.refills[character].due()
                             or self.runtime.journal.get(character,'new_stock',False)):
                         self.runtime.refills[character].start(visit_id=self.grant.get('visit_id'),
-                            town_visit_id=self.grant.get('town_visit_id'),operation_id=key)
+                            town_visit_id=self.grant.get('town_visit_id'),operation_id=key,
+                            source_delivery_operation_id=refill_source(key,character))
             finally:self.coordinator.lock.release()
             return {'refill':True,'expires_at':self.grant['expires_at']}
         if action in ('delivery-start','delivery-test','delivery-status','delivery-readiness','delivery-reconcile','delivery-cleanup','delivery-recheck','delivery-override'):
