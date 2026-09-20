@@ -291,6 +291,8 @@ def _market_storage(loop,*,send=request,items=None,on_admitted=None):
     if not plans:return receipts
     from conquest.merchants.service_visit import MarketVisit,parent_visit
     visit=MarketVisit().begin(parent=parent_visit())
+    from conquest.merchants.service_retry import route_retry
+    visit=route_retry(loop,visit,send)
     deadline=visit['deadline'];deferred_merchants=set()
     loop.market_service_deadline=deadline
     # Inventory is bounded to forty slots. Re-plan after every receipt so

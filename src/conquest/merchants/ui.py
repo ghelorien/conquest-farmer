@@ -493,6 +493,9 @@ class UnifiedUI:
                             source_delivery_operation_id=refill_source(key,character))
             finally:self.coordinator.lock.release()
             return {'refill':True,'expires_at':self.grant['expires_at']}
+        if action=='delivery-service-retry':
+            from conquest.merchants.service_retry import dispatch
+            return dispatch(self,body)
         if action in ('delivery-start','delivery-test','delivery-status','delivery-readiness','delivery-reconcile','delivery-cleanup','delivery-recheck','delivery-override'):
             from conquest.merchants.delivery_operation import dispatch
             return dispatch(self,body)

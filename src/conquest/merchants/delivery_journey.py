@@ -293,6 +293,12 @@ def warehouse_fallback(loop,state,*,send=request):
     from conquest.meteor_banking import approach_market_warehouse
     from conquest.town_trade import stash_candidate
     from conquest.storage_halt import request_stop
+    if state.get('acceptance_scope'):
+        from conquest.merchant_loop_acceptance import journey_scope,verify_carried_or_delivered
+        if state['acceptance_scope']!=journey_scope():
+            raise ValueError('Acceptance journey changed before warehouse fallback')
+        if verify_carried_or_delivered(send({'action':'delivery-source'})['farmer']):
+            raise ValueError('Acceptance delivery is deferred; exact item remains carried for merchant delivery')
     if not state.get('deposit_pending') and not any(stash_candidate(i) for i in loop.town('supplies')['items']):
         return
     approach_market_warehouse(loop,'Storing remaining valuables in the Market warehouse')

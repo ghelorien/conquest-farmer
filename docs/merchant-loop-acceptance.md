@@ -53,8 +53,8 @@ Abort archives an `aborted_cycle`, counts no success, and disarms trial permissi
 It does not clear native transaction or TownVisit evidence, change controls,
 withdraw an item, repeat a trade, or declare an uncertain action successful.
 
-After a failed safe fallback (for example, the item was banked because merchant
-capacity disappeared), first reconcile native journals and stop all input. A
+For older interrupted cycles whose item was already banked by warehouse fallback,
+first reconcile native journals and stop all input. A
 separate explicit unknown/deferred override can then disarm this temporary mode:
 
 ```json
@@ -83,6 +83,18 @@ item and never withdraws an unrelated stored scroll. Its local trial gate permit
 only the pinned run/cycle/item, exact merchant roster, current process/build,
 qualification digest, and journaled native request/grant. Qualification, current
 capacity, bilateral reconciliation and manual input checks are never bypassed.
+
+An expired Market service visit gets at most one new 60-second window per exact
+acceptance cycle, only before any delivery admission or input reservation. The
+native bridge requires the active town controller's current PID/start time and
+heartbeat, stopped combat, no manual Stop or ownership hold, unchanged journey,
+and fresh memory proving the pinned process still carries the exact item. Source
+admissions/transactions, receiver reservations, and work-window history all block
+renewal, including terminal submissions from this town visit. The SQLite cycle
+seals the replacement visit and deadline before the visit file changes; a crash
+or lost response can recover only that same deadline. Ordinary visits and all
+post-submission budgets remain unchanged. If delivery still cannot complete, the
+scoped item stays carried and the acceptance route stops before warehouse input.
 
 A cycle requires the exact admitted request's terminal, cleanup-free bilateral
 receipt (`release_route`); a subsequent completed native merchant refill check;

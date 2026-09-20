@@ -407,9 +407,14 @@ def approach_market_warehouse(loop,activity):
         try:
             loop.travel(point,activity=note,vendor_type=0,arrival_radius=radius)
         except ValueError as error:
+            from conquest.travel_progress import TravelStalled
             fresh=loop.living()['embedded_controls']['life']
-            if str(error)!='Town route remains obstructed' or fresh['map_id']!=1036:raise
-            if max(abs(a-b) for a,b in zip(fresh['position'],(183,190)))<=6:
+            movement_stall=isinstance(error,TravelStalled) and error.code=='no_progress'
+            if (not movement_stall and str(error)!='Town route remains obstructed') or fresh['map_id']!=1036:raise
+            if (loop.town('vendor-status',vendor_type=0) or {}).get('reachable'):return
+            # Include the eastern frontage at (190,189), where the approach
+            # can stall before reaching the old six-tile recovery envelope.
+            if max(abs(a-b) for a,b in zip(fresh['position'],(183,190)))<=8:
                 area='frontage'
                 recovery=[(p,'Taking the western corridor to Market warehouse',1)
                           for p in ((186,199),(176,199),(176,183))]

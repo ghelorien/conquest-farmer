@@ -362,6 +362,46 @@ def test_market_frontage_repeated_failure_is_bounded():
     assert calls==[(186,184),(186,199)]
 
 
+def test_market_progress_stall_uses_bounded_frontage_corridor_from_eastern_edge():
+    from conquest.travel_progress import TravelStalled
+    calls=[];position=[190,189]
+    def travel(point,**kw):
+        calls.append(point)
+        assert kw['vendor_type']==0
+        if len(calls)==1:raise TravelStalled('Route made no improving progress after bounded recovery')
+        position[:]=point
+    loop=NS(living=lambda:{'embedded_controls':{'life':{'map_id':1036,'position':position.copy()}}},
+        town=lambda action,**kw:{'reachable':position==[176,183]} if action=='vendor-status' else None,
+        travel=travel)
+    m.approach_market_warehouse(loop,'Bank valuables')
+    assert calls==[(186,184),(186,199),(176,199),(176,183)]
+
+
+def test_market_progress_stall_rechecks_vendor_before_any_recovery():
+    from conquest.travel_progress import TravelStalled
+    calls=[]
+    def travel(point,**kw):
+        calls.append(point)
+        raise TravelStalled('Route made no improving progress after bounded recovery')
+    loop=NS(living=lambda:{'embedded_controls':{'life':{'map_id':1036,'position':[190,189]}}},
+        town=lambda action,**kw:{'reachable':bool(calls)} if action=='vendor-status' else None,travel=travel)
+    m.approach_market_warehouse(loop,'Bank valuables')
+    assert calls==[(186,184)]
+
+
+@pytest.mark.parametrize('code,count',[('no_progress',2),('service_deadline',1),('unknown',1)])
+def test_market_typed_stall_recovery_is_once_and_movement_only(code,count):
+    from conquest.travel_progress import TravelStalled
+    calls=[]
+    def travel(point,**kw):
+        calls.append(point)
+        raise TravelStalled('stop',code=code)
+    loop=NS(living=lambda:{'embedded_controls':{'life':{'map_id':1036,'position':[190,189]}}},
+        town=lambda *a,**kw:None,travel=travel)
+    with pytest.raises(TravelStalled):m.approach_market_warehouse(loop,'Bank valuables')
+    assert len(calls)==count
+
+
 def test_market_approach_does_not_retry_unrelated_or_repeated_failure():
     calls=[]
     def travel(point,**kw):
