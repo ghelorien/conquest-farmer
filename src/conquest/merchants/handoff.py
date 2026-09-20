@@ -45,10 +45,11 @@ class WorkWindows:
         write_json(self.path, state)
         return state['deadline']
 
-    def finish(self, phase):
+    def finish(self, phase, **extra):
         state = self.state()
-        state.update(phase=phase, finished_at=self.clock())
+        state.update(phase=phase, finished_at=self.clock(),**extra)
         write_json(self.path, state)
+        return state
 
 
 def resumable(health, proof, revision):

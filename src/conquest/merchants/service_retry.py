@@ -106,7 +106,7 @@ def _unadmitted_journals(ui, visit, *, visit_ids=()):
         raise ValueError('Market service has receiver reservation history')
 
 
-def _idle(ui, visit, body, row, *, visit_ids=(), window_request_id=None):
+def _idle(ui, visit, body, row, *, visit_ids=(), window_request_id=None, cleared_record=None):
     from conquest.discord_notify import process_alive
     route=read_json(ROUTE_STATUS)
     if (ROUTE_STOP.exists() or route.get('phase')!='restocking' or route.get('route')!=row['route_id']
@@ -125,7 +125,14 @@ def _idle(ui, visit, body, row, *, visit_ids=(), window_request_id=None):
         raise ValueError('Market service retry requires stopped, unowned native input')
     from conquest.merchants.handoff import WorkWindows
     window=WorkWindows().state()
-    if (window_request_id is None and (window.get('visit_id') in set(visit_ids)|{visit['visit_id']}
+    if cleared_record is not None:
+        if (not isinstance(cleared_record,dict)
+                or window.get('request_id')!=cleared_record.get('request_id')
+                or window.get('phase')!='pre_admission_stale_cleared'
+                or window.get('visit_id')!=visit['visit_id']
+                or window.get('pre_admission_stale_clear')!=cleared_record):
+            raise ValueError('Market service stale clear does not match its exact old window')
+    elif (window_request_id is None and (window.get('visit_id') in set(visit_ids)|{visit['visit_id']}
             or window.get('phase') in ('preparing','working'))):
         raise ValueError('Market service already reserved an input window')
     statuses=ui.runtime.status()
@@ -380,7 +387,15 @@ def _retry(ui, body):
             or any(journey.get(name) for name in ('deposit_pending','receipts','scroll_withdrawal',
                 'scroll_withdrawal_receipt','scroll_delivery_receipts','loose_meteor_pending'))):
         raise ValueError('Market service retry requires unchanged acceptance journey ownership')
-    statuses=_idle(ui,visit,body,row,visit_ids=visit_ids)
+    from conquest.merchants.handoff import WorkWindows
+    window=WorkWindows().state()
+    clears=cycle.get('pre_admission_stale_clears',[])
+    clear=next((record for record in clears if isinstance(record,dict)
+                and record.get('request_id')==window.get('request_id')
+                and record.get('visit_id')==visit.get('visit_id')
+                and record.get('preview_digest')
+                and window.get('pre_admission_stale_clear')==record),None)
+    statuses=_idle(ui,visit,body,row,visit_ids=visit_ids,cleared_record=clear)
     control=ui.app.control.snapshot()
     _unadmitted_journals(ui,visit,visit_ids=visit_ids)
     source=delivery_bridge.dispatch(ui,{'action':'delivery-source'})['farmer']
@@ -393,7 +408,7 @@ def _retry(ui, body):
         raise ValueError('Market service retry requires a currently qualified acceptance merchant')
     if ui.app.control.snapshot()!=control:
         raise ValueError('Farmer control changed while checking the service retry')
-    _idle(ui,visit,body,row,visit_ids=visit_ids)
+    _idle(ui,visit,body,row,visit_ids=visit_ids,cleared_record=clear)
     # Seal the only allowed new deadline before replacing the visit file. A
     # crash between these writes resumes this exact record without more time.
     retry={'previous_visit':deepcopy(visit),'farmer_identity':source['identity'],
