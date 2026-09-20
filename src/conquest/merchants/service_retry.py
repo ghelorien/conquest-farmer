@@ -241,14 +241,22 @@ def _terminal_retry(ui, body, row, cycle, visit, visit_store):
     records=[*_retry_records(cycle),*_terminal_retry_records(cycle)]
     provenance=[record for record in records
                 if record.get('visit',{}).get('visit_id')==admission.get('visit_id')]
-    if len(provenance)!=1 or not isinstance(provenance[0].get('controller'),dict):
-        raise ValueError('Latest failed admission lacks a sealed retry controller')
-    if provenance[0]['controller']==controller:
-        raise ValueError('Terminal delivery retry requires a fresh native town controller')
     admission_controller=admission.get('controller');operation_controller=operation.get('controller')
     if admission_controller!=operation_controller:
         raise ValueError('Latest failed admission controller differs from its route operation')
-    if admission_controller is not None and admission_controller==controller:
+    if admission_controller is not None:
+        if not isinstance(admission_controller,dict):
+            raise ValueError('Latest failed admission controller is malformed')
+        if (provenance and (len(provenance)!=1
+                or not isinstance(provenance[0].get('controller'),dict)
+                or provenance[0]['controller']!=admission_controller)):
+            raise ValueError('Latest failed admission retry provenance differs from its route controller')
+        prior_controller=admission_controller
+    else:
+        if len(provenance)!=1 or not isinstance(provenance[0].get('controller'),dict):
+            raise ValueError('Legacy failed admission lacks a sealed retry controller')
+        prior_controller=provenance[0]['controller']
+    if prior_controller==controller:
         raise ValueError('Terminal delivery retry requires a fresh native town controller')
     previous=next((record for record in _terminal_retry_records(cycle)
                   if record.get('controller')==controller
