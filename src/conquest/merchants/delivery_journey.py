@@ -149,7 +149,15 @@ def start(loop,*,send=request,stored_scroll_uid=None):
     from conquest.merchant_loop_acceptance import journey_scope
     scope=journey_scope()
     if scope is not None:state['acceptance_scope']=scope
-    if stored_scroll_uid is not None:state['stored_scroll_uid']=stored_scroll_uid
+    # A live acceptance cycle is scoped to one exact newly looted item.  A
+    # stored scroll discovered during the same town visit is unrelated stock
+    # and must remain queued for a later journey; prepare_market_scroll also
+    # intentionally refuses to withdraw it while acceptance is active.
+    if stored_scroll_uid is not None:
+        if scope is None:
+            state['stored_scroll_uid']=stored_scroll_uid
+        else:
+            state['deferred_stored_scroll_uid']=stored_scroll_uid
     write_json(JOURNAL,state)
     loop.record('merchant_journey_started',activity='Shopping complete; taking eligible loot to the Market merchants')
     return resume(loop,send=send)
@@ -422,6 +430,18 @@ def resume(loop,*,send=request):
         native=read_json(delivery_route.STATE).get('active')
         if native and not pending_delivery_matches(native):
             raise ValueError('Acceptance delivery admission changed; reconcile without new input')
+        # Recover journals written before acceptance journeys stopped claiming
+        # unrelated stored scrolls.  This is read-only with respect to the
+        # game: no withdrawal was admitted and the exact scroll remains stored.
+        scoped_uid=state.get('acceptance_scope',{}).get('item',{}).get('uid')
+        stored_uid=state.get('stored_scroll_uid')
+        if (stored_uid is not None and stored_uid!=scoped_uid
+                and not state.get('scroll_withdrawal')
+                and not state.get('scroll_withdrawal_receipt')
+                and not state.get('scroll_preparation_done')):
+            state['deferred_stored_scroll_uid']=stored_uid
+            state.pop('stored_scroll_uid',None)
+            save(state)
     loop.phase='restocking'
     world=loop.living()['embedded_controls']['life']['map_id']
     loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),world)
