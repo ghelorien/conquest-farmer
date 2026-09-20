@@ -47,7 +47,7 @@ def probe_attempt_projection(value):
     for key in ('target_profile_id','farmer_profile_id'):
         item=value.get(key)
         if isinstance(item,str) and 0<len(item)<=128 and item.isascii() and all(c.isalnum() or c in '_-.' for c in item):result[key]=item
-    for key in ('active_session_count','eligible_sessions','outage_intervals','retracted_sessions','history_index'):
+    for key in ('active_session_count','eligible_sessions','outage_intervals','retracted_sessions','history_index','pending_current_boundaries'):
         item=value.get(key)
         if type(item) is int and 0<=item<=10000000:result[key]=item
     return result

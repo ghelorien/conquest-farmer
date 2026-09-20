@@ -25,7 +25,7 @@ ITEM_FIELDS = ('uid', 'type_id', 'plus', 'gem1', 'gem2', 'quantity', 'bound')
 PROBE_HISTORY_CHECKS = frozenset(('transaction','ownership','saved_boundary','accepted_boundary',
     'session_row','session_eligibility','current_owner','visitor_binding','visitor_permission',
     'request_history','audit_events','evidence_read','evidence_decode','evidence_integrity',
-    'reader_gap','historical_ownership','historical_owner','historical_digest','request_binding',
+    'reader_gap','current_outage_boundary','historical_ownership','historical_owner','historical_digest','request_binding',
     'audit_chain','probe_recheck','terminal_write','commit_recheck'))
 
 
@@ -862,10 +862,11 @@ class ManualSessionStore:
                     if record['error']:
                         history_check='reader_gap'
                         # Only explicit reader absence, bracketed by exact bot
-                        # ownership on both sides, can describe a restart gap.
+                        # ownership, can describe a restart gap. A trailing run
+                        # is checked against the supplied fresh pair below.
                         allowed_error={'farmer':'Farmer has no attached memory observer',
                                        'merchant':'Attached memory reader is unavailable'}[role]
-                        if (requests or index==0 or index==len(evidence)-1
+                        if (requests or index==0
                                 or row['stable_since'] is not None or row['stable_evidence_id'] is not None
                                 or record['error']!='Request/trade window evidence is unavailable'
                                 or record['ownership_digest'] is not None
@@ -922,6 +923,23 @@ class ManualSessionStore:
                                 raise BindingMismatch('Original stale request binding differs')
                         elif original.get('trade') is None:
                             raise BindingMismatch('Original admission was not an open trade')
+                if gap is not None:
+                    # Bot-owned routing suppresses ordinary manual observation.
+                    # Thus a recovered reader's exact current pair may be the
+                    # first after-boundary. Inspect validates it without writing;
+                    # retraction binds the real normal terminal evidence insert.
+                    history_check='current_outage_boundary'
+                    if (snapshot['timestamp']<gap['last_recorded_at']
+                            or snapshot['timestamp']<gap['before_observed_at']):
+                        raise BindingMismatch('Current evidence does not follow the reader outage')
+                    boundary=historical_local_trade(state,merchant['character'],target_profile_id,
+                        farmer_profile_id,role,snapshot)
+                    self._same_owner(row,boundary)
+                    if _digest(boundary)!=_digest(current):
+                        raise BindingMismatch('Current outage boundary ownership differs')
+                    gaps.append({**gap,'after_evidence_id':None,'after_digest':_digest(snapshot),
+                        'after_ownership_digest':_digest(current),'after_observed_at':snapshot['timestamp'],
+                        'after_recorded_at':now,'after_source':'fresh_bilateral_reconciliation'})
                 pending.append((row, snapshot, current, evidence[0]['id'],gaps))
             role=None;index=None
             if any(row[4] for row in pending):
@@ -935,11 +953,20 @@ class ManualSessionStore:
             if evidence_digest(current_probe()) != proof['probe_digest']:
                 raise BindingMismatch('Probe changed during bilateral retraction')
             if read_only:
-                return {'eligible_sessions':len(pending),'outage_intervals':sum(len(row[4]) for row in pending)}
+                return {'eligible_sessions':len(pending),'outage_intervals':sum(len(row[4]) for row in pending),
+                    'pending_current_boundaries':sum(gap['after_evidence_id'] is None for row in pending for gap in row[4])}
             results = []
             for row, snapshot, current, original_id,gaps in pending:
                 history_check='terminal_write'
                 evidence_id = self._evidence(db, row['id'], snapshot, now, current)
+                if any(gap['after_evidence_id'] is None for gap in gaps):
+                    written=db.execute('SELECT * FROM manual_evidence WHERE id=?',(evidence_id,)).fetchone()
+                    for gap in gaps:
+                        if gap['after_evidence_id'] is not None:continue
+                        if any(gap['after_'+key]!=written[key] for key in
+                               ('digest','ownership_digest','observed_at','recorded_at')):
+                            raise BindingMismatch('Persisted outage boundary differs from the exact current pair')
+                        gap['after_evidence_id']=evidence_id
                 reason = 'Local manual admission retracted; the exact bot-owned trade remains open'
                 receipt = {**proof, 'phase': 'request_withdrawn',
                     'disposition': 'manual_admission_retracted_bot_owned', 'trade_still_visible': True,

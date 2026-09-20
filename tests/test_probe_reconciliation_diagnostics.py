@@ -74,6 +74,7 @@ def test_live_bracketed_restart_gaps_diagnose_without_any_mutation_then_retract_
 def test_uncertain_history_preserves_both_holds_but_is_not_failed_current_bot_proof(supervised,fault):
     x=supervised;rows=gap_pair(x);store=x.runtime.manual_sessions;row=rows[1]
     if fault in ('error_last','wrong_role','extra_key','rollover_error','foreign_valid','stock_valid'):
+        older=x.read()
         evidence={'reader_error':REASONS[1]}
         if fault=='wrong_role':evidence['reader_error']=REASONS[0]
         if fault=='extra_key':evidence['trade']=None
@@ -83,6 +84,7 @@ def test_uncertain_history_preserves_both_holds_but_is_not_failed_current_bot_pr
             if fault=='foreign_valid':evidence['trade']['participant']='Other'
             else:evidence['silver']+=1
         x.now+=.01;store.observe(row['id'],evidence,now=x.now)
+        if fault=='error_last':x.read=lambda:deepcopy(older)
         if fault!='error_last':
             x.now+=.01;store.observe(row['id'],x.read(),now=x.now)
     else:
@@ -229,15 +231,17 @@ def test_gap_retraction_requires_immutable_audit_and_exact_record_observation_ti
     assert contents(x)==before and all(store.get(row['id'])['holds_automation'] for row in rows)
 
 
-def test_live_scale_history_keeps_reconciliation_within_confirmation_deadline(supervised):
+@pytest.mark.parametrize('trailing',[False,True])
+def test_live_scale_history_keeps_reconciliation_within_confirmation_deadline(supervised,trailing):
     x=supervised;rows=false_pair(x);store=x.runtime.manual_sessions
-    # Populate exactly the live evidence cardinalities without thousands of
-    # separate setup transactions. Every row keeps normal immutable digests.
-    for row,read,total,errors,reason in zip(rows,(x.farmer_read,x.read),(1950,1041),(160,64),REASONS):
+    # Cover both the earlier live cardinalities and longer histories with a
+    # still-unbracketed final restart. Use normal immutable evidence digests.
+    totals=(5100,3200) if trailing else (1950,1041)
+    for row,read,total,errors,reason in zip(rows,(x.farmer_read,x.read),totals,(160,64),REASONS):
         with store.db() as db:
             for index in range(total-1):
                 x.now+=.001
-                if index<errors:
+                if index<errors or trailing and index==total-2:
                     eid=store._evidence(db,row['id'],{'reader_error':reason},x.now,error=ERROR)
                     store._attention(db,store._row(db,row['id']),ERROR,x.now,eid)
                 else:
@@ -245,8 +249,10 @@ def test_live_scale_history_keeps_reconciliation_within_confirmation_deadline(su
                     store._evidence(db,row['id'],snapshot,x.now,canonical_ownership(snapshot,require_closed=False))
         assert len(store.evidence(row['id']))==total
     x.runtime._sync_manual_fence()
+    x.now+=.001
     start=time.perf_counter();result=inspect(x);inspect_seconds=time.perf_counter()-start
-    assert result['eligible_sessions']==2 and result['outage_intervals']==2
+    assert result['eligible_sessions']==2 and result['outage_intervals']==(4 if trailing else 2)
+    assert result['pending_current_boundaries']==(2 if trailing else 0)
     start=time.perf_counter()
     assert x.runtime.reconcile_probe_pair('Dutch',x.farmer_read(),x.read(),now=x.now)
     retract_seconds=time.perf_counter()-start
@@ -287,7 +293,8 @@ def test_last_attempt_projection_rejects_unknown_oversized_and_non_metadata_valu
     assert probe_attempt_projection(None) is None
 
 
-def test_native_profile_name_pair_reconciles_three_restart_gaps_with_exact_profile_uuids(supervised,monkeypatch):
+@pytest.mark.parametrize('trailing',[False,True])
+def test_native_profile_name_pair_reconciles_restart_gaps_with_exact_profile_uuids(supervised,monkeypatch,trailing):
     from conquest.character_context import ProfileName
     from test_delivery_probe_manual_ownership import open_trade
     x=supervised;store=x.runtime.manual_sessions
@@ -303,16 +310,20 @@ def test_native_profile_name_pair_reconciles_three_restart_gaps_with_exact_profi
         for _ in range(2):
             x.now+=.01;store.observe(rows[i]['id'],{'reader_error':REASONS[i]},now=x.now)
         x.now+=.01;store.observe(rows[i]['id'],(x.farmer_read if i==0 else x.read)(),now=x.now)
+    if trailing:
+        x.now+=.01;store.observe(rows[0]['id'],{'reader_error':REASONS[0]},now=x.now)
+        x.now+=.01
     x.runtime._sync_manual_fence()
     farmer,merchant=x.farmer_read(),x.read()
     merchant['character']=ProfileName('Dutch',merchant_id)
     farmer['trade']['participant']=ProfileName('Dutch',merchant_id)
     before=contents(x);fence=deepcopy(x.guard.manual_sessions)
     result=x.runtime.inspect_probe_reconciliation(ProfileName('Dutch',merchant_id),farmer,merchant,now=x.now)
-    assert result['outcome']=='validated' and result['eligible_sessions']==2 and result['outage_intervals']==3
+    assert result['outcome']=='validated' and result['eligible_sessions']==2 and result['outage_intervals']==3+int(trailing)
+    assert result['pending_current_boundaries']==int(trailing)
     assert contents(x)==before and x.guard.manual_sessions==fence and not x.calls
     assert x.runtime.reconcile_probe_pair(ProfileName('Dutch',merchant_id),farmer,merchant,now=x.now)
-    assert [len(store.get(row['id'])['terminal']['reader_outage_intervals']) for row in rows]==[2,1]
+    assert [len(store.get(row['id'])['terminal']['reader_outage_intervals']) for row in rows]==[2+int(trailing),1]
     assert all(store.get(row['id'])['terminal']['gameplay_input'] is False for row in rows)
     assert store.verify_audit() and not x.calls and x.runtime.manual_status()==[]
 
@@ -331,10 +342,115 @@ def test_unexpected_history_failure_exposes_only_fixed_invariant_role_and_index(
     assert contents(x)==before and x.guard.manual_sessions==fence and not x.calls
 
 
-def test_unbracketed_latest_gap_remains_protected_with_bounded_invariant(supervised):
+def test_trailing_gap_without_a_later_current_snapshot_remains_protected(supervised):
     x=supervised;rows=gap_pair(x)
+    older=x.read()
     x.now+=.01;x.runtime.manual_sessions.observe(rows[1]['id'],{'reader_error':REASONS[1]},now=x.now)
-    result=inspect(x)
-    assert result['outcome']=='protected' and result['history_check']=='reader_gap'
+    result=x.runtime.inspect_probe_reconciliation('Dutch',x.farmer_read(),older,now=x.now)
+    assert result['outcome']=='protected' and result['history_check']=='current_outage_boundary'
     assert result['history_role']=='merchant' and type(result['history_index']) is int
     assert x.guard.manual_session_blocked('Farmer') and x.guard.manual_session_blocked('Dutch') and not x.calls
+
+
+def trailing_gaps(x,roles=(0,1)):
+    rows=gap_pair(x)
+    for role in roles:
+        for _ in range(3):
+            x.now+=.01
+            x.runtime.manual_sessions.observe(rows[role]['id'],{'reader_error':REASONS[role]},now=x.now)
+    x.runtime._sync_manual_fence()
+    x.now+=.01
+    return rows
+
+
+@pytest.mark.parametrize('roles',[(0,),(1,),(0,1)])
+@pytest.mark.parametrize('entry',['direct','bot_owned_routing'])
+def test_current_bilateral_pair_atomically_brackets_only_exact_trailing_reader_gaps(supervised,roles,entry):
+    x=supervised;rows=trailing_gaps(x,roles);store=x.runtime.manual_sessions
+    before=contents(x);fence=deepcopy(x.guard.manual_sessions)
+    result=inspect(x)
+    assert result['outcome']=='validated' and result['pending_current_boundaries']==len(roles)
+    assert result['eligible_sessions']==2 and result['outage_intervals']==2+len(roles)
+    assert contents(x)==before and x.guard.manual_sessions==fence
+    assert not hasattr(x.runtime,'last_probe_reconciliation') and not x.calls
+    if entry=='direct':assert x.runtime.reconcile_probe_pair('Dutch',x.farmer_read(),x.read(),now=x.now)
+    else:assert x.runtime.process_probe_owned('Dutch',x.read(),farmer_snapshot=x.farmer_read(),now=x.now,require_bilateral=True)
+    for role,row in enumerate(rows):
+        terminal=store.get(row['id'])['terminal']
+        assert not terminal['gameplay_input'] and not terminal['sales_receipt']
+        if role not in roles:continue
+        gap=terminal['reader_outage_intervals'][-1]
+        assert gap['error_count']==3 and gap['after_source']=='fresh_bilateral_reconciliation'
+        assert gap['after_evidence_id']==terminal['evidence_id']>gap['last_error_id']
+        record=next(e for e in store.evidence(row['id']) if e['id']==gap['after_evidence_id'])
+        for field in ('digest','ownership_digest','observed_at','recorded_at'):
+            assert gap['after_'+field]==record[field]
+        assert record['error'] is None and gap['after_observed_at']>=gap['last_recorded_at']
+    assert store.verify_audit() and x.runtime.manual_status()==[] and not x.calls
+    after=contents(x)
+    assert x.runtime.reconcile_probe_pair('Dutch',x.farmer_read(),x.read(),now=x.now)
+    assert contents(x)==after and inspect(x)['pending_current_boundaries']==0
+    with store._probe_connection(True) as db:
+        for table in ('sales','transactions','delivery_admissions','manual_replans','manual_declines','manual_decline_claims','visitor_permissions'):
+            assert db.execute('SELECT COUNT(*) FROM '+table).fetchone()[0]==0
+
+
+@pytest.mark.parametrize('fault',['second_boundary','second_audit','crash','final_digest'])
+def test_current_outage_boundaries_and_both_terminal_rows_rollback_together(supervised,monkeypatch,fault):
+    x=supervised;rows=trailing_gaps(x);store=x.runtime.manual_sessions
+    before=contents(x);fence=deepcopy(x.guard.manual_sessions)
+    counts={'write':0,'read':0}
+    if fault!='final_digest':
+        method='_evidence' if fault=='second_boundary' else '_audit'
+        original=getattr(store,method)
+        def fail(*args,**kwargs):
+            counts['write']+=1
+            result=original(*args,**kwargs)
+            if counts['write']==2:
+                if fault=='crash':raise KeyboardInterrupt('simulated process interruption')
+                raise sqlite3.OperationalError('simulated second-session failure')
+            return result
+        monkeypatch.setattr(store,method,fail)
+    def current():
+        counts['read']+=1
+        return {**x.probe,'changed':True} if fault=='final_digest' and counts['read']==2 else x.probe
+    with pytest.raises((sqlite3.OperationalError,KeyboardInterrupt,ValueError)):
+        store.retract_probe_pair(x.probe,x.farmer_read(),x.read(),target_profile_id='Dutch',farmer_profile_id='Farmer',
+                                 current_probe=current,now=x.now)
+    assert contents(x)==before and x.guard.manual_sessions==fence and not x.calls
+    assert all(store.get(row['id'])['holds_automation'] for row in rows)
+
+
+@pytest.mark.parametrize('fault',['wrong_role','extra_key','identity_error','approval','permission','stable',
+                                 'request','foreign_prefix','audit','process','inventory','silver','accepted','offer','uid'])
+def test_fresh_current_pair_never_erases_disallowed_trailing_or_prior_history(supervised,fault):
+    x=supervised;rows=trailing_gaps(x);store=x.runtime.manual_sessions;row=rows[1]
+    if fault in ('wrong_role','extra_key','identity_error','foreign_prefix'):
+        value={'reader_error':REASONS[0] if fault=='wrong_role' else REASONS[1]}
+        if fault=='extra_key':value['other']='not an allowlisted outage'
+        if fault=='identity_error':value['reader_error']='Game process rolled over'
+        if fault=='foreign_prefix':value=x.read();value['trade']['participant']='Other'
+        x.now+=.01;store.observe(row['id'],value,now=x.now)
+        x.now+=.01;store.observe(row['id'],{'reader_error':REASONS[1]},now=x.now)
+    elif fault in ('approval','permission','stable','request','audit'):
+        with store.db() as db:
+            if fault=='approval':db.execute('UPDATE manual_sessions SET ever_approved=1 WHERE id=?',(row['id'],))
+            if fault=='permission':db.execute('INSERT INTO visitor_permissions VALUES(?,?,?,?,1,?)',('Dutch','Parasite','America',55,x.now))
+            if fault=='stable':db.execute('UPDATE manual_sessions SET stable_since=? WHERE id=?',(x.now,row['id']))
+            if fault=='request':db.execute('UPDATE manual_sessions SET current_request_id=? WHERE id=?',('missing',row['id']))
+            if fault=='audit':db.execute('INSERT INTO manual_audit(session_id,event,at,payload_json,previous_digest,digest) VALUES(?,?,?,?,?,?)',
+                                        (row['id'],'needs_attention',x.now,'{}','bad','bad'))
+    else:
+        if fault=='process':x.state['identity']['creation_time_100ns']+=1
+        if fault=='inventory':x.state['inventory'][0]['quantity']+=1
+        if fault=='silver':x.state['silver']+=1
+        if fault=='accepted':x.state['trade']['accepted']=True
+        if fault=='offer':x.state['trade']['items']=[]
+        if fault=='uid':x.state['trade']['participant_uid']+=1
+    x.now+=.01
+    x.runtime._sync_manual_fence()
+    before=contents(x);fence=deepcopy(x.guard.manual_sessions)
+    result=inspect(x)
+    assert result['outcome'] in ('protected','error') and not result['input_authorized']
+    x.runtime.reconcile_probe_pair('Dutch',x.farmer_read(),x.read(),now=x.now)
+    assert contents(x)==before and x.guard.manual_sessions==fence and not x.calls
