@@ -68,9 +68,9 @@ def _same_participant(snapshot, receipt):
 
 
 def _same_replay_participant(snapshot, receipt):
-    """Fields that cannot change during an inventory-to-owned-booth replay."""
+    """Fields that cannot change while native refill opens an owned booth."""
     return _same_participant(snapshot,receipt) and all(snapshot.get(field)==receipt.get(field) for field in
-        ('capacity','map_id','booth_open','own_booth_uid'))
+        ('capacity','map_id','own_booth_uid')) and snapshot.get('booth_open') is True
 
 
 def _stock(snapshot):

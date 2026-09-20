@@ -92,6 +92,7 @@ def listed_delivery(rig, *, uid=10, character=None, phase='verified', item=None)
     item=deepcopy(original if item is None else item)
     before_snapshot=deepcopy(rig.state['merchant_after'])
     before_snapshot['timestamp']=time.time()
+    before_snapshot['booth_open']=True
     before={'uid':uid,'price':750000,'item':item,'snapshot':before_snapshot}
     key=f'listing:{character}:promotion-test'
     rig.runtime.journal.begin(key,character,'listing',before)
@@ -99,6 +100,7 @@ def listed_delivery(rig, *, uid=10, character=None, phase='verified', item=None)
     if phase=='verified':
         rig.runtime.journal.transition(key,'verified',{'uid':uid,'name':'MeteorScroll','old_price':None,'price':750000})
     current=deepcopy(rig.state['merchant_after'])
+    current['booth_open']=True
     current['inventory']=[]
     current['booth']=[{**original,'price':750000}]
     rig.snapshots[0]=deepcopy(rig.state['farmer_after'])
@@ -110,12 +112,14 @@ def append_listing(rig, snapshot, item, price, suffix):
     """Append a controller-shaped inventory-to-booth receipt to a replay."""
     key=f'listing:Spiritual:{suffix}'
     before_snapshot=deepcopy(snapshot);before_snapshot['timestamp']=time.time()
+    before_snapshot['booth_open']=True
     before={'uid':item['uid'],'price':price,'item':deepcopy(item),'snapshot':before_snapshot}
     rig.runtime.journal.begin(key,'Spiritual','listing',before)
     rig.runtime.journal.transition(key,'submitted')
     rig.runtime.journal.transition(key,'verified',
         {'uid':item['uid'],'name':item.get('name','Item'),'old_price':None,'price':price})
     after=deepcopy(before_snapshot)
+    after['booth_open']=True
     after['inventory']=[row for row in after['inventory'] if row['uid']!=item['uid']]
     after['booth'].append({**item,'price':price})
     return after
@@ -155,15 +159,22 @@ def test_listing_chain_replays_every_verified_listing_before_the_delivered_scrol
     bamboo={**rig.state['intent']['items'][0],'uid':11,'type_id':410339,'plus':0}
     rig.state['intent']['merchant']['inventory']=[deepcopy(bamboo)]
     rig.state['merchant_after']['inventory']=[deepcopy(bamboo),*rig.state['merchant_after']['inventory']]
+    rig.state['merchant_after']['booth_open']=False
     first=append_listing(rig,rig.state['merchant_after'],bamboo,1_000_000,'bamboo')
     second=append_listing(rig,first,rig.state['intent']['items'][0],750_000,'scroll')
     rig.snapshots[0]=deepcopy(rig.state['farmer_after']);rig.snapshots[1]=second
     assert chain(rig)
 
 
+def test_listing_chain_allows_only_staged_closed_to_verified_owned_booth_open(rig):
+    rig.state['merchant_after']['booth_open']=False
+    listed_delivery(rig)
+    assert chain(rig)
+
+
 @pytest.mark.parametrize('case', ['missing','malformed','unrelated','wrong_uid','wrong_merchant','wrong_attributes',
     'unverified','stale_current','sale_silver','ambiguous','step_tamper','event_tamper','updated_after_snapshot',
-    'historical_trade','loose_meteor'])
+    'historical_trade','loose_meteor','closed_listing','wrong_owned_booth'])
 def test_listing_chain_is_fail_closed_for_adversarial_evidence(rig,case):
     if case=='missing':
         current=deepcopy(rig.state['merchant_after']);current['inventory']=[]
@@ -212,15 +223,19 @@ def test_listing_chain_is_fail_closed_for_adversarial_evidence(rig,case):
         elif case=='updated_after_snapshot':
             with rig.runtime.journal.db() as db:
                 db.execute('UPDATE transactions SET updated=? WHERE id=?',(time.time()+3600,key))
-        elif case in ('historical_trade','loose_meteor'):
+        elif case in ('historical_trade','loose_meteor','closed_listing','wrong_owned_booth'):
             with rig.runtime.journal.db() as db:
                 row=db.execute('SELECT before_json FROM transactions WHERE id=?',(key,)).fetchone()
                 before=json.loads(row[0])
                 if case=='historical_trade':
                     before['snapshot']['trade']={'participant':'Parasite'}
-                else:
+                elif case=='loose_meteor':
                     before['item']['type_id']=1088001
                     before['snapshot']['inventory'][0]['type_id']=1088001
+                elif case=='closed_listing':
+                    before['snapshot']['booth_open']=False
+                else:
+                    before['snapshot']['own_booth_uid']=999
                 db.execute('UPDATE transactions SET before_json=? WHERE id=?',(json.dumps(before),key))
     assert not chain(rig)
 
