@@ -343,6 +343,9 @@ def observe_hunting(loop, health, *, send=None):
             return False
         raise
     inventory = source_checked(source, row)
+    from conquest.banking import urgent_valuables
+    if urgent_valuables(source['inventory']):
+        return False
     if source['map_id'] != row['hunt_map_id']:
         raise ValueError('Acceptance farmer left the hunt map during observation')
     if active and active['phase'] == 'awaiting_hunt':

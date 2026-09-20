@@ -20,7 +20,7 @@ ROUTE_STOP=Path(state_path('.runtime/overnight.stop'))
 
 
 def route_retry(loop, visit, send):
-    if time.time() < visit['deadline'] or visit.get('retry_of'):
+    if time.time() < visit['deadline']:
         return visit
     from conquest import merchant_loop_acceptance as acceptance
     row=acceptance.state();cycle=row.get('active') or {}
@@ -39,16 +39,43 @@ def route_retry(loop, visit, send):
     return fresh
 
 
-def _same_origin(origin, visit):
-    return bool(origin.get('visit_id')==visit['visit_id'] or
-                visit.get('town_visit_id') and origin.get('town_visit_id')==visit['town_visit_id'])
+def _retry_records(cycle):
+    history=cycle.get('service_retry_history',[])
+    if not isinstance(history,list) or any(not isinstance(record,dict) for record in history):
+        raise ValueError('Market service retry history is malformed')
+    latest=cycle.get('service_retry')
+    return [*history,*([latest] if isinstance(latest,dict) else [])]
 
 
-def _unadmitted_journals(ui, visit):
+def _deferred_attempts(visit):
+    return isinstance(visit,dict) and all(isinstance(attempt,dict)
+        and attempt.get('outcome')=='deferred_before_input' for attempt in visit.get('attempts',[]))
+
+
+def _retry_visit_matches(saved, visit):
+    return isinstance(saved,dict) and all(saved.get(key)==visit.get(key)
+        for key in ('visit_id','retry_of','started_at','deadline','town_visit_id','farmer_profile_id'))
+
+
+def _known_visit_ids(cycle, visit):
+    result={visit.get('visit_id')}
+    for record in _retry_records(cycle):
+        for name in ('previous_visit','visit'):
+            saved=record.get(name,{})
+            if isinstance(saved,dict):result.add(saved.get('visit_id'))
+    return result-{None}
+
+
+def _same_origin(origin, visit, *, visit_ids=()):
+    return bool(isinstance(origin,dict) and (origin.get('visit_id') in set(visit_ids)|{visit['visit_id']} or
+                visit.get('town_visit_id') and origin.get('town_visit_id')==visit['town_visit_id']))
+
+
+def _unadmitted_journals(ui, visit, *, visit_ids=()):
     from conquest.merchants import delivery_operation, delivery_route, delivery_reservation
     delivery_operation.guard_reload()
     route=read_json(delivery_route.STATE)
-    if route.get('active') or route.get('cleanup_pending') or any(_same_origin(r,visit) for r in
+    if route.get('active') or route.get('cleanup_pending') or any(_same_origin(r,visit,visit_ids=visit_ids) for r in
             route.get('operations',[])+route.get('receipts',[])):
         raise ValueError('Market service already has delivery input history')
     # Read both admission and transaction histories, including terminal rows.
@@ -63,16 +90,16 @@ def _unadmitted_journals(ui, visit):
             if any(r[0] not in ('verified','aborted','operator_overridden') for r in transactions):
                 raise ValueError('Market service has an unresolved source transaction')
             origins += [json.loads(r[1]) for r in transactions]
-        if any(_same_origin(origin,visit) for origin in origins):
+        if any(_same_origin(origin,visit,visit_ids=visit_ids) for origin in origins):
             raise ValueError('Market service already has a source admission')
     with ui.runtime.journal.db() as db:
         reservations=[json.loads(r[0]) for r in db.execute('SELECT state FROM delivery_reservations')]
-    if any(r.get('phase') not in delivery_reservation.TERMINAL or _same_origin(r.get('intent',{}),visit)
+    if any(r.get('phase') not in delivery_reservation.TERMINAL or _same_origin(r.get('intent',{}),visit,visit_ids=visit_ids)
            for r in reservations):
         raise ValueError('Market service has receiver reservation history')
 
 
-def _idle(ui, visit, body, row):
+def _idle(ui, visit, body, row, *, visit_ids=()):
     from conquest.discord_notify import process_alive
     route=read_json(ROUTE_STATUS)
     if (ROUTE_STOP.exists() or route.get('phase')!='restocking' or route.get('route')!=row['route_id']
@@ -91,7 +118,7 @@ def _idle(ui, visit, body, row):
         raise ValueError('Market service retry requires stopped, unowned native input')
     from conquest.merchants.handoff import WorkWindows
     window=WorkWindows().state()
-    if window.get('visit_id')==visit['visit_id'] or window.get('phase') in ('preparing','working'):
+    if window.get('visit_id') in set(visit_ids)|{visit['visit_id']} or window.get('phase') in ('preparing','working'):
         raise ValueError('Market service already reserved an input window')
     statuses=ui.runtime.status()
     if any(s.get('pending') or s.get('input_active') or s.get('manual_input_fence')
@@ -129,22 +156,37 @@ def _retry(ui, body):
             or visit.get('town_visit_id')!=cycle.get('town_visit_id')
             or TownVisit().active_id()!=cycle.get('town_visit_id')):
         raise ValueError('Market service retry requires the exact unadmitted acceptance cycle')
-    if saved and saved['visit']['retry_of']==body['visit_id'] and visit==saved['visit']:
-        # Lost acknowledgement: read the original sealed result, never extend it.
-        return {'visit':visit}
-    if (visit.get('phase')!='active' or visit.get('visit_id')!=body['visit_id'] or visit.get('retry_of')
+    if saved and saved.get('previous_visit',{}).get('visit_id')==body['visit_id']:
+        # The SQLite seal precedes the visit-file write.  A lost bridge reply
+        # reads the same sealed deadline; a crash before the file write only
+        # completes that write and never creates another budget.
+        if visit==saved.get('visit'):
+            return {'visit':visit}
+        if visit==saved.get('previous_visit'):
+            write_json(visit_store.path,saved['visit'])
+            return {'visit':saved['visit']}
+        raise ValueError('Market service retry acknowledgement conflicts with the sealed visit')
+    history=cycle.get('service_retry_history',[])
+    records=_retry_records(cycle)
+    if (visit.get('phase')!='active' or visit.get('visit_id')!=body['visit_id']
             or type(visit.get('deadline')) not in (int,float) or time.time()<visit['deadline']
             or any(a.get('outcome')!='deferred_before_input' for a in visit.get('attempts',[]))
-            or saved and saved.get('previous_visit')!=visit):
+            or saved and not _retry_visit_matches(saved.get('visit'),visit)
+            or any(not _deferred_attempts(record.get('previous_visit'))
+                   or not _deferred_attempts(record.get('visit')) for record in records)):
         raise ValueError('Market service retry requires an expired untouched visit')
+    controller={'pid':body['route_pid'],'started_at':body['route_started_at']}
+    if any(record.get('controller')==controller for record in records):
+        raise ValueError('Market service retry requires a fresh native town controller')
+    visit_ids=_known_visit_ids(cycle,visit)
     journey=read_json(delivery_journey.JOURNAL)
     if (journey.get('phase')!='market' or journey.get('acceptance_scope')!=acceptance.journey_scope()
             or any(journey.get(name) for name in ('deposit_pending','receipts','scroll_withdrawal',
                 'scroll_withdrawal_receipt','scroll_delivery_receipts','loose_meteor_pending'))):
         raise ValueError('Market service retry requires unchanged acceptance journey ownership')
-    statuses=_idle(ui,visit,body,row)
+    statuses=_idle(ui,visit,body,row,visit_ids=visit_ids)
     control=ui.app.control.snapshot()
-    _unadmitted_journals(ui,visit)
+    _unadmitted_journals(ui,visit,visit_ids=visit_ids)
     source=delivery_bridge.dispatch(ui,{'action':'delivery-source'})['farmer']
     inventory=acceptance.source_checked(source,row)
     wanted=exact_items([cycle['item']])
@@ -155,18 +197,23 @@ def _retry(ui, body):
         raise ValueError('Market service retry requires a currently qualified acceptance merchant')
     if ui.app.control.snapshot()!=control:
         raise ValueError('Farmer control changed while checking the service retry')
-    _idle(ui,visit,body,row)
+    _idle(ui,visit,body,row,visit_ids=visit_ids)
     # Seal the only allowed new deadline before replacing the visit file. A
     # crash between these writes resumes this exact record without more time.
-    retry=saved or {'previous_visit':deepcopy(visit),'farmer_identity':source['identity'],
+    retry={'previous_visit':deepcopy(visit),'farmer_identity':source['identity'],
         'item':deepcopy(cycle['item']),'run_id':row['run_id'],'cycle_id':cycle['cycle_id'],
-        'controller':{'pid':body['route_pid'],'started_at':body['route_started_at']},
+        'controller':controller,
         'visit':{**visit,'visit_id':uuid.uuid4().hex,'started_at':time.time(),
                  'attempts':[],'retry_of':visit['visit_id']}}
-    if not saved:retry['visit']['deadline']=retry['visit']['started_at']+service_visit.MARKET_SECONDS
+    retry['visit']['deadline']=retry['visit']['started_at']+service_visit.MARKET_SECONDS
+    archived=deepcopy(history)
+    if saved:
+        previous=deepcopy(saved);previous['visit']=deepcopy(visit)
+        archived.append(previous)
     def seal(current):
         if current!=row:
             raise ValueError('Acceptance changed while sealing its service retry')
+        current['active']['service_retry_history']=archived
         current['active']['service_retry']=deepcopy(retry)
         return current
     acceptance.update('pre_admission_service_retry',seal)
