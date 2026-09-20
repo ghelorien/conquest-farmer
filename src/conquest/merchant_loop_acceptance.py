@@ -321,12 +321,27 @@ def observe_hunting(loop, health, *, send=None):
         raise ValueError('Acceptance route or farmer profile changed')
     if not _live_health(row, health):return False
     from conquest.merchants.bridge import request
+    from conquest.merchants.memory import TransitObservationChanged
     send = send or request
-    source = send({'action': 'delivery-source'})['farmer']
+    active = row.get('active')
+    try:
+        source = send({'action': 'delivery-source'})['farmer']
+    except TransitObservationChanged:
+        # A memory reader observed movement while assembling the *pre-cycle*
+        # farmer snapshot.  This authorizes no input and has no ownership or
+        # transaction meaning.  Defer one native tick only if the durable run
+        # is still exactly the same untouched armed state; a concurrent trigger
+        # or any active service phase must instead be reconciled by its owner.
+        current=state()
+        if (current.get('enabled') and current.get('run_id')==row.get('run_id')
+                and current.get('farmer_profile_id')==row.get('farmer_profile_id')
+                and current.get('route_id')==row.get('route_id')
+                and current.get('phase')=='armed' and current.get('active') is None):
+            return False
+        raise
     inventory = source_checked(source, row)
     if source['map_id'] != row['hunt_map_id']:
         raise ValueError('Acceptance farmer left the hunt map during observation')
-    active = row.get('active')
     if active and active['phase'] == 'awaiting_hunt':
         visit = loop.town_visit.state()
         if (visit.get('phase') == 'complete' and visit.get('town_visit_id') == active['town_visit_id']

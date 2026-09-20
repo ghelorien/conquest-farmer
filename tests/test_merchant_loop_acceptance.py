@@ -273,6 +273,64 @@ def test_process_rollover_and_missing_native_provenance_fail_closed(rig,monkeypa
     with pytest.raises(ValueError,match='process changed'):rig.observe()
 
 
+def test_precycle_transit_observation_defers_without_writing_or_triggering_input(rig):
+    from conquest.merchants.memory import TransitObservationChanged
+    enable(rig);before=acceptance.STATE.read_bytes();calls=[]
+    def transient(body):
+        calls.append(body)
+        raise TransitObservationChanged('Merchant position changed during observation')
+    assert not acceptance.observe_hunting(rig.loop,rig.health,send=transient)
+    assert calls==[{'action':'delivery-source'}]
+    assert acceptance.STATE.read_bytes()==before and acceptance.state()['active'] is None
+    # A later stable native tick is still free to make the independently
+    # proven pickup trigger; the transient did not alter its baseline.
+    selected=rig.trigger()
+    assert acceptance.state()['active']['item']==selected
+
+
+def test_precycle_delivery_source_only_defers_the_exact_transit_exception(rig):
+    enable(rig)
+    def fatal(_):raise ValueError('merchant process changed during observation')
+    with pytest.raises(ValueError,match='process changed'):
+        acceptance.observe_hunting(rig.loop,rig.health,send=fatal)
+    assert acceptance.state()['active'] is None
+
+
+@pytest.mark.parametrize('phase',['triggered','town','delivered'])
+def test_transit_observation_never_defers_an_active_acceptance_cycle(rig,phase):
+    from conquest.merchants.memory import TransitObservationChanged
+    enable(rig);rig.trigger()
+    if phase=='town':rig.town()
+    elif phase=='delivered':
+        acceptance.update('test_delivered',lambda row:({**row,'active':{**row['active'],'phase':'delivered'}}))
+    def transient(_):raise TransitObservationChanged('Merchant position changed during observation')
+    with pytest.raises(TransitObservationChanged):
+        acceptance.observe_hunting(rig.loop,rig.health,send=transient)
+    assert acceptance.state()['active']['phase']==phase
+
+
+def test_transit_observation_re_raises_when_another_worker_triggers_the_cycle(rig):
+    from conquest.merchants.memory import TransitObservationChanged
+    enable(rig)
+    def raced(_):
+        acceptance.update('test_race',lambda row:({**row,'phase':'running','active':{
+            'cycle_id':'raced','phase':'triggered','item':item(20),'admissions':[]}}))
+        raise TransitObservationChanged('Merchant position changed during observation')
+    with pytest.raises(TransitObservationChanged):
+        acceptance.observe_hunting(rig.loop,rig.health,send=raced)
+    assert acceptance.state()['active']['cycle_id']=='raced'
+
+
+def test_precycle_transit_deferral_keeps_completed_cycles_and_same_run(rig):
+    from conquest.merchants.memory import TransitObservationChanged
+    enable(rig)
+    before=acceptance.update('test_completed',lambda row:({**row,'cycles':[{'cycle_id':'old','phase':'completed'}]}))
+    def transient(_):raise TransitObservationChanged('Merchant position changed during observation')
+    assert not acceptance.observe_hunting(rig.loop,rig.health,send=transient)
+    after=acceptance.state()
+    assert after['run_id']==before['run_id'] and after['cycles']==before['cycles'] and after['active'] is None
+
+
 def test_disable_disarms_only_before_trigger_and_retries_do_not_rearm(rig):
     enable(rig)
     body={'action':'farmer-loop-acceptance','enabled':False,'farmer_profile_id':'Parasite'}
