@@ -4,14 +4,13 @@ from conquest.capture import CaptureUnavailable
 from conquest.merchants.delivery_probe import JOURNAL,write_probe as write_json
 from conquest.merchants.delivery_bridge import pair
 from conquest.merchants.delivery import exact_items,validate_snapshot
-from conquest.merchants.delivery_accept_probe import control
+from conquest.merchants.delivery_accept_probe import control,exact_incoming_request
 from conquest.merchants.driver import wait_hover_validation
 
 def unchanged(intent,farmer,merchant):
     if farmer.get('trade') or merchant.get('trade') or farmer.get('request'):
         raise ValueError('Only an unopened trade request may be cancelled')
-    name=intent['farmer']['character']
-    if merchant.get('request')!={'participant':name,'message':name+' wishes to trade with you.'}:
+    if not exact_incoming_request(intent,merchant):
         raise ValueError('Incoming request changed')
     participants_unchanged(intent,farmer,merchant)
 
@@ -26,9 +25,10 @@ def participants_unchanged(intent,farmer,merchant):
 
 def cancelled(intent,farmer,merchant):
     participants_unchanged(intent,farmer,merchant)
-    return not any(s.get('trade') or s.get('request') for s in (farmer,merchant))
+    return (not farmer.get('trade') and not merchant.get('trade')
+            and not farmer.get('request') and not exact_incoming_request(intent,merchant))
 
-def run(ui,state,*,output_path=JOURNAL):
+def run(ui,state,*,output_path=JOURNAL,before_submit=None):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_click
     character=state['character'];intent=state['intent'];revision=ui.app.control.snapshot()['revision']
@@ -53,7 +53,9 @@ def run(ui,state,*,output_path=JOURNAL):
                 check();a,b=pair(ui,character);unchanged(intent,a,b)
                 if control(driver,b)!=(w,accept):raise ValueError('Request dialog moved')
                 driver.memory.gui.assert_hovered(w,'Cancel')
-            state.update(phase='cancel_submitted',cancel_point=point);write_json(output_path,state)
+            state.update(phase='cancel_submitted',cancel_point=point,submitted_at=time.time())
+            if before_submit is not None:before_submit(state)
+            write_json(output_path,state)
             foreground_click(driver.target,*point,tuple(size),require_foreground=False,
                 before_press=lambda:wait_hover_validation(guard,check))
             until=time.monotonic()+3
