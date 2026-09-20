@@ -317,7 +317,7 @@ class FarmerTradeDriver:
             # Target-mode selection can briefly mutate the receiver collection.
             # Re-read only; never replay the already-recorded mode-selection input.
             deadline=time.monotonic()+1.5
-            for attempt in range(5):
+            while True:
                 self.check();targeting_f,targeting_m=self.read_pair(m['character'])
                 unchanged(targeting_f,targeting_m)
                 try:
@@ -325,8 +325,9 @@ class FarmerTradeDriver:
                                                farmer=targeting_f,targeting=True)
                     break
                 except RecipientSceneChanged:
-                    if attempt==4 or time.monotonic()>=deadline:raise
-                    time.sleep(.05)
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0:raise
+                    time.sleep(min(.05,remaining))
             binding=recipient_binding(recipient)
             self._action_observed('trade_target_mode',{'targeting_trade':True})
             point=tuple(round(v*p/g) for v,p,g in zip(recipient['point'],profile['client_size'],profile['gui_size']))
