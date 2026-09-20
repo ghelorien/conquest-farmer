@@ -195,9 +195,16 @@ class FarmerTradeDriver:
         grant=getattr(self.ui,'grant',None)
         if grant and grant['expires_at']<=time.time():
             raise CaptureUnavailable('Merchant delivery work window expired; reconcile before further input')
-        if (self.ui.closed or state['enabled'] or state.get('paused')
-                or state['revision']!=self.revision or not self.ui.safe_to_yield()):
-            raise CaptureUnavailable('Farmer delivery input permission changed or expired')
+        if self.ui.closed:
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: ui_closed')
+        if state['enabled']:
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: farming_enabled')
+        if state.get('paused'):
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: farming_paused')
+        if state['revision']!=self.revision:
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: control_revision_changed')
+        if not self.ui.safe_to_yield():
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: safe_handoff_unavailable')
         if self.recipient and not self.ui.runtime.enabled(self.recipient):
             raise CaptureUnavailable('Merchant trading was paused during delivery')
         import ctypes

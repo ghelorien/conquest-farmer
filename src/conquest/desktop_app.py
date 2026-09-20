@@ -1274,7 +1274,8 @@ class DesktopApp:
             self.route_note.set(str(error))
 
     def update_ids(self, enabled):
-        if not enabled:self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
+        if not enabled:
+            self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
         if enabled:
             from conquest.merchants.delivery_operation import guard_protected_assets
             try:guard_protected_assets()
@@ -1295,15 +1296,20 @@ class DesktopApp:
         self.record(control_intent={'enabled':enabled,'source':'UI button or F10','time':time.time()})
         if not enabled:
             self.record(kills_per_hour=0)
-            # Explicit UI Off must stop a town coordinator too; its internal
-            # combat Off is handled separately by update_control.
-            path=Path(state_path('.runtime/overnight.stop'));path.parent.mkdir(parents=True,exist_ok=True)
-            path.write_text('Stopped by user: Farming Off',encoding='utf-8')
         try:
             if getattr(self,'reload_preparing',False):
                 if enabled:raise ValueError('Reload preparation owns input; Stop cancels it')
                 self.reload_cancel.set()
-            current = self.control.update({'enabled':enabled})
+            with self.control.lock:
+                fresh_start=bool(enabled and not self.control.snapshot()['enabled'])
+                current = self.control.update({'enabled':enabled})
+                if fresh_start:
+                    Path(state_path('.runtime/overnight.stop')).unlink(missing_ok=True)
+                    self._fresh_controller_start_revision=current['revision']
+                elif not enabled:
+                    self._fresh_controller_start_revision=None
+                    path=Path(state_path('.runtime/overnight.stop'));path.parent.mkdir(parents=True,exist_ok=True)
+                    path.write_text('Stopped by user: Farming Off',encoding='utf-8')
             self.record(manual_stop_revision=None if enabled else current['revision'])
             self.update_kill_metrics('begin' if enabled else 'stop')
             if enabled and self.host.saved:
@@ -1317,7 +1323,16 @@ class DesktopApp:
             self.memory_text.set(str(error))
 
     def update_control(self, body):
-        if body.get('enabled') is False:self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
+        body=dict(body)
+        explicit_start=body.pop('explicit_restart',False)
+        explicit_stop=body.pop('explicit_stop',False)
+        if (type(explicit_start) is not bool or type(explicit_stop) is not bool
+                or explicit_start and explicit_stop
+                or explicit_start and body.get('enabled') is not True
+                or explicit_stop and body.get('enabled') is not False):
+            raise ValueError('Explicit route control marker does not match enabled')
+        if body.get('enabled') is False:
+            self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
         if body.get('enabled'):
             from conquest.merchants.delivery_operation import guard_protected_assets
             guard_protected_assets()
@@ -1337,9 +1352,21 @@ class DesktopApp:
             current=self.control.update({'enabled':False,'target_type_ids':list(route.monster_type_ids),'target_ids':[]})
             self.messages.put(('route_selected',{'route_id':route.id}))
             return {'route_queued':route.id}
+        with self.control.lock:
+            stop=Path(state_path('.runtime/overnight.stop'))
+            if body.get('enabled') is True and stop.exists() and not explicit_start:
+                raise ValueError('Farming restart requires explicit_restart')
+            fresh_start=bool(explicit_start and not self.control.snapshot()['enabled'])
+            current = self.control.update(body)
+            if fresh_start:
+                stop.unlink(missing_ok=True)
+                self._fresh_controller_start_revision=current['revision']
+            elif explicit_stop:
+                self._fresh_controller_start_revision=None
+                stop.parent.mkdir(parents=True,exist_ok=True)
+                stop.write_text('Stopped by user: Farming Off',encoding='utf-8')
         if 'enabled' in body:
             self.messages.put(('control_intent',{'enabled':body['enabled'],'source':'authenticated bridge','time':time.time()}))
-        current = self.control.update(body)
         if body.get('enabled') is True:
             if getattr(self,'unified',None):
                 self.unified.grant = None
@@ -1366,6 +1393,8 @@ class DesktopApp:
             return False
 
     def _start_embedded_farm(self):
+        fresh_start=(getattr(self,'_fresh_controller_start_revision',None)
+                     ==self.control.snapshot()['revision'])
         from conquest.merchants.delivery_operation import guard_protected_assets
         guard_protected_assets()
         if hasattr(self,'attachment') and not self.attachment.ready:
@@ -1376,7 +1405,8 @@ class DesktopApp:
         from conquest import meteor_banking
         if (pending() or meteor_banking.pending()) and self.selected_route:
             from conquest.route_controller import ensure_running
-            ensure_running(self.selected_route.id)
+            if ensure_running(self.selected_route.id,fresh_start=fresh_start) and fresh_start:
+                self._fresh_controller_start_revision=None
             return
         if self.thread and self.thread.is_alive():
             self.show_game()
@@ -1456,7 +1486,13 @@ class DesktopApp:
             self.runtime.recovery=None
             self.runtime.external_failure=None
             self.runtime.external_execution=True
-            self.control.update({'input_mode':'foreground'})
+            with self.control.lock:
+                previous=self.control.snapshot()
+                if not previous['enabled']:
+                    return
+                current=self.control.update({'input_mode':'foreground'})
+                if getattr(self,'_fresh_controller_start_revision',None)==previous['revision']:
+                    self._fresh_controller_start_revision=current['revision']
             (self.output/'stop.request').unlink(missing_ok=True)
             self.update_kill_metrics('begin')
             self.record(state='Starting farm',attempts=0)
@@ -1663,7 +1699,6 @@ class DesktopApp:
                 self.reload_preparing=False
                 self.record(reload_preparing=False,activity='Reload deferred',reload_detail=fields['detail'])
                 if self.reload_resume and not self.reload_cancel.is_set():
-                    Path(state_path('.runtime/overnight.stop')).unlink(missing_ok=True)
                     self.update_control({'enabled':True})
             elif event=='reconnect_requested':
                 self.retry_reconnect()
@@ -1764,7 +1799,10 @@ class DesktopApp:
                 self.controller_check_at=time.monotonic()+2
                 from conquest.route_controller import ensure_running
                 try:
-                    if ensure_running(self.selected_route.id):
+                    fresh_start=(getattr(self,'_fresh_controller_start_revision',None)
+                                 ==control['revision'])
+                    if ensure_running(self.selected_route.id,fresh_start=fresh_start):
+                        if fresh_start:self._fresh_controller_start_revision=None
                         self.record(route_controller='Restarting automatic route management')
                 except (OSError,ValueError) as error:
                     self.record(route_controller_error=str(error))
