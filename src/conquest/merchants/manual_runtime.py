@@ -5,10 +5,25 @@ from contextlib import contextmanager
 from conquest.character_context import is_farmer_owner
 
 from conquest.merchants.journal import CHARACTERS, character_name
-from conquest.merchants.manual_sessions import ManualSessionError, ManualSessionStore
+from conquest.merchants.manual_sessions import ManualSessionError, ManualSessionStore, PROBE_HISTORY_CHECKS
 
 
 OBSERVATION_DEFERRED = object()
+
+
+def _probe_history_failure(error):
+    """Only fixed invariant labels and bounded counters, never traceback data."""
+    result={}
+    trace=error.__traceback__
+    while trace is not None:
+        if trace.tb_frame.f_code is ManualSessionStore._probe_pair.__code__:
+            scope=trace.tb_frame.f_locals
+            check,role,index=(scope.get(key) for key in ('history_check','role','index'))
+            if isinstance(check,str) and check in PROBE_HISTORY_CHECKS:result['history_check']=check
+            if isinstance(role,str) and role in ('farmer','merchant'):result['history_role']=role
+            if type(index) is int and 0<=index<=10000000:result['history_index']=index
+        trace=trace.tb_next
+    return result
 
 
 def probe_attempt_projection(value):
@@ -20,6 +35,7 @@ def probe_attempt_projection(value):
                   'hold_read_failed','reader_or_decline_hold','manual_history_validation_failed','exact_bot_history',
                   'manual_history_unverified','fence_sync_failed'},
         'outcome':{'error','protected','validated','reconciled'},'checked_through':{'final_probe_recheck'},
+        'history_check':PROBE_HISTORY_CHECKS,'history_role':{'farmer','merchant'},
         'error_type':{'ValueError','OSError','TypeError','KeyError','AttributeError','RuntimeError','OperationalError',
                       'DatabaseError','IntegrityError','PermissionError','FileNotFoundError','CaptureUnavailable',
                       'ManualSessionError','BindingMismatch','JSONDecodeError'}}
@@ -31,7 +47,7 @@ def probe_attempt_projection(value):
     for key in ('target_profile_id','farmer_profile_id'):
         item=value.get(key)
         if isinstance(item,str) and 0<len(item)<=128 and item.isascii() and all(c.isalnum() or c in '_-.' for c in item):result[key]=item
-    for key in ('active_session_count','eligible_sessions','outage_intervals','retracted_sessions'):
+    for key in ('active_session_count','eligible_sessions','outage_intervals','retracted_sessions','history_index'):
         item=value.get(key)
         if type(item) is int and 0<=item<=10000000:result[key]=item
     return result
@@ -516,10 +532,10 @@ class ManualRuntime:
                         result.update(outcome='validated' if read_only else 'reconciled',reason='exact_bot_history')
                         if read_only:result.update(details)
                         else:result['retracted_sessions']=len(details)
-                    except ManualSessionError:
+                    except ManualSessionError as error:
                         # A historical gap/divergence is not a failed current
                         # bot proof. It retains both manual fences for review.
-                        result.update(outcome='protected',reason='manual_history_unverified')
+                        result.update(outcome='protected',reason='manual_history_unverified',**_probe_history_failure(error))
                 decisive_stage=result['stage'];result['stage']='final_probe_recheck'
                 if evidence_digest(read())!=proof['probe_digest']:
                     result.update(bot_owned=False,outcome='error',reason='probe_changed')
@@ -527,7 +543,7 @@ class ManualRuntime:
             except Exception as error:
                 # No arbitrary exception text/snapshots in diagnostics. Storage
                 # and programming failures remain explicit, bounded and closed.
-                result.update(outcome='error',error_type=type(error).__name__)
+                result.update(outcome='error',error_type=type(error).__name__,**_probe_history_failure(error))
             finally:
                 if not read_only:
                     try:self._sync_manual_fence()

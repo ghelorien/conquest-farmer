@@ -22,6 +22,11 @@ PHASES = ('approval_pending', 'manual_active', 'settlement_observed', 'needs_att
 SETTLEMENT_SECONDS = 5
 MAX_EVIDENCE_AGE = 2
 ITEM_FIELDS = ('uid', 'type_id', 'plus', 'gem1', 'gem2', 'quantity', 'bound')
+PROBE_HISTORY_CHECKS = frozenset(('transaction','ownership','saved_boundary','accepted_boundary',
+    'session_row','session_eligibility','current_owner','visitor_binding','visitor_permission',
+    'request_history','audit_events','evidence_read','evidence_decode','evidence_integrity',
+    'reader_gap','historical_ownership','historical_owner','historical_digest','request_binding',
+    'audit_chain','probe_recheck','terminal_write','commit_recheck'))
 
 
 class ManualSessionError(ValueError):
@@ -75,7 +80,12 @@ class VisitorKey:
 
     def __post_init__(self):
         for field in ('target_profile_id', 'visitor_name', 'visitor_server'):
-            _text(getattr(self, field), field)
+            value = _text(getattr(self, field), field)
+            # Native observers may supply ProfileName, whose constructor needs
+            # an extra local profile ID. Visitor records are durable text values
+            # within this local DB, not runtime dictionary/SQL keys;
+            # asdict must never deepcopy that runtime-only str subclass.
+            object.__setattr__(self, field, str(value))
         _integer(self.visitor_uid, 'visitor_uid', 1)
 
 
@@ -776,13 +786,17 @@ class ManualSessionStore:
         from conquest.merchants.delivery_probe_ownership import ownership, historical_local_trade, _saved_boundary, _context
         from conquest.recovery_override import evidence_digest
         now = _now(now)
+        history_check='transaction';role=None;index=None
         with self._probe_connection(read_only) as db:
             db.execute('BEGIN' if read_only else 'BEGIN IMMEDIATE')
+            history_check='ownership'
             proof = ownership(state, merchant['character'], target_profile_id, farmer_profile_id,
                               farmer, merchant, now=now)
             if proof['modal'] != 'trade':raise BindingMismatch('An exact open bot trade is required')
             intent, originals, items = _context(state, merchant['character'], target_profile_id, farmer_profile_id, now=now)
+            history_check='saved_boundary'
             _saved_boundary(state, intent, originals, items)
+            history_check='accepted_boundary'
             accepted_at = state.get('accepted_at')
             if (type(accepted_at) not in (int, float) or not math.isfinite(accepted_at)
                     or not state['started_at'] <= accepted_at <= now):
@@ -790,21 +804,27 @@ class ManualSessionStore:
             pending = []
             for role, target, snapshot, peer in (('farmer', farmer_profile_id, farmer, merchant),
                                                 ('merchant', target_profile_id, merchant, farmer)):
+                history_check='session_row';index=None
                 row = db.execute("SELECT * FROM manual_sessions WHERE target_profile_id=? AND phase NOT IN "
                                  "('completed','request_withdrawn','declined_verified','operator_overridden')", (target,)).fetchone()
                 if row is None:continue
                 session_id = row['id']
+                history_check='session_eligibility'
                 if (row['phase'] not in ('needs_attention', 'approval_pending') or row['ever_approved']
                         or row['created_at'] < accepted_at or row['stable_digest'] is not None
                         or row['terminal_json'] is not None):
                     raise BindingMismatch('Manual interval predates or exceeds bot admission')
+                history_check='current_owner'
                 current = _fresh(snapshot, now)
                 self._same_owner(row, current)
+                history_check='visitor_binding'
                 visitor = VisitorKey(target, peer['character'], peer['server'], peer['character_uid'])
                 if row['visitor_json'] != _json(asdict(visitor)):
                     raise BindingMismatch('Manual visitor differs from the exact bot peer')
+                history_check='visitor_permission'
                 if self._allowed(db,visitor):
                     raise BindingMismatch('Manual visitor permission prevents bot retraction')
+                history_check='request_history'
                 requests = db.execute('SELECT * FROM manual_requests WHERE session_id=?', (session_id,)).fetchall()
                 if (db.execute('SELECT 1 FROM manual_declines WHERE session_id=?', (session_id,)).fetchone()
                         or db.execute('SELECT 1 FROM manual_decline_claims c JOIN manual_requests r '
@@ -818,24 +838,29 @@ class ManualSessionStore:
                     raise BindingMismatch('Manual request evidence is missing')
                 elif row['phase'] == 'approval_pending':
                     raise BindingMismatch('Only a pristine merchant request may remain approval-pending')
+                history_check='audit_events'
                 events = db.execute('SELECT event FROM manual_audit WHERE session_id=?', (session_id,)).fetchall()
                 if any(event[0] not in ('session_started', 'approval_pending', 'needs_attention',
                                        'windows_observed', 'observation_ignored') for event in events):
                     raise BindingMismatch('Manual interval has prior activity')
+                history_check='evidence_read'
                 evidence = db.execute('SELECT * FROM manual_evidence WHERE session_id=? ORDER BY id',
                                       (session_id,)).fetchall()
                 if not evidence:raise BindingMismatch('Original admission evidence is unavailable')
                 gaps=[];gap=None;previous_at=accepted_at
                 for index, record in enumerate(evidence):
+                    history_check='evidence_decode'
                     try:original = json.loads(record['snapshot_json'])
                     except (ValueError,TypeError) as error:
                         raise BindingMismatch('Historical evidence JSON is malformed') from error
+                    history_check='evidence_integrity'
                     at=record['recorded_at']
                     if (type(at) not in (int,float) or not math.isfinite(at) or not previous_at<=at<=now
                             or record['digest'] != _digest(original)):
                         raise BindingMismatch('Historical evidence chronology or digest changed')
                     previous_at=at
                     if record['error']:
+                        history_check='reader_gap'
                         # Only explicit reader absence, bracketed by exact bot
                         # ownership on both sides, can describe a restart gap.
                         allowed_error={'farmer':'Farmer has no attached memory observer',
@@ -858,6 +883,7 @@ class ManualSessionStore:
                         gap.update(last_error_id=record['id'],last_recorded_at=at,error_count=gap['error_count']+1)
                         continue
                     try:
+                        history_check='historical_ownership'
                         if (not isinstance(original,dict) or type(original.get('timestamp')) not in (int,float)
                                 or not math.isfinite(original['timestamp']) or original['timestamp']>at
                                 or record['observed_at']!=original['timestamp']):
@@ -868,7 +894,9 @@ class ManualSessionStore:
                         # Current bilateral proof is separate. Unproven old
                         # history retains the manual fence, not a new incident.
                         raise BindingMismatch('Historical bot ownership is unverified') from error
+                    history_check='historical_owner'
                     self._same_owner(row, historical)
+                    history_check='historical_digest'
                     if record['ownership_digest'] != _digest(historical):
                         raise BindingMismatch('Historical ownership digest differs')
                     if gap is not None:
@@ -876,6 +904,7 @@ class ManualSessionStore:
                                      'after_ownership_digest':record['ownership_digest'],
                                      'after_observed_at':record['observed_at'],'after_recorded_at':record['recorded_at']});gap=None
                     if index == 0:
+                        history_check='request_binding'
                         if requests:
                             request = requests[0]
                             binding = json.loads(request['binding_json'])
@@ -894,18 +923,22 @@ class ManualSessionStore:
                         elif original.get('trade') is None:
                             raise BindingMismatch('Original admission was not an open trade')
                 pending.append((row, snapshot, current, evidence[0]['id'],gaps))
+            role=None;index=None
             if any(row[4] for row in pending):
+                history_check='audit_chain'
                 from conquest.merchants.delivery_abort_sessions import _audit_chain
                 _audit_chain(db)
             # A replacement during validation must roll back both targets. The
             # coordinator mutex excludes admission/input; the digest excludes
             # concurrent journal advancement by the supervised worker.
+            history_check='probe_recheck'
             if evidence_digest(current_probe()) != proof['probe_digest']:
                 raise BindingMismatch('Probe changed during bilateral retraction')
             if read_only:
                 return {'eligible_sessions':len(pending),'outage_intervals':sum(len(row[4]) for row in pending)}
             results = []
             for row, snapshot, current, original_id,gaps in pending:
+                history_check='terminal_write'
                 evidence_id = self._evidence(db, row['id'], snapshot, now, current)
                 reason = 'Local manual admission retracted; the exact bot-owned trade remains open'
                 receipt = {**proof, 'phase': 'request_withdrawn',
@@ -920,6 +953,7 @@ class ManualSessionStore:
                            (_json(receipt), reason, snapshot['timestamp'], now, row['id']))
                 self._audit(db, row['id'], 'manual_admission_retracted_bot_owned', receipt, now)
                 results.append(self._view(db, self._row(db, row['id'])))
+            history_check='commit_recheck'
             if evidence_digest(current_probe()) != proof['probe_digest']:
                 raise BindingMismatch('Probe changed before bilateral retraction committed')
             return results

@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from dataclasses import asdict
 import json
 import sqlite3
 import threading
@@ -43,6 +44,59 @@ def pending(store, **kwargs):
 def activate(store):
     row = pending(store)
     return store.allow_and_activate(row['approval_binding'], snapshot(101), operator='Floor', now=101)
+
+
+def test_visitor_key_normalizes_native_profile_names_without_using_hidden_profile_ids():
+    from conquest.character_context import ProfileName
+    fields=dict(target_profile_id=ProfileName('merchant-uuid','not-the-target'),
+                visitor_name=ProfileName('Visitor','not-a-game-uid'),
+                visitor_server=ProfileName('America','not-a-server'),visitor_uid=789)
+    key=VisitorKey(**fields)
+    expected=dict(target_profile_id='merchant-uuid',visitor_name='Visitor',visitor_server='America',visitor_uid=789)
+    assert asdict(key)==expected and asdict(deepcopy(key))==expected
+    assert all(type(getattr(key,field)) is str for field in ('target_profile_id','visitor_name','visitor_server'))
+    assert key==VisitorKey(**expected) and hash(key)==hash(VisitorKey(**expected))
+    assert fields['visitor_name'].profile_id=='not-a-game-uid'  # Runtime identity was not changed.
+
+
+@pytest.mark.parametrize('field',['target_profile_id','visitor_name','visitor_server'])
+@pytest.mark.parametrize('value',[None,77,'',' padded '])
+def test_visitor_text_normalization_never_coerces_invalid_values(field,value):
+    fields=dict(target_profile_id='merchant-id',visitor_name='Visitor',visitor_server='America',visitor_uid=789)
+    fields[field]=value
+    with pytest.raises(ManualSessionError):VisitorKey(**fields)
+
+
+def test_native_profile_names_preserve_exact_request_permission_and_session_identity(store):
+    from conquest.character_context import ProfileName
+    target='7b82943d-55f7-4368-a65c-d256efc9c5d0'
+    def native(at):
+        value=snapshot(at,character=ProfileName('Spiritual',target),server=ProfileName('America','unused-server-id'))
+        value['request']['participant']=ProfileName('Visitor','untrusted-local-profile-id')
+        return value
+    row=store.begin_request(target,native(100),now=100)
+    assert row['target_profile_id']==target and row['character']['character']=='Spiritual'
+    expected=dict(target_profile_id=target,visitor_name='Visitor',visitor_server='America',visitor_uid=789)
+    assert row['visitor']==expected and row['approval_binding']['visitor']==expected
+    active=store.allow_and_activate(row['approval_binding'],native(101),operator='Floor',now=101)
+    assert active['phase']=='manual_active'
+    assert store.allowed(VisitorKey(target,ProfileName('Visitor','different-untrusted-id'),'America',789))
+    for change in ({'target_profile_id':'another-target-uuid'},{'target_profile_id':'Spiritual'},
+                   {'visitor_name':'visitor'},{'visitor_server':'Europe'},{'visitor_uid':790}):
+        assert not store.allowed(VisitorKey(**{**expected,**change}))
+    store.revoke(VisitorKey(target,ProfileName('Visitor','untrusted-local-profile-id'),'America',789),operator='Floor',now=102)
+    assert not store.allowed(expected) and store.get(row['id'])['phase']=='manual_active'
+    assert store.verify_audit()
+
+
+def test_native_profile_name_open_trade_admission_keeps_distinct_target_and_visitor(store):
+    from conquest.character_context import ProfileName
+    value=snapshot(100,request=False,character=ProfileName('Spiritual','merchant-id'),
+                   trade={'participant':ProfileName('Visitor','other-id'),'participant_uid':789})
+    row=store.observe_target('merchant-id',value,now=100)
+    assert row['phase']=='needs_attention' and row['target_profile_id']=='merchant-id'
+    assert row['visitor']==dict(target_profile_id='merchant-id',visitor_name='Visitor',visitor_server='America',visitor_uid=789)
+    assert not store.permissions() and store.verify_audit()
 
 
 def test_allow_is_exact_machine_local_and_atomic(store):

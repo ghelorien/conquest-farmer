@@ -281,6 +281,60 @@ def test_last_attempt_projection_rejects_unknown_oversized_and_non_metadata_valu
     bad={'stage':'arbitrary secret','reason':'x'*10000,'outcome':['error'],'error_type':'private text',
          'bot_owned':1,'probe_digest':'x'*64,'evidence_digest':'a'*65,'target_profile_id':'secret\ntext',
          'farmer_profile_id':'x'*129,'active_session_count':True,'outage_intervals':-1,
-         'eligible_sessions':10000001,'checked_through':'unknown','unknown':{'large':'x'*100000}}
+         'eligible_sessions':10000001,'checked_through':'unknown','unknown':{'large':'x'*100000},
+         'history_check':'private text','history_role':'secret','history_index':True}
     assert probe_attempt_projection(bad)=={}
     assert probe_attempt_projection(None) is None
+
+
+def test_native_profile_name_pair_reconciles_three_restart_gaps_with_exact_profile_uuids(supervised,monkeypatch):
+    from conquest.character_context import ProfileName
+    from test_delivery_probe_manual_ownership import open_trade
+    x=supervised;store=x.runtime.manual_sessions
+    farmer_id='7c19880c-4059-4ffb-9b2b-7375ea993cac';merchant_id='4cd6c2d2-58f3-40dc-a8b5-e69f213a0dc7'
+    monkeypatch.setattr(x.runtime,'manual_target',lambda character:farmer_id if character=='Farmer' else merchant_id)
+    x.probe.update(target_profile_id=merchant_id,farmer_profile_id=farmer_id)
+    x.now+=.1;open_trade(x,phase='farmer_confirm_verified',offered=True)
+    # Real remote acceptance acknowledgement may still be false.
+    x.state['trade']['other_accepted']=False
+    x.probe.update(merchant_after=x.read());x.save();x.now+=.1
+    rows=[store.observe_target(target,read(),now=x.now) for target,read in ((farmer_id,x.farmer_read),(merchant_id,x.read))]
+    for i in (0,1,0):
+        for _ in range(2):
+            x.now+=.01;store.observe(rows[i]['id'],{'reader_error':REASONS[i]},now=x.now)
+        x.now+=.01;store.observe(rows[i]['id'],(x.farmer_read if i==0 else x.read)(),now=x.now)
+    x.runtime._sync_manual_fence()
+    farmer,merchant=x.farmer_read(),x.read()
+    merchant['character']=ProfileName('Dutch',merchant_id)
+    farmer['trade']['participant']=ProfileName('Dutch',merchant_id)
+    before=contents(x);fence=deepcopy(x.guard.manual_sessions)
+    result=x.runtime.inspect_probe_reconciliation(ProfileName('Dutch',merchant_id),farmer,merchant,now=x.now)
+    assert result['outcome']=='validated' and result['eligible_sessions']==2 and result['outage_intervals']==3
+    assert contents(x)==before and x.guard.manual_sessions==fence and not x.calls
+    assert x.runtime.reconcile_probe_pair(ProfileName('Dutch',merchant_id),farmer,merchant,now=x.now)
+    assert [len(store.get(row['id'])['terminal']['reader_outage_intervals']) for row in rows]==[2,1]
+    assert all(store.get(row['id'])['terminal']['gameplay_input'] is False for row in rows)
+    assert store.verify_audit() and not x.calls and x.runtime.manual_status()==[]
+
+
+def test_unexpected_history_failure_exposes_only_fixed_invariant_role_and_index(supervised,monkeypatch):
+    import conquest.merchants.manual_sessions as domain
+    from conquest.merchants.manual_runtime import probe_attempt_projection
+    x=supervised;gap_pair(x);before=contents(x);fence=deepcopy(x.guard.manual_sessions)
+    def fail(value):raise TypeError('private exception and snapshot text must never escape')
+    monkeypatch.setattr(domain,'asdict',fail)
+    result=inspect(x)
+    assert result['outcome']=='error' and result['error_type']=='TypeError'
+    assert result['history_check']=='visitor_binding' and result['history_role']=='farmer'
+    assert 'history_index' not in result and 'private' not in json.dumps(result)
+    assert probe_attempt_projection(result)['history_check']=='visitor_binding'
+    assert contents(x)==before and x.guard.manual_sessions==fence and not x.calls
+
+
+def test_unbracketed_latest_gap_remains_protected_with_bounded_invariant(supervised):
+    x=supervised;rows=gap_pair(x)
+    x.now+=.01;x.runtime.manual_sessions.observe(rows[1]['id'],{'reader_error':REASONS[1]},now=x.now)
+    result=inspect(x)
+    assert result['outcome']=='protected' and result['history_check']=='reader_gap'
+    assert result['history_role']=='merchant' and type(result['history_index']) is int
+    assert x.guard.manual_session_blocked('Farmer') and x.guard.manual_session_blocked('Dutch') and not x.calls
