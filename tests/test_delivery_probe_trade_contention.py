@@ -188,24 +188,26 @@ def test_trade_stage_reconciles_pair_before_first_lease_or_input(supervised, mon
     monkeypatch.setattr('conquest.foreground.foreground_drag', lambda *_a, **_kw: pytest.fail('Unexpected input'))
     monkeypatch.setattr('conquest.foreground.foreground_click', lambda *_a, **_kw: pytest.fail('Unexpected input'))
     monkeypatch.setattr('conquest.focus_recovery.activate_client', lambda *_a: pytest.fail('Unexpected focus'))
-    ui = NS(app=NS(control=NS(snapshot=lambda: {'revision': 1}),
+    ui = NS(app=NS(control=NS(snapshot=lambda: {'revision': 1,'enabled':False}),closing=False,
                    observer=NS(operations=NS(target=NS()))),
-            coordinator=NS(lock=threading.RLock(), lease=lease,manual_session_blocked=lambda owner:owner==held),
+            closed=False,safe_to_yield=lambda:True,delivery_probe_thread=threading.current_thread(),
+            coordinator=NS(lock=threading.RLock(),check=lambda:None,lease=lease,manual_session_blocked=lambda owner:owner==held),
             runtime=NS(reconcile_probe_pair=reconcile))
+    monkeypatch.setattr('conquest.merchants.farmer_preferences.permits_new_delivery',lambda *a:None)
+    monkeypatch.setattr('ctypes.windll.user32.GetAsyncKeyState',lambda *a:0)
     with pytest.raises(ReachedLease if reconciled and held is None else CaptureUnavailable):
         module.run(ui, deepcopy(x.probe))
     assert events == (['reconcile', 'lease'] if reconciled and held is None else ['reconcile'])
 
 
-@pytest.mark.parametrize('fault', ['asymmetric_farmer', 'asymmetric_merchant', 'missing_nonoffered', 'extra_nonoffered'])
-def test_full_trade_proof_rejects_asymmetric_acceptance_and_surrounding_stock(supervised, fault):
+@pytest.mark.parametrize('fault', ['premature_merchant', 'missing_nonoffered', 'extra_nonoffered'])
+def test_full_trade_proof_rejects_premature_acceptance_and_surrounding_stock(supervised, fault):
     x = supervised
     extra = {**deepcopy(x.farmer['inventory'][0]), 'uid': 300}
     x.farmer['inventory'].append(deepcopy(extra))
     x.probe['intent']['farmer']['inventory'].append(deepcopy(extra))
     open_trade(x, phase='farmer_confirm_submitted', offered=True)
-    if fault == 'asymmetric_farmer':x.farmer['trade']['accepted'] = True
-    if fault == 'asymmetric_merchant':x.state['trade']['other_accepted'] = True
+    if fault == 'premature_merchant':x.state['trade']['accepted'] = True
     if fault == 'missing_nonoffered':x.farmer['inventory'] = [i for i in x.farmer['inventory'] if i['uid'] != 300]
     if fault == 'extra_nonoffered':x.farmer['inventory'].append({**extra, 'uid': 301})
     assert not x.runtime.reconcile_probe_pair('Dutch', x.farmer_read(), x.read(), now=x.now)

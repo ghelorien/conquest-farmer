@@ -91,14 +91,18 @@ def _allowed_offers(state, items):
 
 
 def _acceptance(phase, role, trade):
-    farmer_accepted, merchant_accepted = ((trade['accepted'], trade['other_accepted'])
-        if role == 'farmer' else (trade['other_accepted'], trade['accepted']))
+    # The pinned client publishes its own accepted flag synchronously. The
+    # peer acknowledgement may lag on either client; it is never authority to
+    # submit an input or to claim that the other account confirmed.
     allowed = {
-        'farmer_confirm_submitted': ((False, False), (True, False)),
-        'farmer_confirm_verified': ((True, False),),
-        'merchant_confirm_submitted': ((True, False), (True, True)),
-    }.get(phase, ((False, False),))
-    if (farmer_accepted, merchant_accepted) not in allowed:
+        ('farmer_confirm_submitted', 'farmer'): ((False, False), (True, False)),
+        ('farmer_confirm_submitted', 'merchant'): ((False, False), (False, True)),
+        ('farmer_confirm_verified', 'farmer'): ((True, False),),
+        ('farmer_confirm_verified', 'merchant'): ((False, False), (False, True)),
+        ('merchant_confirm_submitted', 'farmer'): ((True, False), (True, True)),
+        ('merchant_confirm_submitted', 'merchant'): ((False, False), (False, True), (True, False), (True, True)),
+    }.get((phase, role), ((False, False),))
+    if (trade['accepted'], trade['other_accepted']) not in allowed:
         raise ValueError('Probe acceptance differs from its durable phase')
 
 
@@ -271,8 +275,9 @@ def ownership(state, character, target_profile_id, farmer_profile_id, farmer, me
             _local_trade(state, intent, original, items, role, snapshot, now=now)
         if exact_items(farmer['trade']['own_items']) != exact_items(merchant['trade']['items']):
             raise ValueError('Bilateral probe offer differs')
-        if (farmer['trade']['accepted'] != merchant['trade']['other_accepted']
-                or farmer['trade']['other_accepted'] != merchant['trade']['accepted']):
+        if (state['phase'] not in ('farmer_confirm_submitted', 'farmer_confirm_verified', 'merchant_confirm_submitted')
+                and (farmer['trade']['accepted'] != merchant['trade']['other_accepted']
+                     or farmer['trade']['other_accepted'] != merchant['trade']['accepted'])):
             raise ValueError('Bilateral probe acceptance differs')
         modal = 'trade'
     return {'probe_digest': evidence_digest(state), 'modal': modal,

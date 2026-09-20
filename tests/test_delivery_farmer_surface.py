@@ -224,6 +224,7 @@ def test_confirm_stage_requires_successful_farmer_presentation_before_any_confir
     x=farmer_surface;x.state['phase']='offer_verified'
     x.state['intent']['merchant']={'character':'Dutch'}
     x.ui.runtime.reconcile_probe_pair=lambda *a:True
+    monkeypatch.setattr(confirm,'read_probe',lambda:deepcopy(x.state))
     monkeypatch.setattr('conquest.merchants.farmer_preferences.permits_new_delivery',lambda name:None)
     monkeypatch.setattr('conquest.desktop_runtime.physical_coordinates',nullcontext)
     monkeypatch.setattr(confirm,'pair',lambda *a:({},{}))
@@ -428,6 +429,8 @@ def test_confirm_stage_prepares_visible_farmer_before_first_confirmation(farmer_
     from contextlib import nullcontext
     from conquest.merchants import delivery_confirm_probe as confirm
     x=farmer_surface;x.state['phase']='offer_verified';x.ui.runtime.reconcile_probe_pair=lambda *a:True
+    monkeypatch.setattr(confirm,'read_probe',lambda:deepcopy(x.state))
+    monkeypatch.setattr('conquest.merchants.delivery_probe_ownership.ownership',lambda *a,**k:None)
     farmer={**deepcopy(x.state['intent']['farmer']),'trade':{'accepted':False,'other_accepted':False}}
     merchant={'character':'Dutch','trade':{'accepted':False,'other_accepted':False}}
     memory=NS(gui=NS(viewport_size=lambda:[1200,900]))
