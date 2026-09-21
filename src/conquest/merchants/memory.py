@@ -93,37 +93,65 @@ class HoverNotReady(ValueError):
 
 
 class GuiReader:
-    def __init__(self, session):
-        if session.expected_sha256 != CLIENT_SHA256:
+    def __init__(self, session, *, layout=None):
+        if layout is None and session.expected_sha256 != CLIENT_SHA256:
             raise ValueError('Unqualified merchant client fingerprint')
+        if layout is not None and session.expected_sha256!=layout.expected_sha256:
+            raise ValueError('Merchant GUI layout differs from client')
         self.session = session
+        self.layout=layout
         modules = [m for m in session.modules if m['name'].casefold() == 'imconquer.exe']
         if len(modules) != 1:
             raise ValueError('Ambiguous client module')
         self.base = modules[0]['base']
+        self.context_rva=layout.gui_context_rva if layout is not None else 0x6966f0
+        self.registry_rva=layout.gui_registry_rva if layout is not None else 0x6986c0
+
+    @classmethod
+    def for_session(cls,session):
+        """Explicit read-only GUI evidence for one exact selected build."""
+        if not hasattr(session,'read_block'):
+            from types import SimpleNamespace
+            session=SimpleNamespace(expected_sha256=session.expected_sha256,modules=session.modules,
+                identity=session.identity,read=session.read,read_block=session.read,
+                assert_identity=session.assert_identity,
+                viewport_size=getattr(session,'viewport_size',None))
+        from conquest.memory_build_layout import read_build_layout
+        return cls(session,layout=read_build_layout(session))
 
     def viewport_size(self):
-        context = unpack(self.session,self.base+0x6966f0,'<Q')[0]
-        array = unpack(self.session,context+0x40c0,'<Q')[0]
-        viewport = unpack(self.session,array,'<Q')[0]
-        size = unpack(self.session,viewport+0xc,'<2f')
+        s=self.session;s.assert_identity()
+        context = unpack(s,self.base+self.context_rva,'<Q')[0]
+        array = unpack(s,context+0x40c0,'<Q')[0]
+        viewport = unpack(s,array,'<Q')[0]
+        size = unpack(s,viewport+0xc,'<2f')
         if not all(math.isfinite(v) and 320<=v<=8192 and int(v)==v for v in size):
             raise ValueError('Invalid merchant GUI viewport')
+        if (unpack(s,self.base+self.context_rva,'<Q')[0]!=context
+                or unpack(s,context+0x40c0,'<Q')[0]!=array
+                or unpack(s,array,'<Q')[0]!=viewport or unpack(s,viewport+0xc,'<2f')!=size):
+            raise GuiObservationChanged('Merchant GUI viewport changed')
+        s.assert_identity()
         return [int(v) for v in size]
 
     def assert_hovered(self, window, label, *, seeds=None):
-        context = unpack(self.session,self.base+0x6966f0,'<Q')[0]
+        s=self.session;s.assert_identity();context = unpack(s,self.base+self.context_rva,'<Q')[0]
         if seeds is None:
-            seeds = [unpack(self.session,window['address']+8,'<I')[0]]
+            seeds = [unpack(s,window['address']+8,'<I')[0]]
         expected = {zlib.crc32(label.encode('utf-8'),seed) for seed in seeds}
-        hovered_window = unpack(self.session,context+0x3ec0,'<Q')[0]
-        hovered_id = unpack(self.session,context+0x3ef0,'<I')[0]
+        hovered_window = unpack(s,context+0x3ec0,'<Q')[0];hovered_id = unpack(s,context+0x3ef0,'<I')[0]
         if hovered_window!=window['address'] or hovered_id not in expected:
             raise HoverNotReady('Pointer is not over the memory-identified merchant control')
+        if (unpack(s,self.base+self.context_rva,'<Q')[0]!=context
+                or unpack(s,context+0x3ec0,'<Q')[0]!=hovered_window
+                or unpack(s,context+0x3ef0,'<I')[0]!=hovered_id):
+            raise GuiObservationChanged('Merchant hover changed')
+        s.assert_identity()
 
     def model(self, key, vtable):
         s = self.session
-        header = s.read_block(self.base+0x6986c0,16)
+        s.assert_identity()
+        header = s.read_block(self.base+self.registry_rva,16)
         head,count = struct.unpack('<QQ',header)
         if not 1 <= count <= 128:
             raise ValueError('Invalid client window registry')
@@ -137,8 +165,9 @@ class GuiReader:
             found = struct.unpack_from('<I',raw,32)[0]
             if found == key:
                 ptr = checked_address(struct.unpack_from('<Q',raw,40)[0])
-                if unpack(s,ptr,'<Q')[0] != self.base+vtable or s.read_block(node,56) != raw or s.read_block(self.base+0x6986c0,16) != header:
+                if unpack(s,ptr,'<Q')[0] != self.base+vtable or s.read_block(node,56) != raw or s.read_block(self.base+self.registry_rva,16) != header:
                     raise ValueError('Client window model changed')
+                s.assert_identity()
                 return ptr
             node = struct.unpack_from('<Q', raw, 0 if key < found else 16)[0]
         raise ValueError('Client window model absent')
@@ -155,7 +184,7 @@ class GuiReader:
 
     def _windows(self):
         s = self.session
-        context = unpack(s,self.base+0x6966f0,'<Q')[0]
+        context = unpack(s,self.base+self.context_rva,'<Q')[0]
         header = s.read_block(context+0x3e58,16)
         count,capacity,array = struct.unpack('<IIQ',header)
         if not 0 < count <= capacity <= 256:
@@ -184,7 +213,7 @@ class GuiReader:
             if s.read_block(ptr+0x18,16) != raw[0x18:0x28] or s.read_block(ptr+0x64,8) != raw[0x64:0x6c]:
                 raise GuiObservationChanged('GUI geometry changed')
             result.append({'name':name,'address':ptr,'geometry':geometry,'scroll':scroll})
-        if (unpack(s,self.base+0x6966f0,'<Q')[0]!=context
+        if (unpack(s,self.base+self.context_rva,'<Q')[0]!=context
                 or s.read_block(context+0x3e58,16) != header):
             raise GuiObservationChanged('GUI registry changed')
         latest=struct.unpack('<'+'Q'*count,s.read_block(array,count*8))
@@ -194,6 +223,7 @@ class GuiReader:
         # still invalidate the entire sample.
         if len(set(latest))!=count or set(latest)!=set(addresses):
             raise GuiObservationChanged('GUI registry membership changed')
+        s.assert_identity()
         return result
 
     def table(self, window, label):
@@ -212,7 +242,7 @@ class GuiReader:
         an unrelated or old table cannot supply merchant input coordinates.
         """
         s = self.session
-        context = unpack(s,self.base+0x6966f0,'<Q')[0]
+        context = unpack(s,self.base+self.context_rva,'<Q')[0]
         window_id = unpack(s,window['address']+8,'<I')[0]
         expected_id = zlib.crc32(label.encode('utf-8'),window_id)
         header = s.read_block(context+0x4338,16)
@@ -254,6 +284,7 @@ class GuiReader:
                 or any(after[o:o+n]!=raw[o:o+n] for o,n in stable)
                 or s.read_block(pointer,columns*104)!=column_data):
             raise GuiObservationChanged('GUI table changed during observation')
+        s.assert_identity()
         return {'id':expected_id,'address':address,'columns':cells,'outer':outer,
                 'clip':clip,'row_height':row_height}
 
