@@ -15,6 +15,9 @@ def eligible(item, reserved=()):
     kind, plus, slot = item.get('type_id'), item.get('plus'), item.get('slot')
     if kind == 1088001:
         return False  # Bank loose Meteors; transfer only scrolls.
+    if (type(kind) is int and 100000<=kind<600000
+            and type(plus) is int and plus>=2):
+        return False  # +2-or-higher equipment is urgent warehouse-only stock.
     if (item.get('uid') in reserved or item.get('bound') is not False
             or type(slot) is not int or not 0<=slot<40 or storage_only(item)):
         return False
