@@ -10,15 +10,18 @@ from conquest.valuables import DRAGONBALL_TYPES
 CONFIG=Path('profiles/banking.json')
 STATUS=Path(state_path('reports/banking/status.json'))
 LEDGER=Path(state_path('reports/banking/transfers.jsonl'))
+URGENT_EQUIPMENT_FAMILIES=frozenset((120,121,150,152,160,500))
 
 
 def urgent_valuables(items):
-    """Carried Dragonballs require immediate banking."""
+    """Carried Dragonballs and selected high-value gear require banking."""
     result=[]
     for item in items:
         get=item.get if isinstance(item,dict) else lambda k,d=None:getattr(item,k,d)
         kind=get('type_id')
-        if get('slot') is not None and kind in DRAGONBALL_TYPES:
+        family=kind//1000 if type(kind) is int else None
+        if (get('slot') is not None
+                and (kind in DRAGONBALL_TYPES or family in URGENT_EQUIPMENT_FAMILIES)):
             result.append(item)
     return result
 
