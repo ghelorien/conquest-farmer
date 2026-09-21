@@ -182,20 +182,19 @@ class ManualRuntime:
             if self.farmer_bot_owned() or any(self.journal.pending(character) for character in CHARACTERS):
                 raise ManualSessionError('Wait for the active bot transaction to reconcile before starting handoff')
             registry=getattr(self,'manual_1078_registry',None)
+            identities=None
             if registry is not None and registry.activate_if_present():
                 # Discovery proves only profile/process identity before the
                 # fence. Fresh full snapshots are read by its poller after it.
                 participants=registry.discover()
+                identities={target:binding.identity for target,binding in registry.bindings.items()}
             else:
                 farmer=self.manual_farmer_provider()
                 if farmer is None:raise ManualSessionError('Attach the Farmer memory observer before starting handoff')
                 participants={self.manual_target('Farmer'):'Farmer'}
                 for character in CHARACTERS:
                     if character in self.observers:participants[self.manual_target(character)]='Merchant'
-            row=self.manual_handoff.start(participants,operator=operator,now=now)
-            if registry is not None and registry.bindings:
-                row=self.manual_handoff.bind_participant_identities(row['id'],{
-                    target:binding.identity for target,binding in registry.bindings.items()})
+            row=self.manual_handoff.start(participants,operator=operator,identities=identities,now=now)
             self._sync_manual_fence()
             return row
 
@@ -203,7 +202,7 @@ class ManualRuntime:
         """Poll only an active exact-build handoff; never create a controller."""
         registry=getattr(self,'manual_1078_registry',None)
         active=self.manual_handoff.active()
-        if registry is None or active is None:
+        if registry is None or active is None or not (registry.read_only_build or registry.bindings):
             return None
         from conquest.merchants.manual_reader_registry_1078 import ManualReaderIdentityChanged1078
         if not registry.bindings:

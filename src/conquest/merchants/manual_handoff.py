@@ -103,12 +103,14 @@ class ManualHandoffStore:
             'SELECT target_profile_id,role,baseline_at,last_at,saw_window FROM manual_handoff_participants WHERE session_id=? ORDER BY role,target_profile_id',(row['id'],))]
         return result
 
-    def start(self, participants, *, operator, now=None):
+    def start(self, participants, *, operator, identities=None, now=None):
         now=time.time() if now is None else float(now)
         if not isinstance(operator,str) or not operator.strip():raise ValueError('Operator is required')
         if not participants or any(not isinstance(k,str) or not k for k in participants):
             raise ValueError('Attached Farmer and merchant profiles are required')
         if len(set(participants))!=len(participants):raise ValueError('Duplicate handoff participant')
+        if identities is not None and set(identities)!=set(participants):
+            raise ValueError('Manual handoff discovery identities do not match participants')
         key='operator-handoff:'+uuid.uuid4().hex
         with self.journal.db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -117,8 +119,9 @@ class ManualHandoffStore:
             db.execute('INSERT INTO manual_handoffs(id,phase,operator,created_at,updated_at) VALUES(?,\'preparing\',?,?,?)',
                        (key,operator,now,now))
             for target,role in participants.items():
-                db.execute('INSERT INTO manual_handoff_participants(session_id,target_profile_id,role) VALUES(?,?,?)',
-                           (key,target,role))
+                process=json.dumps(identities[target],sort_keys=True) if identities is not None else None
+                db.execute('INSERT INTO manual_handoff_participants(session_id,target_profile_id,role,process_json) VALUES(?,?,?,?)',
+                           (key,target,role,process))
             self._audit(db,key,'started',now,operator=operator,participants=participants)
             return self._view(db,db.execute('SELECT * FROM manual_handoffs WHERE id=?',(key,)).fetchone())
 

@@ -46,6 +46,8 @@ class ManualReaderRegistry1078:
 
     def activate_if_present(self):
         self.read_only_build = self.exact_build_present()
+        if not self.read_only_build:
+            self.bindings = {}
         return self.read_only_build
 
     @staticmethod
