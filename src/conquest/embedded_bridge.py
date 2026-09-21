@@ -14,8 +14,11 @@ class EmbeddedBridge:
     # process launching, arbitrary execution, or memory writes.
     allowed = {'reconnect-retry','health','sample','sample-npcs','town','read-block','inspect-object','background-click','controls','reload-app','revive-click','native-window-mode','foreground-click','foreground-key','foreground-drag','route-jump'}
 
-    def __init__(self, operations, lock, info_path, snapshot, lifetime=43200,*,control_update=None,on_reload=None,on_native_window=None,on_route_jump=None,on_sample_npcs=None,on_town=None):
+    def __init__(self, operations, lock, info_path, snapshot, lifetime=43200,*,control_update=None,on_reload=None,on_native_window=None,on_route_jump=None,on_sample_npcs=None,on_town=None,read_only=False):
         self.operations,self.lock = operations,lock
+        self.read_only=bool(read_only)
+        if self.read_only:
+            self.allowed={'health','sample','read-block','inspect-object'}
         from conquest.character_context import current
         self.character_context=current()
         self.info_path = Path(info_path)

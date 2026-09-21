@@ -15,6 +15,8 @@ class EmbeddedObserver:
         self.lock = threading.RLock()
         self.character_context=context
         self.bridge = None
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        self.read_only_build=health_layout.player.expected_sha256==CLIENT_SHA256_1078
         if health_layout.player.expected_sha256 != entity_layout.expected_sha256:
             raise ValueError('Health and entity profiles describe different clients')
         self.session = MemorySession(pid, health_layout.player.expected_sha256).__enter__()
@@ -36,6 +38,11 @@ class EmbeddedObserver:
 
     def __call__(self):
         with self.lock:
+            if self.read_only_build:
+                if self.character_context:
+                    from conquest.client_attachment import verify_observer
+                    verify_observer(self.character_context,self)
+                return self._observe()
             if self.character_context:
                 from conquest.reconnect import login_screen
                 if not login_screen(self.operations.target.hwnd):
@@ -47,8 +54,24 @@ class EmbeddedObserver:
 
     def _observe(self):
         import win32gui
-        from conquest.memory_life import read_life
+        from conquest.memory_life import read_life, MemoryLifeReader
         from conquest.reconnect import login_screen
+        if self.read_only_build:
+            life=MemoryLifeReader.for_session(self.adapter,self.character).read()
+            try:
+                entities = self.entities.read()
+                monsters=[asdict(monster) for monster in entities.monsters]
+                available,note=True,'Connected to exact-build read-only client'
+            except ValueError as error:
+                monsters,available,note=[],False,str(error)
+            window=self.operations.target.snapshot();root=win32gui.GetAncestor(window['hwnd'],2)
+            return {'monsters':monsters,'observations_available':available,'observation_note':note,
+                'hp_candidate':life.current_hp,'max_hp_candidate':life.max_hp,
+                'life':{**asdict(life),'dead_candidate':life.dead_candidate},
+                'focused':window['foreground']==root and bool(win32gui.IsWindowVisible(window['hwnd'])),
+                'minimized':bool(win32gui.IsIconic(root)) or not bool(win32gui.IsWindowVisible(window['hwnd'])),
+                'observed_at':time.time(),'read_only_worker':True,
+                'blockers':['This client version supports observation only; farming and input are disabled']}
         if login_screen(self.operations.target.hwnd):
             return {'monsters':[],'observations_available':False,
                 'observation_note':'Disconnected; reconnecting before reading player stats',
@@ -96,11 +119,19 @@ class EmbeddedObserver:
                     'process_identity':self.session.identity, 'snapshot':asdict(result)}
 
     def start_bridge(self,path,snapshot,**callbacks):
+        if self.read_only_build:
+            raise ValueError('Writable bridge is unavailable for this client version')
         from conquest.embedded_bridge import EmbeddedBridge
         from conquest.town_trade import TownTrade
         self.town_trade = TownTrade(self)
         self.bridge = EmbeddedBridge(Operations(self.session,self.operations.target.hwnd,read_only=False),
             self.lock,path,snapshot,lifetime=None,on_sample_npcs=self.sample_npcs,on_town=self.town_trade,**callbacks)
+
+    def start_read_only_bridge(self,path,snapshot):
+        if not self.read_only_build:
+            raise ValueError('Read-only bridge is only used for the exact-build observer')
+        from conquest.embedded_bridge import EmbeddedBridge
+        self.bridge=EmbeddedBridge(self.operations,self.lock,path,snapshot,lifetime=None,read_only=True)
 
     def close(self):
         if self.bridge:

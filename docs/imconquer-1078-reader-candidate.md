@@ -83,10 +83,18 @@ withdrawals, protected-withdrawal auditing, or any banking input. Item-transfer
 receipts now require the observed bank balance to remain unchanged, but 1078
 banking remains disabled pending the full protected receipt path.
 
-The following remain deliberately unavailable: equipped ammo and all farming
- inventory semantics, map/entity/monster semantics outside this manual snapshot,
-GUI layout/input semantics, counterpart trade-acceptance/silver semantics,
-restart qualification, and every input path. A
-farmer's zero booth-owner state is carried explicitly and is valid only while
-the booth model is closed and its deque is empty; it never synthesizes an
-owned booth.
+The exact-build readers now cover read-only player life, inventory/equipment
+(including ammo), scene entities, ground headers, GUI windows/tables, shop and
+dialog observations, warehouse inventory/balance/amount text, and closed
+merchant ownership snapshots. User-performed 100-silver deposit and withdrawal
+observations matched both bag and bank deltas; a user-entered `123456` amount
+and cancellation were read without changing stock or silver.
+
+The 1078 desktop checkpoint is observation-only: it can attach the verified
+client and expose a read-only bridge, but reports automation unavailable. Native
+farming, combat, refill, banking transfers, reconnect, route recovery, delivery
+and every game input remain disabled. Open-trade counterpart acceptance/silver,
+protected banking receipts, restart recovery, natural death/revive, and pickup
+semantics remain unqualified. A farmer's zero booth-owner state is carried
+explicitly and is valid only while the booth model is closed and its deque is
+empty; it never synthesizes an owned booth.

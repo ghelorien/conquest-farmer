@@ -14,13 +14,15 @@ from conquest.kill_loot import KillLootCycle
 
 class ControlRuntime:
     def __init__(self, control, worker_info, health_profile, entity_profile, character,
-                 *, observer=None, dispatcher=None, pickup_dispatcher=None, recovery=None, clock=time.monotonic):
+                 *, observer=None, dispatcher=None, pickup_dispatcher=None, recovery=None, clock=time.monotonic,
+                 disable_on_close=True):
         self.control = control
         self.worker_info = worker_info
         self.health_profile, self.entity_profile, self.character = health_profile, entity_profile, character
         self.observer, self.dispatcher = observer or self._observe, dispatcher
         self.pickup_dispatcher, self.clock = pickup_dispatcher, clock
         self.recovery = recovery
+        self.disable_on_close=bool(disable_on_close)
         self.external_execution = False
         self.external_failure = None
         self.encounter = KillLootCycle()
@@ -145,7 +147,8 @@ class ControlRuntime:
         self.thread.start()
 
     def close(self):
-        self.control.update({"enabled": False})
+        if self.disable_on_close:
+            self.control.update({"enabled": False})
         self.stop.set()
         if self.thread:
             self.thread.join(timeout=5)

@@ -19,7 +19,7 @@ def require_viewport(width,height,minimum=(1036,793)):
 
 class AttachmentStatus:
     def __init__(self):
-        self.stage='discovery';self.attached=False;self.ready=False;self.error=None;self.evidence={}
+        self.stage='discovery';self.attached=False;self.ready=False;self.observation_ready=False;self.error=None;self.evidence={}
         self.history=[]
     def enter(self,stage,**evidence):
         if stage not in STAGES:raise ValueError('Unknown attachment stage')
@@ -34,14 +34,14 @@ class AttachmentStatus:
             'attachment':'Window hosting failed. Check the recorded DPI and window geometry.',
             'memory':'The client is attached but memory observations are unavailable.',
             'behavior':'The client is attached; automation setup failed. Check the installation path and recovery data.'}
-        self.ready=False
+        self.ready=False;self.observation_ready=False
         self.error={'type':type(error).__name__,'winerror':getattr(error,'winerror',None),
             'message':str(error) if isinstance(error,(ViewportTooSmall,UnsupportedClientBuildError)) else messages[self.stage]}
         import traceback
         self.error['frames']=[{'file':Path(f.filename).name,'function':f.name,'line':f.lineno}
                               for f in traceback.extract_tb(error.__traceback__)[-6:]]
         return self.error['message']
-    def snapshot(self):return {'stage':self.stage,'attached':self.attached,'automation_ready':self.ready,
+    def snapshot(self):return {'stage':self.stage,'attached':self.attached,'observation_ready':self.observation_ready,'automation_ready':self.ready,
         'error':self.error,'evidence':self.evidence,'history':self.history,'checked_at':time.time()}
     def copy_text(self):return json.dumps(self.snapshot(),indent=2)
 
@@ -87,14 +87,23 @@ def memory_access(pid,expected_sha256):
 
 def verify_observer(context,observer):
     """Reuse pinned identity readers without deriving gameplay capabilities."""
-    from conquest.memory_life import read_life
+    from conquest.memory_build_layout import read_build_layout
     from conquest.merchants.memory import GuiReader, character_uid
     session=observer.adapter
-    life=read_life(session,observer.health_layout,context.profile.name)
-    base=GuiReader(session).base
-    server=session.read_block(base+0x697860,64).split(b'\0')[0]
+    layout=read_build_layout(session)
+    if getattr(observer,'read_only_build',False):
+        from conquest.memory_life import MemoryLifeReader
+        life=MemoryLifeReader.for_session(session,context.profile.name).read()
+        base=GuiReader.for_session(session).base
+        server_rva=layout.merchant_server_rva
+    else:
+        from conquest.memory_life import read_life
+        life=read_life(session,observer.health_layout,context.profile.name)
+        base=GuiReader(session).base
+        server_rva=0x697860
+    server=session.read_block(base+server_rva,64).split(b'\0')[0]
     if server!=b'Classic_US':raise ValueError('This engine supports the qualified America client only')
-    uid=character_uid(session,base,life.object_address)
+    uid=character_uid(session,base,life.object_address,layout=layout if getattr(observer,'read_only_build',False) else None)
     evidence={'character':context.profile.name,'server':'America','character_uid':uid}
     context.verify(evidence)
     session.assert_identity()

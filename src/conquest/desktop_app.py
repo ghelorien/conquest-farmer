@@ -669,6 +669,9 @@ class DesktopApp:
     def retry_reconnect(self):
         from conquest.storage_halt import active
         if active():return
+        if self.observer is not None and getattr(self.observer,'read_only_build',False):
+            self.state_text.set('Reconnect is disabled for this observation-only client version')
+            return
         if self.observer is None or not login_screen(self.observer.operations.target.hwnd):
             return
         self.reconnector.retry()
@@ -680,10 +683,16 @@ class DesktopApp:
         if active():raise ValueError('Storage full: automatic reconnect is disabled')
         if self.observer is None:
             raise ValueError('Hosted client is unavailable for reconnect')
+        if getattr(self.observer,'read_only_build',False):
+            raise ValueError('Reconnect is disabled for this observation-only client version')
         with self.observer.lock:
             return submit_login(self.observer.operations.target, session=self.observer.adapter)
 
     def refocus_if_farming(self):
+        if self.observer is not None and getattr(self.observer,'read_only_build',False):
+            return
+        if hasattr(self,'attachment') and not self.attachment.ready:
+            return
         if getattr(self,'unified',None) and (self.unified.coordinator.owner or
                 (self.unified.grant and self.unified.safe_to_yield())):
             return
@@ -1031,8 +1040,24 @@ class DesktopApp:
             self.state_text.set(str(error))
 
     def make_observer(self,pid,hwnd):
-        health = HealthLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-health-candidate.yaml').read_text()))
+        from conquest.identity import fingerprint
+        from conquest.memory_build_layout import READ_LAYOUTS, CLIENT_SHA256_1078
+        digest=fingerprint(Path(self.client[2]['path']))['sha256']
+        layout=READ_LAYOUTS.get(digest)
+        if layout is None:
+            from conquest.memory import UnsupportedClientBuildError
+            raise UnsupportedClientBuildError('Unsupported game version; its memory layout has not been qualified')
+        health = HealthLayout.model_validate(yaml.safe_load(Path('profiles').joinpath(layout.health_profile).read_text()))
         entities = EntityLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-entities-candidate.yaml').read_text()))
+        if digest==CLIENT_SHA256_1078:
+            # Build the entity profile through the selected layout after the
+            # observer opens its exact-SHA read-only session.
+            entities=entities.model_copy(update={'expected_sha256':digest,
+                'root_rva':layout.entity_root_rva,'pointer_offsets':layout.entity_pointer_offsets,
+                'collection_vtable_rva':layout.entity_collection_vtable_rva,
+                'monster_vtable_rva':layout.entity_actor_vtable_rva,
+                'max_hp_offset':0x3f0,'level_offset':0x708,
+                'attribute_pointer_offset':layout.entity_attribute_pointer_offset})
         return EmbeddedObserver(pid,hwnd,health,entities,farmer_name(),context=self.character_context)
 
     def embed(self,candidate=None):
@@ -1106,14 +1131,19 @@ class DesktopApp:
             self.host.attach(self.client[1], self.client[2], self.pane.winfo_id(),
                              self.pane.winfo_width(), self.pane.winfo_height())
             self.attachment.attached=True
-            if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=False
+            if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=bool(getattr(self.observer,'read_only_build',False))
             self.attachment.enter('memory')
-            self.observer.focus_client=self.host.focus
-            self.initialize_attached_behavior()
+            if getattr(self.observer,'read_only_build',False):
+                self.initialize_read_only_attachment()
+            else:
+                self.observer.focus_client=self.host.focus
+                self.initialize_attached_behavior()
             self.client_picker.configure(state='disabled')
-            self.attachment.ready=True
-            self.attachment_text.set('Client attached · automation ready · farming Off')
-            self.state_text.set('Client embedded · farming Off')
+            if not getattr(self.observer,'read_only_build',False):
+                self.attachment.ready=True
+                self.attachment.observation_ready=True
+                self.attachment_text.set('Client attached · automation ready · farming Off')
+                self.state_text.set('Client embedded · farming Off')
             self.record(state='Embedded', hwnd=self.client[1],attachment=self.attachment.snapshot())
         except Exception as error:
             self.embed_failed(error)
@@ -1163,15 +1193,40 @@ class DesktopApp:
                     self.runtime.recovery.enabled=(self.character_context.settings.get('recover_after_death',self.selected_route.recover_after_death) if self.character_context else self.selected_route.recover_after_death)
             self.record(worker_info_path=str(worker_info.resolve()))
         self.attachment.ready=True
+        self.attachment.observation_ready=True
         self.attachment.attached=bool(self.host.saved)
         if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=False
         self.attachment_text.set('Client attached · automation ready · farming Off')
+
+    def initialize_read_only_attachment(self):
+        """Expose pinned memory observations without initializing any automation."""
+        self.attachment.enter('behavior',mode='exact_build_read_only')
+        # Prove an initial exact-build sample before exposing the checkpoint.
+        # ControlRuntime has no dispatcher/recovery here, so it only publishes
+        # the observer's read-only snapshots and cannot issue game input.
+        initial=self.observer()
+        if initial.get('observations_available') is not True:
+            raise ValueError(initial.get('observation_note','Initial memory observation is unavailable'))
+        self.runtime=ControlRuntime(self.control,None,None,None,farmer_name(),observer=self.observer,
+            disable_on_close=False)
+        self.runtime.start()
+        worker_info=Path(state_path('.runtime'))/f'embedded-readonly-{os.getpid()}.json'
+        self.observer.start_read_only_bridge(worker_info,self.runtime.snapshot)
+        self.record(worker_info_path=str(worker_info.resolve()))
+        self.attachment.attached=bool(self.host.saved)
+        self.attachment.observation_ready=True
+        self.attachment.ready=False
+        self.attachment_text.set('Client attached · observation ready · input and farming disabled for this client version')
+        self.state_text.set('Client embedded · observation only')
 
     def retry_behavior_setup(self):
         if not self.observer or not self.host.saved:
             return self.embed()
         if self.control.snapshot()['enabled'] or (self.thread and self.thread.is_alive()):
             self.attachment_text.set('Stop farming before retrying setup')
+            return
+        if getattr(self.observer,'read_only_build',False):
+            self.attachment_text.set('Observation-only client is already attached; farming remains disabled')
             return
         try:
             if self.runtime:self.runtime.close()
@@ -1726,7 +1781,9 @@ class DesktopApp:
         if not self.closing and not storage_halted:resume_after_embed(self)
         if not self.closing and not storage_halted:
             self.refocus_if_farming()
-        if not self.closing and not storage_halted and self.observer is not None and Path(state_path('.runtime/account.dpapi')).exists():
+        if (not self.closing and not storage_halted and self.observer is not None
+                and not getattr(self.observer,'read_only_build',False)
+                and Path(state_path('.runtime/account.dpapi')).exists()):
             self.reconnector.step(login_screen(self.observer.operations.target.hwnd))
         if self.host.saved and not self.host.is_alive():
             self.stop_observer()
@@ -1739,7 +1796,7 @@ class DesktopApp:
             self.memory_text.set('Launch or select a client to reconnect')
         if self.runtime:
             data = self.runtime.snapshot()
-            if (self.reconnect_pending and not login_screen(self.observer.operations.target.hwnd)
+            if (self.attachment.ready and self.reconnect_pending and not login_screen(self.observer.operations.target.hwnd)
                     and data.get('observations_available') and data.get('life')
                     and time.time()-data.get('observed_at',0)<1
                     and not data['life'].get('dead_candidate')):
@@ -1749,8 +1806,11 @@ class DesktopApp:
             self.nearby.refresh(data['monsters'],data['control']['target_type_ids'],
                 available=data.get('observations_available',False))
             self.render_matched_ids(data)
-            self.state_text.set('Farming On · '+data['control']['execution_state'].replace('_',' ')
-                if data['control']['enabled'] else 'Client embedded · farming Off')
+            if getattr(self.observer,'read_only_build',False):
+                self.state_text.set('Client embedded · observation only')
+            else:
+                self.state_text.set('Farming On · '+data['control']['execution_state'].replace('_',' ')
+                    if data['control']['enabled'] else 'Client embedded · farming Off')
             self.memory_text.set(data['control']['note'] if data.get('observations_available') else
                 data.get('observation_note','Waiting for the client'))
         while not self.messages.empty():
@@ -1900,7 +1960,7 @@ class DesktopApp:
                 pass
             control=self.control.snapshot()
             self.stats_text.set(farm_stats(self.last,control['enabled']))
-            if (control['enabled'] and self.runtime and self.host.saved and self.selected_route
+            if (self.attachment.ready and control['enabled'] and self.runtime and self.host.saved and self.selected_route
                     and time.monotonic()>=getattr(self,'controller_check_at',0)):
                 self.controller_check_at=time.monotonic()+2
                 from conquest.route_controller import ensure_running
@@ -1912,14 +1972,18 @@ class DesktopApp:
                         self.record(route_controller='Restarting automatic route management')
                 except (OSError,ValueError) as error:
                     self.record(route_controller_error=str(error))
-            life=self.runtime.snapshot().get('life') if self.runtime else None
-            execution,activity=automation_status(self.route_status,self.last,control,life)
-            self.state_text.set(execution)
-            self.activity_text.set(activity)
-            if self.last.get('automation_status')!=execution:
-                self.record(automation_status=execution)
-            if self.last.get('current_activity') != self.activity_text.get():
-                self.record(current_activity=self.activity_text.get())
+            if self.observer is not None and getattr(self.observer,'read_only_build',False):
+                self.state_text.set('Client embedded · observation only')
+                self.activity_text.set('Input, route and recovery automation disabled for this client version')
+            else:
+                life=self.runtime.snapshot().get('life') if self.runtime else None
+                execution,activity=automation_status(self.route_status,self.last,control,life)
+                self.state_text.set(execution)
+                self.activity_text.set(activity)
+                if self.last.get('automation_status')!=execution:
+                    self.record(automation_status=execution)
+                if self.last.get('current_activity') != self.activity_text.get():
+                    self.record(current_activity=self.activity_text.get())
         if self.thread and not self.thread.is_alive():
             self.thread = None
             self.start_button.state(['!disabled'])
