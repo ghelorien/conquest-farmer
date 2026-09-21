@@ -56,6 +56,22 @@ class ManualHandoffStore:
             return {row['target_profile_id']:json.loads(row['process_json']) if row['process_json'] else None
                     for row in rows}
 
+    def bind_participant_identities(self, session_id, identities):
+        """Freeze pre-fence discovery identities before the first baseline."""
+        with self.journal.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT * FROM manual_handoffs WHERE id=?',(session_id,)).fetchone()
+            if row is None or row['phase']=='completed':raise ValueError('Manual handoff is not active')
+            for target,identity in identities.items():
+                encoded=json.dumps(identity,sort_keys=True)
+                current=db.execute('SELECT process_json FROM manual_handoff_participants WHERE session_id=? AND target_profile_id=?',(session_id,target)).fetchone()
+                if current is None:raise ValueError('Manual handoff participant changed during discovery')
+                if current['process_json'] not in (None,encoded):raise ValueError('Manual handoff process changed during discovery')
+                db.execute('UPDATE manual_handoff_participants SET process_json=? WHERE session_id=? AND target_profile_id=?',
+                           (encoded,session_id,target))
+            self._audit(db,session_id,'participants_bound',time.time(),targets=sorted(identities))
+            return self._view(db,db.execute('SELECT * FROM manual_handoffs WHERE id=?',(session_id,)).fetchone())
+
     def identity_changed(self, target, reason, *, now=None):
         now=time.time() if now is None else float(now)
         with self.journal.db() as db:
@@ -159,7 +175,7 @@ class ManualHandoffStore:
                 if not str(session['reason'] or '').startswith('Waiting for fresh '+target+' observation:'):
                     self._audit(db,session['id'],'reader_gap',now,target=target)
                 return self._view(db,db.execute('SELECT * FROM manual_handoffs WHERE id=?',(session['id'],)).fetchone())
-            if part['process_json'] and (part['process_json']!=process or part['character_json']!=character):
+            if part['process_json'] and (part['process_json']!=process or part['character_json'] and part['character_json']!=character):
                 db.execute("UPDATE manual_handoffs SET phase='needs_attention',updated_at=?,reason=? WHERE id=?",(now,'Game-process identity changed for '+target,session['id']))
                 self._audit(db,session['id'],'identity_changed',now,target=target)
                 return self._view(db,db.execute('SELECT * FROM manual_handoffs WHERE id=?',(session['id'],)).fetchone())

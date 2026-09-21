@@ -55,7 +55,7 @@ class ManualReaderRegistry1078:
         if profiles is None:
             raise ValueError("1078 manual observation requires configured local profiles")
         rows = [profile for profile in profiles.profiles()
-                if profile.server == "America" and profile.role in ("Farmer", "Merchant")]
+                if profile.local_enabled and profile.server == "America" and profile.role in ("Farmer", "Merchant")]
         if not rows or len({profile.id for profile in rows}) != len(rows):
             raise ValueError("Configured Farmer and merchant profiles are required")
         if len({(profile.server.casefold(), profile.name.casefold()) for profile in rows}) != len(rows):
@@ -73,6 +73,7 @@ class ManualReaderRegistry1078:
             if {profile.id for profile in profiles} != expected:
                 raise ValueError("Frozen manual handoff profile is no longer configured")
         found = {}
+        identity_mismatch = set()
         for client in self.catalog.windows(include_hidden=True):
             matches = []
             for profile in profiles:
@@ -82,14 +83,18 @@ class ManualReaderRegistry1078:
                             raise ValueError("Client identity changed during manual discovery")
                         snapshot = open_read_only_1078(session, profile.name).read_manual_ownership()
                     if (snapshot["character"] == profile.name and snapshot["server"] == profile.server
-                            and (profile.character_uid is None or snapshot["character_uid"] == profile.character_uid)
-                            and (not expected_identities or expected_identities.get(profile.id) is None
-                                 or session.identity == expected_identities[profile.id])):
-                        matches.append(profile)
+                            and (profile.character_uid is None or snapshot["character_uid"] == profile.character_uid)):
+                        if (expected_identities and expected_identities.get(profile.id) is not None
+                                and session.identity != expected_identities[profile.id]):
+                            identity_mismatch.add(profile.id)
+                        else:
+                            matches.append(profile)
                 except (ValueError, OSError):
                     continue
             if len(matches) == 1:
                 found.setdefault(matches[0].id, []).append((matches[0], client.identity))
+        if identity_mismatch:
+            raise ManualReaderIdentityChanged1078(sorted(identity_mismatch)[0])
         if any(len(found.get(profile.id, ())) != 1 for profile in profiles):
             raise ValueError("Every configured Farmer and merchant needs one exact 1078 manual reader")
         if len({entry[0][1]["pid"] for entry in found.values()}) != len(profiles):
@@ -120,3 +125,12 @@ class ManualReaderRegistry1078:
         # An open modal is valid observation evidence. The durable handoff
         # store records saw_window and waits for later closed ownership.
         return snapshot
+
+    def detect_replacement(self, target):
+        """Probe only a frozen profile after its previously bound PID fails."""
+        binding=self.bindings[target]
+        saved=self.bindings
+        try:
+            self.discover(profile_ids=[target], expected_identities={target:binding.identity})
+        finally:
+            self.bindings=saved

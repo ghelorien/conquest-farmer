@@ -193,6 +193,9 @@ class ManualRuntime:
                 for character in CHARACTERS:
                     if character in self.observers:participants[self.manual_target(character)]='Merchant'
             row=self.manual_handoff.start(participants,operator=operator,now=now)
+            if registry is not None and registry.bindings:
+                row=self.manual_handoff.bind_participant_identities(row['id'],{
+                    target:binding.identity for target,binding in registry.bindings.items()})
             self._sync_manual_fence()
             return row
 
@@ -200,18 +203,44 @@ class ManualRuntime:
         """Poll only an active exact-build handoff; never create a controller."""
         registry=getattr(self,'manual_1078_registry',None)
         active=self.manual_handoff.active()
-        if registry is None or active is None or not registry.bindings:
+        if registry is None or active is None:
             return None
-        try:
-            snapshots=registry.read_all()
-        except (ValueError,OSError) as error:
-            for target in registry.bindings:
-                self.manual_handoff.unavailable(target,str(error),now=now)
-            self._sync_manual_fence()
-            return self.manual_handoff.active()
+        from conquest.merchants.manual_reader_registry_1078 import ManualReaderIdentityChanged1078
+        if not registry.bindings:
+            try:
+                registry.discover(profile_ids=[row['target_profile_id'] for row in active['participants']],
+                                  expected_identities=self.manual_handoff.participant_identities(active['id']))
+            except ManualReaderIdentityChanged1078 as error:
+                self.manual_handoff.identity_changed(error.target,str(error),now=now)
+                self._sync_manual_fence()
+                return self.manual_handoff.active()
+            except (ValueError,OSError) as error:
+                for row in active['participants']:
+                    self.manual_handoff.unavailable(row['target_profile_id'],str(error),now=now)
+                self._sync_manual_fence()
+                return self.manual_handoff.active()
         from conquest.mouse_priority import active as mouse_active
-        for target,snapshot in snapshots.items():
-            self.manual_handoff.observe(target,snapshot,bot_busy=bool(self.coordinator.owner),
+        from conquest.merchants.delivery_reservation import active as reservation
+        for target,binding in registry.bindings.items():
+            try:snapshot=registry.read_one(target)
+            except ManualReaderIdentityChanged1078 as error:
+                self.manual_handoff.identity_changed(target,str(error),now=now)
+                continue
+            except (ValueError,OSError) as error:
+                try:registry.detect_replacement(target)
+                except ManualReaderIdentityChanged1078 as changed:
+                    self.manual_handoff.identity_changed(changed.target,str(changed),now=now)
+                    continue
+                except (ValueError,OSError):pass
+                self.manual_handoff.unavailable(target,str(error),now=now)
+                continue
+            character='Farmer' if binding.role=='Farmer' else next((item for item in CHARACTERS
+                if self.manual_target(item)==target),None)
+            busy=bool(self.coordinator.owner or (self.farmer_bot_owned() if binding.role=='Farmer'
+                else character is None or reservation(self.journal,character) or self.journal.pending(character)))
+            # Observe each process immediately: the next process cannot age
+            # this snapshot past the store's two-second freshness boundary.
+            self.manual_handoff.observe(target,snapshot,bot_busy=busy,
                                         mouse_idle=not mouse_active(),now=now)
         self._sync_manual_fence()
         return self.manual_handoff.active()
