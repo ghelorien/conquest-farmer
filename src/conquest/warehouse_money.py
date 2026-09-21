@@ -8,7 +8,7 @@ from conquest.memory_warehouse import WarehouseMoneyReader,money_received
 
 def money_points(reader,snapshot):
     s=reader.session;base=reader.gui.base
-    ctx=struct.unpack('<Q',s.read_block(base+0x6966f0,8))[0]
+    ctx=struct.unpack('<Q',s.read_block(base+reader.gui.context_rva,8))[0]
     font=struct.unpack('<Q',s.read_block(ctx+0x3c20,8))[0]
     size=struct.unpack('<f',s.read_block(ctx+0x3c28,4))[0]
     count,capacity,array=struct.unpack('<IIQ',s.read_block(font,16))

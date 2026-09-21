@@ -155,18 +155,34 @@ def normalized_money_amount(value):
 
 class WarehouseMoneyReader:
     """Pinned renderer 1169e0: owner+1044 bank silver, controller+48 amount."""
-    def __init__(self,session):
-        self.session=session;self.gui=MemoryGui(session)
+    def __init__(self,session,*,layout=None):
+        self.session=session;self.layout=layout;self.gui=MemoryGui(session,layout=layout)
+
+    @classmethod
+    def for_session(cls,session):
+        """Explicit exact-build money observation; no transfer capability."""
+        if not hasattr(session,'read_block'):
+            from types import SimpleNamespace
+            session=SimpleNamespace(expected_sha256=session.expected_sha256,modules=session.modules,
+                identity=session.identity,read=session.read,read_block=session.read,
+                assert_identity=session.assert_identity,
+                viewport_size=getattr(session,'viewport_size',None))
+        from conquest.memory_build_layout import read_build_layout
+        return cls(session,layout=read_build_layout(session))
 
     def read(self):
-        s=self.session;base=self.gui.base;checks=[]
+        s=self.session;base=self.gui.base;layout=self.layout;checks=[]
         def read(address,size):
             data=s.read_block(checked_address(address,size),size);checks.append((address,data));return data
         window=self.gui.read('Warehouse');grid=self.gui.read('Warehouse/ScrollingRegion_')
-        shared=struct.unpack('<Q',read(base+0x69c730,8))[0]
+        root=layout.warehouse_root_rva if layout is not None else 0x69c730
+        silver_offset=layout.warehouse_silver_offset if layout is not None else 0x1044
+        registry=layout.gui_registry_rva if layout is not None else 0x6986c0
+        controller_vtable=layout.warehouse_model_vtable_rva if layout is not None else 0x5cba68
+        shared=struct.unpack('<Q',read(base+root,8))[0]
         owner=struct.unpack('<Q',read(shared,8))[0]
-        silver=struct.unpack('<I',read(owner+0x1044,4))[0]
-        head,count=struct.unpack('<QQ',read(base+0x6986c0,16))
+        silver=struct.unpack('<I',read(owner+silver_offset,4))[0]
+        head,count=struct.unpack('<QQ',read(base+registry,16))
         if not 1<=count<=256:raise ValueError('GUI controller registry bounds changed')
         node=struct.unpack('<Q',read(head+8,8))[0];seen=set()
         for _ in range(32):
@@ -178,9 +194,11 @@ class WarehouseMoneyReader:
             node=struct.unpack_from('<Q',raw,0 if kind>0x16 else 0x10)[0]
         else:raise ValueError('Warehouse controller lookup exceeded bounds')
         controller=struct.unpack_from('<Q',raw,0x28)[0]
-        identity=read(controller,12)
-        if struct.unpack_from('<Q',identity)[0]!=base+0x5cba68 or struct.unpack_from('<I',identity,8)[0]!=0x16:
+        identity=read(controller,13 if layout is not None else 12)
+        if struct.unpack_from('<Q',identity)[0]!=base+controller_vtable or struct.unpack_from('<I',identity,8)[0]!=0x16:
             raise ValueError('Warehouse money controller identity changed')
+        if layout is not None and not identity[12]:
+            raise ValueError('Warehouse money controller is inactive')
         value=read(controller+0x48,12)
         if b'\0' not in value:raise ValueError('Warehouse amount is unterminated')
         amount=normalized_money_amount(value.split(b'\0')[0].decode('ascii'))

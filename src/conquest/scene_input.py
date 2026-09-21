@@ -224,7 +224,13 @@ def memory_player_anchor_for_session(session,character):
     from conquest.memory_build_layout import read_build_layout
     from conquest.memory_life import MemoryLifeReader
     reader=MemoryLifeReader.for_session(session,character);life=reader.read()
-    anchor=memory_player_anchor(SimpleNamespace(adapter=reader.session),life,layout=read_build_layout(reader.session))
+    adapter=reader.session
+    provider=getattr(session,'viewport_size',None)
+    if provider is not None:
+        adapter=SimpleNamespace(expected_sha256=adapter.expected_sha256,modules=adapter.modules,
+            identity=adapter.identity,read=adapter.read,read_block=adapter.read_block,
+            assert_identity=adapter.assert_identity,viewport_size=provider)
+    anchor=memory_player_anchor(SimpleNamespace(adapter=adapter),life,layout=read_build_layout(reader.session))
     latest=MemoryLifeReader.for_session(session,character).read()
     if latest.object_address!=life.object_address or latest.position!=life.position or latest.dead_candidate:
         raise ValueError('Player changed during anchor observation')

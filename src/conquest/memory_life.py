@@ -84,7 +84,8 @@ class MemoryLifeReader:
         if not hasattr(session,'read_block'):
             session=SimpleNamespace(expected_sha256=session.expected_sha256,modules=session.modules,
                 identity=session.identity,read=session.read,read_block=session.read,
-                assert_identity=session.assert_identity)
+                assert_identity=session.assert_identity,
+                viewport_size=getattr(session,'viewport_size',None))
         return cls(session,health,player,character,layout=layout,clock=clock)
 
     def read(self):
