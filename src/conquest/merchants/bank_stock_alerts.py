@@ -47,7 +47,9 @@ def record(loop):
         if (item.get('type_id') in DRAGONBALL_TYPES or item.get('type_id')==1088001
                 or family in URGENT_EQUIPMENT_FAMILIES or not eligible(candidate)):continue
         candidates.append(_exact(item))
-    if not candidates:return []
+    if not candidates:
+        clear_issue()
+        return []
     journal=Journal()
     with journal.db() as db:
         db.execute('''CREATE TABLE IF NOT EXISTS bank_stock_outbox(
@@ -80,6 +82,13 @@ def record_failure(reason):
     with journal.db() as db:
         db.execute('CREATE TABLE IF NOT EXISTS bank_stock_outbox_issue(id INTEGER PRIMARY KEY CHECK(id=1),note TEXT NOT NULL,updated_at REAL NOT NULL)')
         db.execute('INSERT OR REPLACE INTO bank_stock_outbox_issue VALUES(1,?,?)',(str(reason)[:180],time.time()))
+
+
+def clear_issue():
+    journal=Journal()
+    with journal.db() as db:
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bank_stock_outbox_issue'").fetchone():
+            db.execute('DELETE FROM bank_stock_outbox_issue WHERE id=1')
 
 
 def issue():
