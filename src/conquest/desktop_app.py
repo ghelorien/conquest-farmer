@@ -1657,7 +1657,10 @@ class DesktopApp:
                 if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=True
                 self.attachment.ready=False
                 self.attachment_text.set(str(error))
-                self.host.detach();self.attachment.attached=False
+                # A tab/layout transition can briefly map a zero/small pane.
+                # Keep its verified owned host intact: detaching restores a
+                # floating top-level client over the wrapper's tabs. Input is
+                # blocked until a later full viewport check succeeds.
                 self.record(attachment=self.attachment.snapshot())
                 return
         self.host.resize(width,height)

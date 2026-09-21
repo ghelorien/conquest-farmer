@@ -885,7 +885,7 @@ class UnifiedUI:
         update.grid(row=0,column=1,sticky='ew',padx=(0,6),pady=2)
         self.batch_buttons[character]=update
         ttk.Button(controls,text='Show manual view',
-                   command=lambda c=character:self.show_manual_handoff_surface(c)).grid(row=0,column=2,sticky='ew',padx=(0,6),pady=2)
+                   command=lambda c=character:self.request_manual_handoff_surface(c)).grid(row=0,column=2,sticky='ew',padx=(0,6),pady=2)
         controls.columnconfigure(0,weight=1)
         controls.columnconfigure(1,weight=1)
         controls.columnconfigure(2,weight=1)
@@ -1387,6 +1387,8 @@ class UnifiedUI:
         """
         handoff=self.runtime.manual_handoff_status()
         if handoff is None:raise ValueError('Start Manual handoff before using manual game view')
+        if handoff.get('phase') not in ('ready','ending'):
+            raise ValueError('Wait for Manual handoff Ready before showing a game view')
         if self.closed or self.app.closing or probe_busy(self):raise ValueError('Manual game view is unavailable now')
         observer=self.runtime.observers.get(character)
         if observer is None:raise ValueError('Selected merchant has no verified attached process')
@@ -1402,6 +1404,11 @@ class UnifiedUI:
         if host.saved and host.saved.identity!=observer.adapter.identity:
             raise ValueError('Merchant host identity changed; manual view is withheld')
         if not host.saved:
+            if host.api.gui.IsIconic(observer.operations.target.hwnd):
+                # EmbeddedWindow.attach restores an iconic top-level window.
+                # Manual view is intentionally no-activate, so leave that
+                # explicit user action outside this path.
+                raise ValueError('Merchant is minimized; restore it yourself before manual view')
             # This is an explicit user surface operation on the already
             # verified attached HWND, never discovery or input preparation.
             host.attach(observer.operations.target.hwnd,observer.adapter.identity,pane.winfo_id(),
@@ -1413,6 +1420,11 @@ class UnifiedUI:
         host.resize(pane.winfo_width(),pane.winfo_height())
         self.layout_status.setdefault(character,{}).update(manual_handoff_view=True,
             native_visible=True,selected=True)
+
+    def request_manual_handoff_surface(self, character):
+        try:self.show_manual_handoff_surface(character)
+        except (OSError,ValueError) as error:
+            messagebox.showinfo('Manual handoff view',str(error),parent=self.root)
 
     def finish_resize(self, character):
         self.resize_jobs.pop(character,None)
