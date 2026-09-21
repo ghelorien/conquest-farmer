@@ -200,9 +200,9 @@ class BridgeSceneStepper:
 
 def memory_player_anchor(observer,life,*,layout=None):
     """Pinned actor draw coordinates, including camera clamping at map edges."""
-    from conquest.memory_life import CLIENT_SHA256
-    if layout is None and observer.adapter.expected_sha256!=CLIENT_SHA256:
-        raise ValueError('Player projection belongs to a different client build')
+    from conquest.memory_build_layout import read_build_layout
+    if layout is None:
+        layout=read_build_layout(observer.adapter)
     if layout is not None and observer.adapter.expected_sha256!=layout.expected_sha256:
         raise ValueError('Player projection layout differs from client')
     address=life.object_address+0xd8
