@@ -14,14 +14,16 @@ def read_monster_health(session, layout, monster):
     started=time.monotonic()
     session.assert_identity()
     module=next(m for m in session.modules if m['name'].casefold()==layout.module.casefold())
-    obj=checked_address(monster.object_address,0x988)
-    record=session.read_block(obj,0x988)
+    pointer_offset=layout.attribute_pointer_offset
+    record_size=max(0x988,pointer_offset+8)
+    obj=checked_address(monster.object_address,record_size)
+    record=session.read_block(obj,record_size)
     if (struct.unpack_from('<Q',record)[0]!=module['base']+layout.monster_vtable_rva
             or struct.unpack_from('<I',record,layout.id_offset)[0]!=monster.entity_id
             or struct.unpack_from('<I',record,layout.kind_offset)[0]!=monster.type_id
             or struct.unpack_from('<II',record,layout.position_offset)!=tuple(monster.position)):
         raise ValueError('Monster changed before health observation')
-    pointer_bytes=record[0x978:0x980]
+    pointer_bytes=record[pointer_offset:pointer_offset+8]
     pointer=checked_address(struct.unpack('<Q',pointer_bytes)[0],24)
     header=session.read_block(pointer,24)
     mode,count=struct.unpack_from('<II',header,8)
@@ -35,7 +37,7 @@ def read_monster_health(session, layout, monster):
         raise ValueError('Monster health is outside bounds')
     if (session.read_block(table_pointer,count*4)!=table
             or session.read_block(pointer,24)!=header
-            or session.read_block(obj+0x978,8)!=pointer_bytes
+            or session.read_block(obj+pointer_offset,8)!=pointer_bytes
             or session.read_block(obj,8)!=record[:8]
             or session.read_block(obj+layout.id_offset,16)!=record[layout.id_offset:layout.id_offset+16]
             # Camera scrolling changes draw coordinates without changing this

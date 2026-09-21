@@ -33,21 +33,34 @@ def wanted_drop(drop):
 
 
 class MemoryGroundReader:
-    def __init__(self,entities):
+    def __init__(self,entities,*,layout=None):
         from conquest.memory_life import CLIENT_SHA256
-        if entities.session.expected_sha256 != CLIENT_SHA256:
+        if layout is None and entities.session.expected_sha256 != CLIENT_SHA256:
             raise ValueError('Unqualified ground-item client')
+        if layout is not None and entities.session.expected_sha256 != layout.expected_sha256:
+            raise ValueError('Ground layout differs from client')
         self.entities=entities
+        self.layout=layout
+
+    @classmethod
+    def for_session(cls,session):
+        from conquest.memory_build_layout import read_build_layout
+        from conquest.memory_entities import MemoryEntityReader
+        return cls(MemoryEntityReader.for_session(session),layout=read_build_layout(session))
 
     def read(self):
         started=time.monotonic()
         e=self.entities
         s,p=e.session,e.layout
+        layout=self.layout
         base,_,trace=e._resolve()
         # World singleton 96fc5 -> 699360; drop manager at world+170.
         # 145200/145388 store UID, type, tile and actor/holder in its records.
         # The scene actor's +40 (holder+50) is a RENDER COUNTER, not a UID.
-        header_fields=[(base+0x6994d8+o,'u64') for o in (0,8,16)]
+        registry=(layout.ground_registry_rva if layout is not None else 0x6994d8)
+        holder_vtable=(layout.ground_holder_vtable_rva if layout is not None else 0x5ccc08)
+        actor_vtable=(layout.ground_actor_vtable_rva if layout is not None else 0x5cdaf0)
+        header_fields=[(base+registry+o,'u64') for o in (0,8,16)]
         header=sample_fields(s,header_fields)
         begin,end,capacity=header
         if not (0<=begin<=end<=capacity and (begin>0 or end==capacity==0)
@@ -62,7 +75,7 @@ class MemoryGroundReader:
         for at in range(0,len(entries),16):
             address,owner=struct.unpack_from('<QQ',entries,at)
             checked_address(owner,0x30)
-            if address!=owner+0x10 or sample_fields(s,[(owner,'u64')])[0]!=base+0x5ccc08:
+            if address!=owner+0x10 or sample_fields(s,[(owner,'u64')])[0]!=base+holder_vtable:
                 raise ValueError('Ground registry record ownership changed')
             data=s.read_block(checked_address(address,0x20),0x20)
             uid,type_id,x,y,actor,obj=struct.unpack('<4I2Q',data)
@@ -77,7 +90,7 @@ class MemoryGroundReader:
                 raise ValueError('Ground actor ownership changed or duplicated')
             seen_objects.add(obj)
             record=s.read_block(obj,0x60)
-            if (struct.unpack_from('<Q',record)[0]!=base+0x5cdaf0
+            if (struct.unpack_from('<Q',record)[0]!=base+actor_vtable
                     or struct.unpack_from('<II',record,0x40)!=(x,y)
                     or struct.unpack_from('<I',record,0x54)[0]!=type_id):
                 raise ValueError('Ground item fields changed or are invalid')
@@ -91,7 +104,7 @@ class MemoryGroundReader:
             # "(+{:d})" (RVA 0x5cdad8). Thus holder+0x58 is the ground plus.
             plus=record[0x58] if record[0x58]<=12 else None
             result.append(GroundItem(uid,obj,type_id,(x,y),struct.unpack_from('<Q',record,0x48)[0],plus))
-        if any(s.read_block(address,0x20)!=data or sample_fields(s,[(owner,'u64')])[0]!=base+0x5ccc08
+        if any(s.read_block(address,0x20)!=data or sample_fields(s,[(owner,'u64')])[0]!=base+holder_vtable
                for address,data,owner in record_checks):
             raise ValueError('Ground registry item changed during sampling')
         if (sample_fields(s,header_fields)!=header

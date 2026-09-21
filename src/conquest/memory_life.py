@@ -38,11 +38,12 @@ class LifeCandidate:
     revive_ready_candidate: bool
     started_at: float
     timestamp: float
+    conservative_blocked: bool = False
 
     @property
     def dead_candidate(self):
         # Synchronized live death: 0x200 -> 0x20, ~3s before ghost 0x420.
-        return bool(self.status & 0x20)
+        return self.conservative_blocked or bool(self.status & 0x20)
 
 
 def ghost_candidate(status,appearance):
@@ -61,15 +62,30 @@ def read_life(session,health_layout,character,*,clock=time.monotonic):
 
 
 class MemoryLifeReader:
-    def __init__(self,session,health_layout,player_layout,character,*,clock=time.monotonic):
-        if any(fingerprint!=CLIENT_SHA256 for fingerprint in
+    def __init__(self,session,health_layout,player_layout,character,*,layout=None,clock=time.monotonic):
+        if layout is None and any(fingerprint!=CLIENT_SHA256 for fingerprint in
                 (session.expected_sha256,health_layout.player.expected_sha256,player_layout.expected_sha256)):
             raise ValueError('Life candidate offsets belong to a different client build')
+        if layout is not None and any(fingerprint!=layout.expected_sha256 for fingerprint in
+                (session.expected_sha256,health_layout.player.expected_sha256,player_layout.expected_sha256)):
+            raise ValueError('Life candidate layout differs from the client')
         if player_layout.map_rva is None:
             raise ValueError('Life observations require the map field')
         self.session,self.health_layout,self.player_layout=session,health_layout,player_layout
+        self.layout=layout
         self.character,self.clock=character,clock
         self.health=MemoryHealthReader(session,health_layout,character,clock=clock)
+
+    @classmethod
+    def for_session(cls,session,character,*,clock=time.monotonic):
+        from conquest.memory_build_layout import health_reader_layout,read_build_layout
+        layout=read_build_layout(session);health=health_reader_layout(session)
+        player=health.player.model_copy(update={'map_rva':layout.map_rva})
+        if not hasattr(session,'read_block'):
+            session=SimpleNamespace(expected_sha256=session.expected_sha256,modules=session.modules,
+                identity=session.identity,read=session.read,read_block=session.read,
+                assert_identity=session.assert_identity)
+        return cls(session,health,player,character,layout=layout,clock=clock)
 
     def read(self):
         started=self.clock()
@@ -78,10 +94,14 @@ class MemoryLifeReader:
         player=resolve_player(session,self.player_layout)
         if actual['position']!=player['position']:
             raise ValueError('Player and health profiles resolve different position fields')
-        fields=((actual['object']+STATUS_OFFSET,8),
-                (actual['object']+APPEARANCE_OFFSET,4),
+        build=self.layout
+        status_offset=build.life_status_offset if build is not None else STATUS_OFFSET
+        appearance_offset=build.life_appearance_offset if build is not None else APPEARANCE_OFFSET
+        revive_offset=build.life_revive_gate_offset if build is not None else REVIVE_GATE_OFFSET
+        fields=((actual['object']+status_offset,8),
+                (actual['object']+appearance_offset,4),
                 (actual['position'],8),(player['map'],4),
-                (actual['object']+REVIVE_GATE_OFFSET,8))
+                (actual['object']+revive_offset,8))
         before=[session.read_block(address,size) for address,size in fields]
         health=self.health.read()
         if [session.read_block(address,size) for address,size in fields]!=before:
@@ -93,14 +113,21 @@ class MemoryLifeReader:
         finished=self.clock()
         if not 0<=finished-started<=2:
             raise ValueError('Life observation expired')
-        status=struct.unpack('<Q',before[0])[0]
+        # 1078's adjoining high dword is unrelated data; retain the full block
+        # for stability, but expose only the verified low status dword.
+        status=(struct.unpack_from('<I',before[0])[0] if build and build.conservative_life_block
+                else struct.unpack('<Q',before[0])[0])
         appearance=struct.unpack('<I',before[1])[0]
         position=struct.unpack('<II',before[2])
         map_id=struct.unpack('<I',before[3])[0]
         revive_gate=struct.unpack('<Q',before[4])[0]
         ghost=ghost_candidate(status,appearance)
+        conservative=bool(build and build.conservative_life_block
+                          and (health.current_hp==0 or status&0x420 or appearance!=0))
         return LifeCandidate(self.character,actual['object'],status,appearance,map_id,position,
-            health.current_hp,health.max_hp,ghost,revive_gate,ghost and revive_gate==0,started,finished)
+            health.current_hp,health.max_hp,ghost,revive_gate,
+            False if build and build.conservative_life_block else ghost and revive_gate==0,
+            started,finished,conservative)
 
     def report(self):
         return {'qualified':False,'stage':'player_life_candidate','source':'read_only_memory',

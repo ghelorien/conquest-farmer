@@ -35,6 +35,7 @@ class EntityLayout(BaseModel):
     draw_position_offset: Offset
     max_hp_offset: Offset
     level_offset: Offset
+    attribute_pointer_offset: Offset = 0x978
     max_objects: int = Field(default=4096, ge=1, le=8192)
     max_monsters: int = Field(default=256, ge=1, le=512)
     max_sample_seconds: float = Field(default=3, gt=0, le=5)
@@ -66,6 +67,18 @@ class EntitySnapshot:
 
 def sample_fields(session, fields):
     """Preserve numeric tuples and strings; reject incomplete/reordered replies."""
+    if not hasattr(session,'request'):
+        reader=getattr(session,'read_block',None) or session.read
+        formats={'u64':'<Q','u32':'<I','i32':'<i','xy_u32':'<II'}
+        values=[]
+        for address,kind in fields:
+            if kind=='utf8':
+                values.append(reader(checked_address(address),64).split(b'\0',1)[0].decode('utf-8',errors='replace'))
+            elif kind in formats:
+                values.append(struct.unpack(formats[kind],reader(checked_address(address),struct.calcsize(formats[kind]))))
+                if kind!='xy_u32':values[-1]=values[-1][0]
+            else:raise ValueError('Unsupported direct entity sample kind')
+        return values
     values = []
     for start in range(0, len(fields), 64):
         batch = fields[start:start + 64]
@@ -121,6 +134,11 @@ class MemoryEntityReader:
         if session.expected_sha256 != layout.expected_sha256:
             raise ValueError("Entity profile fingerprint differs from client")
         self.session, self.layout, self.clock = session, layout, clock
+
+    @classmethod
+    def for_session(cls,session,*,clock=time.monotonic):
+        from conquest.memory_build_layout import entity_reader_layout
+        return cls(session,entity_reader_layout(session),clock=clock)
 
     def _resolve(self):
         s, p = self.session, self.layout
