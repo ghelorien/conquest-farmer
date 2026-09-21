@@ -217,7 +217,8 @@ def after_shopping(loop):
         try:
             from conquest.merchants.bank_stock_alerts import record
             record(loop)
-        except (ValueError,OSError,KeyError,TypeError) as error:
+        except Exception as error:
+            if type(error).__name__=='OvernightStopped':raise
             from conquest.merchants.bank_stock_alerts import record_failure
             record_failure(type(error).__name__)
     finally:

@@ -56,7 +56,7 @@ def observe(journal, snapshot):
         # guard also covers independent observers and app restart. The atomic
         # settlement callback installs the fresh post-session baseline.
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_sessions'").fetchone():
-            if db.execute("SELECT 1 FROM manual_sessions WHERE target_profile_id=? AND created_at<=? AND (phase NOT IN ('completed','request_withdrawn','declined_verified','operator_overridden') OR COALESCE(json_extract(terminal_json,'$.settled_at'),updated_at)>?) LIMIT 1",
+            if db.execute("SELECT 1 FROM manual_sessions WHERE target_profile_id=? AND created_at<=? AND (phase NOT IN ('completed','request_withdrawn','declined_verified','operator_overridden') OR COALESCE(json_extract(terminal_json,'$.settled_at'),json_extract(terminal_json,'$.at'),created_at)>?) LIMIT 1",
                           (target, at, before['timestamp'] if before else at)).fetchone():
                 return
         # The operator handoff has a separate durable interval table.  Do not

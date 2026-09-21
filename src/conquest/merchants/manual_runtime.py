@@ -164,6 +164,8 @@ class ManualRuntime:
     def start_manual_handoff(self, *, operator='local UI', now=None):
         """Fence first, then await baseline observations from attached clients."""
         with self.coordinator.lock:
+            existing=self.manual_handoff.active()
+            if existing:return existing
             # Do not silently absorb an older visitor/rebaseline/reader hold.
             if self._manual_rows():
                 raise ManualSessionError('Resolve the existing manual/rebaseline hold before starting a global handoff')

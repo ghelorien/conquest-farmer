@@ -145,6 +145,15 @@ class Alerts:
         due = next((r for r in self.state['queue'] if r['retry_at']<=now),None)
         if due is None:
             return
+        if due['kind']=='bank_stock' and due.get('confirmed_receipt'):
+            # Network delivery already succeeded. Persisted ack-only retries
+            # must never re-send that Discord message after restart.
+            try:
+                from conquest.merchants.bank_stock_alerts import acknowledge
+                acknowledge(due['id'],due['confirmed_receipt'])
+            except Exception:
+                due['retry_at']=now+60;persist(self.state);return
+            self.state['queue'].remove(due);persist(self.state);return
         # Persist the queue before network I/O. Like the farmer notifier, an
         # ambiguous network receipt can cause a duplicate on a later retry.
         persist(self.state)
@@ -160,15 +169,16 @@ class Alerts:
             incident = self.state['incidents'].get(due['subject'])
             if incident and due['kind']=='failure' and incident['id']==due['id']:
                 incident['sent'] = True
-            self.state['queue'].remove(due)
             if due['kind']=='bank_stock':
+                due['confirmed_receipt']=str(receipt)
+                due['retry_at']=now
+                persist(self.state)  # receipt is durable before local ack.
                 try:
                     from conquest.merchants.bank_stock_alerts import acknowledge
                     acknowledge(due['id'],receipt)
                 except Exception:
-                    # Keep the independently durable outbox pending. Queue
-                    # removal may duplicate after restart, never lose notice.
-                    pass
+                    return
+            self.state['queue'].remove(due)
             self.state.update(last_message_id=str(receipt),last_sent_at=now)
             self.state.pop('delivery_error',None)
         persist(self.state)

@@ -101,6 +101,8 @@ class ManualHandoffStore:
             # Read gaps are expected during a handoff. Keep waiting and retain
             # the fence; only a qualified identity contradiction is attention.
             db.execute('UPDATE manual_handoffs SET updated_at=?,reason=? WHERE id=?',(now,'Waiting for fresh '+target+' observation: '+str(reason)[:160],row['id']))
+            # No old stability may bridge an unreadable interval.
+            db.execute('UPDATE manual_handoff_participants SET stable_digest=NULL,stable_since=NULL WHERE session_id=?',(row['id'],))
             last=db.execute("SELECT 1 FROM manual_handoff_audit WHERE session_id=? AND event='reader_gap' AND json_extract(payload,'$.target')=? LIMIT 1",(row['id'],target)).fetchone()
             if not last:
                 self._audit(db,row['id'],'reader_gap',now,target=target)
@@ -126,6 +128,7 @@ class ManualHandoffStore:
                 character=json.dumps({k:proof[k] for k in ('character','character_uid','server')},sort_keys=True)
             except (ValueError,KeyError,TypeError) as error:
                 db.execute('UPDATE manual_handoffs SET updated_at=?,reason=? WHERE id=?',(now,'Waiting for fresh '+target+' observation: '+str(error)[:160],session['id']))
+                db.execute('UPDATE manual_handoff_participants SET stable_digest=NULL,stable_since=NULL WHERE session_id=?',(session['id'],))
                 if not str(session['reason'] or '').startswith('Waiting for fresh '+target+' observation:'):
                     self._audit(db,session['id'],'reader_gap',now,target=target)
                 return self._view(db,db.execute('SELECT * FROM manual_handoffs WHERE id=?',(session['id'],)).fetchone())

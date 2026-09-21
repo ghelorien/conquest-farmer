@@ -22,10 +22,21 @@ def record(loop):
     from conquest.merchants.delivery_journey import pending as journey_pending
     from conquest.merchants.delivery_route import pending as trade_pending
     if rollout_enabled() or journey_pending() or trade_pending():return []
-    warehouse=loop.town('warehouse-items',rich=True)
     from conquest.merchants.bridge import request
     source=request({'action':'delivery-source'}).get('farmer') or {}
-    if not source.get('identity') or not 0 <= time.time()-source.get('timestamp',0)<=5:return []
+    before=getattr(loop,'identity',None)
+    if not source.get('identity') or not 0 <= time.time()-source.get('timestamp',0)<=5:
+        raise ValueError('Fresh farmer source evidence is unavailable')
+    if before is None or source['identity']!=before:
+        raise ValueError('Bank source process does not match the active farmer')
+    warehouse=loop.town('warehouse-items',rich=True)
+    loop.living()  # post-rich-read process/identity recheck, no game input.
+    if getattr(loop,'identity',None)!=before:
+        raise ValueError('Farmer process changed during rich warehouse observation')
+    from conquest.character_context import current
+    context=current()
+    if context and source.get('profile_id') not in (None,context.profile.id):
+        raise ValueError('Bank source profile differs from selected farmer')
     from conquest.merchants.delivery import eligible
     from conquest.valuables import DRAGONBALL_TYPES
     from conquest.banking import URGENT_EQUIPMENT_FAMILIES
