@@ -1131,15 +1131,16 @@ class DesktopApp:
             self.host.attach(self.client[1], self.client[2], self.pane.winfo_id(),
                              self.pane.winfo_width(), self.pane.winfo_height())
             self.attachment.attached=True
-            if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=bool(getattr(self.observer,'read_only_build',False))
+            automation_build=bool(getattr(self.observer,'automation_ready_build',False))
+            if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=bool(getattr(self.observer,'read_only_build',False) and not automation_build)
             self.attachment.enter('memory')
-            if getattr(self.observer,'read_only_build',False):
+            if getattr(self.observer,'read_only_build',False) and not automation_build:
                 self.initialize_read_only_attachment()
             else:
                 self.observer.focus_client=self.host.focus
                 self.initialize_attached_behavior()
             self.client_picker.configure(state='disabled')
-            if not getattr(self.observer,'read_only_build',False):
+            if not getattr(self.observer,'read_only_build',False) or automation_build:
                 self.attachment.ready=True
                 self.attachment.observation_ready=True
                 self.attachment_text.set('Client attached · automation ready · farming Off')
@@ -1225,7 +1226,8 @@ class DesktopApp:
         if self.control.snapshot()['enabled'] or (self.thread and self.thread.is_alive()):
             self.attachment_text.set('Stop farming before retrying setup')
             return
-        if getattr(self.observer,'read_only_build',False):
+        if (getattr(self.observer,'read_only_build',False)
+                and not getattr(self.observer,'automation_ready_build',False)):
             self.attachment_text.set('Observation-only client is already attached; farming remains disabled')
             return
         try:
@@ -1557,6 +1559,10 @@ class DesktopApp:
         if self.selected_route is None:self.display_route(route)
         self.show_game()  # The runner waits for focus while preserving Farming On.
         config=TrialConfig.model_validate(yaml.safe_load(self.profile.read_text()))
+        if getattr(self.observer,'automation_ready_build',False):
+            config=config.model_copy(update={
+                'player_profile':'profiles/classic-1078-player-candidate.yaml',
+                'inventory_profile':'profiles/classic-1078-inventory-candidate.yaml'})
         observation=self.observer()
         if observation.get('connection_state')=='login':
             self.reconnect_pending=True
@@ -1806,7 +1812,7 @@ class DesktopApp:
             self.nearby.refresh(data['monsters'],data['control']['target_type_ids'],
                 available=data.get('observations_available',False))
             self.render_matched_ids(data)
-            if getattr(self.observer,'read_only_build',False):
+            if getattr(self.observer,'read_only_build',False) and not self.attachment.ready:
                 self.state_text.set('Client embedded · observation only')
             else:
                 self.state_text.set('Farming On · '+data['control']['execution_state'].replace('_',' ')
@@ -1972,7 +1978,8 @@ class DesktopApp:
                         self.record(route_controller='Restarting automatic route management')
                 except (OSError,ValueError) as error:
                     self.record(route_controller_error=str(error))
-            if self.observer is not None and getattr(self.observer,'read_only_build',False):
+            if (self.observer is not None and getattr(self.observer,'read_only_build',False)
+                    and not self.attachment.ready):
                 self.state_text.set('Client embedded · observation only')
                 self.activity_text.set('Input, route and recovery automation disabled for this client version')
             else:

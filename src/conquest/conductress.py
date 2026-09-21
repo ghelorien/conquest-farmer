@@ -49,7 +49,7 @@ TWIN_CONDUCTRESS=VendorIdentity(1002,0,'Conductress',280,(435,440))
 
 
 def read_conductress(observer):
-    life=read_life(observer.adapter,observer.health_layout,observer.character)
+    life=observer.read_life() if hasattr(observer,'read_life') else read_life(observer.adapter,observer.health_layout,observer.character)
     if life.dead_candidate:raise ValueError('Living character required for Conductress travel')
     found=MemoryNpcReader(observer.entities,vendors=[TWIN_CONDUCTRESS]).read(life.map_id).npcs
     if len(found)!=1:raise ValueError('Conductress is not in the current memory scene')
@@ -119,10 +119,10 @@ class MemoryDialogReader:
 
 def read_dialog(observer):
     s=observer.adapter
-    life=read_life(s,observer.health_layout,observer.character)
+    life=observer.read_life() if hasattr(observer,'read_life') else read_life(s,observer.health_layout,observer.character)
     if life.dead_candidate:raise ValueError('Living character required for NPC dialog')
     actor=life.object_address
-    return read_dialog_records(s,actor)
+    return read_dialog_records(s,actor,layout=read_build_layout(s))
 
 
 def validate_destination(data,destination):

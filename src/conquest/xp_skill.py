@@ -23,12 +23,11 @@ def _read_xp(session,life,layout):
 
 def read_xp(observer):
     s=observer.adapter
-    if s.expected_sha256!=CLIENT_SHA256:raise ValueError('XP client profile differs')
-    life=read_life(s,observer.health_layout,observer.character)
+    life=observer.read_life() if hasattr(observer,'read_life') else read_life(s,observer.health_layout,observer.character)
     if life.dead_candidate:raise ValueError('Living character required for XP skill')
     from conquest.memory_build_layout import read_build_layout
     result=_read_xp(s,life,read_build_layout(s))
-    latest=read_life(s,observer.health_layout,observer.character)
+    latest=observer.read_life() if hasattr(observer,'read_life') else read_life(s,observer.health_layout,observer.character)
     if latest.object_address!=life.object_address or latest.dead_candidate:
         raise ValueError('XP state changed during observation')
     return result

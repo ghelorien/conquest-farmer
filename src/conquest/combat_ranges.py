@@ -47,12 +47,10 @@ def _read_combat_ranges(s,life,layout,*,require_scatter=True):
 
 def read_combat_ranges(observer, *, require_scatter=True):
     s=observer.adapter
-    if s.expected_sha256!=CLIENT_SHA256:
-        raise ValueError('Combat range client differs from the qualified profile')
-    life=read_life(s,observer.health_layout,observer.character)
+    life=observer.read_life() if hasattr(observer,'read_life') else read_life(s,observer.health_layout,observer.character)
     from conquest.memory_build_layout import read_build_layout
     result=_read_combat_ranges(s,life,read_build_layout(s),require_scatter=require_scatter)
-    latest=read_life(s,observer.health_layout,observer.character)
+    latest=observer.read_life() if hasattr(observer,'read_life') else read_life(s,observer.health_layout,observer.character)
     if latest.object_address!=life.object_address or latest.dead_candidate:
         raise ValueError('Character changed during range observation')
     return result

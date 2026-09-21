@@ -21,7 +21,7 @@ class RouteJumpInput:
                for p in (source,destination)):
             raise ValueError('Route coordinates must be integer tile pairs')
         observer=self.observer
-        life=read_life(observer.adapter,observer.health_layout,observer.character)
+        life=observer.read_life() if hasattr(observer,'read_life') else read_life(observer.adapter,observer.health_layout,observer.character)
         if (type(body['map_id']) is not int or life.map_id!=body['map_id']
                 or list(life.position)!=source or life.dead_candidate):
             raise ValueError('Route map changed')
@@ -52,7 +52,7 @@ class RouteJumpInput:
             segment=line_tiles(source,destination)
         if not all(self.terrain.walkable(p) for p in segment):
             raise ValueError('Route jump crosses blocked terrain')
-        life=read_life(observer.adapter,observer.health_layout,observer.character)
+        life=observer.read_life() if hasattr(observer,'read_life') else read_life(observer.adapter,observer.health_layout,observer.character)
         if list(life.position)!=source or life.map_id!=body['map_id']:
             raise ValueError('Player left the planned route segment')
         movement='jump' if distance>=8 else 'run'

@@ -163,7 +163,7 @@ class SelectionReader:
 
 class ScatterSelection:
     def __init__(self,observer,notify):
-        self.reader=SelectionReader(observer.adapter)
+        self.reader=SelectionReader.for_session(observer.adapter)
         self.observer,self.notify=observer,notify
         self.pending=False
         self.next_attempt=0.
@@ -176,7 +176,8 @@ class ScatterSelection:
             return False
         if time.monotonic()<self.next_attempt:return True
         from conquest.memory_life import read_life
-        life=read_life(self.observer.adapter,self.observer.health_layout,self.observer.character)
+        life=(self.observer.read_life() if hasattr(self.observer,'read_life') else
+              read_life(self.observer.adapter,self.observer.health_layout,self.observer.character))
         if life.dead_candidate:raise ValueError('Living character required for skill selection')
         try:self.reader.gui.read('Skills')
         except ValueError:

@@ -17,11 +17,14 @@ class EmbeddedObserver:
         self.bridge = None
         from conquest.memory_build_layout import CLIENT_SHA256_1078
         self.read_only_build=health_layout.player.expected_sha256==CLIENT_SHA256_1078
+        # The exact 1078 readers have now been live-qualified.  Input remains
+        # bounded by the existing foreground, identity and transaction guards.
+        self.automation_ready_build=self.read_only_build
         if health_layout.player.expected_sha256 != entity_layout.expected_sha256:
             raise ValueError('Health and entity profiles describe different clients')
         self.session = MemorySession(pid, health_layout.player.expected_sha256).__enter__()
         try:
-            self.operations = Operations(self.session, hwnd, read_only=True)
+            self.operations = Operations(self.session, hwnd, read_only=not self.automation_ready_build)
             adapter = SimpleNamespace(expected_sha256=self.session.expected_sha256,
                 identity=self.session.identity, modules=self.session.modules,
                 read=self.session.read, read_block=self.session.read,
@@ -52,12 +55,19 @@ class EmbeddedObserver:
                     verify_observer(context,self)
             return self._observe()
 
+    def read_life(self):
+        if self.read_only_build:
+            from conquest.memory_life import MemoryLifeReader
+            return MemoryLifeReader.for_session(self.adapter,self.character).read()
+        from conquest.memory_life import read_life
+        return read_life(self.adapter,self.health_layout,self.character)
+
     def _observe(self):
         import win32gui
         from conquest.memory_life import read_life, MemoryLifeReader
         from conquest.reconnect import login_screen
         if self.read_only_build:
-            life=MemoryLifeReader.for_session(self.adapter,self.character).read()
+            life=self.read_life()
             try:
                 entities = self.entities.read()
                 monsters=[asdict(monster) for monster in entities.monsters]
@@ -103,13 +113,13 @@ class EmbeddedObserver:
         with self.lock:
             if login_screen(self.operations.target.hwnd):
                 raise ValueError('Reconnect before reading vendors or player stats')
-            before = read_life(self.adapter, self.health_layout, self.character)
+            before = self.read_life()
             if before.dead_candidate:
                 raise ValueError('Revive before interacting with town vendors')
             result = MemoryNpcReader(self.entities).read(before.map_id)
             if login_screen(self.operations.target.hwnd):
                 raise ValueError('Client disconnected during vendor sampling')
-            after = read_life(self.adapter, self.health_layout, self.character)
+            after = self.read_life()
             if (after.dead_candidate or after.map_id != before.map_id
                     or after.object_address != before.object_address):
                 raise ValueError('Player or map changed during vendor sampling')
@@ -119,7 +129,7 @@ class EmbeddedObserver:
                     'process_identity':self.session.identity, 'snapshot':asdict(result)}
 
     def start_bridge(self,path,snapshot,**callbacks):
-        if self.read_only_build:
+        if self.read_only_build and not self.automation_ready_build:
             raise ValueError('Writable bridge is unavailable for this client version')
         from conquest.embedded_bridge import EmbeddedBridge
         from conquest.town_trade import TownTrade

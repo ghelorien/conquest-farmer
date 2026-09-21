@@ -160,7 +160,7 @@ class EmbeddedRecoveryInput:
         if self._layout is None or self._layout.target is not target:
             from conquest.layout_revision import SharedLayoutRevision
             from conquest.merchants.memory import GuiReader
-            gui=GuiReader(self.observer.adapter)
+            gui=GuiReader.for_session(self.observer.adapter)
             self._layout=SharedLayoutRevision(target,windows=gui.windows,
                                                gui_size=gui.viewport_size)
         return self._layout
@@ -168,8 +168,9 @@ class EmbeddedRecoveryInput:
     def read_life(self):
         from conquest.memory_life import read_life
         try:
-            return read_life(self.observer.adapter,self.observer.health_layout,
-                             self.observer.character)
+            return (self.observer.read_life() if hasattr(self.observer,'read_life') else
+                    read_life(self.observer.adapter,self.observer.health_layout,
+                              self.observer.character))
         except ValueError as error:
             if str(error) in ('Life state changed during observation',
                               'Player pointer changed during life observation','Life observation expired',

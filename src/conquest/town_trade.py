@@ -83,19 +83,15 @@ def transient_observation(error):
 class TownTrade:
     def __init__(self, observer):
         self.observer = observer
-        self.shop = MemoryShopReader(observer.adapter)
+        self.shop = MemoryShopReader.for_session(observer.adapter)
         self.npcs = MemoryNpcReader(observer.entities)
-        player = PlayerLayout.model_validate(yaml.safe_load(
-            Path('profiles/classic-1074-player-candidate.yaml').read_text()))
-        self.inventory = MemoryInventoryReader(observer.adapter, player,
-            InventoryLayout.model_validate(yaml.safe_load(
-                Path('profiles/classic-1074-inventory-candidate.yaml').read_text())))
+        self.inventory = MemoryInventoryReader.for_session(observer.adapter)
 
     def life(self, minimum_health=0, *, any_map=False):
         o = self.observer
         if login_screen(o.operations.target.hwnd):
             raise CaptureUnavailable('Reconnect before town actions')
-        life = read_life(o.adapter, o.health_layout, o.character)
+        life = o.read_life() if hasattr(o,'read_life') else read_life(o.adapter,o.health_layout,o.character)
         if life.dead_candidate or (life.map_id not in (1002,1011) and not any_map) or life.current_hp <= 0 or life.current_hp < life.max_hp*minimum_health:
             raise ValueError('Town action requires a living character on the town map')
         return life
@@ -104,7 +100,7 @@ class TownTrade:
         """Qualify the current native window and draggable warehouse panels."""
         from conquest.layout_revision import SharedLayoutRevision
         from conquest.merchants.memory import GuiReader
-        gui = GuiReader(self.observer.adapter)
+        gui = GuiReader.for_session(self.observer.adapter)
         layout = SharedLayoutRevision(self.observer.operations.target,
             windows=gui.windows, gui_size=gui.viewport_size)
         return layout, layout.stable()
@@ -126,7 +122,7 @@ class TownTrade:
     def require_warehouse_hover(self, window):
         """Require the pointer's topmost ImGui window to be this exact grid."""
         from conquest.merchants.memory import GuiReader, HoverNotReady, unpack
-        gui=GuiReader(self.observer.adapter)
+        gui=GuiReader.for_session(self.observer.adapter)
         context=unpack(gui.session,gui.base+0x6966f0,'<Q')[0]
         address=window['address'] if isinstance(window,dict) else window.address
         if unpack(gui.session,context+0x3ec0,'<Q')[0]!=address:
@@ -138,7 +134,7 @@ class TownTrade:
         with physical_coordinates():
             layout, layout_revision = self.warehouse_layout()
             npc = self.vendor(0)
-            reader = MemoryWarehouseReader(self.observer.adapter)
+            reader = MemoryWarehouseReader.for_session(self.observer.adapter)
             before = self.inventory.read()
             stored = reader.read()
             candidates = [i for i in before.items if i.uid == uid and stash_candidate(i)]
@@ -352,7 +348,7 @@ class TownTrade:
         if action=='warehouse-items' and (set(body)=={'action'} or
                 set(body)=={'action','rich'} and body['rich'] is True):
             self.vendor(0)
-            reader=MemoryWarehouseReader(self.observer.adapter)
+            reader=MemoryWarehouseReader.for_session(self.observer.adapter)
             if body.get('rich'):
                 from conquest.merchants.memory import MerchantMemory
                 memory=MerchantMemory(self.observer)
@@ -491,7 +487,7 @@ class TownTrade:
             return self.warehouse_deposit(body['uid'])
         if action=='warehouse-withdraw-meteor' and set(body)=={'action','uid'}:
             from conquest.memory_warehouse import withdrawal_received
-            npc=self.vendor(0);reader=MemoryWarehouseReader(self.observer.adapter)
+            npc=self.vendor(0);reader=MemoryWarehouseReader.for_session(self.observer.adapter)
             before=self.inventory.read();stored=reader.read()
             candidates=[i for i in stored.items if i.uid==body['uid'] and i.type_id==1088001 and i.amount==i.limit==1]
             if len(candidates)!=1 or len(before.items)>=before.capacity:
@@ -565,7 +561,7 @@ class TownTrade:
             from conquest.merchants.memory import GuiReader
             def panel_signature():
                 return tuple(sorted((item['name'],item['address'],tuple(item['geometry']),tuple(item['scroll']))
-                    for item in GuiReader(self.observer.adapter).windows()
+                    for item in GuiReader.for_session(self.observer.adapter).windows()
                     if (item['name'] in PANELS or item['name'] in TRANSACTIONS
                         or item['name'].startswith(body['window']+'/'))))
             panels=panel_signature()

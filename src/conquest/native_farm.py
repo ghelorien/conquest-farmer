@@ -242,7 +242,7 @@ class NativeFarmSupervisor:
         try:
             attempts=getattr(getattr(self,'combat_speed',None),'torn_life_attempts',1)
             for attempt in range(attempts):
-                try:return read_life(self.observer.adapter,self.observer.health_layout,self.observer.character)
+                try:return self.observer.read_life() if hasattr(self.observer,'read_life') else read_life(self.observer.adapter,self.observer.health_layout,self.observer.character)
                 except ValueError as error:
                     if str(error)!='Life state changed during observation' or attempt==attempts-1:raise
                     time.sleep(.005)

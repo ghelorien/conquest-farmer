@@ -49,20 +49,21 @@ def item_details(session,address,base):
 
 def read_equipment(observer):
     from conquest.memory_life import read_life
-    life=read_life(observer.adapter,observer.health_layout,observer.character)
+    life=observer.read_life() if hasattr(observer,'read_life') else read_life(observer.adapter,observer.health_layout,observer.character)
     s=observer.adapter
-    if s.expected_sha256!=CLIENT_SHA256:raise ValueError('Unqualified equipment client')
+    from conquest.memory_build_layout import actual_player_layout
+    player=actual_player_layout(s)
     base=next(m['base'] for m in s.modules if m['name'].casefold()=='imconquer.exe')
     actor=life.object_address
-    level=struct.unpack('<I',s.read_block(actor+0x6e8,4))[0]
-    profession=struct.unpack('<I',s.read_block(actor+0x6d4,4))[0]
+    level=struct.unpack('<I',s.read_block(actor+player.level_offset,4))[0]
+    profession=struct.unpack('<I',s.read_block(actor+player.level_offset-0x14,4))[0]
     if not 1<=level<=140 or not 40<=profession<=45:raise ValueError('Upgrade requires a memory-identified archer')
     pointers={slot:s.read_block(actor+offset,8) for slot,offset in slots_for(s).items()}
     equipped={slot:item_details(s,struct.unpack('<Q',ptr)[0],base) for slot,ptr in pointers.items() if struct.unpack('<Q',ptr)[0]}
     if any(category(item['type_id'])!=slot for slot,item in equipped.items()):raise ValueError('Equipped slot layout differs from archer profile')
     if any(s.read_block(actor+slots_for(s)[slot],8)!=ptr for slot,ptr in pointers.items()):raise ValueError('Equipped slots changed during observation')
-    if s.read_block(actor+0x6e8,4)!=struct.pack('<I',level):raise ValueError('Level changed during equipment observation')
-    fresh=read_life(s,observer.health_layout,observer.character)
+    if s.read_block(actor+player.level_offset,4)!=struct.pack('<I',level):raise ValueError('Level changed during equipment observation')
+    fresh=observer.read_life() if hasattr(observer,'read_life') else read_life(s,observer.health_layout,observer.character)
     if fresh.object_address!=actor or fresh.dead_candidate:raise ValueError('Character changed during equipment observation')
     s.assert_identity()
     return {'level':level,'profession':profession,'map_id':fresh.map_id,'equipment':equipped}
