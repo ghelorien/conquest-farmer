@@ -48,6 +48,7 @@ def observe(journal, snapshot):
         if latest and at <= latest['timestamp']:
             return
         before = latest.get('_sales_anchor', latest) if latest else None
+        target = getattr(character, 'profile_id', str(character))
         if db.execute("SELECT 1 FROM state WHERE character=? AND name='manual_reader_hold' AND value!='null'",(character,)).fetchone():return
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_rebaseline'").fetchone():
             if db.execute("SELECT 1 FROM manual_rebaseline WHERE target_profile_id=? AND phase!='completed'",(character,)).fetchone():return
@@ -55,7 +56,6 @@ def observe(journal, snapshot):
         # guard also covers independent observers and app restart. The atomic
         # settlement callback installs the fresh post-session baseline.
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_sessions'").fetchone():
-            target = getattr(character, 'profile_id', str(character))
             if db.execute("SELECT 1 FROM manual_sessions WHERE target_profile_id=? AND created_at<=? AND (phase NOT IN ('completed','request_withdrawn','declined_verified','operator_overridden') OR COALESCE(json_extract(terminal_json,'$.settled_at'),updated_at)>?) LIMIT 1",
                           (target, at, before['timestamp'] if before else at)).fetchone():
                 return
