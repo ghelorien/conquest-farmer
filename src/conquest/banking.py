@@ -13,14 +13,12 @@ LEDGER=Path(state_path('reports/banking/transfers.jsonl'))
 
 
 def urgent_valuables(items):
-    """Carried Dragonballs and +2-or-higher gear require immediate banking."""
+    """Carried Dragonballs require immediate banking."""
     result=[]
     for item in items:
         get=item.get if isinstance(item,dict) else lambda k,d=None:getattr(item,k,d)
-        kind,plus=get('type_id'),get('plus')
-        if get('slot') is not None and (kind in DRAGONBALL_TYPES or
-                (type(kind) is int and 100000<=kind<600000
-                 and type(plus) is int and 2<=plus<=12)):
+        kind=get('type_id')
+        if get('slot') is not None and kind in DRAGONBALL_TYPES:
             result.append(item)
     return result
 

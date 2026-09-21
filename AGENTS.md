@@ -138,8 +138,9 @@ walking recovery after verified progress instead of holding it for six seconds.
 
 Do not pick up Elite-only gear (+0/unknown). Keep Super gear, all verified + gear,
 Meteors and Dragonballs eligible; Elite gear with a verified + remains eligible.
-As soon as carried inventory contains a Dragonball or +2-or-higher equipment,
-stop combat and go directly to the warehouse. Equipped + gear does not trigger
+As soon as carried inventory contains a Dragonball, stop combat and go directly
+to the warehouse. +2-or-higher equipment no longer triggers urgent banking and
+follows the ordinary eligible merchant/town flow. Equipped gear does not trigger
 a trip. Verify deposits, preserve overflow/Market protections and manual Stop,
 then return to monsters. This banking obligation is separate from empty-supply
 restocking; do not shop during a stocked urgent bank trip.
