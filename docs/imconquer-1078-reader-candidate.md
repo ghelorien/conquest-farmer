@@ -23,9 +23,21 @@ Read-only, three-process candidate evidence found:
 - GUI model registry candidate `0x6b8e48`, with a stable 33-key map and models
   `14` (trade, vtable `0x5e6a80`), `15` (confirmation, `0x5e0148`), and `25`
   (booth, `0x5dd9c0`).
+- GUI context `0x6b5ef0`: the `+0x3e38` frame, window `+0x97` visibility flag,
+  `+0x248` last-rendered frame, and `+0x18` geometry were coherent on two
+  samples for all three clients. Model `25` was active only for the two booth
+  clients; models `14` and `15` were inactive in those closed-window samples.
+- server-string candidate `0x6b7fc0` contains `Classic_US` in the captured
+  module data; it still needs a stable cross-client server-field check.
 
 The following are deliberately not mapped or enabled: item equipped-ammo and
 other inventory semantics, map semantics, actor/monster fields, GUI window
 context/layout and trade-model semantics, server identity, current-HP change
 semantics, restart stability, and every input path. Each needs its own fresh,
 read-only evidence before a versioned runtime loader can be considered.
+
+In particular, no candidate offset is established for owned-booth UID, booth
+item deque, open-trade item deques, trade participant, or incoming-request
+participant. Returning an empty value for any of those would make a manual
+handoff falsely look stable, so a canonical merchant snapshot remains blocked
+until those fields are read and rechecked around real closed and open windows.
