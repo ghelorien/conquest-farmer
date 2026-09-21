@@ -184,6 +184,15 @@ Cancel an unapproved incoming request after five seconds using the existing
 exact-request, journaled once-only decline path. A transient request-memory read
 failure must not permanently strand an otherwise unchanged unapproved request:
 reobserve safely, then cancel the exact still-present request or verify closed
-windows and unchanged ownership before continuing. Never auto-approve visitors,
-replay an uncertain decline, bypass manual Stop, or dismiss an approved session,
-unapproved open trade, changed process identity, or ownership discrepancy.
+ windows and unchanged ownership before continuing. Never auto-approve visitors,
+ replay an uncertain decline, bypass manual Stop, or dismiss an approved session,
+ unapproved open trade, changed process identity, or ownership discrepancy.
+
+# Operator manual handoff
+
+An explicit global Manual handoff fences attached Farmer and merchants before
+its native-memory baseline. It sends no game input and never changes saved
+Farming, merchant, refill, banking or delivery controls. Wait for active input,
+bot transactions, fresh closed windows, five seconds stable ownership and mouse
+idle before release; read gaps retry while identity changes remain held. Manual
+handoff changes are observation gaps/baselines, never invented sales receipts.

@@ -355,10 +355,18 @@ class MerchantRuntime(ManualRuntime):
             with self.observers[character].lock:
                 snapshot = controller.driver.memory.read(recovery=True) if returning else controller.driver.read()
         except (ValueError,OSError,CaptureUnavailable):
+            if self.manual_handoff_status() is not None:
+                self.manual_handoff.unavailable(self.manual_target(character),'Qualified merchant memory observation failed')
+                self._sync_manual_fence()
+                return
             self.manual_unavailable(character, 'Qualified manual memory observation failed')
             raise
         with self.lock:
             self.latest[character] = snapshot
+        # An operator-started global handoff gets the first post-read fence.
+        # It is observation-only and therefore must precede both visitor
+        # admission and every normal merchant action.
+        if self.observe_manual_handoff(character,snapshot):return
         # Supervised probes have no normal reservation/accepted-request receipt.
         # Route their exact fresh bilateral evidence before manual admission,
         # including correction of a previously misclassified pending session.

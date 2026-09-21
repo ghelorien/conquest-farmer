@@ -1,0 +1,93 @@
+"""Verified warehouse-stock outbox; notification only, never delivery/travel."""
+import copy
+import hashlib
+import json
+import time
+
+from conquest.merchants.journal import Journal
+
+
+def _exact(item):
+    return {k:item.get(k) for k in ('uid','type_id','plus','gem1','gem2','quantity','bound','name','slot')}
+
+
+def record(loop):
+    """Best-effort native evidence after a completed bank visit.
+
+    This deliberately does nothing if a delivery journey/trade is active or
+    automatic delivery is enabled: it must not reinterpret protected/active
+    transfer stock as a notification candidate.
+    """
+    from conquest.merchants.farmer_preferences import rollout_enabled
+    from conquest.merchants.delivery_journey import pending as journey_pending
+    from conquest.merchants.delivery_route import pending as trade_pending
+    if rollout_enabled() or journey_pending() or trade_pending():return []
+    warehouse=loop.town('warehouse-items',rich=True)
+    from conquest.merchants.bridge import request
+    source=request({'action':'delivery-source'}).get('farmer') or {}
+    if not source.get('identity') or not 0 <= time.time()-source.get('timestamp',0)<=5:return []
+    from conquest.merchants.delivery import eligible
+    from conquest.valuables import DRAGONBALL_TYPES
+    from conquest.banking import URGENT_EQUIPMENT_FAMILIES
+    candidates=[]
+    for item in warehouse.get('items',[]):
+        candidate=copy.deepcopy(item);candidate['slot']=0
+        family=int(item.get('type_id',0))//1000
+        if (item.get('type_id') in DRAGONBALL_TYPES or item.get('type_id')==1088001
+                or family in URGENT_EQUIPMENT_FAMILIES or not eligible(candidate)):continue
+        candidates.append(_exact(item))
+    if not candidates:return []
+    journal=Journal()
+    with journal.db() as db:
+        db.execute('''CREATE TABLE IF NOT EXISTS bank_stock_outbox(
+            id TEXT PRIMARY KEY, created_at REAL NOT NULL, source_json TEXT NOT NULL,
+            warehouse_json TEXT NOT NULL, phase TEXT NOT NULL, message_id TEXT)''')
+        db.execute('CREATE TABLE IF NOT EXISTS bank_stock_baseline(farmer TEXT PRIMARY KEY,snapshot_json TEXT NOT NULL,updated_at REAL NOT NULL)')
+        farmer=str(source.get('profile_id') or source.get('character'))
+        old=db.execute('SELECT snapshot_json FROM bank_stock_baseline WHERE farmer=?',(farmer,)).fetchone()
+        previous=set(json.loads(old['snapshot_json'])) if old else set()
+        current={hashlib.sha256(json.dumps({k:item.get(k) for k in ('uid','type_id','plus','gem1','gem2','quantity','bound')},sort_keys=True).encode()).hexdigest()
+                 for item in candidates}
+        for item in candidates:
+            # Exact stock identity, not a whole-warehouse snapshot: a later
+            # deposit cannot reannounce already-notified stock.
+            identity={k:item.get(k) for k in ('uid','type_id','plus','gem1','gem2','quantity','bound')}
+            event=hashlib.sha256(json.dumps({'farmer':source.get('profile_id') or source.get('character'),**identity},sort_keys=True).encode()).hexdigest()
+            if event not in previous:
+                db.execute('INSERT OR IGNORE INTO bank_stock_outbox VALUES(?,?,?,?,?,NULL)',
+                       (event,time.time(),json.dumps({'identity':source['identity'],'map_id':source.get('map_id'),
+                            'character':source.get('character'),'profile_id':source.get('profile_id'),
+                            'observed_at':source.get('timestamp')}),
+                        json.dumps([item]),'pending'))
+        db.execute('INSERT OR REPLACE INTO bank_stock_baseline VALUES(?,?,?)',(farmer,json.dumps(sorted(current)),time.time()))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bank_stock_outbox_issue'").fetchone():
+            db.execute('DELETE FROM bank_stock_outbox_issue WHERE id=1')
+    return candidates
+
+
+def record_failure(reason):
+    journal=Journal()
+    with journal.db() as db:
+        db.execute('CREATE TABLE IF NOT EXISTS bank_stock_outbox_issue(id INTEGER PRIMARY KEY CHECK(id=1),note TEXT NOT NULL,updated_at REAL NOT NULL)')
+        db.execute('INSERT OR REPLACE INTO bank_stock_outbox_issue VALUES(1,?,?)',(str(reason)[:180],time.time()))
+
+
+def issue():
+    journal=Journal()
+    with journal.db() as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bank_stock_outbox_issue'").fetchone():return None
+        row=db.execute('SELECT note FROM bank_stock_outbox_issue WHERE id=1').fetchone()
+        return row['note'] if row else None
+
+
+def pending():
+    journal=Journal()
+    with journal.db() as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bank_stock_outbox'").fetchone():return []
+        return [dict(row) for row in db.execute("SELECT * FROM bank_stock_outbox WHERE phase='pending' ORDER BY created_at")]
+
+
+def acknowledge(key,message_id):
+    journal=Journal()
+    with journal.db() as db:
+        db.execute("UPDATE bank_stock_outbox SET phase='sent',message_id=? WHERE id=? AND phase='pending'",(str(message_id),key))

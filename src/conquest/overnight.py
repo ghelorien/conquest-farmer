@@ -1052,6 +1052,20 @@ class OvernightLoop:
                 try:
                     self._run_route()
                     return
+                except CaptureUnavailable as error:
+                    # This loop runs in its own process. Read the app's fresh
+                    # authenticated control projection rather than its empty
+                    # local coordinator singleton.
+                    try:fenced=bool(self.health()['embedded_controls'].get('manual_input_fence'))
+                    except (CaptureUnavailable,ValueError,OSError,KeyError,TypeError):fenced=False
+                    if not fenced and str(error) not in ('Manual visitor session holds farmer input',
+                                                         'Manual visitor session holds automation input'):
+                        raise
+                    # A user-owned global manual handoff is a normal wait,
+                    # not a failed town/route action.  The next fresh memory
+                    # loop replans after the durable settlement signal.
+                    self.record('manual_handoff_wait',activity='Waiting for operator manual handoff to settle')
+                    time.sleep(.2)
                 except TravelStalled as error:
                     self.recover_travel_stall(error)
                 except ValueError as error:

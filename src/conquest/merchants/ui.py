@@ -522,7 +522,14 @@ class UnifiedUI:
             character=body.get('character')
             if character is not None:character='Farmer' if character=='Farmer' else character_name(character)
             return {'sessions':self.runtime.manual_status(character),
-                    'farmer':self.runtime.manual_farmer_status()}
+                    'farmer':self.runtime.manual_farmer_status(),
+                    'handoff':self.runtime.manual_handoff_status()}
+        if action=='manual-handoff-status' and set(body)=={'action'}:
+            return {'handoff':self.runtime.manual_handoff_status()}
+        if action=='manual-handoff-start' and set(body) in ({'action'},{'action','operator'}):
+            return self.runtime.start_manual_handoff(operator=body.get('operator','bridge operator'))
+        if action=='manual-handoff-end' and set(body) in ({'action','session_id'},{'action','session_id','operator'}):
+            return self.runtime.end_manual_handoff(body['session_id'],operator=body.get('operator','bridge operator'))
         if action in ('manual-approve','manual-reject'):
             allowed={'action','binding'} | ({'operator'} if 'operator' in body else set())
             if set(body)!=allowed:raise ValueError('Unsupported manual decision arguments')
@@ -542,6 +549,7 @@ class UnifiedUI:
                 'ui_health':{**self.ui_health,'tick_age_ms':round((time.monotonic()-self.last_ui_tick)*1000)},
                 'sales_reporting':self.runtime.sales_worker.status(),
                 'manual_sessions':self.runtime.manual_status(),
+                'manual_handoff':self.runtime.manual_handoff_status(),
                 'manual_farmer':self.runtime.manual_farmer_status(),
                 'header':dict(self.header_status),
                 'background_probe':dict(self.background_probe),
@@ -733,6 +741,12 @@ class UnifiedUI:
         ttk.Button(row,text='How shop controls work',command=self.shop_help).pack(side='left',padx=8)
         ttk.Button(row,text='Configure Discord #shops',command=self.configure_shops).pack(side='left',padx=8)
         ttk.Button(row,text='Stop all (including farmer)',command=self.global_stop).pack(side='right')
+        handoff_row=ttk.LabelFrame(frame,text='Operator manual handoff',padding=8)
+        handoff_row.pack(fill='x',padx=20,pady=(0,8))
+        self.manual_handoff_text=tk.StringVar(value='No global handoff active.')
+        ttk.Label(handoff_row,textvariable=self.manual_handoff_text,wraplength=860,justify='left').pack(anchor='w')
+        self.manual_handoff_button=ttk.Button(handoff_row,text='Start manual handoff',command=self.toggle_manual_handoff)
+        self.manual_handoff_button.pack(anchor='w',pady=(5,0))
         self.discord_note=tk.StringVar(value='Checking Discord notification services...')
         ttk.Label(frame,textvariable=self.discord_note,wraplength=900).pack(anchor='w',padx=20,pady=6)
         self.input_note = tk.StringVar()
@@ -755,6 +769,31 @@ class UnifiedUI:
             state=action_state(shown,now=now)
             for action,button in self.manual_buttons[target].items():
                 button.configure(state='normal' if state[action] else 'disabled')
+        handoff=self.runtime.manual_handoff_status()
+        if hasattr(self,'manual_handoff_text'):
+            if handoff:
+                phase=handoff['phase'].replace('_',' ')
+                count=len(handoff.get('participants',[]))
+                note=handoff.get('reason') or ('Waiting for stable closed windows.' if phase in ('preparing','ending') else 'User controls all game actions; automation remains fenced.')
+                self.manual_handoff_text.set(f'{phase.title()} · {count} participant(s) · {note}')
+                self.manual_handoff_button.configure(text='End manual handoff')
+            else:
+                self.manual_handoff_text.set('No global handoff active. Start fences attached Farmer/merchant automation before you act.')
+                self.manual_handoff_button.configure(text='Start manual handoff')
+
+    def toggle_manual_handoff(self):
+        handoff=self.runtime.manual_handoff_status()
+        try:
+            if handoff:
+                if not messagebox.askyesno('End manual handoff',
+                        'End this operator handoff? It remains fenced until every participant has five seconds of stable, closed-window native-memory evidence.',parent=self.root):return
+                self.runtime.end_manual_handoff(handoff['id'],operator='local UI')
+            else:
+                if not messagebox.askyesno('Start manual handoff',
+                        'Start now, then wait for Ready before touching any client. You perform every game action; this sends no game input and changes no saved controls.',parent=self.root):return
+                self.runtime.start_manual_handoff(operator='local UI')
+        except (ValueError,OSError) as error:
+            messagebox.showerror('Manual handoff',str(error),parent=self.root)
 
     def _displayed_manual(self, target, *, binding=False):
         from conquest.merchants.manual_operator import displayed

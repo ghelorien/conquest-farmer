@@ -97,6 +97,33 @@ class Alerts:
             return  # Missing observations can never confirm merchant recovery.
         stale_ui = status.get('ui_health',{}).get('tick_age_ms',0)>15000
         self.observe('Conquest app',('Conquest UI stopped responding; merchant input may be blocked.',60) if stale_ui else None,now)
+        handoff=status.get('manual_handoff') or {}
+        # Preparation, bot drain, ordinary reader retries and settlement are
+        # deliberately quiet operator waits. Only a real identity/uncertainty
+        # disposition is urgent.
+        handoff_problem=(('Operator manual handoff needs attention: '+str(handoff.get('reason')),0)
+                         if handoff.get('phase')=='needs_attention' else None)
+        self.observe('Operator manual handoff',handoff_problem,now)
+        # The outbox is committed by the completed native bank visit.  Polling
+        # it here keeps network I/O outside gameplay and survives app restart.
+        try:
+            from conquest.merchants.bank_stock_alerts import pending as pending_stock
+            queued={row['id'] for row in self.state['queue']}
+            for stock in pending_stock():
+                if stock['id'] in queued:continue
+                items=json.loads(stock['warehouse_json'])
+                names=', '.join(f"{item.get('name') or item['type_id']} ×{item.get('quantity',1)}" for item in items[:8])
+                source=json.loads(stock['source_json'])
+                location='Market' if source.get('map_id')==1036 else 'map '+str(source.get('map_id','unknown'))
+                self.state['queue'].append({'id':stock['id'],'subject':'Verified bank stock','kind':'bank_stock',
+                    'content':f'**Manual handoff available — verified bank stock**\nFarmer: {source.get("character","verified farmer")}\n{names}\nLocation: {location} warehouse (native memory verified).\nUse Manual handoff before any trade.',
+                    'created':now,'retry_at':0})
+            from conquest.merchants.bank_stock_alerts import issue as stock_issue
+            self.observe('Verified bank stock observation',('Verified bank-stock notification observation needs attention: '+stock_issue(),60) if stock_issue() else None,now)
+        except Exception:
+            # The normal monitor-health alert covers a persistent worker issue;
+            # bank completion itself remains successful and never retries input.
+            pass
         for character,state in status['characters'].items():
             manual = state.get('manual_session') or {}
             if (state.get('manual_input_fence') and manual.get('phase') != 'needs_attention'
@@ -134,6 +161,14 @@ class Alerts:
             if incident and due['kind']=='failure' and incident['id']==due['id']:
                 incident['sent'] = True
             self.state['queue'].remove(due)
+            if due['kind']=='bank_stock':
+                try:
+                    from conquest.merchants.bank_stock_alerts import acknowledge
+                    acknowledge(due['id'],receipt)
+                except Exception:
+                    # Keep the independently durable outbox pending. Queue
+                    # removal may duplicate after restart, never lose notice.
+                    pass
             self.state.update(last_message_id=str(receipt),last_sent_at=now)
             self.state.pop('delivery_error',None)
         persist(self.state)

@@ -59,6 +59,13 @@ def observe(journal, snapshot):
             if db.execute("SELECT 1 FROM manual_sessions WHERE target_profile_id=? AND created_at<=? AND (phase NOT IN ('completed','request_withdrawn','declined_verified','operator_overridden') OR COALESCE(json_extract(terminal_json,'$.settled_at'),updated_at)>?) LIMIT 1",
                           (target, at, before['timestamp'] if before else at)).fetchone():
                 return
+        # The operator handoff has a separate durable interval table.  Do not
+        # infer a sale across its preparation/settlement window, including
+        # after an app restart or a terminal interval with no sale receipt.
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_handoffs'").fetchone():
+            if db.execute("SELECT 1 FROM manual_handoffs h JOIN manual_handoff_participants p ON p.session_id=h.id WHERE p.target_profile_id=? AND h.created_at<=? AND (h.phase!='completed' OR h.completed_at>?) LIMIT 1",
+                          (target,at,before['timestamp'] if before else at)).fetchone():
+                return
         if before:
             old = {i['uid']:i for i in before['booth']}
             booth = {i['uid']:i for i in current['booth']}

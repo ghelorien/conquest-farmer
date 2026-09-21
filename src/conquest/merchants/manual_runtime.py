@@ -88,6 +88,8 @@ class ManualRuntime:
         from conquest.merchants.manual_recovery import SCHEMA
         with self.journal.db() as db:db.executescript(SCHEMA)
         self.manual_sessions = ManualSessionStore(self.journal.path, on_settlement=self._manual_settlement)
+        from conquest.merchants.manual_handoff import ManualHandoffStore
+        self.manual_handoff = ManualHandoffStore(self.journal)
         self.manual_farmer_provider = lambda:None
         self.manual_farmer_control = lambda:{'enabled':False}
         self.manual_farmer_observation = {'available':False,'reason':'Farmer observer is not configured'}
@@ -137,6 +139,8 @@ class ManualRuntime:
         from conquest.merchants.manual_recovery import rebaseline_views
         for hold in rebaseline_views(self.journal):
             if not any(row['target_profile_id']==hold['target_profile_id'] for row in rows):rows.append(hold)
+        handoff=self.manual_handoff.active()
+        if handoff:rows.append(handoff)
         return rows
 
     def _sync_manual_fence(self):
@@ -152,6 +156,49 @@ class ManualRuntime:
             return {**row, 'fence_scope': 'global' if row['ever_approved'] else 'target',
                     'deadline': row['expires_at']}
         return [view(row) for row in rows] if character is None else view(rows[0])
+
+    def manual_handoff_status(self):
+        """Operator-facing global session state; never a gameplay capability."""
+        return self.manual_handoff.active()
+
+    def start_manual_handoff(self, *, operator='local UI', now=None):
+        """Fence first, then await baseline observations from attached clients."""
+        with self.coordinator.lock:
+            # Do not silently absorb an older visitor/rebaseline/reader hold.
+            if self._manual_rows():
+                raise ManualSessionError('Resolve the existing manual/rebaseline hold before starting a global handoff')
+            if self.farmer_bot_owned() or any(self.journal.pending(character) for character in CHARACTERS):
+                raise ManualSessionError('Wait for the active bot transaction to reconcile before starting handoff')
+            farmer=self.manual_farmer_provider()
+            if farmer is None:raise ManualSessionError('Attach the Farmer memory observer before starting handoff')
+            participants={self.manual_target('Farmer'):'Farmer'}
+            for character in CHARACTERS:
+                if character in self.observers:participants[self.manual_target(character)]='Merchant'
+            row=self.manual_handoff.start(participants,operator=operator,now=now)
+            self._sync_manual_fence()
+            return row
+
+    def end_manual_handoff(self, session_id, *, operator='local UI', now=None):
+        with self.coordinator.lock:
+            try:return self.manual_handoff.end(session_id,operator=operator,now=now)
+            finally:self._sync_manual_fence()
+
+    def observe_manual_handoff(self, character, snapshot, *, now=None):
+        """Record a native-memory observation while the global fence remains held."""
+        target=self.manual_target(character)
+        active=self.manual_handoff.active()
+        if not active:return False
+        try:
+            from conquest.merchants.delivery_reservation import active as reservation
+            busy=bool(self.coordinator.owner or self.farmer_bot_owned() if is_farmer_owner(character)
+                      else self.coordinator.owner or reservation(self.journal,character) or self.journal.pending(character))
+            from conquest.mouse_priority import active as mouse_active
+            row=self.manual_handoff.observe(target,snapshot,bot_busy=busy,
+                                            mouse_idle=not mouse_active(),now=now)
+        except (ValueError,OSError,TypeError,KeyError) as error:
+            row=self.manual_handoff.unavailable(target,str(error),now=now)
+        finally:self._sync_manual_fence()
+        return bool(row and row['holds_automation'])
 
     def _manual_character(self, target):
         if target==self.manual_target('Farmer'):return 'Farmer'

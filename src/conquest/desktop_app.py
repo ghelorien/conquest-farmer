@@ -194,7 +194,7 @@ class DesktopApp:
         # well as in the merchant tabs.  They only close one selected durable
         # hold; they never turn off the manual-stop or fresh-observation
         # guards used by update_ids/start_embedded_farm.
-        self.recovery_frame = ttk.LabelFrame(self.sidebar, text='Recovery holds', padding=6)
+        self.recovery_frame = ttk.LabelFrame(self.sidebar, text='Manual handoff & recovery', padding=6)
         self.recovery_frame.pack(fill='x', pady=(0,4))
         self.recovery_text = tk.StringVar(value='Checking for unresolved farmer holds…')
         ttk.Label(self.recovery_frame, textvariable=self.recovery_text,
@@ -206,6 +206,10 @@ class DesktopApp:
                    command=self.override_farmer_recovery).pack(side='left', padx=(6,0))
         ttk.Button(self.recovery_frame,text='Clear stale handoff…',
                    command=self.clear_stale_handoff).pack(anchor='w',pady=(4,0))
+        self.manual_handoff_note=tk.StringVar(value='Manual handoff: Start, then wait for Ready before touching any client.')
+        ttk.Label(self.recovery_frame,textvariable=self.manual_handoff_note,wraplength=420).pack(anchor='w',pady=(5,0))
+        ttk.Button(self.recovery_frame,text='Manual handoff…',
+                   command=self.manual_handoff).pack(anchor='w',pady=(4,0))
 
         self.mouse_note=tk.StringVar(value='Mouse control: automatic · move mouse to take over')
         ttk.Label(self.sidebar,textvariable=self.mouse_note).pack(anchor='w',pady=(0,4))
@@ -318,6 +322,24 @@ class DesktopApp:
                 messagebox.showinfo('Clear stale handoff','Reservation cleared. Farming remains Off.',parent=self.root)
             after_pointer_idle(clear)
         after_pointer_idle(preview_and_confirm)
+
+    def manual_handoff(self):
+        """Small farmer-pane entry point; merchant bridge remains authenticated."""
+        dispatch=getattr(self,'stale_handoff_dispatch',None)
+        if dispatch is None:
+            messagebox.showerror('Manual handoff','Merchant controls are not ready.',parent=self.root);return
+        try:
+            current=dispatch({'action':'manual-status'}).get('handoff')
+            if current:
+                if messagebox.askyesno('End manual handoff',
+                        'Keep the mouse idle after ending. Automation stays fenced until closed windows and stable ownership have been observed for five seconds.',parent=self.root):
+                    result=dispatch({'action':'manual-handoff-end','session_id':current['id'],'operator':'farmer pane'})
+                    self.manual_handoff_note.set('Manual handoff: settling closed windows; keep the mouse idle.')
+            else:
+                result=dispatch({'action':'manual-handoff-start','operator':'farmer pane'})
+                self.manual_handoff_note.set('Manual handoff: Preparing — wait for Ready before touching any client.')
+        except (OSError,ValueError) as error:
+            messagebox.showerror('Manual handoff',str(error),parent=self.root)
 
     # ------------------------------------------------------------------
     # Durable recovery holds
@@ -1664,6 +1686,21 @@ class DesktopApp:
             self.root.after(200,self.poll)
 
     def _poll(self):
+        if time.monotonic()>=getattr(self,'_manual_handoff_status_at',0):
+            self._manual_handoff_status_at=time.monotonic()+1
+            dispatch=getattr(self,'stale_handoff_dispatch',None)
+            if dispatch:
+                try:
+                    handoff=dispatch({'action':'manual-handoff-status'}).get('handoff')
+                    if handoff:
+                        phase=handoff.get('phase')
+                        note={'preparing':'Preparing — wait for Ready before touching any client.',
+                              'ready':'Ready — trade manually; automation remains paused.',
+                              'ending':'Settling — keep the mouse idle.',
+                              'needs_attention':'Needs attention — do not trade.'}.get(phase,'Manual handoff active.')
+                        self.manual_handoff_note.set('Manual handoff: '+note)
+                    else:self.manual_handoff_note.set('Manual handoff: Start, then wait for Ready before touching any client.')
+                except (ValueError,OSError):pass
         from conquest.storage_halt import enforce
         storage_halted=enforce(self)
         from conquest.safe_reload import resume_after_embed

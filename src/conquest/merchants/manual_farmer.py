@@ -76,7 +76,7 @@ def observe(runtime,observer=None):
             raise ValueError('Select an exact Farmer profile before observing manual trades')
         if observer.character!=farmer_name():raise ValueError('Attached farmer identity does not match selected profile')
         visible=presence(observer)
-        held=runtime.manual_status('Farmer') is not None
+        held=(runtime.manual_status('Farmer') is not None or runtime.manual_handoff_status() is not None)
         if not visible and not held:
             runtime.manual_farmer_observation={'available':True,'windows_absent':True,'observed_at':time.time(),
                 'source':'read_only_memory','qualified_full_snapshot_maps':[1002,1011,1036]}
@@ -88,12 +88,20 @@ def observe(runtime,observer=None):
                                           'qualified_full_snapshot_maps':[1002,1011,1036]}
     finally:observer.lock.release()
     if snapshot is None:
+        if runtime.manual_handoff_status() is not None:
+            runtime.manual_handoff.unavailable(runtime.manual_target('Farmer'),reason)
+            runtime._sync_manual_fence()
+            return True
         if not runtime.manual_unavailable('Farmer',reason):
             # No exact first binding can be created without complete evidence.
             runtime.manual_reader_failure('Farmer',{'reader_error':reason},reason)
         return True
     runtime.manual_farmer_observation={'available':True,'observed_at':snapshot['timestamp'],
                                       'source':'read_only_memory','snapshot':snapshot}
+    # Global operator handoff intentionally bypasses visitor admission and
+    # decline routing.  It only observes the existing memory snapshot.
+    if runtime.observe_manual_handoff('Farmer',snapshot):
+        return True
     routed = runtime.process_probe_owned('Farmer', snapshot)
     if routed:
         from conquest.merchants.manual_runtime import OBSERVATION_DEFERRED

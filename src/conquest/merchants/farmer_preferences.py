@@ -7,7 +7,9 @@ PATH=Path('.runtime/farmer-transfer-preferences.json')
 
 
 def enabled(character=None):
-    return read_json(state_path(PATH)).get('farmers',{}).get(character or farmer_name(),True) is True
+    # New installations require one explicit operator enable.  Existing
+    # saved `true` preferences retain their intent unchanged.
+    return read_json(state_path(PATH)).get('farmers',{}).get(character or farmer_name(),False) is True
 
 
 def set_enabled(character,value):
@@ -21,7 +23,7 @@ def set_enabled(character,value):
 def rollout_enabled(character=None,*,policy=None):
     character=character or farmer_name()
     settings=read_json(state_path(PATH))
-    if settings.get('farmers',{}).get(character,True) is not True:return False
+    if settings.get('farmers',{}).get(character,False) is not True:return False
     override=settings.get('rollout',{}).get(character)
     if type(override) is bool:return override
     policy=read_json('profiles/merchant-deliveries.json') if policy is None else policy

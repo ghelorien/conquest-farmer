@@ -212,6 +212,14 @@ def after_shopping(loop):
         if excess>0:transfer(loop,'deposit',excess)
         elif excess<0 and bank['stored_silver']:
             transfer(loop,'withdraw',min(-excess,bank['stored_silver']))
+        # Informational native-memory warehouse evidence only. A failed
+        # outbox observation never changes a completed banking visit.
+        try:
+            from conquest.merchants.bank_stock_alerts import record
+            record(loop)
+        except (ValueError,OSError,KeyError,TypeError) as error:
+            from conquest.merchants.bank_stock_alerts import record_failure
+            record_failure(type(error).__name__)
     finally:
         from conquest.storage_halt import active
         from conquest.merchants.delivery_journey import pending as journey_pending
