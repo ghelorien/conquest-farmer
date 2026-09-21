@@ -49,6 +49,28 @@ class ManualHandoffStore:
             row=db.execute("SELECT * FROM manual_handoffs WHERE phase!='completed' ORDER BY created_at DESC LIMIT 1").fetchone()
             return self._view(db,row) if row else None
 
+    def participant_identities(self, session_id):
+        """Restart-only binding proof; never exposed as an operator command."""
+        with self.journal.db() as db:
+            rows=db.execute('SELECT target_profile_id,process_json FROM manual_handoff_participants WHERE session_id=?',(session_id,))
+            return {row['target_profile_id']:json.loads(row['process_json']) if row['process_json'] else None
+                    for row in rows}
+
+    def identity_changed(self, target, reason, *, now=None):
+        now=time.time() if now is None else float(now)
+        with self.journal.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute("SELECT * FROM manual_handoffs WHERE phase!='completed' ORDER BY created_at DESC LIMIT 1").fetchone()
+            if row is None:return None
+            part=db.execute('SELECT process_json FROM manual_handoff_participants WHERE session_id=? AND target_profile_id=?',(row['id'],target)).fetchone()
+            if part is None:return self._view(db,row)
+            if not part['process_json']:
+                return self._view(db,row)
+            db.execute("UPDATE manual_handoffs SET phase='needs_attention',updated_at=?,reason=? WHERE id=?",
+                       (now,'Game-process identity changed for '+target,row['id']))
+            self._audit(db,row['id'],'identity_changed',now,target=target,reason=str(reason)[:160])
+            return self._view(db,db.execute('SELECT * FROM manual_handoffs WHERE id=?',(row['id'],)).fetchone())
+
     def _view(self, db, row):
         if row is None:return None
         result=dict(row)

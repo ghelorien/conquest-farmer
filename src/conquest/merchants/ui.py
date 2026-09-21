@@ -778,19 +778,18 @@ class UnifiedUI:
                 self.manual_handoff_text.set(f'{phase.title()} · {count} participant(s) · {note}')
                 self.manual_handoff_button.configure(text='End manual handoff')
             else:
-                self.manual_handoff_text.set('No global handoff active. Start fences attached Farmer/merchant automation before you act.')
+                if getattr(getattr(self.runtime,'manual_1078_registry',None),'read_only_build',False):
+                    self.manual_handoff_text.set('1078 manual observation ready; farming and merchant automation are unavailable. Start, then wait for Ready.')
+                else:
+                    self.manual_handoff_text.set('No global handoff active. Start fences attached Farmer/merchant automation before you act.')
                 self.manual_handoff_button.configure(text='Start manual handoff')
 
     def toggle_manual_handoff(self):
         handoff=self.runtime.manual_handoff_status()
         try:
             if handoff:
-                if not messagebox.askyesno('End manual handoff',
-                        'End this operator handoff? It remains fenced until every participant has five seconds of stable, closed-window native-memory evidence.',parent=self.root):return
                 self.runtime.end_manual_handoff(handoff['id'],operator='local UI')
             else:
-                if not messagebox.askyesno('Start manual handoff',
-                        'Start now, then wait for Ready before touching any client. You perform every game action; this sends no game input and changes no saved controls.',parent=self.root):return
                 self.runtime.start_manual_handoff(operator='local UI')
         except (ValueError,OSError) as error:
             messagebox.showerror('Manual handoff',str(error),parent=self.root)

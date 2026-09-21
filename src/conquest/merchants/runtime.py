@@ -70,6 +70,9 @@ class MerchantRuntime(ManualRuntime):
         self.handoff = None
         self.work_deadline = None
         self.init_manual_sessions()
+        from conquest.merchants.manual_reader_registry_1078 import ManualReaderRegistry1078
+        self.manual_1078_registry = ManualReaderRegistry1078(self.catalog)
+        self.manual_1078_registry.activate_if_present()
 
     def can_start_work(self,minimum_seconds=0):
         return self.work_deadline is None or time.time()+minimum_seconds < self.work_deadline
@@ -91,6 +94,8 @@ class MerchantRuntime(ManualRuntime):
         self.threads.append(guard); guard.start()
         farmer=threading.Thread(target=self.run_manual_farmer,daemon=True,name='manual-farmer-observer')
         self.threads.append(farmer);farmer.start()
+        manual_1078=threading.Thread(target=self.run_manual_1078,daemon=True,name='manual-1078-observer')
+        self.threads.append(manual_1078);manual_1078.start()
         for character in CHARACTERS:
             thread = threading.Thread(target=self.run,args=(character,),daemon=True,name=f'merchant-{character}')
             self.threads.append(thread);thread.start()
@@ -115,6 +120,8 @@ class MerchantRuntime(ManualRuntime):
         self.journal.event(character,'refill_resumed' if enabled else 'refill_paused')
 
     def input_allowed(self, character):
+        if self.manual_1078_registry.blocks_automation(character):
+            return False
         if self.coordinator.manual_session_blocked(character, purpose=getattr(self.coordinator,'purpose',None)):
             return False
         delivery_window=getattr(self,'delivery_window',None)
@@ -191,6 +198,8 @@ class MerchantRuntime(ManualRuntime):
         return self.catalog.windows(include_hidden=True)
 
     def attach(self, character):
+        if self.manual_1078_registry.blocks_automation(character):
+            raise ValueError('1078 manual-only profile cannot attach an automation observer')
         from conquest.memory_life import read_life
         status=self.attachments[character];status.enter('discovery')
         # Never identify an account by title, list order, PID alone, or a stale
@@ -269,6 +278,8 @@ class MerchantRuntime(ManualRuntime):
         return login_screen(observer.operations.target.hwnd)
 
     def recover(self, character, *, crashed=False):
+        if self.manual_1078_registry.blocks_automation(character):
+            raise CaptureUnavailable('1078 manual-only profile cannot reconnect automatically')
         from conquest.merchants.recovery_safety import arm, submitted
         arm(self,character)
         if not self.enabled(character):
@@ -313,6 +324,11 @@ class MerchantRuntime(ManualRuntime):
                 credential_path(character),session=driver.observer.adapter))
 
     def step(self, character):
+        if self.manual_1078_registry.blocks_automation(character):
+            # Never attach, recover, or route a read-only profile through the
+            # 1074 observer/controller stack. Its separate poller runs only
+            # while an explicit global manual handoff is active.
+            return
         if character in self.connecting:return
         refill_only=bool(getattr(self,'refill_window',None))
         observer = self.observers.get(character)
@@ -626,6 +642,20 @@ class MerchantRuntime(ManualRuntime):
         with self.lock:
             result = {}
             for character in CHARACTERS:
+                if self.manual_1078_registry.blocks_automation(character):
+                    manual=self.manual_status(character)
+                    result[character]={'enabled':self.enabled(character),'connected':False,'input_active':False,
+                        'activity':'1078 manual observation only; farming and merchant automation unavailable',
+                        'snapshot':None,'error':None,'scan':self.journal.get(character,'scan',{}),
+                        'capacity':None,'ready':False,'qualification':{},'credentials_saved':credential_path(character).exists(),
+                        'needs_attention':None,'pending':self.journal.pending(character),
+                        'recovery':self.recoveries[character].state(),'recovery_safety':self.journal.get(character,'recovery_safety'),
+                        'shop_return':self.returns[character].state(),'connect_market':self.journal.get(character,'connect_market'),
+                        'profile_id':getattr(character,'profile_id',None),'attachment':self.attachments[character].snapshot(),
+                        'refill':{**self.refills[character].state(),'enabled':self.refill_enabled(character)},
+                        'manual_session':manual,'manual_input_fence':self.coordinator.manual_session_blocked(character),
+                        'manual_only_1078':True}
+                    continue
                 snapshot = self.latest.get(character)
                 fresh = bool(snapshot and 0 <= time.time()-snapshot['timestamp'] <= 5)
                 error = self.errors.get(character)

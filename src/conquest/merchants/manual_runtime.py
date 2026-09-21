@@ -100,6 +100,7 @@ class ManualRuntime:
             stale=list(db.execute("SELECT id,target_profile_id FROM manual_sessions WHERE phase IN ('completed','request_withdrawn','declined_verified','operator_overridden') AND json_extract(terminal_json,'$.settled_at') IS NULL AND json_extract(terminal_json,'$.at') IS NULL AND NOT EXISTS (SELECT 1 FROM manual_rebaseline r WHERE r.source_session_id=manual_sessions.id AND r.phase='completed')"))
         for row in stale:start_rebaseline(self.journal,row['target_profile_id'],row['id'])
         self.manual_farmer_provider = lambda:None
+        self.manual_1078_registry = None
         self.manual_farmer_control = lambda:{'enabled':False}
         self.manual_farmer_observation = {'available':False,'reason':'Farmer observer is not configured'}
         self.manual_farmer_controller = None
@@ -180,14 +181,40 @@ class ManualRuntime:
                 raise ManualSessionError('Resolve the existing manual/rebaseline hold before starting a global handoff')
             if self.farmer_bot_owned() or any(self.journal.pending(character) for character in CHARACTERS):
                 raise ManualSessionError('Wait for the active bot transaction to reconcile before starting handoff')
-            farmer=self.manual_farmer_provider()
-            if farmer is None:raise ManualSessionError('Attach the Farmer memory observer before starting handoff')
-            participants={self.manual_target('Farmer'):'Farmer'}
-            for character in CHARACTERS:
-                if character in self.observers:participants[self.manual_target(character)]='Merchant'
+            registry=getattr(self,'manual_1078_registry',None)
+            if registry is not None and registry.activate_if_present():
+                # Discovery proves only profile/process identity before the
+                # fence. Fresh full snapshots are read by its poller after it.
+                participants=registry.discover()
+            else:
+                farmer=self.manual_farmer_provider()
+                if farmer is None:raise ManualSessionError('Attach the Farmer memory observer before starting handoff')
+                participants={self.manual_target('Farmer'):'Farmer'}
+                for character in CHARACTERS:
+                    if character in self.observers:participants[self.manual_target(character)]='Merchant'
             row=self.manual_handoff.start(participants,operator=operator,now=now)
             self._sync_manual_fence()
             return row
+
+    def poll_manual_1078(self, *, now=None):
+        """Poll only an active exact-build handoff; never create a controller."""
+        registry=getattr(self,'manual_1078_registry',None)
+        active=self.manual_handoff.active()
+        if registry is None or active is None or not registry.bindings:
+            return None
+        try:
+            snapshots=registry.read_all()
+        except (ValueError,OSError) as error:
+            for target in registry.bindings:
+                self.manual_handoff.unavailable(target,str(error),now=now)
+            self._sync_manual_fence()
+            return self.manual_handoff.active()
+        from conquest.mouse_priority import active as mouse_active
+        for target,snapshot in snapshots.items():
+            self.manual_handoff.observe(target,snapshot,bot_busy=bool(self.coordinator.owner),
+                                        mouse_idle=not mouse_active(),now=now)
+        self._sync_manual_fence()
+        return self.manual_handoff.active()
 
     def end_manual_handoff(self, session_id, *, operator='local UI', now=None):
         with self.coordinator.lock:
@@ -715,6 +742,12 @@ class ManualRuntime:
 
     def run_manual_farmer(self):
         while not self.stop_event.is_set():
+            registry=getattr(self,'manual_1078_registry',None)
+            if registry is not None and registry.bindings and self.manual_handoff.active() is not None:
+                # A separate exact-build reader owns all global observations;
+                # the unavailable 1074 Farmer observer must not add a hold.
+                self.stop_event.wait(.5)
+                continue
             try:self.observe_manual_farmer()
             except (ValueError,OSError):
                 reason='Farmer manual observation unavailable'
@@ -725,4 +758,12 @@ class ManualRuntime:
                 reason='Farmer manual observer failed; inspect diagnostics before overriding'
                 if not self.manual_unavailable('Farmer',reason):
                     self.manual_reader_failure('Farmer',{'reader_error':'Unexpected observer failure'},reason)
+            self.stop_event.wait(.5)
+
+    def run_manual_1078(self):
+        while not self.stop_event.is_set():
+            try:self.poll_manual_1078()
+            except (ValueError,OSError):
+                # `poll_manual_1078` records retryable reader gaps itself.
+                pass
             self.stop_event.wait(.5)
