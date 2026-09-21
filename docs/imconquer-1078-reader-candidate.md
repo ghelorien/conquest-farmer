@@ -32,7 +32,7 @@ Read-only, three-process candidate evidence found:
 - manual request/trade evidence: confirmation model 15 uses title `+0x48`,
   message `+0x68`, actor participant name/UID `+0x1000/+0xff8`; trade model
   14 uses actor participant `+0xfb0/+0xfac`, own/other deque headers
-  `+0xf50/+0xf78`, and its accepted flags `+0x98/+0x99`.
+  `+0xf50/+0xf78`, and the locally rendered acceptance flag `+0x98`.
 - the manual request, open trade, one-item offer, local confirmation and closed
   inventory transfer were each observed on the exact build.  The offered item
   was checked by UID on both sides before close and in the recipient inventory
@@ -49,8 +49,9 @@ It does not select a profile automatically and exposes no input/focus methods.
 The normal 1074 loader remains unchanged.
 
 The following remain deliberately unavailable: equipped ammo and all farming
-inventory semantics, map/entity/monster semantics outside this manual snapshot,
-GUI layout/input semantics, restart qualification, and every input path. A
+ inventory semantics, map/entity/monster semantics outside this manual snapshot,
+GUI layout/input semantics, counterpart trade-acceptance/silver semantics,
+restart qualification, and every input path. A
 farmer's zero booth-owner state is carried explicitly and is valid only while
 the booth model is closed and its deque is empty; it never synthesizes an
 owned booth.

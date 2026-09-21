@@ -260,22 +260,17 @@ class TradeObservationReader1078:
             "participant": participant, "participant_uid": participant_uid,
             "own_items": [asdict(self._item(ptr, slot)) for slot, ptr in enumerate(own)],
             "items": [asdict(self._item(ptr, slot)) for slot, ptr in enumerate(other)],
-            "own_silver": self._trade_silver(self._string(model + 0x78, 32), accepted=bool(raw[0x98])),
-            "other_silver": self._trade_silver(self._string(model + 0x58, 32), accepted=bool(raw[0x99])),
-            "accepted": bool(raw[0x98]), "other_accepted": bool(raw[0x99]),
+            # These strings and the local acceptance flag are retained as
+            # raw UI evidence only. Ownership settlement needs the modal and
+            # exact item collections, not unqualified counterpart semantics.
+            "own_silver_text": self._string(model + 0x78, 32),
+            "other_silver_text": self._string(model + 0x58, 32),
+            "accepted": bool(raw[0x98]),
         }
         if (self._read(actual + 0xF50, 32) != own_header or self._read(actual + 0xF78, 32) != other_header
                 or self._read(model, 0x9A) != raw):
             raise ObservationUnavailable1078("1078 trade changed during observation")
         return value
-
-    @staticmethod
-    def _trade_silver(value, *, accepted):
-        if value == "0 ✔" and accepted:
-            return 0
-        if value and value.isascii() and value.isdecimal():
-            return int(value)
-        raise ObservationUnavailable1078("Unverified 1078 trade silver field")
 
     def _request(self, actual):
         model = self._model(15, self.confirm_vtable_rva)
@@ -305,9 +300,8 @@ class TradeObservationReader1078:
         map_id = self._u32(self.base + self.map_rva)
         position = list(struct.unpack("<2I", self._read(actual + 0xD8, 8)))
         health = self._health(actual)
-        if (not character_uid or map_id not in (1002, 1011, 1036)
-                or not 0 < health["current_hp_candidate"] <= health["max_hp_candidate"]):
-            raise ObservationUnavailable1078("1078 character or living-map evidence is unavailable")
+        if not character_uid:
+            raise ObservationUnavailable1078("1078 character identity is unavailable")
         if len({item.uid for item in inventory + booth}) != len(inventory) + len(booth):
             raise ObservationUnavailable1078("1078 item appears in inventory and booth")
         result = {
