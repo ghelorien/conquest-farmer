@@ -14,6 +14,7 @@ JOURNAL=Path(state_path('reports/banking/meteor-consolidation.json'))
 AUDIT=Path(state_path('reports/banking/meteor-consolidation-audit.jsonl'))
 METEOR=1088001
 SCROLL=720027
+DELIVERY_RETRY_SECONDS=900
 
 
 def completed_stored_scroll():
@@ -24,6 +25,10 @@ def completed_stored_scroll():
             or state.get('user_confirmed_scroll_consumption')
             or state.get('user_confirmed_scroll_transfer')):
         return None
+    deferred=state.get('delivery_deferred') or {}
+    if (deferred.get('uid')==uid and type(deferred.get('at')) in (int,float)
+            and 0<=time.time()-deferred['at']<DELIVERY_RETRY_SECONDS):
+        return None
     stored=any(row.get('type_id')==SCROLL and row.get('verified_in_warehouse') is True
                and row.get('stored',row.get('uid'))==uid for row in state.get('receipts',[]))
     if not stored:return None
@@ -31,6 +36,16 @@ def completed_stored_scroll():
     delivered=receipt_for(uid,SCROLL)
     if delivered and delivered.get('outcome')=='transferred' and delivered.get('proof_digest'):return None
     return uid
+
+
+def defer_stored_scroll(uid):
+    """Back off one exact, freshly re-banked scroll without losing intent."""
+    state=read_json(JOURNAL)
+    if (type(uid) is not int or uid<=0 or state.get('phase')!='completed'
+            or state.get('exchange_verified') is not True or state.get('scroll_uid')!=uid):
+        raise ValueError('Deferred scroll does not match the completed consolidation journal')
+    state['delivery_deferred']={'uid':uid,'at':time.time()}
+    write_json(JOURNAL,state)
 
 
 def batch(items):

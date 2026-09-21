@@ -246,6 +246,8 @@ def scroll_ownership(state,send,*,stored=None,allow_storage_recheck=False):
                                       'receipt':delivered,'verified_at':time.time()})
         return 'delivered',source
     if stored is not None and exact_items(stored.get('items',[])).get(uid)==wanted[uid]:
+        from conquest.meteor_banking import defer_stored_scroll
+        defer_stored_scroll(uid)
         save(state,scroll_disposition={'outcome':'deferred_rebanked','item':item,
                                       'warehouse':stored,'verified_at':time.time()})
         return 'deferred_rebanked',source
