@@ -1472,13 +1472,23 @@ class UnifiedUI:
         from conquest.character_context import registry
         if registry() and pane.winfo_ismapped() and min(size)>1:
             from conquest.client_attachment import require_viewport, ViewportTooSmall
-            try:require_viewport(*size)
+            manual_blocks=getattr(self,'_manual_viewport_blocks',{})
+            try:
+                require_viewport(*size)
+                if character in manual_blocks:
+                    self.coordinator.surface_blocks[character]=manual_blocks.pop(character)
             except ViewportTooSmall:
-                self.coordinator.surface_blocks[character]=True
                 if self.runtime.manual_handoff_status() is not None:
+                    if character not in manual_blocks:
+                        manual_blocks[character]=bool(self.coordinator.surface_blocks.get(character))
+                        self._manual_viewport_blocks=manual_blocks
+                    self.coordinator.surface_blocks[character]=True
                     self.calibration_results[character]={'verified':False,
                         'note':'Manual handoff view is too small; saved permissions are unchanged'}
+                    host.api.assert_owner(host.saved.hwnd,host.saved.identity)
+                    host.api.show_async(host.saved.hwnd,0)
                     return
+                self.coordinator.surface_blocks[character]=True
                 self.runtime.invalidate_refill(character)
                 host.detach();self.released_clients.add(character)
                 self.calibration_results[character]={'verified':False,'note':'Full viewport does not fit. Use More / help → Open game in separate window.'}
