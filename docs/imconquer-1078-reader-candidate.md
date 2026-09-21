@@ -28,16 +28,29 @@ Read-only, three-process candidate evidence found:
   samples for all three clients. Model `25` was active only for the two booth
   clients; models `14` and `15` were inactive in those closed-window samples.
 - server-string candidate `0x6b7fc0` contains `Classic_US` in the captured
-  module data; it still needs a stable cross-client server-field check.
+  module data; it was then re-read across all three isolated clients.
+- manual request/trade evidence: confirmation model 15 uses title `+0x48`,
+  message `+0x68`, actor participant name/UID `+0x1000/+0xff8`; trade model
+  14 uses actor participant `+0xfb0/+0xfac`, own/other deque headers
+  `+0xf50/+0xf78`, and its accepted flags `+0x98/+0x99`.
+- the manual request, open trade, one-item offer, local confirmation and closed
+  inventory transfer were each observed on the exact build.  The offered item
+  was checked by UID on both sides before close and in the recipient inventory
+  after close; no app action participated in that calibration.
+- owned booth fields: actor `+0x32a0`, booth deque `+0x34b0`, and model 25
+  selected owner `+0x4c`.  A user-listed Painkiller was observed in that deque
+  with its exact UID/type/name/quantity and price `+0x9c`; it was absent from
+  the merchant inventory during the same stable sample.
 
-The following are deliberately not mapped or enabled: item equipped-ammo and
-other inventory semantics, map semantics, actor/monster fields, GUI window
-context/layout and trade-model semantics, server identity, current-HP change
-semantics, restart stability, and every input path. Each needs its own fresh,
-read-only evidence before a versioned runtime loader can be considered.
+`conquest.merchants.reader_1078` is an explicit, exact-SHA, read-only module
+for these manually qualified ownership fields. It is not imported by any normal
+observer, controller, input bridge, farming, town, travel, or delivery path.
+It does not select a profile automatically and exposes no input/focus methods.
+The normal 1074 loader remains unchanged.
 
-In particular, no candidate offset is established for owned-booth UID, booth
-item deque, open-trade item deques, trade participant, or incoming-request
-participant. Returning an empty value for any of those would make a manual
-handoff falsely look stable, so a canonical merchant snapshot remains blocked
-until those fields are read and rechecked around real closed and open windows.
+The following remain deliberately unavailable: equipped ammo and all farming
+inventory semantics, map/entity/monster semantics outside this manual snapshot,
+GUI layout/input semantics, restart qualification, and every input path. A
+farmer's zero booth-owner state is carried explicitly and is valid only while
+the booth model is closed and its deque is empty; it never synthesizes an
+owned booth.
