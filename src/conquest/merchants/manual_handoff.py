@@ -56,6 +56,11 @@ class ManualHandoffStore:
         result['holds_automation']=result['phase']!='completed'
         result['ever_approved']=True  # Existing coordinator global-fence convention.
         result['target_profile_id']='__operator_manual_handoff__'
+        # ManualRuntime.status projects every durable hold through the legacy
+        # manual-session shape.  A global operator handoff has no request, but
+        # must still provide those nullable fields to status/UI consumers.
+        result.update(visitor=None,approval_binding=None,request_state=None,
+                      expires_at=None,rebaseline=False)
         result['participants']=[dict(item) for item in db.execute(
             'SELECT target_profile_id,role,baseline_at,last_at,saw_window FROM manual_handoff_participants WHERE session_id=? ORDER BY role,target_profile_id',(row['id'],))]
         return result
