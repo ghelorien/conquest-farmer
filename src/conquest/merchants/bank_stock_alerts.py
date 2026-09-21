@@ -46,19 +46,18 @@ def record(loop):
         farmer=str(source.get('profile_id') or source.get('character'))
         old=db.execute('SELECT snapshot_json FROM bank_stock_baseline WHERE farmer=?',(farmer,)).fetchone()
         previous=set(json.loads(old['snapshot_json'])) if old else set()
-        current={hashlib.sha256(json.dumps({k:item.get(k) for k in ('uid','type_id','plus','gem1','gem2','quantity','bound')},sort_keys=True).encode()).hexdigest()
-                 for item in candidates}
-        for item in candidates:
-            # Exact stock identity, not a whole-warehouse snapshot: a later
-            # deposit cannot reannounce already-notified stock.
-            identity={k:item.get(k) for k in ('uid','type_id','plus','gem1','gem2','quantity','bound')}
-            event=hashlib.sha256(json.dumps({'farmer':source.get('profile_id') or source.get('character'),**identity},sort_keys=True).encode()).hexdigest()
-            if event not in previous:
-                db.execute('INSERT OR IGNORE INTO bank_stock_outbox VALUES(?,?,?,?,?,NULL)',
+        exact=lambda item:hashlib.sha256(json.dumps({'farmer':farmer,**{k:item.get(k) for k in ('uid','type_id','plus','gem1','gem2','quantity','bound')}},sort_keys=True).encode()).hexdigest()
+        current={exact(item) for item in candidates}
+        newly=[item for item in candidates if exact(item) not in previous]
+        if newly:
+            # One compact notification per completed verified-bank snapshot;
+            # the baseline keeps old stock out of later batches.
+            event=hashlib.sha256(json.dumps(sorted(exact(item) for item in newly)).encode()).hexdigest()
+            db.execute('INSERT OR IGNORE INTO bank_stock_outbox VALUES(?,?,?,?,?,NULL)',
                        (event,time.time(),json.dumps({'identity':source['identity'],'map_id':source.get('map_id'),
                             'character':source.get('character'),'profile_id':source.get('profile_id'),
                             'observed_at':source.get('timestamp')}),
-                        json.dumps([item]),'pending'))
+                        json.dumps(newly),'pending'))
         db.execute('INSERT OR REPLACE INTO bank_stock_baseline VALUES(?,?,?)',(farmer,json.dumps(sorted(current)),time.time()))
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bank_stock_outbox_issue'").fetchone():
             db.execute('DELETE FROM bank_stock_outbox_issue WHERE id=1')

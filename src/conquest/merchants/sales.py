@@ -63,7 +63,7 @@ def observe(journal, snapshot):
         # infer a sale across its preparation/settlement window, including
         # after an app restart or a terminal interval with no sale receipt.
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_handoffs'").fetchone():
-            if db.execute("SELECT 1 FROM manual_handoffs h JOIN manual_handoff_participants p ON p.session_id=h.id WHERE p.target_profile_id=? AND h.created_at<=? AND (h.phase!='completed' OR h.completed_at>?) LIMIT 1",
+            if db.execute("SELECT 1 FROM manual_handoffs h JOIN manual_handoff_participants p ON p.session_id=h.id WHERE p.target_profile_id=? AND h.created_at<=? AND (h.phase!='completed' OR p.last_at>?) LIMIT 1",
                           (target,at,before['timestamp'] if before else at)).fetchone():
                 return
         if before:
