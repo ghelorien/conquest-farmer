@@ -884,8 +884,11 @@ class UnifiedUI:
         update=ttk.Button(controls,text='Update shop now',command=lambda:self.list_once(character))
         update.grid(row=0,column=1,sticky='ew',padx=(0,6),pady=2)
         self.batch_buttons[character]=update
+        ttk.Button(controls,text='Show manual view',
+                   command=lambda c=character:self.show_manual_handoff_surface(c)).grid(row=0,column=2,sticky='ew',padx=(0,6),pady=2)
         controls.columnconfigure(0,weight=1)
         controls.columnconfigure(1,weight=1)
+        controls.columnconfigure(2,weight=1)
         more=ttk.Menubutton(controls,text='Settings & details')
         menu=tk.Menu(more,tearoff=False);more.configure(menu=menu)
         self.permission_menus=getattr(self,'permission_menus',{})
@@ -913,8 +916,8 @@ class UnifiedUI:
             ('Retry reconnect',lambda:self.runtime.recoveries[character].retry()),
             ('Set up automatic login',lambda:self.credentials(character))):
             menu.add_command(label=label,command=callback)
-        more.grid(row=0,column=2,padx=(0,6),pady=2)
-        ttk.Button(controls,text='Stop all (including farmer)',command=self.global_stop).grid(row=0,column=3,pady=2)
+        more.grid(row=0,column=3,padx=(0,6),pady=2)
+        ttk.Button(controls,text='Stop all (including farmer)',command=self.global_stop).grid(row=0,column=4,pady=2)
         recovery = ttk.Frame(frame)
         recovery.pack(fill='x',padx=12,pady=(3,0))
         self.recovery_texts = getattr(self,'recovery_texts',{})
@@ -1357,6 +1360,12 @@ class UnifiedUI:
                 or time.monotonic()<self.auto_embed_retry.get(character,0)):
             return
         host=self.hosts.get(character)
+        if self.runtime.manual_handoff_status() is not None:
+            try:self.show_manual_handoff_surface(character,selected=True)
+            except (OSError,ValueError):
+                self.calibration_results[character]={'verified':False,
+                    'note':'Manual view unavailable; keep this Client tab selected and do not use automation controls'}
+            return
         if host and host.saved:return
         # Attachment is independent of booth/trade read availability. A foreign
         # shop panel must not make the actual game window inaccessible.
@@ -1367,6 +1376,43 @@ class UnifiedUI:
             self.auto_embed_retry[character]=time.monotonic()+2
         finally:
             self.auto_embedding=False
+
+    def show_manual_handoff_surface(self, character, *, selected=False):
+        """User-requested hosted view during a global manual handoff.
+
+        This is deliberately limited to verified window ownership, notebook
+        selection and asynchronous show/hide/resize. It neither acquires an
+        input lease nor focuses/clicks/types into Conquer, changes a saved
+        control, reconciles a trade, or attaches a replacement process.
+        """
+        handoff=self.runtime.manual_handoff_status()
+        if handoff is None:raise ValueError('Start Manual handoff before using manual game view')
+        if self.closed or self.app.closing or probe_busy(self):raise ValueError('Manual game view is unavailable now')
+        observer=self.runtime.observers.get(character)
+        if observer is None:raise ValueError('Selected merchant has no verified attached process')
+        observer.adapter.assert_identity()
+        if not selected:
+            self.notebook.select(self.frames[character]);self.detail_tabs[character].select(0)
+            self.root.update_idletasks()
+        pane=self.client_panes[character]
+        if not pane.winfo_ismapped() or min(pane.winfo_width(),pane.winfo_height())<=1:
+            raise ValueError('Select this merchant Client tab to show its manual view')
+        from conquest.window_host import EmbeddedWindow
+        host=self.hosts.setdefault(character,EmbeddedWindow(mode='owned'))
+        if host.saved and host.saved.identity!=observer.adapter.identity:
+            raise ValueError('Merchant host identity changed; manual view is withheld')
+        if not host.saved:
+            # This is an explicit user surface operation on the already
+            # verified attached HWND, never discovery or input preparation.
+            host.attach(observer.operations.target.hwnd,observer.adapter.identity,pane.winfo_id(),
+                        pane.winfo_width(),pane.winfo_height())
+        for other,other_host in self.hosts.items():
+            if other!=character and other_host.saved:
+                other_host.api.assert_owner(other_host.saved.hwnd,other_host.saved.identity)
+                other_host.api.show_async(other_host.saved.hwnd,0)
+        host.resize(pane.winfo_width(),pane.winfo_height())
+        self.layout_status.setdefault(character,{}).update(manual_handoff_view=True,
+            native_visible=True,selected=True)
 
     def finish_resize(self, character):
         self.resize_jobs.pop(character,None)
