@@ -14,6 +14,24 @@ Manual handoff sessions; it never installs a 1074 controller on a 1078 client.
 App-managed transfer/restart acceptance must be reported separately from reader
 calibration. Unknown automated capabilities remain unavailable.
 
+## Shared warehouse reader
+
+`MemoryWarehouseReader` now explicitly selects the exact-build warehouse read
+layout. All other `MemoryGui` callers retain their 1074-only default. On 1078,
+the actor warehouse deque is `+0x1030`, capacity `+0x1058`, bank silver
+`+0x106c`, and active warehouse model22 has vtable `0x5e7250`.
+The user confirmed 24 items, 80 slots and 44,671,743 bank silver. After a
+user-performed Painkiller deposit plus separately acknowledged withdrawal and
+purchases, the existing shared reader returned two matching live observations:
+25 items, 80 slots and 44,621,743 bank silver. The closed window was correctly
+rejected before reopening. No automated input or clean deposit-only receipt
+was claimed. Money controls, protected-withdrawal receipts and normal 1078
+banking remain unqualified.
+
+The user also confirmed equipped SpeedArrow UID295704431 at quantity4734 and
+CarvedBow UID257871078 at +2. Equipped arrows were read at actor `+0xc40`
+(wrapper `+0xc50`). Reload/combat semantics are not qualified by a static count.
+
 The installed 1078 executable has SHA-256
 `be9dd723cad8eb9068da792b5cb8ceec0d330f08aacb8c948e6f412d1520c4e0`,
 PE64 image base `0x140000000`, and image size `0x2a26000`. The 1074 root
