@@ -9,6 +9,7 @@ import struct
 import time
 
 from conquest.addressing import checked_address
+from conquest.memory_build_layout import read_build_layout
 from conquest.memory_life import CLIENT_SHA256
 
 
@@ -134,16 +135,27 @@ class ShopSnapshot:
 
 
 class MemoryShopReader:
-    def __init__(self, session):
+    def __init__(self, session, *, layout=None):
+        # A supplied layout is the only 1078 opt-in. Existing town/control
+        # callers use the historical constructor and stay 1074-only.
         self.session = session
-        self.gui = MemoryGui(session)
+        self.layout = layout
+        self.gui = MemoryGui(session,layout=layout)
         self.base = self.gui.base
+
+    @classmethod
+    def for_session(cls,session):
+        """Create the existing read-only parser for one exact selected build."""
+        return cls(session,layout=read_build_layout(session))
 
     def read(self, vendor_id):
         s = self.session
-        root = self.base+0x69a740
+        layout=self.layout
+        root = self.base+(layout.shop_root_rva if layout is not None else 0x69a740)
         record = s.read_block(root,0x60)
-        if struct.unpack_from('<Q',record)[0] != self.base+0x5d0088:
+        shop_vtable=layout.shop_vtable_rva if layout is not None else 0x5d0088
+        item_vtable=layout.item_vtable_rva if layout is not None else 0x5cf220
+        if struct.unpack_from('<Q',record)[0] != self.base+shop_vtable:
             raise ValueError('Shop object type changed')
         selected = struct.unpack_from('<I',record,8)[0]
         if selected != vendor_id:
@@ -158,7 +170,7 @@ class MemoryShopReader:
             shared = s.read_block(checked_address(slot),16)
             item = struct.unpack_from('<Q',shared)[0]
             raw = s.read_block(checked_address(item),0x64)
-            if struct.unpack_from('<Q',raw)[0] != self.base+0x5cf220:
+            if struct.unpack_from('<Q',raw)[0] != self.base+item_vtable:
                 raise ValueError('Shop product type changed')
             type_id = struct.unpack_from('<I',raw,0x10)[0]
             length, allocated = struct.unpack_from('<QQ',raw,0x28)

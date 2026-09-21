@@ -1,7 +1,8 @@
 """The live, memory-identified Twin City Conductress."""
 from conquest.memory_npcs import MemoryNpcReader,VendorIdentity
 from conquest.memory_life import read_life
-from conquest.addressing import checked_address
+from conquest.addressing import checked_address,resolve_player
+from conquest.memory_build_layout import actual_player_layout,read_build_layout
 from conquest.memory_shop import MemoryGui
 import struct
 import json
@@ -58,12 +59,15 @@ def read_conductress(observer):
     return npc
 
 
-def read_dialog(observer):
-    s=observer.adapter
-    life=read_life(s,observer.health_layout,observer.character)
-    if life.dead_candidate:raise ValueError('Living character required for NPC dialog')
-    actor=life.object_address
-    header=s.read_block(actor+0x1060,32)
+def read_dialog_records(session,actor,*,layout=None):
+    """Decode one stable dialog deque without any life or input decision.
+
+    The normal observer wrapper below retains its 1074 life gate. Exact-build
+    callers may supply a selected read layout for isolated observation only.
+    """
+    s=session
+    dialog_offset=layout.dialog_records_offset if layout is not None else 0x1060
+    header=s.read_block(actor+dialog_offset,32)
     table,capacity,first,count=struct.unpack('<4Q',header)
     if count==0 and (capacity==0 or (capacity<=128 and not capacity&(capacity-1))):
         raise ValueError('NPC dialog is absent')
@@ -84,15 +88,41 @@ def read_dialog(observer):
         records.append({'kind':kind,'option':option,'text':content.decode('utf-8')})
         checks.extend([(shared,reference),(address,raw)])
         if allocated>15 and length:checks.append((struct.unpack_from('<Q',raw,0x10)[0],content))
-    window=MemoryGui(s).read('Dialog')
+    window=MemoryGui(s,layout=layout).read('Dialog')
     dc=s.read_block(window.address+0xe0,0x38)
     right,top=struct.unpack_from('<2f',dc,8);left=struct.unpack_from('<f',dc,16)[0]
     height=struct.unpack_from('<f',dc,0x34)[0]
-    if (s.read_block(actor+0x1060,32)!=header or s.read_block(table,capacity*8)!=pointers
+    if (s.read_block(actor+dialog_offset,32)!=header or s.read_block(table,capacity*8)!=pointers
             or any(s.read_block(a,len(raw))!=raw for a,raw in checks)
             or s.read_block(window.address+0xe0,0x38)!=dc):
         raise ValueError('NPC dialog changed during observation')
+    s.assert_identity()
     return {'records':records,'window':window,'table':(left,top,right,height)}
+
+
+class MemoryDialogReader:
+    """Exact-build raw dialog observation; it has no input capability."""
+    def __init__(self,session,player_layout,layout):
+        self.session,self.player_layout,self.layout=session,player_layout,layout
+
+    @classmethod
+    def for_session(cls,session):
+        return cls(session,actual_player_layout(session),read_build_layout(session))
+
+    def read(self):
+        actual=resolve_player(self.session,self.player_layout)
+        result=read_dialog_records(self.session,actual['object'],layout=self.layout)
+        if resolve_player(self.session,self.player_layout)!=actual:
+            raise ValueError('Player changed during dialog observation')
+        return result
+
+
+def read_dialog(observer):
+    s=observer.adapter
+    life=read_life(s,observer.health_layout,observer.character)
+    if life.dead_candidate:raise ValueError('Living character required for NPC dialog')
+    actor=life.object_address
+    return read_dialog_records(s,actor)
 
 
 def validate_destination(data,destination):
