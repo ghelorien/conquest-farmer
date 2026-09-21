@@ -9,19 +9,31 @@ from conquest.memory_shop import MemoryGui
 
 
 class SelectionReader:
-    def __init__(self,session):
+    def __init__(self,session,*,layout=None):
         self.session=session
-        self.gui=MemoryGui(session)
+        self.layout=layout
+        self.gui=MemoryGui(session,layout=layout)
         self.base=self.gui.base
         self.qualified=False
 
+    @classmethod
+    def for_session(cls,session):
+        if not hasattr(session,'read_block'):
+            from types import SimpleNamespace
+            session=SimpleNamespace(expected_sha256=session.expected_sha256,modules=session.modules,
+                identity=session.identity,read=session.read,read_block=session.read,
+                assert_identity=session.assert_identity)
+        from conquest.memory_build_layout import read_build_layout
+        return cls(session,layout=read_build_layout(session))
+
     def qualify(self):
         if self.qualified:return
-        for rva,size,digest in (
+        pins=(self.layout.selection_renderer_pins if self.layout is not None else (
             (0x9acc2,314,'0da14be41a59bd653ed11d0f576ebebfeb477d3a5aa9679fa5f0b30046b2ab5a'),
             (0x1097a5,19,'213a60b72ae5bd5566a3c7af1e7106d80ce2291a7134c87584c03d5653d35075'),
             (0x109845,190,'8db295b764220983700cdc0e9d6f69c95fef86c22a191d7e3a8800a5ecd44527'),
-            (0x10995c,19,'7e6b636f9cbe2d438fe2b3737dd4fe941c7098ba4e38ef75eba0df8bd3d96366')):
+            (0x10995c,19,'7e6b636f9cbe2d438fe2b3737dd4fe941c7098ba4e38ef75eba0df8bd3d96366')))
+        for rva,size,digest in pins:
             if hashlib.sha256(self.session.read_block(self.base+rva,size)).hexdigest()!=digest:
                 raise ValueError('Skill selection renderer changed')
         self.qualified=True
@@ -30,7 +42,9 @@ class SelectionReader:
         self.session.assert_identity()
         self.qualify()
         s=self.session
-        head,count=struct.unpack('<QQ',s.read_block(self.base+0x6986c0,16))
+        registry=self.layout.gui_registry_rva if self.layout is not None else 0x6986c0
+        registry_raw=s.read_block(self.base+registry,16)
+        head,count=struct.unpack('<QQ',registry_raw)
         if not 1<=count<=128:raise ValueError('Skill window registry bounds changed')
         node=struct.unpack('<Q',s.read_block(checked_address(head)+8,8))[0]
         seen=set()
@@ -42,17 +56,24 @@ class SelectionReader:
             if key==1:
                 pointer=checked_address(struct.unpack_from('<Q',raw,0x28)[0])
                 data=s.read_block(pointer,0xfc)
-                if struct.unpack_from('<Q',data)[0]!=self.base+0x5c5a38:
+                selected_vtable=self.layout.selected_skill_vtable_rva if self.layout is not None else 0x5c5a38
+                if struct.unpack_from('<Q',data)[0]!=self.base+selected_vtable:
                     raise ValueError('Selected skill control identity changed')
                 value=struct.unpack_from('<I',data,0xf8)[0]
                 if value>100000:raise ValueError('Selected skill ID outside bounds')
+                if (s.read_block(self.base+registry,16)!=registry_raw or s.read_block(node,0x38)!=raw
+                        or s.read_block(pointer,8)!=data[:8]
+                        or s.read_block(pointer+0xf8,4)!=data[0xf8:0xfc]):
+                    raise ValueError('Selected skill changed during observation')
+                s.assert_identity()
                 return value
             node=struct.unpack_from('<Q',raw,0 if key>1 else 16)[0]
         raise ValueError('Selected skill control is unavailable')
 
     def table(self,window,columns=None):
         s=self.session
-        context=checked_address(struct.unpack('<Q',s.read_block(self.base+0x6966f0,8))[0])
+        context_rva=self.layout.gui_context_rva if self.layout is not None else 0x6966f0
+        context=checked_address(struct.unpack('<Q',s.read_block(self.base+context_rva,8))[0])
         count,capacity,pointer=struct.unpack('<IIQ',s.read_block(context+0x4338,16))
         if not 1<=count<=capacity<=128:raise ValueError('Skill table pool bounds changed')
         raw=s.read_block(checked_address(pointer,count*0x218),count*0x218)
@@ -74,6 +95,8 @@ class SelectionReader:
         return matches[0]
 
     def menu_point(self):
+        if self.layout is not None and self.layout.expected_sha256!='c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396':
+            raise ValueError('1078 skill-selection points are read-only')
         window=self.gui.read('##Control')
         n,rect,columns=self.table(window,6)
         width=struct.unpack_from('<f',columns,5*0x68+0x10)[0]
@@ -83,8 +106,9 @@ class SelectionReader:
         return self.checked_point(window,(left+20,rect[1]+20))
 
     def entries(self,actor):
-        s=self.session;result=[]
-        for offset in (0x1980,0x19b0):
+        s=self.session;result=[];checks=[]
+        offsets=self.layout.selectable_skill_offsets if self.layout is not None else (0x1980,0x19b0)
+        for offset in offsets:
             header=s.read_block(actor+offset,24)
             start,end,capacity=struct.unpack('<3Q',header)
             if not 0<=end-start<=64*16 or (end-start)%16 or not end<=capacity<=start+128*16:
@@ -95,15 +119,22 @@ class SelectionReader:
                 pointer=struct.unpack_from('<Q',entries,index)[0]
                 if not pointer:continue
                 raw=s.read_block(checked_address(pointer),0x38)
-                if struct.unpack_from('<Q',raw)[0]!=self.base+0x5cff78:
+                skill_vtable=self.layout.skill_vtable_rva if self.layout is not None else 0x5cff78
+                if struct.unpack_from('<Q',raw)[0]!=self.base+skill_vtable:
                     raise ValueError('Selectable skill identity changed')
                 enabled=struct.unpack_from('<I',raw,8)[0]
                 kind=struct.unpack_from('<I',raw,0x10)[0]
                 if kind==8001 and (raw[0x18:0x20]!=b'Scatter\0' or not enabled):
                     raise ValueError('Scatter is unavailable')
                 result.append(kind)
+                checks.append((pointer,raw))
             if s.read_block(actor+offset,24)!=header or s.read_block(start,end-start)!=entries:
                 raise ValueError('Selectable skills changed')
+        if any(s.read_block(pointer,0x38)[:8]!=raw[:8]
+               or s.read_block(pointer+8,0x18)!=raw[8:0x20]
+               for pointer,raw in checks):
+            raise ValueError('Selectable skill changed during observation')
+        s.assert_identity()
         return result
 
     @staticmethod
@@ -114,6 +145,8 @@ class SelectionReader:
         return round(x),round(y)
 
     def scatter_point(self,actor):
+        if self.layout is not None and self.layout.expected_sha256!='c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396':
+            raise ValueError('1078 skill-selection points are read-only')
         entries=self.entries(actor)
         if entries.count(8001)!=1:raise ValueError('Exactly one selectable Scatter is required')
         window=self.gui.read('Skills')

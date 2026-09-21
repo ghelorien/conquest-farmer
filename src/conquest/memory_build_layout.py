@@ -41,6 +41,14 @@ class ReadBuildLayout:
     ground_registry_rva: int
     ground_holder_vtable_rva: int
     ground_actor_vtable_rva: int
+    learned_skills_offset: int
+    selectable_skill_offsets: tuple[int, int]
+    xp_skills_offset: int
+    xp_charge_offset: int
+    bow_offset: int
+    skill_vtable_rva: int
+    selected_skill_vtable_rva: int
+    selection_renderer_pins: tuple[tuple[int, int, str], ...]
 
 
 _OLD_SLOTS=MappingProxyType({'head':0xbd8,'necklace':0xbe8,'armor':0xbf8,'bow':0xc08,
@@ -52,12 +60,20 @@ READ_LAYOUTS = {
         'classic-1074-inventory-candidate.yaml',0x5CF220,_OLD_SLOTS,0x6966F0,0x6986C0,
         0x69C730,0x1008,0x1030,0x1044,0x16,0x5CBA68,0x69A740,0x5D0088,0x1060,
         0x699564,0x30,0xc0,0xae8,False,0x699370,(0x18,8,0),0x5ccc90,0x5c5e20,0x978,
-        0x6994d8,0x5ccc08,0x5cdaf0),
+        0x6994d8,0x5ccc08,0x5cdaf0,0x1968,(0x1980,0x19b0),0x1998,0x3cc,0xc08,0x5cff78,
+        0x5c5a38,((0x9acc2,314,'0da14be41a59bd653ed11d0f576ebebfeb477d3a5aa9679fa5f0b30046b2ab5a'),
+        (0x1097a5,19,'213a60b72ae5bd5566a3c7af1e7106d80ce2291a7134c87584c03d5653d35075'),
+        (0x109845,190,'8db295b764220983700cdc0e9d6f69c95fef86c22a191d7e3a8800a5ecd44527'),
+        (0x10995c,19,'7e6b636f9cbe2d438fe2b3737dd4fe941c7098ba4e38ef75eba0df8bd3d96366'))),
     CLIENT_SHA256_1078: ReadBuildLayout(CLIENT_SHA256_1078,'classic-1078-player-candidate.yaml','classic-1078-health-candidate.yaml',
         'classic-1078-inventory-candidate.yaml',0x5EA9F8,_NEW_SLOTS,0x6B5EF0,0x6B8E48,
         0x6BCEF0,0x1030,0x1058,0x106C,0x16,0x5E7250,0x6BAF30,0x5EB8D0,0x1088,
         0x6B9D44,0x30,0xc0,0xb10,True,0x6B9B50,(0x18,8,0),0x5e8a60,0x5e12d0,0x988,
-        0x6B9CB8,0x5e83f0,0x5e92f8),
+        0x6B9CB8,0x5e83f0,0x5e92f8,0x1990,(0x19a8,0x19d8),0x19c0,0x3dc,0xc30,0x5eb7b8,
+        0x5e0cb8,((0x9bf92,314,'24d86082c85a31abb467bf6d4ea68b518bfccf7001f19205659ae842baa05886'),
+        (0x10dd75,19,'6aac4ef4f2fa3b392d27ee24dcab5ea875c590217654f37300d668aee4c152a9'),
+        (0x10de15,190,'2ecad0ce9f726c83a31fd12ca30bad5a25e26f9ab22c9479970bdc66fe10266d'),
+        (0x10df2c,19,'b8c9185de155072def8fdc9365403e73a2e36f7dfb16dca0940e1cffde8b84f3'))),
 }
 
 

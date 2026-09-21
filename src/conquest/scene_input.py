@@ -198,11 +198,13 @@ class BridgeSceneStepper:
         return self.stepper.step(source,destination)
 
 
-def memory_player_anchor(observer,life):
+def memory_player_anchor(observer,life,*,layout=None):
     """Pinned actor draw coordinates, including camera clamping at map edges."""
     from conquest.memory_life import CLIENT_SHA256
-    if observer.adapter.expected_sha256!=CLIENT_SHA256:
+    if layout is None and observer.adapter.expected_sha256!=CLIENT_SHA256:
         raise ValueError('Player projection belongs to a different client build')
+    if layout is not None and observer.adapter.expected_sha256!=layout.expected_sha256:
+        raise ValueError('Player projection layout differs from client')
     address=life.object_address+0xd8
     raw=observer.adapter.read_block(address,24)
     position=struct.unpack_from('<2I',raw)
@@ -213,6 +215,20 @@ def memory_player_anchor(observer,life):
         raise ValueError('Player draw position is unavailable or changed')
     if observer.adapter.read_block(address,24)!=raw:
         raise ValueError('Player projection changed during observation')
+    return anchor
+
+
+def memory_player_anchor_for_session(session,character):
+    """Explicit read-only anchor observation; no stepper or click is exposed."""
+    from types import SimpleNamespace
+    from conquest.memory_build_layout import read_build_layout
+    from conquest.memory_life import MemoryLifeReader
+    reader=MemoryLifeReader.for_session(session,character);life=reader.read()
+    anchor=memory_player_anchor(SimpleNamespace(adapter=reader.session),life,layout=read_build_layout(reader.session))
+    latest=MemoryLifeReader.for_session(session,character).read()
+    if latest.object_address!=life.object_address or latest.position!=life.position or latest.dead_candidate:
+        raise ValueError('Player changed during anchor observation')
+    reader.session.assert_identity()
     return anchor
 
 

@@ -6,23 +6,44 @@ from conquest.memory_life import CLIENT_SHA256,read_life
 from conquest.memory_shop import MemoryGui
 
 
+def _read_xp(session,life,layout):
+    if life.dead_candidate:raise ValueError('Living character required for XP skill')
+    actor=life.object_address
+    raw=session.read_block(actor+layout.xp_charge_offset,4)
+    status_raw=session.read_block(actor+layout.life_status_offset,8)
+    charge=struct.unpack('<I',raw)[0];status=struct.unpack_from('<I',status_raw)[0]
+    if not 0<=charge<=100:raise ValueError('XP charge outside HUD bounds')
+    if (session.read_block(actor+layout.xp_charge_offset,4)!=raw
+            or session.read_block(actor+layout.life_status_offset,8)!=status_raw):
+        raise ValueError('XP state changed during observation')
+    session.assert_identity()
+    return {'charge':charge,'ready':bool(status&0x10),'flying':bool(status&0x8000000),
+            'actor':actor,'source':'read_only_memory'}
+
+
 def read_xp(observer):
     s=observer.adapter
     if s.expected_sha256!=CLIENT_SHA256:raise ValueError('XP client profile differs')
     life=read_life(s,observer.health_layout,observer.character)
     if life.dead_candidate:raise ValueError('Living character required for XP skill')
-    actor=life.object_address
-    raw=s.read_block(actor+0x3cc,4)
-    charge=struct.unpack('<I',raw)[0]
-    status=struct.unpack('<Q',s.read_block(actor+0x30,8))[0]
-    if not 0<=charge<=100:raise ValueError('XP charge outside HUD bounds')
+    from conquest.memory_build_layout import read_build_layout
+    result=_read_xp(s,life,read_build_layout(s))
     latest=read_life(s,observer.health_layout,observer.character)
-    if (latest.object_address!=actor or latest.dead_candidate
-            or s.read_block(actor+0x3cc,4)!=raw):
+    if latest.object_address!=life.object_address or latest.dead_candidate:
         raise ValueError('XP state changed during observation')
-    s.assert_identity()
-    return {'charge':charge,'ready':bool(status&0x10),'flying':bool(status&0x8000000),
-            'actor':actor,'source':'read_only_memory'}
+    return result
+
+
+def read_xp_for_session(session,character):
+    """Explicit exact-build XP telemetry; it cannot activate Fly."""
+    from conquest.memory_build_layout import read_build_layout
+    from conquest.memory_life import MemoryLifeReader
+    reader=MemoryLifeReader.for_session(session,character);s=reader.session;life=reader.read()
+    result=_read_xp(s,life,read_build_layout(s))
+    latest=MemoryLifeReader.for_session(session,character).read()
+    if latest.object_address!=life.object_address or latest.dead_candidate:
+        raise ValueError('XP state changed during observation')
+    return result
 
 
 def fly_point(observer,state):

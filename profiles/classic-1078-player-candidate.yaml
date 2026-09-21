@@ -9,5 +9,6 @@ name_offset: 0x94
 max_hp_offset: 0x3e0
 position_offset: 0xd8
 level_offset: 0x6f8
+kill_counter_offset: 0xa58
 map_rva: 0x6b9d44
 qualification: candidate
