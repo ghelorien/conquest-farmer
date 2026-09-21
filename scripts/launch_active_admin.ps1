@@ -7,6 +7,13 @@ $dataRoot = 'C:\Users\Floor\AppData\Local\Conquest'
 $errorLog = Join-Path $dataRoot 'launcher-error.log'
 
 try {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"'
+        Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -Verb RunAs
+        exit 0
+    }
     Set-Location -LiteralPath $repository
     & $python $releaseScript launch --data-root $dataRoot 2>> $errorLog
     if ($LASTEXITCODE -ne 0) {
