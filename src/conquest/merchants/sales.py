@@ -56,8 +56,8 @@ def observe(journal, snapshot):
         # guard also covers independent observers and app restart. The atomic
         # settlement callback installs the fresh post-session baseline.
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_sessions'").fetchone():
-            if db.execute("SELECT 1 FROM manual_sessions m WHERE target_profile_id=? AND created_at<=? AND (phase NOT IN ('completed','request_withdrawn','declined_verified','operator_overridden') OR COALESCE(json_extract(terminal_json,'$.settled_at'),json_extract(terminal_json,'$.at'))>? OR (json_extract(terminal_json,'$.settled_at') IS NULL AND json_extract(terminal_json,'$.at') IS NULL AND NOT EXISTS (SELECT 1 FROM events e WHERE e.character=? AND e.event='sales_observation_gap' AND json_extract(e.payload,'$.session_id')=m.id))) LIMIT 1",
-                          (target, at, before['timestamp'] if before else at,target)).fetchone():
+            if db.execute("SELECT 1 FROM manual_sessions m WHERE target_profile_id=? AND created_at<=? AND (phase NOT IN ('completed','request_withdrawn','declined_verified','operator_overridden') OR COALESCE(json_extract(terminal_json,'$.settled_at'),json_extract(terminal_json,'$.at'))>? OR (json_extract(terminal_json,'$.settled_at') IS NULL AND json_extract(terminal_json,'$.at') IS NULL AND NOT EXISTS (SELECT 1 FROM events e WHERE e.character=? AND e.event='sales_observation_gap' AND json_extract(e.payload,'$.session_id')=m.id) AND NOT EXISTS (SELECT 1 FROM manual_rebaseline r WHERE r.source_session_id=m.id AND r.phase='completed' AND r.last_observed_at<=?))) LIMIT 1",
+                          (target, at, before['timestamp'] if before else at,target,before['timestamp'] if before else at)).fetchone():
                 return
         # The operator handoff has a separate durable interval table.  Do not
         # infer a sale across its preparation/settlement window, including

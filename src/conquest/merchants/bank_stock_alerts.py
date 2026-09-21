@@ -37,8 +37,7 @@ def record(loop):
     context=current()
     if source.get('character')!=farmer_name():
         raise ValueError('Bank source character differs from selected farmer')
-    if context and (context.profile.role!='Farmer' or context.profile.name!=source.get('character')
-                    or source.get('profile_id') not in (None,context.profile.id)):
+    if context is None or context.profile.role!='Farmer' or context.profile.name!=source.get('character'):
         raise ValueError('Bank source profile differs from selected farmer')
     from conquest.merchants.delivery import eligible
     from conquest.valuables import DRAGONBALL_TYPES
@@ -59,7 +58,7 @@ def record(loop):
             id TEXT PRIMARY KEY, created_at REAL NOT NULL, source_json TEXT NOT NULL,
             warehouse_json TEXT NOT NULL, phase TEXT NOT NULL, message_id TEXT)''')
         db.execute('CREATE TABLE IF NOT EXISTS bank_stock_seen(farmer TEXT NOT NULL,item_hash TEXT NOT NULL,first_seen_at REAL NOT NULL,PRIMARY KEY(farmer,item_hash))')
-        farmer=str(source.get('profile_id') or source.get('character'))
+        farmer=context.profile.id
         exact=lambda item:hashlib.sha256(json.dumps({'farmer':farmer,**{k:item.get(k) for k in ('uid','type_id','plus','gem1','gem2','quantity','bound')}},sort_keys=True).encode()).hexdigest()
         current={exact(item) for item in candidates}
         previous={row['item_hash'] for row in db.execute('SELECT item_hash FROM bank_stock_seen WHERE farmer=?',(farmer,))}
@@ -70,7 +69,7 @@ def record(loop):
             event=hashlib.sha256(json.dumps(sorted(exact(item) for item in newly)).encode()).hexdigest()
             db.execute('INSERT OR IGNORE INTO bank_stock_outbox VALUES(?,?,?,?,?,NULL)',
                        (event,time.time(),json.dumps({'identity':source['identity'],'map_id':source.get('map_id'),
-                            'character':source.get('character'),'profile_id':source.get('profile_id'),
+                            'character':source.get('character'),'profile_id':farmer,
                             'observed_at':source.get('timestamp')}),
                         json.dumps(newly),'pending'))
         db.executemany('INSERT OR IGNORE INTO bank_stock_seen VALUES(?,?,?)',[(farmer,key,time.time()) for key in current])
