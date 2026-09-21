@@ -1,0 +1,21 @@
+# Read-only candidate only. No runtime loader selects this file.
+# Captured against the exact 1078 image below; independent HP-change and
+# restart evidence are still required before any reader may use it.
+schema_version: 1
+qualification: candidate
+player:
+  schema_version: 1
+  expected_sha256: be9dd723cad8eb9068da792b5cb8ceec0d330f08aacb8c948e6f412d1520c4e0
+  module: ImConquer.exe
+  root_rva: 0x6bcef0
+  pointer_offsets: [0, 0]
+  vtable_rva: 0x5ea748
+  name_offset: 0x94
+  max_hp_offset: 0x3e0
+  position_offset: 0xd8
+  level_offset: 0x6f8
+  qualification: candidate
+attribute_pointer_offset: 0x978
+hp_attribute_index: 1
+max_attributes: 1024
+max_sample_seconds: 1

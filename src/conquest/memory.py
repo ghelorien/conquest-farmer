@@ -12,6 +12,10 @@ from conquest.identity import fingerprint
 from conquest.win32 import WindowsBackend, bind
 
 
+class UnsupportedClientBuildError(ValueError):
+    """The executable is readable, but has no selected fingerprinted layout."""
+
+
 class MemoryBasicInformation(c.Structure):
     _fields_ = [
         ("BaseAddress", c.c_void_p), ("AllocationBase", c.c_void_p),
@@ -62,7 +66,8 @@ class MemorySession:
             raise ValueError("This calibration adapter supports the inspected x64 client only")
         image = fingerprint(Path(self.identity["path"]))
         if image["sha256"] != self.expected_sha256:
-            raise ValueError("Executable fingerprint differs; discard this client profile")
+            raise UnsupportedClientBuildError(
+                "Unsupported game version; its memory layout has not been qualified")
         # VirtualQueryEx requires QUERY_INFORMATION; ReadProcessMemory requires VM_READ.
         self.handle = self.backend.open_process(0x0400 | 0x0010, False, self.pid)
         if not self.handle:

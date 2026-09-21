@@ -28,6 +28,7 @@ class AttachmentStatus:
         self.history=self.history[-24:]
     def fail(self,error):
         # Never serialize arbitrary exception payloads: credential readers may appear in the stack.
+        from conquest.memory import UnsupportedClientBuildError
         messages={'discovery':'Select a running client.', 'identity':'Verify the character, server and client build.',
             'access':'Memory access failed. Check whether the game runs as administrator.',
             'attachment':'Window hosting failed. Check the recorded DPI and window geometry.',
@@ -35,7 +36,7 @@ class AttachmentStatus:
             'behavior':'The client is attached; automation setup failed. Check the installation path and recovery data.'}
         self.ready=False
         self.error={'type':type(error).__name__,'winerror':getattr(error,'winerror',None),
-            'message':str(error) if isinstance(error,ViewportTooSmall) else messages[self.stage]}
+            'message':str(error) if isinstance(error,(ViewportTooSmall,UnsupportedClientBuildError)) else messages[self.stage]}
         import traceback
         self.error['frames']=[{'file':Path(f.filename).name,'function':f.name,'line':f.lineno}
                               for f in traceback.extract_tb(error.__traceback__)[-6:]]
