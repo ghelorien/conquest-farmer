@@ -3,6 +3,7 @@ from conquest.character_context import state_path
 import struct
 from dataclasses import asdict
 from conquest.addressing import checked_address
+from conquest.memory_build_layout import read_build_layout
 from conquest.memory_life import CLIENT_SHA256
 
 SLOTS={'head':0xbd8,'necklace':0xbe8,'armor':0xbf8,'bow':0xc08,
@@ -15,9 +16,23 @@ def category(kind):
     group=kind//1000
     return {113:'head',132:'armor',133:'armor',500:'bow',150:'ring',120:'necklace',160:'boots'}.get(group)
 
+def slots_for(session):
+    """Return immutable exact-build slot offsets for raw read primitives.
+
+    ``read_equipment`` itself deliberately remains 1074-only until the
+    normal life/control path is separately qualified for 1078.
+    """
+    return read_build_layout(session).equipment_slots
+
+
 def item_details(session,address,base):
     raw=session.read_block(checked_address(address),0x78)
-    if struct.unpack_from('<Q',raw)[0]!=base+0x5cf220:raise ValueError('Equipment item type changed')
+    # Legacy offline helpers supplied only a read block, not a pinned session.
+    # Production readers always provide the exact fingerprinted selector.
+    item_vtable=(read_build_layout(session).item_vtable_rva
+                 if hasattr(session,'expected_sha256') else 0x5cf220)
+    if struct.unpack_from('<Q',raw)[0]!=base+item_vtable:
+        raise ValueError('Equipment item type changed')
     uid,kind=struct.unpack_from('<I',raw,8)[0],struct.unpack_from('<I',raw,0x10)[0]
     length,capacity=struct.unpack_from('<QQ',raw,0x28)
     if not uid or not 0<kind<100000000 or not 1<=length<=63 or not length<=capacity<=1024:
@@ -42,10 +57,10 @@ def read_equipment(observer):
     level=struct.unpack('<I',s.read_block(actor+0x6e8,4))[0]
     profession=struct.unpack('<I',s.read_block(actor+0x6d4,4))[0]
     if not 1<=level<=140 or not 40<=profession<=45:raise ValueError('Upgrade requires a memory-identified archer')
-    pointers={slot:s.read_block(actor+offset,8) for slot,offset in SLOTS.items()}
+    pointers={slot:s.read_block(actor+offset,8) for slot,offset in slots_for(s).items()}
     equipped={slot:item_details(s,struct.unpack('<Q',ptr)[0],base) for slot,ptr in pointers.items() if struct.unpack('<Q',ptr)[0]}
     if any(category(item['type_id'])!=slot for slot,item in equipped.items()):raise ValueError('Equipped slot layout differs from archer profile')
-    if any(s.read_block(actor+SLOTS[slot],8)!=ptr for slot,ptr in pointers.items()):raise ValueError('Equipped slots changed during observation')
+    if any(s.read_block(actor+slots_for(s)[slot],8)!=ptr for slot,ptr in pointers.items()):raise ValueError('Equipped slots changed during observation')
     if s.read_block(actor+0x6e8,4)!=struct.pack('<I',level):raise ValueError('Level changed during equipment observation')
     fresh=read_life(s,observer.health_layout,observer.character)
     if fresh.object_address!=actor or fresh.dead_candidate:raise ValueError('Character changed during equipment observation')

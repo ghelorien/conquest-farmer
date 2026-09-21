@@ -1,0 +1,13 @@
+# Read-only actual player layout for the exact 1078 executable.
+schema_version: 1
+expected_sha256: be9dd723cad8eb9068da792b5cb8ceec0d330f08aacb8c948e6f412d1520c4e0
+module: imconquer.exe
+root_rva: 0x6bcef0
+pointer_offsets: [0, 0]
+vtable_rva: 0x5ea748
+name_offset: 0x94
+max_hp_offset: 0x3e0
+position_offset: 0xd8
+level_offset: 0x6f8
+map_rva: 0x6b9d44
+qualification: candidate

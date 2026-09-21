@@ -74,6 +74,29 @@ def resolve_player(session, layout: PlayerLayout):
     return result
 
 
+def resolve_object(session, *, expected_sha256, module, root_rva, pointer_offsets, vtable_rva):
+    """Resolve a typed object without inventing player/life field semantics."""
+    if session.expected_sha256 != expected_sha256:
+        raise ValueError('Object layout fingerprint differs from the client')
+    session.assert_identity()
+    modules=[entry for entry in session.modules if entry['name'].casefold()==module.casefold()]
+    if len(modules)!=1:raise ValueError('Expected exactly one matching loaded module')
+    selected=modules[0]
+    if root_rva+8>selected['size'] or vtable_rva>=selected['size']:
+        raise ValueError('Object layout RVA is outside the loaded module')
+    address=checked_address(selected['base']+root_rva);trace=[]
+    for offset in pointer_offsets:
+        pointer=struct.unpack('<Q',session.read(address,8))[0];checked_address(pointer)
+        trace.append((address,pointer));address=checked_address(pointer+offset)
+    if struct.unpack('<Q',session.read(address,8))[0]!=selected['base']+vtable_rva:
+        raise ValueError('Candidate object type changed')
+    for location,pointer in reversed(trace):
+        if struct.unpack('<Q',session.read(location,8))[0]!=pointer:
+            raise ValueError('Object pointer path changed during resolution')
+    session.assert_identity()
+    return address
+
+
 class WorkerPointerSession:
     """Read only eight-byte pointer values through an existing authenticated worker."""
 

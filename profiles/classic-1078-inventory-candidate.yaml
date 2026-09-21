@@ -1,0 +1,21 @@
+# Exact-build read-only carried-inventory layout. The inventory owner is the
+# wrapper path, distinct from the actual-player profile used for identity.
+expected_sha256: be9dd723cad8eb9068da792b5cb8ceec0d330f08aacb8c948e6f412d1520c4e0
+deque_map: 0xbb0
+deque_map_size: 0xbb8
+deque_start: 0xbc0
+deque_count: 0xbc8
+lookup_count: 0xbe0
+silver: 0xab8
+equipped_ammo: 0xc50
+item_vtable_rva: 0x5ea9f8
+item_uid: 0x8
+item_type: 0x10
+item_amount: 0x62
+item_limit: 0x64
+item_plus: 0x6b
+owner_root_rva: 0x6bcef0
+owner_pointer_offsets: [8, 0]
+owner_vtable_rva: 0x5ea728
+owner_name_offset: 0xa4
+capacity: 40

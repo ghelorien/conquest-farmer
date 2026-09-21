@@ -4,7 +4,7 @@ import time
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from conquest.addressing import Offset, checked_address, resolve_player
+from conquest.addressing import Offset, checked_address, resolve_object, resolve_player
 
 
 class InventoryLayout(BaseModel):
@@ -23,6 +23,10 @@ class InventoryLayout(BaseModel):
     item_amount: Offset
     item_limit: Offset
     item_plus: Offset | None = None
+    owner_root_rva: Offset | None = None
+    owner_pointer_offsets: tuple[Offset, ...] | None = None
+    owner_vtable_rva: Offset | None = None
+    owner_name_offset: Offset | None = None
     capacity: int = Field(default=40, ge=1, le=100)
 
 
@@ -51,6 +55,14 @@ class InventorySnapshot:
 
 def sample(session, fields):
     """Bound each RPC and preserve caller ordering across batches."""
+    if not hasattr(session,'request'):
+        reader=getattr(session,'read_block',None) or session.read
+        sizes={'u64':8,'u32':4,'u16':2}
+        values=[]
+        for address,kind in fields:
+            if kind not in sizes:raise ValueError('Unsupported direct inventory sample kind')
+            values.append(int.from_bytes(reader(checked_address(address),sizes[kind]),'little'))
+        return values
     result = []
     for start in range(0, len(fields), 64):
         batch = fields[start:start + 64]
@@ -138,13 +150,41 @@ class MemoryInventoryReader:
         self.player_layout = player_layout
         self.layout = inventory_layout
 
+    @classmethod
+    def for_session(cls, session):
+        from conquest.memory_build_layout import inventory_reader_layouts
+        player,inventory=inventory_reader_layouts(session)
+        return cls(session,player,inventory)
+
     def read(self):
         addresses = resolve_player(self.session, self.player_layout)
         module = next(m for m in self.session.modules
                       if m["name"].casefold() == self.player_layout.module.casefold())
-        result = read_inventory(self.session, addresses["object"], self.layout, module["base"])
+        owner=addresses['object']
+        layout=self.layout
+        owner_fields=(layout.owner_root_rva,layout.owner_pointer_offsets,layout.owner_vtable_rva,layout.owner_name_offset)
+        reader=None;actual_name=None;owner_name=None
+        if any(value is not None for value in owner_fields):
+            if any(value is None for value in owner_fields):raise ValueError('Inventory owner layout is incomplete')
+            owner=resolve_object(self.session,expected_sha256=layout.expected_sha256,module=self.player_layout.module,
+                root_rva=layout.owner_root_rva,pointer_offsets=layout.owner_pointer_offsets,
+                vtable_rva=layout.owner_vtable_rva)
+            reader=getattr(self.session,'read_block',None) or self.session.read
+            actual_name=reader(addresses['name'],64)
+            owner_name=reader(owner+layout.owner_name_offset,64)
+            if (not actual_name.split(b'\0',1)[0]
+                    or actual_name.split(b'\0',1)[0]!=owner_name.split(b'\0',1)[0]):
+                raise ValueError('Inventory owner identity differs from player')
+        result = read_inventory(self.session, owner, self.layout, module["base"])
         if resolve_player(self.session, self.player_layout) != addresses:
             raise ValueError("Player object changed during inventory observation")
+        if owner!=addresses['object'] and resolve_object(self.session,expected_sha256=layout.expected_sha256,
+                module=self.player_layout.module,root_rva=layout.owner_root_rva,
+                pointer_offsets=layout.owner_pointer_offsets,vtable_rva=layout.owner_vtable_rva)!=owner:
+            raise ValueError('Inventory wrapper changed during observation')
+        if reader is not None and (reader(addresses['name'],64)!=actual_name
+                or reader(owner+layout.owner_name_offset,64)!=owner_name):
+            raise ValueError('Inventory owner identity changed during observation')
         return result
 
     def report(self):
