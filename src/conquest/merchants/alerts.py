@@ -101,8 +101,11 @@ class Alerts:
         # Preparation, bot drain, ordinary reader retries and settlement are
         # deliberately quiet operator waits. Only a real identity/uncertainty
         # disposition is urgent.
-        handoff_problem=(('Operator manual handoff needs attention: '+str(handoff.get('reason')),0)
-                         if handoff.get('phase')=='needs_attention' else None)
+        handoff_reason=str(handoff.get('reason') or '')
+        handoff_problem=(('Operator manual handoff needs attention: '+handoff_reason,0)
+                         if handoff.get('phase')=='needs_attention' else
+                         ('Operator manual handoff has not received fresh memory evidence: '+handoff_reason,60)
+                         if handoff.get('phase')=='preparing' and handoff_reason.startswith('Waiting for fresh ') else None)
         self.observe('Operator manual handoff',handoff_problem,now)
         # The outbox is committed by the completed native bank visit.  Polling
         # it here keeps network I/O outside gameplay and survives app restart.
