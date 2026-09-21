@@ -1655,13 +1655,19 @@ class DesktopApp:
             try:
                 require_viewport(width,height)
                 if getattr(self,'_farmer_viewport_blocked',False):
-                    if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=False
-                    self.attachment.ready=self._farmer_ready_before_viewport
+                    if getattr(self,'unified',None):
+                        self.unified.coordinator.surface_blocks['Farmer']=self._farmer_surface_block_before_viewport
+                    marker=(self.attachment.stage,repr(self.attachment.error),len(self.attachment.history))
+                    if marker==self._farmer_viewport_attachment_marker:
+                        self.attachment.ready=self._farmer_ready_before_viewport
                     self._farmer_viewport_blocked=False
             except ViewportTooSmall as error:
                 if not getattr(self,'_farmer_viewport_blocked',False):
                     self._farmer_viewport_blocked=True
                     self._farmer_ready_before_viewport=self.attachment.ready
+                    self._farmer_viewport_attachment_marker=(self.attachment.stage,repr(self.attachment.error),len(self.attachment.history))
+                    self._farmer_surface_block_before_viewport=(bool(self.unified.coordinator.surface_blocks.get('Farmer'))
+                                                               if getattr(self,'unified',None) else False)
                 if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=True
                 self.attachment.ready=False
                 self.attachment_text.set(str(error))
