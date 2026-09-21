@@ -1,8 +1,18 @@
 # ImConquer 1078 read-only candidate
 
-This is evidence for a candidate only. No production loader selects it, and the
-existing `c2b53437...` fingerprint guard remains the only runtime-supported
-layout. No game input is authorized by this record.
+The separate `reader_1078` and manual-reader registry now support read-only
+operator handoff observation for this exact build. The normal farming, banking,
+merchant input, travel and recovery readers remain qualified only for 1074;
+their fingerprint guard is unchanged. No game input is authorized by this record.
+
+Live user-operated calibration verified the exact Painkiller transfer between
+Parasite and Spiritual, unchanged transfer silver, a one-silver booth listing,
+closed-window ownership stability, and Parasite's HP1454/1460 and level93.
+These calibration observations are not automated delivery or sales receipts.
+The app integration uses a separate input-denied registry and durable global
+Manual handoff sessions; it never installs a 1074 controller on a 1078 client.
+App-managed transfer/restart acceptance must be reported separately from reader
+calibration. Unknown automated capabilities remain unavailable.
 
 The installed 1078 executable has SHA-256
 `be9dd723cad8eb9068da792b5cb8ceec0d330f08aacb8c948e6f412d1520c4e0`,
