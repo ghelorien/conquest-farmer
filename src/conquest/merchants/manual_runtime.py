@@ -90,6 +90,15 @@ class ManualRuntime:
         self.manual_sessions = ManualSessionStore(self.journal.path, on_settlement=self._manual_settlement)
         from conquest.merchants.manual_handoff import ManualHandoffStore
         self.manual_handoff = ManualHandoffStore(self.journal)
+        # Historical terminal rows without a settled observation are not a
+        # sales boundary. Queue the existing native rebaseline path instead
+        # of letting a terminal `updated_at` either fabricate or indefinitely
+        # suppress sales. It remains fenced until fresh closed ownership is
+        # observed and its atomic gap/baseline is written.
+        from conquest.merchants.manual_recovery import start_rebaseline
+        with self.manual_sessions.db() as db:
+            stale=list(db.execute("SELECT id,target_profile_id FROM manual_sessions WHERE phase IN ('completed','request_withdrawn','declined_verified','operator_overridden') AND json_extract(terminal_json,'$.settled_at') IS NULL AND json_extract(terminal_json,'$.at') IS NULL AND NOT EXISTS (SELECT 1 FROM manual_rebaseline r WHERE r.source_session_id=manual_sessions.id AND r.phase='completed')"))
+        for row in stale:start_rebaseline(self.journal,row['target_profile_id'],row['id'])
         self.manual_farmer_provider = lambda:None
         self.manual_farmer_control = lambda:{'enabled':False}
         self.manual_farmer_observation = {'available':False,'reason':'Farmer observer is not configured'}

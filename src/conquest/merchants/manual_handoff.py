@@ -182,7 +182,8 @@ class ManualHandoffStore:
         elif finish and stable:
             db.execute('UPDATE manual_handoffs SET updated_at=?,reason=? WHERE id=?',
                        (now,'Waiting for mouse to be idle before handoff settlement',session_id))
-        elif session['reason']:
+        elif session['reason'] and not (str(session['reason']).startswith('Waiting for fresh ') and
+                                        any(row['last_at'] is None or now-row['last_at']>2 for row in rows)):
             db.execute('UPDATE manual_handoffs SET updated_at=?,reason=NULL WHERE id=?',(now,session_id))
         return self._view(db,db.execute('SELECT * FROM manual_handoffs WHERE id=?',(session_id,)).fetchone())
 

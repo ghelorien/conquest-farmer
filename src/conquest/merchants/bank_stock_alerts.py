@@ -30,12 +30,15 @@ def record(loop):
     if before is None or source['identity']!=before:
         raise ValueError('Bank source process does not match the active farmer')
     warehouse=loop.town('warehouse-items',rich=True)
-    loop.living()  # post-rich-read process/identity recheck, no game input.
+    loop.health()  # post-rich-read process/identity recheck, no focus/input.
     if getattr(loop,'identity',None)!=before:
         raise ValueError('Farmer process changed during rich warehouse observation')
-    from conquest.character_context import current
+    from conquest.character_context import current,farmer_name
     context=current()
-    if context and source.get('profile_id') not in (None,context.profile.id):
+    if source.get('character')!=farmer_name():
+        raise ValueError('Bank source character differs from selected farmer')
+    if context and (context.profile.role!='Farmer' or context.profile.name!=source.get('character')
+                    or source.get('profile_id') not in (None,context.profile.id)):
         raise ValueError('Bank source profile differs from selected farmer')
     from conquest.merchants.delivery import eligible
     from conquest.valuables import DRAGONBALL_TYPES
@@ -55,12 +58,11 @@ def record(loop):
         db.execute('''CREATE TABLE IF NOT EXISTS bank_stock_outbox(
             id TEXT PRIMARY KEY, created_at REAL NOT NULL, source_json TEXT NOT NULL,
             warehouse_json TEXT NOT NULL, phase TEXT NOT NULL, message_id TEXT)''')
-        db.execute('CREATE TABLE IF NOT EXISTS bank_stock_baseline(farmer TEXT PRIMARY KEY,snapshot_json TEXT NOT NULL,updated_at REAL NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS bank_stock_seen(farmer TEXT NOT NULL,item_hash TEXT NOT NULL,first_seen_at REAL NOT NULL,PRIMARY KEY(farmer,item_hash))')
         farmer=str(source.get('profile_id') or source.get('character'))
-        old=db.execute('SELECT snapshot_json FROM bank_stock_baseline WHERE farmer=?',(farmer,)).fetchone()
-        previous=set(json.loads(old['snapshot_json'])) if old else set()
         exact=lambda item:hashlib.sha256(json.dumps({'farmer':farmer,**{k:item.get(k) for k in ('uid','type_id','plus','gem1','gem2','quantity','bound')}},sort_keys=True).encode()).hexdigest()
         current={exact(item) for item in candidates}
+        previous={row['item_hash'] for row in db.execute('SELECT item_hash FROM bank_stock_seen WHERE farmer=?',(farmer,))}
         newly=[item for item in candidates if exact(item) not in previous]
         if newly:
             # One compact notification per completed verified-bank snapshot;
@@ -71,7 +73,7 @@ def record(loop):
                             'character':source.get('character'),'profile_id':source.get('profile_id'),
                             'observed_at':source.get('timestamp')}),
                         json.dumps(newly),'pending'))
-        db.execute('INSERT OR REPLACE INTO bank_stock_baseline VALUES(?,?,?)',(farmer,json.dumps(sorted(current)),time.time()))
+        db.executemany('INSERT OR IGNORE INTO bank_stock_seen VALUES(?,?,?)',[(farmer,key,time.time()) for key in current])
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bank_stock_outbox_issue'").fetchone():
             db.execute('DELETE FROM bank_stock_outbox_issue WHERE id=1')
     return candidates
