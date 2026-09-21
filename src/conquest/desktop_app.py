@@ -1652,7 +1652,10 @@ class DesktopApp:
     def resize_host(self,width,height):
         if getattr(self,'character_context',None) and self.host.saved and self.pane.winfo_ismapped():
             from conquest.client_attachment import require_viewport, ViewportTooSmall
-            try:require_viewport(width,height)
+            try:
+                require_viewport(width,height)
+                if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=False
+                self.attachment.ready=True
             except ViewportTooSmall as error:
                 if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=True
                 self.attachment.ready=False
