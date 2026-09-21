@@ -23,12 +23,21 @@ class PanelTravelChanged(TravelStateChanged):
 class TravelCare:
     def __init__(self,worker_info,notify=lambda event:None):
         self.info,self.notify=worker_info,notify
-        self.layout=PlayerLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-player-candidate.yaml').read_text()))
+        health=request(worker_info,'health')
+        from conquest.memory_build_layout import READ_LAYOUTS
+        selected=READ_LAYOUTS.get(health.get('expected_sha256'))
+        if selected is None:
+            raise ValueError('Travel care has no exact layout for the attached client')
+        root=Path('profiles')
+        self.layout=PlayerLayout.model_validate(yaml.safe_load(
+            (root/selected.player_profile).read_text(encoding='utf-8')))
         from conquest.memory_health import HealthWorkerSession
         self.session=HealthWorkerSession(worker_info,self.layout.expected_sha256)
-        self.inventory=MemoryInventoryReader(self.session,self.layout,InventoryLayout.model_validate(
-            yaml.safe_load(Path('profiles/classic-1074-inventory-candidate.yaml').read_text())))
-        self.health_layout=yaml.safe_load(Path('profiles/classic-1074-health-candidate.yaml').read_text())
+        self.inventory=MemoryInventoryReader(self.session,self.layout,
+            InventoryLayout.model_validate(yaml.safe_load(
+                (root/selected.inventory_profile).read_text(encoding='utf-8'))))
+        self.health_layout=yaml.safe_load(
+            (root/selected.health_profile).read_text(encoding='utf-8'))
         self.pending=None
         self.last_heal=-float('inf')
         self.last_revive=-float('inf')
@@ -137,8 +146,11 @@ class TravelCare:
         from conquest.xp_skill import XpSkill
         from conquest.memory_health import HealthWorkerSession,HealthLayout
         if not hasattr(self,'_xp_skill'):
-            observer=SimpleNamespace(adapter=HealthWorkerSession(self.info,self.layout.expected_sha256),
-                health_layout=HealthLayout.model_validate(self.health_layout),character=farmer_name())
+            adapter=HealthWorkerSession(self.info,self.layout.expected_sha256)
+            from conquest.memory_life import MemoryLifeReader
+            observer=SimpleNamespace(adapter=adapter,
+                health_layout=HealthLayout.model_validate(self.health_layout),character=farmer_name(),
+                read_life=lambda:MemoryLifeReader.for_session(adapter,farmer_name()).read())
             self._xp_skill=XpSkill(observer,lambda event,fields:self.notify({'event':event,**fields}))
         def click(point):
             fresh=request(self.info,'health')['embedded_controls']
