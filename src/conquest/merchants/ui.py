@@ -1454,6 +1454,10 @@ class UnifiedUI:
                     native_visible=bool(host.api.gui.IsWindowVisible(host.saved.hwnd)),
                     selected=bool(self.client_panes[character].winfo_ismapped()))
         except (OSError,ValueError):
+            if self.runtime.manual_handoff_status() is not None:
+                self.calibration_results[character] = {'verified':False,
+                    'note':'Manual handoff view layout is unavailable; automation remains fenced and saved permissions are unchanged'}
+                return
             self.pause(character)
             self.calibration_results[character] = {'verified':False,'note':'Client layout unavailable; re-embed before continuing'}
 
@@ -1471,6 +1475,10 @@ class UnifiedUI:
             try:require_viewport(*size)
             except ViewportTooSmall:
                 self.coordinator.surface_blocks[character]=True
+                if self.runtime.manual_handoff_status() is not None:
+                    self.calibration_results[character]={'verified':False,
+                        'note':'Manual handoff view is too small; saved permissions are unchanged'}
+                    return
                 self.runtime.invalidate_refill(character)
                 host.detach();self.released_clients.add(character)
                 self.calibration_results[character]={'verified':False,'note':'Full viewport does not fit. Use More / help → Open game in separate window.'}

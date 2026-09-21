@@ -1654,9 +1654,14 @@ class DesktopApp:
             from conquest.client_attachment import require_viewport, ViewportTooSmall
             try:
                 require_viewport(width,height)
-                if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=False
-                self.attachment.ready=True
+                if getattr(self,'_farmer_viewport_blocked',False):
+                    if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=False
+                    self.attachment.ready=self._farmer_ready_before_viewport
+                    self._farmer_viewport_blocked=False
             except ViewportTooSmall as error:
+                if not getattr(self,'_farmer_viewport_blocked',False):
+                    self._farmer_viewport_blocked=True
+                    self._farmer_ready_before_viewport=self.attachment.ready
                 if getattr(self,'unified',None):self.unified.coordinator.surface_blocks['Farmer']=True
                 self.attachment.ready=False
                 self.attachment_text.set(str(error))
@@ -1664,6 +1669,8 @@ class DesktopApp:
                 # Keep its verified owned host intact: detaching restores a
                 # floating top-level client over the wrapper's tabs. Input is
                 # blocked until a later full viewport check succeeds.
+                self.host.api.assert_owner(self.host.saved.hwnd,self.host.saved.identity)
+                self.host.api.show_async(self.host.saved.hwnd,0)
                 self.record(attachment=self.attachment.snapshot())
                 return
         self.host.resize(width,height)
