@@ -4,6 +4,8 @@ import struct
 
 from conquest.addressing import checked_address
 from conquest.memory_inventory import Item
+from conquest.memory_build_layout import warehouse_read_layout
+from conquest.memory_life import CLIENT_SHA256
 from conquest.memory_shop import MemoryGui
 
 
@@ -11,12 +13,34 @@ from conquest.memory_shop import MemoryGui
 class WarehouseSnapshot:
     items: tuple[Item, ...]
     capacity: int
+    bank_silver: int
 
 
 class MemoryWarehouseReader:
     def __init__(self, session):
         self.session = session
-        self.gui = MemoryGui(session)  # Enforces the observed client fingerprint.
+        self.layout = warehouse_read_layout(session)
+        # Supplying the layout is the sole 1078 GUI opt-in. MemoryGui's normal
+        # callers remain pinned to 1074 and cannot inherit this capability.
+        self.gui = MemoryGui(session,layout=self.layout)
+
+    def _warehouse_model(self, block):
+        layout,s,base=self.layout,self.session,self.gui.base
+        header=block(base+layout.gui_registry_rva,16)
+        head,count=struct.unpack('<QQ',header)
+        if not 1 <= count <= 128:raise ValueError('Warehouse GUI registry is invalid')
+        node=struct.unpack('<Q',block(head+8,8))[0];seen=set()
+        while node!=head:
+            if node in seen or len(seen)>=count:raise ValueError('Warehouse GUI registry changed')
+            seen.add(node);raw=block(node,56);key=struct.unpack_from('<I',raw,32)[0]
+            if key==layout.warehouse_model_key:
+                model=struct.unpack_from('<Q',raw,40)[0]
+                current=block(model,13)
+                if struct.unpack_from('<Q',current)[0]!=base+layout.warehouse_model_vtable_rva or not current[12]:
+                    raise ValueError('Warehouse model is not active')
+                return model
+            node=struct.unpack_from('<Q',raw,0 if layout.warehouse_model_key<key else 16)[0]
+        raise ValueError('Warehouse model is absent')
 
     def read(self, *, rich_item=None):
         """Read the verified deque, optionally decoding full merchant attributes.
@@ -35,12 +59,16 @@ class MemoryWarehouseReader:
             observed.append((address, data))
             return data
 
-        # Getter 181b30 returns **(module+69c730), not resolve_player's base.
-        shared = struct.unpack('<Q', block(base+0x69c730, 8))[0]
+        if self.layout.expected_sha256 != CLIENT_SHA256:
+            self._warehouse_model(block)
+        # Both selected layouts retain the observed module->holder->actor
+        # indirection; only their exact RVAs/field offsets differ.
+        shared = struct.unpack('<Q', block(base+self.layout.warehouse_root_rva, 8))[0]
         owner = struct.unpack('<Q', block(shared, 8))[0]
-        table, size, start, count = struct.unpack('<4Q', block(owner+0x1008, 32))
-        capacity = struct.unpack('<I', block(owner+0x1030, 4))[0]
-        if (not 1 <= capacity <= 1000 or not 0 <= count <= capacity
+        table, size, start, count = struct.unpack('<4Q', block(owner+self.layout.warehouse_deque_offset, 32))
+        capacity = struct.unpack('<I', block(owner+self.layout.warehouse_capacity_offset, 4))[0]
+        bank_silver = struct.unpack('<I', block(owner+self.layout.warehouse_silver_offset, 4))[0]
+        if (not 1 <= capacity <= 1000 or not 0 <= bank_silver <= 0x7fffffff or not 0 <= count <= capacity
                 or not 0 <= size <= 2048 or size & (size-1) or count > size
                 or (size == 0 and (table or start or count))):
             raise ValueError('Warehouse deque is invalid')
@@ -57,7 +85,7 @@ class MemoryWarehouseReader:
             kind = struct.unpack('<I', block(pointer+0x10, 4))[0]
             amount, limit = struct.unpack('<HH', block(pointer+0x62, 4))
             plus = block(pointer+0x6b, 1)[0]
-            if vtable != base+0x5cf220 or not uid or not kind or not 0 < amount <= limit:
+            if vtable != base+self.layout.item_vtable_rva or not uid or not kind or not 0 < amount <= limit:
                 raise ValueError('Warehouse item identity is invalid')
             basic=Item(uid, kind, amount, limit, slot, plus)
             if rich_item is None:
@@ -86,7 +114,7 @@ class MemoryWarehouseReader:
         if self.gui.read('Warehouse') != window:
             raise ValueError('Warehouse window changed during observation')
         s.assert_identity()
-        return WarehouseSnapshot(tuple(items), capacity)
+        return WarehouseSnapshot(tuple(items), capacity, bank_silver)
 
 
 def deposit_received(item, before_bag, before_stash, bag, stash):
@@ -95,6 +123,7 @@ def deposit_received(item, before_bag, before_stash, bag, stash):
     return (identity(item) in {identity(i) for i in before_bag.items}
             and item.uid not in {i.uid for i in before_stash.items}
             and bag.silver == before_bag.silver
+            and stash.bank_silver == before_stash.bank_silver
             and {identity(i) for i in bag.items} ==
                 {identity(i) for i in before_bag.items if i.uid != item.uid}
             and {identity(i) for i in stash.items} ==

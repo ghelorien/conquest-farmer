@@ -58,6 +58,13 @@ observer, controller, input bridge, farming, town, travel, or delivery path.
 It does not select a profile automatically and exposes no input/focus methods.
 The normal 1074 loader remains unchanged.
 
+The shared warehouse reader also has an exact-1078 read-only layout for the
+observed active Warehouse model, stored-item deque, capacity and bank balance.
+It does not qualify money amount-entry semantics, vendor interaction, deposits,
+withdrawals, protected-withdrawal auditing, or any banking input. Item-transfer
+receipts now require the observed bank balance to remain unchanged, but 1078
+banking remains disabled pending the full protected receipt path.
+
 The following remain deliberately unavailable: equipped ammo and all farming
  inventory semantics, map/entity/monster semantics outside this manual snapshot,
 GUI layout/input semantics, counterpart trade-acceptance/silver semantics,

@@ -22,14 +22,20 @@ class GuiWindow:
 
 
 class MemoryGui:
-    def __init__(self, session):
-        if session.expected_sha256 != CLIENT_SHA256:
+    def __init__(self, session, *, layout=None):
+        # 1078 GUI observation is deliberately opt-in through a reader layout.
+        # Every existing caller retains the pinned 1074-only default.
+        if layout is None and session.expected_sha256 != CLIENT_SHA256:
             raise ValueError('GUI profile differs from client')
+        if layout is not None and layout.expected_sha256 != session.expected_sha256:
+            raise ValueError('GUI layout differs from client')
         self.session = session
         modules = [m for m in session.modules if m['name'].lower() == 'imconquer.exe']
         if len(modules) != 1:
             raise ValueError('Expected one client module')
         self.base = modules[0]['base']
+        self.layout = layout
+        self.context_rva = layout.gui_context_rva if layout is not None else 0x6966f0
         self.names = {}
 
     def read(self, name):
@@ -37,7 +43,7 @@ class MemoryGui:
         from conquest.viewport import size_for
         viewport=size_for(s)
         s.assert_identity()
-        context = struct.unpack('<Q', s.read_block(self.base+0x6966f0, 8))[0]
+        context = struct.unpack('<Q', s.read_block(self.base+self.context_rva, 8))[0]
         checked_address(context)
         header = s.read_block(context+0x3e58, 16)
         count, capacity, array = struct.unpack('<IIQ', header)
@@ -79,7 +85,7 @@ class MemoryGui:
         if (address not in latest_entries or current_name != title
                 or fresh[:8] != record[:8] or fresh[0x18:0x28] != record[0x18:0x28]
                 or fresh[0x64:0x6c] != record[0x64:0x6c]
-                or s.read_block(self.base+0x6966f0,8) != struct.pack('<Q',context)):
+                or s.read_block(self.base+self.context_rva,8) != struct.pack('<Q',context)):
             raise ValueError('GUI window changed during observation')
         if size_for(s)!=viewport:raise ValueError('Client resized during GUI observation')
         return GuiWindow(address,title,(x,y),(width,height),scroll)
