@@ -5,6 +5,10 @@ from conquest import route_controller as r
 
 def test_alive_route_is_not_duplicated_and_stopped_route_can_restart(monkeypatch,tmp_path):
     from conquest import routes
+    for name in ('src/conquest','profiles/routes','scripts'):
+        (tmp_path/name).mkdir(parents=True)
+    (tmp_path/'pyproject.toml').touch()
+    (tmp_path/'scripts/run_overnight.py').touch()
     monkeypatch.setattr(r.time,'time',lambda:100)
     state={'phase':'hunting','updated_at':99,'pid':1}
     monkeypatch.setattr(r,'read_json',lambda path:state if Path(path).name=='status.json' else {})

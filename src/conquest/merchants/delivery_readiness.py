@@ -31,11 +31,11 @@ def describe(ui,farmer_driver):
             'missing_qualifications':missing,
             'trading_enabled':bool(runtime and runtime.enabled(character))}
     blockers=[]
-    from conquest.merchants.farmer_preferences import enabled
+    from conquest.merchants.farmer_preferences import enabled,rollout_enabled,rollout_source
     from conquest.merchants.farmer_identity import ui_character
     if not enabled(ui_character(ui)):blockers.append('farmer_transfers_off')
-    if not policy.get('enabled'):blockers.append('delivery_rollout_disabled')
-    if not policy.get('parity_verified'):blockers.append('rollout_validation_incomplete')
+    rollout=rollout_enabled(ui_character(ui),policy=policy)
+    if not rollout:blockers.append('delivery_rollout_disabled')
     if not farmer_qualified:blockers.append('farmer_trade_controls_unqualified')
     for character,state in merchants.items():
         if not state['credentials_present']:blockers.append(f'{character}:credentials_missing')
@@ -47,5 +47,7 @@ def describe(ui,farmer_driver):
     return {'qualified':farmer_qualified,'qualification_scope':'farmer_trade_controls',
             'configured_prerequisites_met':not blockers,'blockers':blockers,
             'merchants':merchants,
+            'delivery_enabled':rollout,'parity_verified':policy.get('parity_verified') is True,
+            'delivery_setting_source':rollout_source(ui_character(ui)),
             'hunting_handoffs_enabled':bool(policy.get('hunting_handoffs_enabled')),
             'live_submission_checks_required':True}

@@ -14,9 +14,13 @@ def evaluate(config, *, now, kill_events, visits, deliveries, refill_events, int
     elapsed=max(0,min(now,end)-start)
     kills=sum(count for at,count in kill_events if start<=at<=min(now,end))
     rate=kills*60/elapsed if elapsed else 0
-    covered=[];incomplete=[]
+    covered=[];incomplete=[];excluded=[]
     for visit in visits:
         vid=visit.get('town_visit_id')
+        if ('merchant_acceptance' in visit.get('reasons',[]) or visit.get('validation_cycle')
+                or visit.get('acceptance_scope')):
+            excluded.append(vid)
+            continue
         if (visit.get('phase')!='complete' or not vid or visit.get('required_at',0)<start
                 or visit.get('completed_at',end+1)>min(now,end)
                 or not visit.get('first_verified_resume_kill')):continue
@@ -72,6 +76,7 @@ def evaluate(config, *, now, kill_events, visits, deliveries, refill_events, int
             'total_kills':kills,'overall_kills_per_minute':round(rate,2),
             'covered_cycles':covered,'unresolved_operations':unresolved,
             'incomplete_cycles':incomplete,'covered_farmer_profile_ids':farmers,
+            'excluded_forced_visit_ids':excluded,
             'covered_merchant_record_ids':merchants,
             'missing_farmer_profile_ids':missing_farmers,'missing_merchant_record_ids':missing_merchants,
             'coverage_scope':'Only the identities in covered_cycles were validated live',

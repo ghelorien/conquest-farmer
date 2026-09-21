@@ -132,6 +132,27 @@ def test_delivery_target_reports_exact_absent_recipient_without_collapsing_ambig
         driver.target_status('Dutch')
 
 
+def test_delivery_target_defers_a_changed_receiver_scene_before_input(monkeypatch):
+    from conquest.merchants import farmer_trade as module
+    from conquest import memory_life,scene_input
+    farmer={'character':'Parasite','position':[10,20],'windows':[]}
+    merchant={'character':'Dutch','position':[50,40]}
+    driver=FarmerTradeDriver.__new__(FarmerTradeDriver)
+    driver.require_qualified=lambda:{'gui_size':[1000,800],'client_size':[1250,1000]}
+    driver.read_pair=lambda name:(farmer,merchant)
+    driver.driver=NS(observer=NS(adapter=object(),health_layout=object(),character='Parasite'))
+    monkeypatch.setattr(module,'recipient_actionability',lambda *a,**k:
+                        (_ for _ in ()).throw(module.RecipientSceneChanged('Receiver scene changed')))
+    monkeypatch.setattr(memory_life,'read_life',lambda *a:NS(position=(10,20)))
+    monkeypatch.setattr(scene_input,'memory_player_anchor',lambda *a:(500,400))
+
+    assert driver.target_status('Dutch')=={'schema_version':1,'ready':False,'actionable':False,
+        'reason':'recipient_scene_changed','character':'Parasite','farmer_position':[10,20],
+        'merchant':'Dutch','merchant_position':[50,40],'point':None,
+        'viewport':[1000,800],'client_size':[1250,1000],'anchor':[500,400],
+        'occupied_tiles':[[10,20]]}
+
+
 @pytest.mark.parametrize('draw_format',[None,'f32'])
 def test_receiver_memory_rejects_unqualified_projection_before_observation(draw_format):
     from conquest.merchants.farmer_trade import recipient_record
@@ -147,7 +168,8 @@ def test_delivery_waits_for_receiver_to_release_input_without_replaying_body(mon
     from conquest import desktop_runtime,focus_recovery
     calls=[]
     @contextmanager
-    def lease(name):
+    def lease(name,*,purpose):
+        assert purpose=='farmer_delivery'
         calls.append('lease')
         if calls.count('lease')==1:raise CaptureUnavailable('Waiting for input owner')
         yield
@@ -158,10 +180,13 @@ def test_delivery_waits_for_receiver_to_release_input_without_replaying_body(mon
     d.ui=NS(runtime=NS(enabled=lambda _:True),coordinator=NS(lease=lease),
             app=NS(show_game=lambda:None),ui_requests=Queue())
     d.driver=NS(target=NS(hwnd=1),observer=NS(adapter=NS(identity={})))
+    d.read_pair=lambda _:({}, {})
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.prepare_delivery',lambda *a,**k:lambda:None)
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.verify_stage_pair',lambda *a,**k:None)
     monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
     monkeypatch.setattr(focus_recovery,'activate_client',lambda *a:True)
     monkeypatch.setattr(module.time,'sleep',lambda _:None)
-    with d.action({'merchant':{'character':'Spiritual'}}):calls.append('body')
+    with d.action({'merchant':{'character':'Spiritual'}},stage='open'):calls.append('body')
     assert calls==['lease','lease','body']
 
 
@@ -180,7 +205,8 @@ def test_delivery_contention_retry_is_bounded_and_never_replays_transaction(monk
     from conquest import desktop_runtime,focus_recovery
     calls=[];clock=[0.0]
     @contextmanager
-    def lease(name):
+    def lease(name,*,purpose):
+        assert purpose=='farmer_delivery'
         calls.append('lease')
         if failure_stage=='acquire_timeout':
             raise CaptureUnavailable('Waiting for input owner')
@@ -192,15 +218,75 @@ def test_delivery_contention_retry_is_bounded_and_never_replays_transaction(monk
     d.ui=NS(runtime=NS(enabled=lambda _:True),coordinator=NS(lease=lease),
             app=NS(show_game=lambda:None),ui_requests=Queue())
     d.driver=NS(target=NS(hwnd=1),observer=NS(adapter=NS(identity={})))
+    d.read_pair=lambda _:({}, {})
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.prepare_delivery',lambda *a,**k:lambda:None)
+    monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.verify_stage_pair',lambda *a,**k:None)
     monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
     monkeypatch.setattr(focus_recovery,'activate_client',lambda *a:True)
     monkeypatch.setattr(module.time,'monotonic',lambda:clock[0])
     monkeypatch.setattr(module.time,'sleep',lambda _:clock.__setitem__(0,clock[0]+1))
     with pytest.raises(CaptureUnavailable,match='Waiting for input owner'):
-        with d.action({'merchant':{'character':'Spiritual'}}):
+        with d.action({'merchant':{'character':'Spiritual'}},stage='open'):
             calls.append('body')
             raise CaptureUnavailable('Waiting for input owner')
     if failure_stage=='acquire_timeout':
         assert calls==['lease']*4 and clock[0]==3
     else:
         assert calls==['lease','body'] and clock[0]==0
+
+
+@pytest.mark.parametrize('change',['occupied_move','occupied_order','address','uid','name','position','point',
+                                  'actionability','mode'])
+def test_request_guard_binds_only_exact_target_and_revalidates_before_press(monkeypatch,change):
+    from contextlib import nullcontext
+    from conquest.merchants import farmer_trade as module
+    from conquest import foreground
+    from conquest.target_actionability import TargetNotActionable
+    intent,farmer,merchant=batch()
+    farmer['trade']=merchant['trade']=None
+    record={'address':100,'uid':2,'name':'Dutch','position':[100,200],
+            'point':[400,300],'occupied_tiles':[[100,200],[90,190],[80,180]]}
+    changed=copy.deepcopy(record)
+    if change=='occupied_move':changed['occupied_tiles'][1]=[91,190]
+    if change=='occupied_order':changed['occupied_tiles'].reverse()
+    if change in ('address','uid'):changed[change]+=1
+    if change=='name':changed['name']='Other'
+    if change=='position':changed['position']=[101,200]
+    if change=='point':changed['point']=[401,300]
+    calls=[];pressed=[]
+    def read_recipient(observer,profile,peer,*,farmer=None,targeting=False):
+        assert farmer is not None
+        calls.append(targeting)
+        if len(calls)<3:return copy.deepcopy(record)
+        if change=='actionability':raise TargetNotActionable({'message':'Receiver is covered'})
+        if change=='mode':raise ValueError('Client is not in the qualified trade targeting mode')
+        return changed
+    monkeypatch.setattr(module,'recipient_record',read_recipient)
+    def click(*args,**kwargs):
+        kwargs['before_press']()
+        pressed.append(args)
+    monkeypatch.setattr(foreground,'foreground_click',click)
+    driver=FarmerTradeDriver.__new__(FarmerTradeDriver)
+    driver.report=lambda *args:None;driver.action=lambda _,**kwargs:nullcontext()
+    driver.require_qualified=lambda:{'client_size':[1000,800],'gui_size':[1000,800]}
+    driver.read_pair=lambda _:(farmer,merchant)
+    driver.button=lambda *args,**kwargs:None
+    driver._action_observed=lambda *args:None;driver._before_action=lambda *args:None
+    driver.check=lambda:None;driver.wait_until=lambda *args:None
+    driver.driver=NS(observer=object(),target=object(),
+        layout_revision=lambda:NS(stable=lambda:1,assert_current=lambda _:None))
+    if change.startswith('occupied_'):
+        driver.open_trade(intent)
+        assert len(pressed)==1
+    else:
+        with pytest.raises((ValueError,CaptureUnavailable)):driver.open_trade(intent)
+        assert pressed==[]
+    assert calls==[False,True,True]
+
+
+@pytest.mark.parametrize('record',[{},None,{'uid':2},
+    {'address':0,'uid':2,'name':'Dutch','position':[10,20],'point':[100,100]},
+    {'address':1,'uid':True,'name':'Dutch','position':[10,20],'point':[100,100]}])
+def test_recipient_binding_requires_complete_typed_target_evidence(record):
+    from conquest.merchants.farmer_trade import recipient_binding
+    with pytest.raises(ValueError,match='input binding'):recipient_binding(record)

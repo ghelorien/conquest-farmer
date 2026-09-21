@@ -76,12 +76,16 @@ class RefillSchedule:
         state = self.state()
         return state['pending'] or self.clock()>=state['next_check']
 
-    def start(self, *, visit_id=None, town_visit_id=None, operation_id=None):
+    def start(self, *, visit_id=None, town_visit_id=None, operation_id=None, source_delivery_operation_id=None):
         state = self.state()
         now=self.clock()
         if not state.get('pending'):
             state.update(original_due_at=state['next_check'],cursor=[],listed=0,deferred=0,
-                         attempt_started_at=now)
+                         attempt_started_at=now,source_delivery_operation_id=None)
+        if source_delivery_operation_id is not None:
+            if state.get('source_delivery_operation_id') not in (None,source_delivery_operation_id):
+                raise ValueError('Pending refill belongs to another delivery operation')
+            state['source_delivery_operation_id']=source_delivery_operation_id
         state.update(pending=True,status='checking',last_attempt_at=now)
         if visit_id is not None:state['visit_id']=visit_id
         if town_visit_id is not None:state['town_visit_id']=town_visit_id

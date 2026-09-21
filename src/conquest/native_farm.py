@@ -63,6 +63,8 @@ class NativeFarmSupervisor:
 
     def observe_inventory(self, inventory):
         """Record new valuable item identities independently of ground-read races."""
+        if self.replan_after_manual(inventory):
+            return  # Manual interval changes are not automated pickup receipts.
         from conquest.memory_ground import wanted_drop
         items={i.uid:i for i in inventory.items}
         known=getattr(self,'inventory_seen',None)
@@ -92,6 +94,31 @@ class NativeFarmSupervisor:
     def urgent_banking(self,inventory):
         from conquest.banking import urgent_valuables
         return bool(urgent_valuables(inventory.items))
+
+    def replan_after_manual(self, inventory):
+        from conquest.merchants.coordination import manual_replan_journal, manual_session_blocked
+        journal = manual_replan_journal()
+        if journal is None or manual_session_blocked('Farmer'):return False
+        # Inventory and map must come from this loop's new memory observation.
+        if not 0 <= time.monotonic()-inventory.started_at <= .85:return False
+        from conquest.merchants.manual_recovery import consume_farmer
+        evidence = {'timestamp':time.time(), 'map_id':self.map_id,
+                    'position':list(self.position) if self.position else None,
+                    'inventory':[{'uid':i.uid, 'type_id':i.type_id, 'amount':i.amount,
+                                  'plus':getattr(i,'plus',None)} for i in inventory.items],
+                    'urgent_banking':self.urgent_banking(inventory)}
+        sessions = consume_farmer(journal,evidence)
+        if not sessions:return False
+        self.pending_loot = self.patrol_chase = None
+        self.loot_wait_until = self.defend_until = self.movement_run_until = 0
+        self.movement_obstructions.clear()
+        self.excluded_targets.clear()
+        self.inventory_seen = {i.uid for i in inventory.items}
+        self.inventory_reported = set()
+        self.finish_runback('manual_session_replan')
+        self.notify('manual_session_replan', {**evidence, 'sessions':sessions,
+                    'activity':'Fresh memory replan after manual visitor session'})
+        return True
 
     def start_runback(self,destination):
         from conquest.runback_monitor import RunbackMonitor
@@ -138,6 +165,14 @@ class NativeFarmSupervisor:
                     try:return trade({'action':'consume-healing','uid':uid})
                     except TownObservationUnavailable as error:
                         raise CaptureUnavailable('Healing: reobserving before item use: '+str(error)) from error
+                    except ValueError as error:
+                        if str(error)=='Inventory opening unverified':
+                            # The inventory-open guard fails before the potion
+                            # click.  Drop this attempt and obtain a fresh life
+                            # and bag observation; never infer consumption or
+                            # replay a post-click uncertainty.
+                            raise CaptureUnavailable('Healing: reobserving before item use: '+str(error)) from error
+                        raise
                 finally:
                     # Cleanup is reversible and retried separately. Never mask
                     # a verified receipt or an uncertain consumption error.
@@ -221,7 +256,10 @@ class NativeFarmSupervisor:
 
     def observe(self):
         from conquest.mouse_priority import require_idle
-        require_idle()
+        from conquest.merchants.coordination import manual_session_blocked
+        from conquest.merchants.coordination import observe_manual_farmer
+        manual = bool(observe_manual_farmer(self.observer)) or manual_session_blocked('Farmer')
+        if not manual:require_idle()
         with logical_coordinates(),self.observer.lock:
             life=self.read_life()
             if hasattr(life,'position'):
@@ -233,6 +271,12 @@ class NativeFarmSupervisor:
                 if previous and previous[1]==self.position and life.current_hp<previous[0] and not life.dead_candidate:
                     self.defend_until=time.monotonic()+8
                 self.last_health_position=(life.current_hp,self.position)
+            if manual or manual_session_blocked('Farmer'):
+                intent = self.control.snapshot()
+                self.pending_loot = None
+                return {'waiting':True, 'manual_session':True,
+                        'stop':intent['revision'] != self.revision,
+                        'health_ratio':life.current_hp/life.max_hp}
             self.defending=not life.dead_candidate and time.monotonic()<self.defend_until
             if time.monotonic()-self.last_metrics>=2:
                 from conquest.experience import read_experience

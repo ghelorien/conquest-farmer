@@ -3,6 +3,13 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def isolate_live_session_plan(tmp_path,monkeypatch):
+    monkeypatch.delenv('CONQUEST_APP_ROOT',raising=False)
+    monkeypatch.delenv('CONQUEST_RELEASE_MANIFEST_SHA256',raising=False)
+    # pytest's Windows tempfile ACL uses OWNER RIGHTS. Real managed roots now
+    # explicitly grant TokenUser access, including to normal-token children.
+    # This directory is fresh, test-owned, and contains no user state.
+    from conquest.managed_security import provision_new
+    provision_new(tmp_path,directory=True)
     from conquest.merchants import handoff
     monkeypatch.setattr(handoff,'POLICY',tmp_path/'merchant-deliveries.json')
     from conquest.merchants import delivery_route
@@ -19,6 +26,9 @@ def isolate_live_session_plan(tmp_path,monkeypatch):
     from conquest import safe_reload
     monkeypatch.setattr(safe_reload,'RESUME',tmp_path/'reload-resume.json')
     from conquest import banking
+    from conquest import merchant_loop_acceptance
+    monkeypatch.setattr(merchant_loop_acceptance,'STATE',tmp_path/'farmer-loop-acceptance.sqlite3')
+    monkeypatch.setattr(merchant_loop_acceptance,'PICKUPS',tmp_path/'acceptance-pickups.jsonl')
     monkeypatch.setattr(banking,'CONFIG',tmp_path/'banking.json')
     monkeypatch.setattr(banking,'STATUS',tmp_path/'bank-status.json')
     monkeypatch.setattr(banking,'LEDGER',tmp_path/'bank-transfers.jsonl')

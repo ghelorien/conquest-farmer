@@ -5,12 +5,47 @@ from pathlib import Path
 from conquest.discord_notify import read_json,write_json
 import json
 import hashlib
+import os
+import threading
+from contextlib import contextmanager
 
 POLICY=Path('profiles/meteor-banking.json')
 JOURNAL=Path(state_path('reports/banking/meteor-consolidation.json'))
 AUDIT=Path(state_path('reports/banking/meteor-consolidation-audit.jsonl'))
 METEOR=1088001
 SCROLL=720027
+DELIVERY_RETRY_SECONDS=900
+
+
+def completed_stored_scroll():
+    """Return delivery intent only; fresh Market memory remains withdrawal authority."""
+    state=read_json(JOURNAL);uid=state.get('scroll_uid')
+    if (state.get('phase')!='completed' or state.get('exchange_verified') is not True
+            or not state.get('market_verified_at') or type(uid) is not int or uid<=0
+            or state.get('user_confirmed_scroll_consumption')
+            or state.get('user_confirmed_scroll_transfer')):
+        return None
+    deferred=state.get('delivery_deferred') or {}
+    if (deferred.get('uid')==uid and type(deferred.get('at')) in (int,float)
+            and 0<=time.time()-deferred['at']<DELIVERY_RETRY_SECONDS):
+        return None
+    stored=any(row.get('type_id')==SCROLL and row.get('verified_in_warehouse') is True
+               and row.get('stored',row.get('uid'))==uid for row in state.get('receipts',[]))
+    if not stored:return None
+    from conquest.merchants.delivery_route import receipt_for
+    delivered=receipt_for(uid,SCROLL)
+    if delivered and delivered.get('outcome')=='transferred' and delivered.get('proof_digest'):return None
+    return uid
+
+
+def defer_stored_scroll(uid):
+    """Back off one exact, freshly re-banked scroll without losing intent."""
+    state=read_json(JOURNAL)
+    if (type(uid) is not int or uid<=0 or state.get('phase')!='completed'
+            or state.get('exchange_verified') is not True or state.get('scroll_uid')!=uid):
+        raise ValueError('Deferred scroll does not match the completed consolidation journal')
+    state['delivery_deferred']={'uid':uid,'at':time.time()}
+    write_json(JOURNAL,state)
 
 
 def batch(items):
@@ -134,23 +169,187 @@ def trip(loop,plan,*,before_submit=None):
 
 PENDING={'withdrawing','travelling','exchange_ready','exchange_pending','storing_scroll','stored_in_market','returning','carried_in_market'}
 TERMINAL={'completed','operator_overridden'}
+_AUDIT_THREAD_LOCK=threading.RLock()
 
 def pending():
     from conquest.recovery_override import read_recovered
     return read_recovered(JOURNAL).get('phase') in PENDING
 
 
+def _intent_path():
+    """The durable fence between archiving a terminal record and replacing it."""
+    return Path(str(JOURNAL)+'.archive-intent.json')
+
+
+def _generic_audit_path():
+    # Older builds used recovery_override's default audit beside the journal.
+    # Keep it as evidence, but do not use it as a source of a future plan.
+    return Path(str(JOURNAL)+'.audit.jsonl')
+
+
+def _durable_json(path, value):
+    write_json(path,value)
+    with Path(path).open('r+b') as stream:
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+@contextmanager
+def _audit_lock():
+    """Serialize audit de-duplication across threads and Meteor processes."""
+    lock_path=Path(str(AUDIT)+'.lock')
+    lock_path.parent.mkdir(parents=True,exist_ok=True)
+    with _AUDIT_THREAD_LOCK:
+        with lock_path.open('a+b') as stream:
+            stream.write(b'0');stream.flush();stream.seek(0)
+            if os.name=='nt':
+                import msvcrt
+                msvcrt.locking(stream.fileno(),msvcrt.LK_LOCK,1)
+            else:
+                import fcntl
+                fcntl.flock(stream.fileno(),fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                stream.seek(0)
+                if os.name=='nt':msvcrt.locking(stream.fileno(),msvcrt.LK_UNLCK,1)
+                else:fcntl.flock(stream.fileno(),fcntl.LOCK_UN)
+
+
+def _audit_rows(path):
+    path=Path(path)
+    if not path.exists():
+        return []
+    try:
+        lines=path.read_text(encoding='utf-8').splitlines()
+    except OSError as error:
+        raise ValueError(f'Meteor audit cannot be read: {path}') from error
+    rows=[]
+    for number,line in enumerate(lines,1):
+        if not line.strip():
+            continue
+        try:
+            row=json.loads(line)
+        except ValueError as error:
+            raise ValueError(f'Meteor audit has malformed JSON at {path}:{number}') from error
+        if not isinstance(row,dict):
+            raise ValueError(f'Meteor audit has a non-record entry at {path}:{number}')
+        rows.append(row)
+    return rows
+
+
+def _append_canonical_audit(record):
+    """Append one content-addressed record and fsync it before journal replacement."""
+    key=record['archive_key']
+    with _audit_lock():
+        if any(row.get('archive_key')==key for row in _audit_rows(AUDIT)):
+            return False
+        AUDIT.parent.mkdir(parents=True,exist_ok=True)
+        with AUDIT.open('a',encoding='utf-8') as stream:
+            stream.write(json.dumps(record,sort_keys=True,separators=(',',':'))+'\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        return True
+
+
+def _import_generic_override_audit():
+    """Preserve pre-Wave-1 generic override evidence in the canonical audit."""
+    source=_generic_audit_path()
+    if source.resolve()==AUDIT.resolve() or not source.exists():
+        return
+    for row in _audit_rows(source):
+        source_digest=hashlib.sha256(json.dumps(row,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        _append_canonical_audit({
+            'record_type':'generic_override_import',
+            'archive_key':'generic-override:'+source_digest,
+            'source_audit':str(source),
+            'record':row,
+        })
+
+
+def _archive_terminal_state(state):
+    """Durably retain the *entire* terminal journal, exactly once."""
+    _import_generic_override_audit()
+    digest=hashlib.sha256(json.dumps(state,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    _append_canonical_audit({
+        'record_type':'meteor_terminal_journal',
+        'archive_key':'terminal-journal:'+digest,
+        'journal_digest':digest,
+        'journal':state,
+    })
+
+
+def _recover_archive_boundary():
+    """Finish a crashed archive/replacement sequence without trusting old state."""
+    intent_path=_intent_path()
+    intent=read_json(intent_path)
+    if not intent:return read_json(JOURNAL)
+    terminal=intent.get('terminal_journal')
+    if not isinstance(terminal,dict):
+        raise ValueError('Meteor archive intent is unreadable; no replacement issued')
+    _archive_terminal_state(terminal)
+    current=read_json(JOURNAL)
+    expected=intent.get('terminal_digest')
+    current_digest=hashlib.sha256(json.dumps(current,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    # If the journal was already replaced, the archive was fsynced first.  It
+    # is now safe to clear only the intent, never to restore historical IDs.
+    if current_digest!=expected:
+        intent_path.unlink(missing_ok=True)
+    return current
+
+
+def _replace_overridden_journal(new_state):
+    """Archive an overridden operation before atomically starting a new one.
+
+    Leaving the intent until after the replacement makes every crash point
+    retryable: either the terminal journal remains to be archived, or the new
+    journal remains and the already-fsynced archive is simply de-duplicated.
+    """
+    current=_recover_archive_boundary()
+    if current.get('phase')!='operator_overridden':
+        raise ValueError('Meteor journal is not an overridden terminal operation')
+    terminal_digest=hashlib.sha256(json.dumps(current,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    _durable_json(_intent_path(),{'terminal_digest':terminal_digest,'terminal_journal':current})
+    _archive_terminal_state(current)
+    _durable_json(JOURNAL,new_state)
+    _intent_path().unlink(missing_ok=True)
+
+
+def fresh_replan(loop):
+    """Start over from current memory observations after an operator override."""
+    state=_recover_archive_boundary()
+    if state.get('phase')!='operator_overridden':
+        return False
+    # consolidate deliberately rereads both bag and warehouse; this argument
+    # is only retained for the historical public signature.
+    return consolidate(loop,None)
+
+
 def recheck(loop):
     """Read fresh memory-backed state for a Meteor hold without input."""
     life=loop.living()['embedded_controls']['life']
     supplies=loop.town('supplies')
-    evidence={'observed_at':time.time(), 'life':life, 'supplies':supplies}
+    warehouse=loop.town('warehouse-items')
+    evidence={'observed_at':time.time(), 'life':life, 'supplies':supplies,
+              'warehouse':warehouse}
     evidence['evidence_digest']=hashlib.sha256(json.dumps(evidence,sort_keys=True).encode()).hexdigest()
     return evidence
 
 
-def operator_override(loop, *, operator_confirmed=False, confirmation_reference=None,
-                      operator=None):
+def recheck_worker(info_path):
+    """Read the Meteor replan inputs through the memory-backed worker only."""
+    from conquest.worker import request
+    health=request(info_path,'health')
+    evidence={'observed_at':time.time(),
+              'life':(health.get('embedded_controls') or {}).get('life'),
+              'supplies':request(info_path,'town',{'action':'supplies'}),
+              'warehouse':request(info_path,'town',{'action':'warehouse-items'})}
+    evidence['evidence_digest']=hashlib.sha256(json.dumps(evidence,sort_keys=True).encode()).hexdigest()
+    return evidence
+
+
+def operator_override(loop=None, *, operator_confirmed=False, confirmation_reference=None,
+                      operator=None, incident_digest=None, fresh_evidence=None):
     """Close a Meteor recovery hold after explicit per-incident confirmation.
 
     This records the complete pre-override journal in an append-only audit
@@ -163,18 +362,32 @@ def operator_override(loop, *, operator_confirmed=False, confirmation_reference=
         raise ValueError('A non-empty incident confirmation reference is required')
     if operator is not None and (not isinstance(operator,str) or not operator.strip()):
         raise ValueError('Operator must be a non-empty string when supplied')
-    state=read_json(JOURNAL)
+    from conquest.recovery_override import evidence_digest
+    state=_recover_archive_boundary()
     if state.get('phase') not in PENDING and state.get('phase')!='operator_overridden':
         raise ValueError('No unresolved Meteor recovery hold is active')
+    if state.get('phase')=='operator_overridden':
+        prior=state.get('operator_override') or {}
+        if incident_digest!=prior.get('original_evidence_digest'):
+            raise ValueError('Exact previewed Meteor incident digest is required')
+        if confirmation_reference!=prior.get('confirmation_reference'):
+            raise ValueError('Incident was already overridden with a different confirmation')
+        return state
+    preview=evidence_digest(state)
+    if not isinstance(incident_digest,str) or incident_digest!=preview:
+        raise ValueError('Exact previewed Meteor incident digest is required')
     try:
-        fresh=recheck(loop)
+        fresh=recheck(loop) if loop is not None else fresh_evidence
+        if not isinstance(fresh,dict):
+            raise ValueError('Meteor recheck did not provide fresh bag and warehouse observations')
     except (ValueError,OSError,KeyError,TypeError) as error:
         fresh={'recheck_unavailable':type(error).__name__,
                'reason':'Fresh farmer memory unavailable; resume requires a fresh replan'}
     from conquest.recovery_override import operator_override as close
     return close(JOURNAL,pending_phases=PENDING,operator_confirmed=operator_confirmed,
                  confirmation_reference=confirmation_reference,operator=operator,
-                 fresh_evidence=fresh,audit_path=AUDIT,incident='meteor-consolidation')
+                 fresh_evidence=fresh,audit_path=_generic_audit_path(),incident='meteor-consolidation',
+                 incident_digest=incident_digest)
 
 
 def save(state,phase=None,**fields):
@@ -209,9 +422,14 @@ def approach_market_warehouse(loop,activity):
         try:
             loop.travel(point,activity=note,vendor_type=0,arrival_radius=radius)
         except ValueError as error:
+            from conquest.travel_progress import TravelStalled
             fresh=loop.living()['embedded_controls']['life']
-            if str(error)!='Town route remains obstructed' or fresh['map_id']!=1036:raise
-            if max(abs(a-b) for a,b in zip(fresh['position'],(183,190)))<=6:
+            movement_stall=isinstance(error,TravelStalled) and error.code=='no_progress'
+            if (not movement_stall and str(error)!='Town route remains obstructed') or fresh['map_id']!=1036:raise
+            if (loop.town('vendor-status',vendor_type=0) or {}).get('reachable'):return
+            # Include the eastern frontage at (190,189), where the approach
+            # can stall before reaching the old six-tile recovery envelope.
+            if max(abs(a-b) for a,b in zip(fresh['position'],(183,190)))<=8:
                 area='frontage'
                 recovery=[(p,'Taking the western corridor to Market warehouse',1)
                           for p in ((186,199),(176,199),(176,183))]
@@ -274,8 +492,13 @@ def market_bank(loop,state):
 
 def resume(loop):
     """Reconcile item IDs before continuing an interrupted ten-Meteor trip."""
-    if not pending():return False
-    state=read_json(JOURNAL);policy=read_json(POLICY)
+    state=_recover_archive_boundary()
+    if state.get('phase')=='operator_overridden':
+        # The terminal record is evidence only.  Never resume it: a new plan
+        # is built from freshly observed bag and warehouse contents.
+        return fresh_replan(loop)
+    if state.get('phase') not in PENDING:return False
+    policy=read_json(POLICY)
     route=policy.get('origins',{}).get(str(state['origin']))
     if not route:raise ValueError('Meteor trip origin has no verified transport')
     from conquest.banking import open_warehouse,close_warehouse
@@ -365,15 +588,19 @@ def resume(loop):
     raise ValueError('Meteor journal needs reconciliation')
 
 
-def consolidate(loop,stored):
+def consolidate(loop,stored=None):
     """Start a qualified batch; finish back at the original open warehouse."""
     policy=read_json(POLICY)
     if not policy.get('enabled') or not policy.get('qualified'):return False
     if not policy.get('exchange'):raise ValueError('Meteor exchange has not been qualified')
-    previous=read_json(JOURNAL)
-    if previous and previous.get('phase')!='completed':
+    previous=_recover_archive_boundary()
+    if previous and previous.get('phase') not in TERMINAL:
         raise ValueError('An unfinished Meteor transfer needs reconciliation; no new batch withdrawn')
+    # `stored` used to be a caller-provided snapshot.  It could be stale by
+    # the time an override was confirmed, so every new operation obtains its
+    # own read-only bag and warehouse observations here.
     before=loop.town('supplies')
+    stored=loop.town('warehouse-items')
     loose=[i for i in before['items'] if i['type_id']==METEOR and i['amount']==i['limit']==1]
     items=batch(loose+stored['items'])
     if not items:return False
@@ -392,6 +619,9 @@ def consolidate(loop,stored):
         if bank['stored_silver']<reserve-before['silver']:raise ValueError('Insufficient transport reserve for Meteor consolidation')
         transfer(loop,'withdraw',reserve-before['silver'])
     state={'origin':origin,'meteor_uids':[i['uid'] for i in items],'started_at':time.time(),'phase':'withdrawing'}
-    save(state)
+    if previous.get('phase')=='operator_overridden':
+        _replace_overridden_journal(state)
+    else:
+        save(state)
     loop.record('meteor_consolidation_started',activity='Withdrawing ten Meteors for Market packing and banking')
     return resume(loop)

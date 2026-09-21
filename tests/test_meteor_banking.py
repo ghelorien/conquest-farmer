@@ -1,7 +1,11 @@
 from types import SimpleNamespace as NS
+from pathlib import Path
+import json
+from concurrent.futures import ThreadPoolExecutor
 import pytest
 from conquest import meteor_banking as m,banking,storage_halt
 from conquest.discord_notify import read_json,write_json
+from conquest.recovery_override import evidence_digest
 
 
 def item(uid,kind=m.METEOR):
@@ -58,6 +62,107 @@ def test_full_round_trip_packs_banks_returns_and_does_not_repeat(route):
     assert read_json(m.JOURNAL)['phase']=='completed'
     assert events.count(('choice','pack'))==1
     assert not m.consolidate(loop,{'items':list(local)})
+
+
+def test_override_archives_full_record_then_replans_from_fresh_bag_and_warehouse(route,monkeypatch,tmp_path):
+    """A terminal override is evidence, never a source of the next batch."""
+    loop,state,bag,local,market,events=route
+    monkeypatch.setattr(m,'AUDIT',tmp_path/'meteor-audit.jsonl')
+    old={'phase':'travelling','origin':999,'meteor_uids':[700+i for i in range(10)],
+         'departure_attempted':True,'fare':123,'receipts':[{'uid':999}], 'scroll_uid':888}
+    write_json(m.JOURNAL,old)
+    m.operator_override(loop,operator_confirmed=True,confirmation_reference='operator-click',
+                        incident_digest=evidence_digest(old))
+    assert read_json(m.JOURNAL)['phase']=='operator_overridden'
+
+    # Passing a stale caller snapshot cannot influence the new operation.
+    assert m.consolidate(loop,{'items':[item(700+i) for i in range(10)]})
+    assert not any(event==('warehouse-withdraw-meteor',700) for event in events)
+    rows=[json.loads(line) for line in m.AUDIT.read_text(encoding='utf-8').splitlines()]
+    archived=next(row for row in rows if row.get('record_type')=='meteor_terminal_journal')
+    assert archived['journal']['operator_override']['original_state']==old
+    assert archived['journal']['operator_override']['fresh_evidence']['supplies']['items']==[]
+    assert {item['uid'] for item in local}==set()
+
+
+def test_meteor_override_requires_the_previewed_digest_and_is_idempotent(route,monkeypatch,tmp_path):
+    loop,state,bag,local,market,events=route
+    monkeypatch.setattr(m,'AUDIT',tmp_path/'meteor-audit.jsonl')
+    original={'phase':'travelling','origin':1011,'meteor_uids':list(range(10))}
+    write_json(m.JOURNAL,original)
+    with pytest.raises(ValueError,match='previewed Meteor incident digest'):
+        m.operator_override(loop,operator_confirmed=True,confirmation_reference='click',incident_digest='stale')
+    digest=evidence_digest(original)
+    result=m.operator_override(loop,operator_confirmed=True,confirmation_reference='click',incident_digest=digest)
+    assert m.operator_override(operator_confirmed=True,confirmation_reference='click',incident_digest=digest)==result
+
+
+def test_legacy_generic_override_audit_is_imported_once_before_terminal_replacement(route,monkeypatch,tmp_path):
+    loop,state,bag,local,market,events=route
+    monkeypatch.setattr(m,'AUDIT',tmp_path/'meteor-audit.jsonl')
+    legacy={'incident':'meteor-consolidation','original_state':{'phase':'travelling','meteor_uids':[1]},
+            'confirmation_reference':'old-click'}
+    generic=Path(str(m.JOURNAL)+'.audit.jsonl')
+    generic.write_text(json.dumps(legacy)+'\n',encoding='utf-8')
+    write_json(m.JOURNAL,{'phase':'operator_overridden','operator_override':legacy})
+    assert m.consolidate(loop,None)
+    rows=[json.loads(line) for line in m.AUDIT.read_text(encoding='utf-8').splitlines()]
+    assert len([row for row in rows if row.get('record_type')=='generic_override_import'])==1
+    assert len([row for row in rows if row.get('record_type')=='meteor_terminal_journal'])==1
+
+
+def test_archive_new_journal_crash_boundary_retries_without_duplicate_audit(route,monkeypatch,tmp_path):
+    loop,state,bag,local,market,events=route
+    monkeypatch.setattr(m,'AUDIT',tmp_path/'meteor-audit.jsonl')
+    terminal={'phase':'operator_overridden','operator_override':{'original_state':{'phase':'travelling',
+              'meteor_uids':[700+i for i in range(10)]}}}
+    write_json(m.JOURNAL,terminal)
+    replacement={'phase':'withdrawing','origin':1011,'meteor_uids':list(range(10))}
+    real=m._durable_json
+    def crash_before_replace(path,value):
+        if Path(path)==m.JOURNAL:raise OSError('simulated crash before replacement')
+        return real(path,value)
+    monkeypatch.setattr(m,'_durable_json',crash_before_replace)
+    with pytest.raises(OSError,match='simulated crash'):
+        m._replace_overridden_journal(replacement)
+    assert read_json(m.JOURNAL)==terminal
+    assert m._intent_path().exists()
+    monkeypatch.setattr(m,'_durable_json',real)
+    m._replace_overridden_journal(replacement)
+    assert read_json(m.JOURNAL)==replacement
+    rows=[json.loads(line) for line in m.AUDIT.read_text(encoding='utf-8').splitlines()]
+    assert len([row for row in rows if row.get('record_type')=='meteor_terminal_journal'])==1
+    assert not m._intent_path().exists()
+
+
+def test_malformed_canonical_audit_blocks_terminal_replacement(route,monkeypatch,tmp_path):
+    loop,state,bag,local,market,events=route
+    monkeypatch.setattr(m,'AUDIT',tmp_path/'meteor-audit.jsonl')
+    m.AUDIT.write_text('{not-json}\n',encoding='utf-8')
+    terminal={'phase':'operator_overridden','operator_override':{'original_state':{'phase':'travelling'}}}
+    write_json(m.JOURNAL,terminal)
+    with pytest.raises(ValueError,match='malformed JSON'):
+        m._replace_overridden_journal({'phase':'withdrawing','origin':1011,'meteor_uids':list(range(10))})
+    assert read_json(m.JOURNAL)==terminal
+
+
+def test_malformed_archive_intent_fails_closed_without_replacing_journal(tmp_path):
+    terminal={'phase':'operator_overridden','operator_override':{'original_state':{'phase':'travelling'}}}
+    write_json(m.JOURNAL,terminal)
+    write_json(m._intent_path(),{'terminal_digest':'not-a-journal','terminal_journal':'corrupt'})
+    with pytest.raises(ValueError,match='archive intent is unreadable'):
+        m._recover_archive_boundary()
+    assert read_json(m.JOURNAL)==terminal
+
+
+def test_canonical_audit_append_is_concurrent_and_idempotent(monkeypatch,tmp_path):
+    monkeypatch.setattr(m,'AUDIT',tmp_path/'meteor-audit.jsonl')
+    record={'record_type':'meteor_terminal_journal','archive_key':'terminal-journal:one','journal':{'phase':'operator_overridden'}}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results=list(pool.map(lambda _:m._append_canonical_audit(record),range(24)))
+    assert results.count(True)==1
+    rows=[json.loads(line) for line in m.AUDIT.read_text(encoding='utf-8').splitlines()]
+    assert rows==[record]
 
 
 def test_banked_scroll_resumes_return_without_reexchange(route):
@@ -255,6 +360,46 @@ def test_market_frontage_repeated_failure_is_bounded():
     with pytest.raises(ValueError,match='remains obstructed'):
         m.approach_market_warehouse(loop,'Bank valuables')
     assert calls==[(186,184),(186,199)]
+
+
+def test_market_progress_stall_uses_bounded_frontage_corridor_from_eastern_edge():
+    from conquest.travel_progress import TravelStalled
+    calls=[];position=[190,189]
+    def travel(point,**kw):
+        calls.append(point)
+        assert kw['vendor_type']==0
+        if len(calls)==1:raise TravelStalled('Route made no improving progress after bounded recovery')
+        position[:]=point
+    loop=NS(living=lambda:{'embedded_controls':{'life':{'map_id':1036,'position':position.copy()}}},
+        town=lambda action,**kw:{'reachable':position==[176,183]} if action=='vendor-status' else None,
+        travel=travel)
+    m.approach_market_warehouse(loop,'Bank valuables')
+    assert calls==[(186,184),(186,199),(176,199),(176,183)]
+
+
+def test_market_progress_stall_rechecks_vendor_before_any_recovery():
+    from conquest.travel_progress import TravelStalled
+    calls=[]
+    def travel(point,**kw):
+        calls.append(point)
+        raise TravelStalled('Route made no improving progress after bounded recovery')
+    loop=NS(living=lambda:{'embedded_controls':{'life':{'map_id':1036,'position':[190,189]}}},
+        town=lambda action,**kw:{'reachable':bool(calls)} if action=='vendor-status' else None,travel=travel)
+    m.approach_market_warehouse(loop,'Bank valuables')
+    assert calls==[(186,184)]
+
+
+@pytest.mark.parametrize('code,count',[('no_progress',2),('service_deadline',1),('unknown',1)])
+def test_market_typed_stall_recovery_is_once_and_movement_only(code,count):
+    from conquest.travel_progress import TravelStalled
+    calls=[]
+    def travel(point,**kw):
+        calls.append(point)
+        raise TravelStalled('stop',code=code)
+    loop=NS(living=lambda:{'embedded_controls':{'life':{'map_id':1036,'position':[190,189]}}},
+        town=lambda *a,**kw:None,travel=travel)
+    with pytest.raises(TravelStalled):m.approach_market_warehouse(loop,'Bank valuables')
+    assert len(calls)==count
 
 
 def test_market_approach_does_not_retry_unrelated_or_repeated_failure():

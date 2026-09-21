@@ -10,6 +10,11 @@ import threading
 import time
 from conquest.discord_notify import write_json
 from conquest.capture import CaptureUnavailable
+from conquest.merchants.memory import TransitObservationChanged as _TransitObservationChanged
+
+
+class MerchantRejected(ValueError):
+    """A parsed bridge application rejection, not an uncertain transport loss."""
 
 
 class MerchantBridge:
@@ -55,6 +60,13 @@ class MerchantBridge:
                     if not isinstance(body,dict):
                         raise ValueError('Expected an object')
                     result,status = bridge.dispatch(body),200
+                except _TransitObservationChanged as error:
+                    # HTTP discards Python exception identity.  Preserve only
+                    # the bounded, read-only transit race used by the
+                    # acceptance observer; all other failures remain ordinary
+                    # terminal bridge errors.
+                    result,status = {'error':str(error),
+                        'code':'merchant_transit_observation_changed'},409
                 except (ValueError,TypeError,KeyError,OSError,CaptureUnavailable) as error:
                     result,status = {'error':str(error)},400
                 payload = json.dumps(result).encode()
@@ -91,4 +103,16 @@ def request(body, path=state_path('.runtime/merchants/bridge.json')):
         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(call,timeout=5) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
-        raise ValueError(json.load(error).get('error','Merchant request failed')) from None
+        payload=None
+        try:
+            payload=json.load(error)
+            detail,code=payload.get('error','Merchant request failed'),payload.get('code')
+        except (ValueError,AttributeError):
+            detail,code='Merchant request failed',None
+        if code=='merchant_transit_observation_changed':
+            from conquest.merchants.memory import TransitObservationChanged
+            raise TransitObservationChanged(detail) from error
+        if (error.code==400 and isinstance(payload,dict) and set(payload)=={'error'}
+                and isinstance(payload['error'],str) and payload['error']):
+            raise MerchantRejected(payload['error']) from error
+        raise ValueError(detail) from error

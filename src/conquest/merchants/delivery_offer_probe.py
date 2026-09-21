@@ -1,10 +1,9 @@
 """Journaled native item placement for an explicitly authorized live trade."""
 import ctypes
-import threading
 import time
+from contextlib import contextmanager
 from conquest.capture import CaptureUnavailable
-from conquest.discord_notify import write_json
-from conquest.merchants.delivery_probe import JOURNAL
+from conquest.merchants.delivery_probe import JOURNAL,write_probe as write_json
 from conquest.merchants.delivery_bridge import pair
 from conquest.merchants.delivery import exact_items,validate_offers
 from conquest.merchants.farmer_trade import partial_offer
@@ -21,8 +20,13 @@ def run(ui,state):
     character=state['character'];intent=state['intent'];revision=ui.app.control.snapshot()['revision']
     observer=ui.app.observer;memory=MerchantMemory(observer);target=observer.operations.target
     deadline=time.monotonic()+15
+    def manual_fence():
+        if any(ui.coordinator.manual_session_blocked(owner) for owner in
+               (state.get('farmer_profile_id','Farmer'),state.get('target_profile_id',character))):
+            raise CaptureUnavailable('Manual visitor session holds a delivery participant')
     def check():
         permits_new_delivery(intent['farmer']['character']);ui.coordinator.check()
+        manual_fence()
         c=ui.app.control.snapshot()
         if (ui.closed or ui.app.closing or c['enabled'] or c.get('paused') or c['revision']!=revision
                 or not ui.safe_to_yield() or time.monotonic()>=deadline
@@ -30,13 +34,21 @@ def run(ui,state):
             raise CaptureUnavailable('Trade placement was stopped or expired')
     def save(phase,**fields):
         state.update(phase=phase,updated_at=time.time(),error=None,**fields);write_json(JOURNAL,state)
-    with ui.coordinator.lease('Farmer'),physical_coordinates():
-        done,result=threading.Event(),{}
-        ui.ui_requests.put((ui.app.show_game,done,result))
-        if not done.wait(3):
-            result['expired']=True;raise ValueError('Farmer surface unavailable')
-        if result.get('error'):raise ValueError(result['error'])
+    @contextmanager
+    def lease():
+        with ui.coordinator.lock:
+            f,m=pair(ui,character)
+            if not ui.runtime.reconcile_probe_pair(character,f,m):
+                raise CaptureUnavailable('Delivery placement needs fresh bilateral probe reconciliation')
+            manual_fence()
+            with ui.coordinator.lease('Farmer',purpose='delivery_offer_probe'),physical_coordinates():yield
+    with lease():
+        from conquest.merchants.delivery_farmer_surface import prepare
+        presentation=prepare(ui,state,purpose='delivery_offer_probe',revision=revision,deadline=deadline)
         check();f,m=pair(ui,character);offered=partial_offer(intent,f,m)
+        if any(s['trade']['accepted'] or s['trade']['other_accepted'] for s in (f,m)):
+            raise ValueError('Trade was accepted before placement activation')
+        presentation()
         if not activate_client(target.hwnd,f['identity']):raise ValueError('Farmer focus unavailable; no drag sent')
         size=target.snapshot()['client_size']
         if size!=memory.gui.viewport_size():raise ValueError('Native and GUI sizes differ')

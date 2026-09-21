@@ -45,10 +45,11 @@ class WorkWindows:
         write_json(self.path, state)
         return state['deadline']
 
-    def finish(self, phase):
+    def finish(self, phase, **extra):
         state = self.state()
-        state.update(phase=phase, finished_at=self.clock())
+        state.update(phase=phase, finished_at=self.clock(),**extra)
         write_json(self.path, state)
+        return state
 
 
 def resumable(health, proof, revision):
@@ -71,7 +72,13 @@ def service_candidate(character):
 def service_window(loop, *, town=False):
     """Run on the existing route controller, retaining its exclusive ownership."""
     policy = read_json(POLICY)
-    if not policy.get('parity_verified') or (not town and not policy.get('hunting_handoffs_enabled')):
+    from conquest.merchant_loop_acceptance import trial_permitted
+    from conquest.merchants.farmer_preferences import rollout_enabled
+    from conquest.merchants.farmer_identity import route_character
+    # This window serves refill/recovery, not delivery admission. Preserve
+    # its existing authority when the separate delivery preference is Off.
+    permitted = policy.get('parity_verified') or (town and rollout_enabled(route_character(loop),policy=policy))
+    if (not permitted and not (town and trial_permitted(loop))) or (not town and not policy.get('hunting_handoffs_enabled')):
         return False
     from conquest.merchants.bridge import request as merchant
     from conquest.worker import request

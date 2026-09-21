@@ -52,7 +52,7 @@ class DesktopApp:
         self.root, self.profile = root, Path(profile)
         self.backend, self.host = WindowsBackend(), EmbeddedWindow(mode='owned')
         from conquest.discord_notify import read_json
-        self.host.api.height_scale = float(read_json('.runtime/farmer-view.json').get('height_scale',1.0))
+        self.host.api.height_scale = float(read_json(state_path('.runtime/farmer-view.json')).get('height_scale',1.0))
         self.messages, self.thread = queue.Queue(), None
         self.requires_elevation = requires_elevation
         from conquest.character_context import current
@@ -180,13 +180,13 @@ class DesktopApp:
         ttk.Button(farm_row, text='Farming On · F10', command=lambda:self.update_ids(True)).pack(side='left',fill='x',expand=True)
         ttk.Button(farm_row, text='Off', command=lambda:self.update_ids(False)).pack(side='left',padx=6)
         ttk.Label(farm_row,text='F11 pause · F12 stop').pack(side='right')
-        from conquest.merchants.farmer_preferences import enabled as transfers_enabled
+        from conquest.merchants.farmer_preferences import rollout_enabled as transfers_enabled
         try:
             self.transfer_character=TrialConfig.model_validate(yaml.safe_load(self.profile.read_text())).character
         except (OSError,ValueError,yaml.YAMLError):
             self.transfer_character=None
         self.merchant_transfers=tk.BooleanVar(value=bool(self.transfer_character and transfers_enabled(self.transfer_character)))
-        ttk.Checkbutton(self.sidebar,text='Transfer loot to merchants',variable=self.merchant_transfers,
+        ttk.Checkbutton(self.sidebar,text='Automatic merchant delivery',variable=self.merchant_transfers,
                         state='normal' if self.transfer_character else 'disabled',
                         command=self.save_merchant_transfers).pack(anchor='w',pady=(0,4))
 
@@ -204,6 +204,8 @@ class DesktopApp:
         ttk.Button(recovery_row, text='Recheck', command=self.recheck_farmer_recovery).pack(side='left')
         ttk.Button(recovery_row, text='Override & resume',
                    command=self.override_farmer_recovery).pack(side='left', padx=(6,0))
+        ttk.Button(self.recovery_frame,text='Clear stale handoff…',
+                   command=self.clear_stale_handoff).pack(anchor='w',pady=(4,0))
 
         self.mouse_note=tk.StringVar(value='Mouse control: automatic · move mouse to take over')
         ttk.Label(self.sidebar,textvariable=self.mouse_note).pack(anchor='w',pady=(0,4))
@@ -261,14 +263,61 @@ class DesktopApp:
             self.detail_text.set('Discord notifier could not start; farming is unaffected')
 
     def save_merchant_transfers(self):
-        from conquest.merchants.farmer_preferences import set_enabled,enabled
+        from conquest.merchants.farmer_preferences import set_delivery_enabled,rollout_enabled
         try:
-            set_enabled(self.transfer_character,bool(self.merchant_transfers.get()))
-            self.detail_text.set('Merchant transfers '+('On' if self.merchant_transfers.get() else 'Off')+
+            set_delivery_enabled(self.transfer_character,bool(self.merchant_transfers.get()))
+            self.detail_text.set('Automatic merchant delivery '+('On' if self.merchant_transfers.get() else 'Off')+
                 ' for '+self.transfer_character)
         except (OSError,ValueError) as error:
-            self.merchant_transfers.set(enabled(self.transfer_character))
+            self.merchant_transfers.set(rollout_enabled(self.transfer_character))
             self.detail_text.set('Could not save merchant transfer setting: '+str(error))
+
+    def clear_stale_handoff(self):
+        if getattr(self,'_stale_handoff_checking',False):return
+        dispatch=getattr(self,'stale_handoff_dispatch',None)
+        if dispatch is None:
+            messagebox.showerror('Clear stale handoff','Merchant controls are not ready.',parent=self.root)
+            return
+        self._stale_handoff_checking=True
+        def fail(error):
+            self._stale_handoff_checking=False
+            messagebox.showerror('Cannot clear handoff',str(error),parent=self.root)
+        def after_pointer_idle(callback):
+            # Clicking our own confirmation is physical mouse activity too.
+            # Wait without input/locks; never suppress the mouse guard.
+            deadline=time.monotonic()+10
+            self.detail_text.set('Checking handoff; leave the mouse still briefly.')
+            def check():
+                if self.closing:
+                    self._stale_handoff_checking=False
+                    return
+                try:
+                    if self.mouse_priority.active():
+                        if time.monotonic()>=deadline:
+                            raise ValueError('Mouse is still active. Try again when ready.')
+                        self.root.after(100,check)
+                        return
+                    callback()
+                except (OSError,ValueError) as error:fail(error)
+            self.root.after(100,check)
+        def preview_and_confirm():
+            preview=dispatch({'action':'delivery-stale-pre-admission-preview'})
+            item=preview.get('item') or {}
+            if not messagebox.askyesno('Clear stale handoff',
+                    'Clear this expired, unsubmitted delivery reservation?\n\n'
+                    +str(preview['request_id'])+'\nItem UID: '+str(item.get('uid','unknown'))+'\n\n'
+                    'Trade history is kept. Farming stays Off.',parent=self.root):
+                self._stale_handoff_checking=False
+                return
+            digest=preview['preview_digest']
+            def clear():
+                dispatch({'action':'delivery-stale-pre-admission-clear',
+                    'preview_digest':digest,'confirmation_reference':digest,'operator':'desktop'})
+                self._stale_handoff_checking=False
+                self.detail_text.set('Stale handoff cleared. Farming remains Off.')
+                messagebox.showinfo('Clear stale handoff','Reservation cleared. Farming remains Off.',parent=self.root)
+            after_pointer_idle(clear)
+        after_pointer_idle(preview_and_confirm)
 
     # ------------------------------------------------------------------
     # Durable recovery holds
@@ -395,6 +444,16 @@ class DesktopApp:
         from conquest.worker import request
         fresh={'recheck_unavailable':'Farmer client is not attached'}
         info=self.last.get('worker_info_path')
+        if incident.get('kind')=='meteor-consolidation':
+            # A Meteor override may only be planned from a matching live bag
+            # and warehouse read, never the historical transfer journal.
+            from conquest import meteor_banking
+            try:
+                fresh=meteor_banking.recheck_worker(info) if info else fresh
+            except (OSError,ValueError,KeyError,TypeError) as error:
+                fresh={'recheck_unavailable':type(error).__name__,
+                       'reason':'Fresh Meteor bag/warehouse memory unavailable'}
+            return dict(incident,rechecked=fresh)
         if info:
             try:
                 health=request(info,'health')
@@ -443,6 +502,15 @@ class DesktopApp:
                 from conquest.protected_withdrawal import operator_override
                 return operator_override(incident['operation_id'],operator_confirmed=True,
                     confirmation_reference=digest,incident_digest=digest,fresh_evidence=fresh)
+            if incident['kind']=='meteor-consolidation':
+                # Meteor recovery is intentionally not the generic JSON hold:
+                # its next action needs a fresh memory read of *both* bag and
+                # warehouse, and its terminal journal must enter the dedicated
+                # Meteor archive before a new banking operation can begin.
+                from conquest import meteor_banking
+                return meteor_banking.operator_override(operator_confirmed=True,
+                    confirmation_reference=digest,incident_digest=digest,
+                    fresh_evidence=fresh)
             from conquest.recovery_override import operator_override
             return operator_override(Path(incident['path']),pending_phases=incident['pending_phases'],
                 operator_confirmed=True,confirmation_reference=digest,incident_digest=digest,
@@ -692,6 +760,18 @@ class DesktopApp:
         self.root.after(25,self.poll_pointer_focus)
 
     def start(self, calibration=False):
+        # Memory-only farming requires the explicit pinned embedding flow.
+        # Reject before discovery can choose a foreground client or elevate.
+        try:
+            config = TrialConfig.model_validate(yaml.safe_load(self.profile.read_text()))
+            if config.observation_mode != 'legacy_visual':
+                raise ValueError('Memory-only farming requires an exactly selected embedded client. '
+                    'Use --embed-client --client-pid PID --client-started CREATION_TIME '
+                    '--client-hwnd HWND, then enable Farming On in the app.')
+        except Exception as error:
+            self.state_text.set(str(error))
+            self.record(state='Stopped', result={'detail':str(error)})
+            return
         if self.thread and self.thread.is_alive():
             return
         if self.host.saved:
@@ -701,14 +781,12 @@ class DesktopApp:
             self.refresh_client()
             if self.client is None:
                 raise ValueError('No unique matching character client is open')
-            config = TrialConfig.model_validate(yaml.safe_load(self.profile.read_text()))
-            if config.observation_mode != 'legacy_visual':
-                raise ValueError('Select an explicitly enabled foreground profile')
             if not ctypes.windll.shell32.IsUserAnAdmin():
                 self.state_text.set('Waiting for Windows approval…')
                 self.record(state='Waiting for Windows approval')
                 self.root.update_idletasks()
-                elevated_start(self.root.winfo_id(),Path(__file__).resolve().parents[2],self.profile,calibration)
+                from conquest.application_layout import application_root
+                elevated_start(self.root.winfo_id(),application_root(),self.profile,calibration)
                 # No run or embedded client exists here. Do not write a stop
                 # request that would cancel the elevated app's incoming Start.
                 self.root.destroy()
@@ -831,11 +909,12 @@ class DesktopApp:
         route_id=self.selected_route.id
         def prepare():
             try:
-                repo=Path(__file__).resolve().parents[2]
+                from conquest.application_layout import RuntimeLayout
+                layout=RuntimeLayout.resolve();repo=layout.root
                 # Import checks run while the current farmer still protects the player.
-                checked=subprocess.run([str(repo/'.venv/Scripts/pythonw.exe'),
-                    str(repo/'scripts/start_desktop_app.py'),'--check-imports'],
-                    cwd=repo,capture_output=True,timeout=20)
+                checked=subprocess.run([str(layout.python(windowed=True)),
+                    str(layout.script('start_desktop_app.py')),'--check-imports'],
+                    cwd=repo,env=layout.environment(),capture_output=True,timeout=20)
                 if checked.returncode:raise ValueError('Startup check failed; keeping current app')
                 from conquest.safe_reload import prepare as prepare_reload
                 proof=prepare_reload(info,route_id,self.reload_cancel,
@@ -854,13 +933,14 @@ class DesktopApp:
         if unified and (unified.coordinator.owner or unified.calibrating):
             self.state_text.set('Wait for merchant input to finish before reloading')
             return False
-        repo = Path(__file__).resolve().parents[2]
+        from conquest.application_layout import RuntimeLayout
+        layout=RuntimeLayout.resolve();repo=layout.root
         # Validate new source while the approved parent and client are intact.
         try:
             checked = subprocess.run(
-                [str(repo/'.venv/Scripts/pythonw.exe'),
-                 str(repo/'scripts/start_desktop_app.py'),'--check-imports'],
-                cwd=repo, capture_output=True, timeout=20)
+                [str(layout.python(windowed=True)),
+                 str(layout.script('start_desktop_app.py')),'--check-imports'],
+                cwd=repo, env=layout.environment(), capture_output=True, timeout=20)
             if checked.returncode:
                 self.state_text.set('Reload canceled: startup check failed. See reports/desktop-startup-error.txt')
                 return False
@@ -882,7 +962,7 @@ class DesktopApp:
             return False
         # A child of the approved app inherits its existing administrator token.
         # This button does not invoke runas or display another consent request.
-        args = [str(repo/'.venv/Scripts/pythonw.exe'),str(repo/'scripts/start_desktop_app.py'),
+        args = [str(layout.python(windowed=True)),str(layout.script('start_desktop_app.py')),
                 '--profile',str(self.profile.resolve())]
         from conquest.character_context import context_arguments
         args += context_arguments()
@@ -895,7 +975,7 @@ class DesktopApp:
                 # Release owned game windows and the bridge before the new app starts.
                 if unified.close(reason='restarting') is False:
                     return False
-            subprocess.Popen(args,cwd=repo)
+            subprocess.Popen(args,cwd=repo,env=layout.environment())
             self.root.destroy()
             return True
         except OSError as error:
@@ -1243,7 +1323,8 @@ class DesktopApp:
             self.route_note.set(str(error))
 
     def update_ids(self, enabled):
-        if not enabled:self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
+        if not enabled:
+            self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
         if enabled:
             from conquest.merchants.delivery_operation import guard_protected_assets
             try:guard_protected_assets()
@@ -1264,15 +1345,20 @@ class DesktopApp:
         self.record(control_intent={'enabled':enabled,'source':'UI button or F10','time':time.time()})
         if not enabled:
             self.record(kills_per_hour=0)
-            # Explicit UI Off must stop a town coordinator too; its internal
-            # combat Off is handled separately by update_control.
-            path=Path(state_path('.runtime/overnight.stop'));path.parent.mkdir(parents=True,exist_ok=True)
-            path.write_text('Stopped by user: Farming Off',encoding='utf-8')
         try:
             if getattr(self,'reload_preparing',False):
                 if enabled:raise ValueError('Reload preparation owns input; Stop cancels it')
                 self.reload_cancel.set()
-            current = self.control.update({'enabled':enabled})
+            with self.control.lock:
+                fresh_start=bool(enabled and not self.control.snapshot()['enabled'])
+                current = self.control.update({'enabled':enabled})
+                if fresh_start:
+                    Path(state_path('.runtime/overnight.stop')).unlink(missing_ok=True)
+                    self._fresh_controller_start_revision=current['revision']
+                elif not enabled:
+                    self._fresh_controller_start_revision=None
+                    path=Path(state_path('.runtime/overnight.stop'));path.parent.mkdir(parents=True,exist_ok=True)
+                    path.write_text('Stopped by user: Farming Off',encoding='utf-8')
             self.record(manual_stop_revision=None if enabled else current['revision'])
             self.update_kill_metrics('begin' if enabled else 'stop')
             if enabled and self.host.saved:
@@ -1286,7 +1372,16 @@ class DesktopApp:
             self.memory_text.set(str(error))
 
     def update_control(self, body):
-        if body.get('enabled') is False:self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
+        body=dict(body)
+        explicit_start=body.pop('explicit_restart',False)
+        explicit_stop=body.pop('explicit_stop',False)
+        if (type(explicit_start) is not bool or type(explicit_stop) is not bool
+                or explicit_start and explicit_stop
+                or explicit_start and body.get('enabled') is not True
+                or explicit_stop and body.get('enabled') is not False):
+            raise ValueError('Explicit route control marker does not match enabled')
+        if body.get('enabled') is False:
+            self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
         if body.get('enabled'):
             from conquest.merchants.delivery_operation import guard_protected_assets
             guard_protected_assets()
@@ -1306,9 +1401,21 @@ class DesktopApp:
             current=self.control.update({'enabled':False,'target_type_ids':list(route.monster_type_ids),'target_ids':[]})
             self.messages.put(('route_selected',{'route_id':route.id}))
             return {'route_queued':route.id}
+        with self.control.lock:
+            stop=Path(state_path('.runtime/overnight.stop'))
+            if body.get('enabled') is True and stop.exists() and not explicit_start:
+                raise ValueError('Farming restart requires explicit_restart')
+            fresh_start=bool(explicit_start and not self.control.snapshot()['enabled'])
+            current = self.control.update(body)
+            if fresh_start:
+                stop.unlink(missing_ok=True)
+                self._fresh_controller_start_revision=current['revision']
+            elif explicit_stop:
+                self._fresh_controller_start_revision=None
+                stop.parent.mkdir(parents=True,exist_ok=True)
+                stop.write_text('Stopped by user: Farming Off',encoding='utf-8')
         if 'enabled' in body:
             self.messages.put(('control_intent',{'enabled':body['enabled'],'source':'authenticated bridge','time':time.time()}))
-        current = self.control.update(body)
         if body.get('enabled') is True:
             if getattr(self,'unified',None):
                 self.unified.grant = None
@@ -1335,6 +1442,8 @@ class DesktopApp:
             return False
 
     def _start_embedded_farm(self):
+        fresh_start=(getattr(self,'_fresh_controller_start_revision',None)
+                     ==self.control.snapshot()['revision'])
         from conquest.merchants.delivery_operation import guard_protected_assets
         guard_protected_assets()
         if hasattr(self,'attachment') and not self.attachment.ready:
@@ -1343,9 +1452,11 @@ class DesktopApp:
         if active():return
         from conquest.storage_overflow import pending
         from conquest import meteor_banking
-        if (pending() or meteor_banking.pending()) and self.selected_route:
+        from conquest.merchants.delivery_journey import pending as merchant_journey_pending
+        if (pending() or meteor_banking.pending() or merchant_journey_pending()) and self.selected_route:
             from conquest.route_controller import ensure_running
-            ensure_running(self.selected_route.id)
+            if ensure_running(self.selected_route.id,fresh_start=fresh_start) and fresh_start:
+                self._fresh_controller_start_revision=None
             return
         if self.thread and self.thread.is_alive():
             self.show_game()
@@ -1425,7 +1536,13 @@ class DesktopApp:
             self.runtime.recovery=None
             self.runtime.external_failure=None
             self.runtime.external_execution=True
-            self.control.update({'input_mode':'foreground'})
+            with self.control.lock:
+                previous=self.control.snapshot()
+                if not previous['enabled']:
+                    return
+                current=self.control.update({'input_mode':'foreground'})
+                if getattr(self,'_fresh_controller_start_revision',None)==previous['revision']:
+                    self._fresh_controller_start_revision=current['revision']
             (self.output/'stop.request').unlink(missing_ok=True)
             self.update_kill_metrics('begin')
             self.record(state='Starting farm',attempts=0)
@@ -1632,7 +1749,6 @@ class DesktopApp:
                 self.reload_preparing=False
                 self.record(reload_preparing=False,activity='Reload deferred',reload_detail=fields['detail'])
                 if self.reload_resume and not self.reload_cancel.is_set():
-                    Path(state_path('.runtime/overnight.stop')).unlink(missing_ok=True)
                     self.update_control({'enabled':True})
             elif event=='reconnect_requested':
                 self.retry_reconnect()
@@ -1733,7 +1849,10 @@ class DesktopApp:
                 self.controller_check_at=time.monotonic()+2
                 from conquest.route_controller import ensure_running
                 try:
-                    if ensure_running(self.selected_route.id):
+                    fresh_start=(getattr(self,'_fresh_controller_start_revision',None)
+                                 ==control['revision'])
+                    if ensure_running(self.selected_route.id,fresh_start=fresh_start):
+                        if fresh_start:self._fresh_controller_start_revision=None
                         self.record(route_controller='Restarting automatic route management')
                 except (OSError,ValueError) as error:
                     self.record(route_controller_error=str(error))
@@ -1825,8 +1944,11 @@ def main():
         from conquest.character_context import context_arguments
         args=context_arguments()
         if '--profile-id' in args:args[args.index('--profile-id')+1]=app.profile_editor_requested
-        subprocess.Popen([sys.executable,str(Path(__file__).resolve().parents[2]/'scripts/start_desktop_app.py'),
-                          *args,'--manage-profiles'],creationflags=subprocess.CREATE_NO_WINDOW)
+        from conquest.application_layout import RuntimeLayout
+        layout=RuntimeLayout.resolve()
+        subprocess.Popen([str(layout.python(windowed=True)),str(layout.script('start_desktop_app.py')),
+                          *args,'--manage-profiles'],cwd=layout.root,env=layout.environment(),
+                         creationflags=subprocess.CREATE_NO_WINDOW)
 
 
 if __name__ == '__main__':

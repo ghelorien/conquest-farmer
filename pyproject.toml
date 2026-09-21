@@ -15,6 +15,7 @@ market = ["playwright>=1.50,<2"]
 
 [project.scripts]
 conquest = "conquest.cli:main"
+conquest-release = "conquest.release:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

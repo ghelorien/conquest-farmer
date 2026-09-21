@@ -63,7 +63,7 @@ def expendable_arrow(item, inventory):
 
 
 class TownObservationUnavailable(ValueError):
-    """A transient memory read failed before any input was attempted."""
+    """Observation or input acquisition failed before the action was submitted."""
     code = 'town_observation_unavailable'
 
 
@@ -213,7 +213,7 @@ class TownTrade:
                 'Warehouse deposit was not verified; no repeat input issued',timeout=5)
             return {'stored':item.uid,'type_id':item.type_id,'verified_in_warehouse':True}
 
-    def click(self, point, button='left', *, before_press=None):
+    def click(self, point, button='left', *, before_press=None, before_mouse_down=None):
         try:self.life(any_map=True)
         except ValueError as error:
             # This check precedes the button event, even if opening a panel
@@ -222,9 +222,16 @@ class TownTrade:
                 raise TownObservationUnavailable(str(error)) from error
             raise
         from conquest.viewport import size_for
+        from conquest.merchants.coordination import InputAcquisitionBusy
         try:
             return foreground_click(self.observer.operations.target,*point,size_for(self.observer),
-                button=button,require_foreground=True,before_press=before_press)
+                button=button,require_foreground=True,before_press=before_press,
+                before_mouse_down=before_mouse_down)
+        except InputAcquisitionBusy as error:
+            # Re-enter the whole town operation on retry, including its fresh
+            # vendor, shop, product, funds and capacity checks. Never retry an
+            # arbitrary CaptureUnavailable or a partially submitted click.
+            raise TownObservationUnavailable(str(error)) from error
         except CaptureUnavailable as error:
             if 'no input sent' in str(error) or 'no button pressed' in str(error):
                 raise TownObservationUnavailable(str(error)) from error
@@ -250,18 +257,27 @@ class TownTrade:
             wait_scene_pointer(self.observer.adapter,point,unchanged)
         return self.click(point,before_press=before_press)
 
-    def vendor(self, type_id):
+    def vendor(self, type_id, *, stable_identity_only=False):
         life = self.life(any_map=True) if type_id==0 else self.life()
         from conquest.memory_npcs import vendor_identity
-        if type_id==0:
+        if stable_identity_only:
+            if type_id!=0 or life.map_id!=1036:
+                raise ValueError('Stable warehouse identity is restricted to Market item withdrawal')
+            from conquest.market_services import discover
+            # The selected NPC remains in a freshly bounded scene with its
+            # object, model, UID, name/type and world tile pinned. Unrelated
+            # player reordering and draw animation cannot alter grid input.
+            npc=discover(self.observer.entities,life.map_id,'Warehouseman',stable_identity_only=True)[1]
+        elif type_id==0:
             from conquest.memory_npcs import warehouse_identity
             expected=warehouse_identity(self.observer.entities,life.map_id)
             reader=MemoryNpcReader(self.observer.entities,vendors=[expected])
         else:expected=vendor_identity(life.map_id,type_id);reader=self.npcs
-        choices = [n for n in reader.read(life.map_id).npcs if n.type_id == expected.type_id]
-        if len(choices) != 1:
-            raise ValueError('Vendor is not in the current scene')
-        npc = choices[0]
+        if not stable_identity_only:
+            choices = [n for n in reader.read(life.map_id).npcs if n.type_id == expected.type_id]
+            if len(choices) != 1:
+                raise ValueError('Vendor is not in the current scene')
+            npc = choices[0]
         if max(abs(a-b) for a,b in zip(life.position,npc.position)) > 18:
             raise ValueError('Travel closer to the vendor before opening its shop')
         return npc
@@ -270,6 +286,10 @@ class TownTrade:
         # The bridge serializes calls. Never label a failed input attempt as a
         # retryable read: SendInput may have partially succeeded.
         self.input_attempted = False
+        from conquest.merchants.coordination import observe_manual_farmer
+        observer=getattr(self,'observer',None)
+        if observer is not None and observe_manual_farmer(observer):
+            raise TownObservationUnavailable('Manual trade observation requires a fresh read before town actions')
         try:
             return self.execute(body)
         except ValueError as error:
@@ -494,6 +514,12 @@ class TownTrade:
                 'action','plan_id','operation_id','uid'}:
             from conquest.protected_withdrawal import withdraw
             return withdraw(self,body['plan_id'],body['operation_id'],body['uid'])
+        if action=='warehouse-withdraw-scroll' and set(body)=={'action','operation_id','uid'}:
+            from conquest.scroll_withdrawal import withdraw
+            return withdraw(self,body['operation_id'],body['uid'])
+        if action=='warehouse-reconcile-scroll' and set(body)=={'action','operation_id','uid'}:
+            from conquest.scroll_withdrawal import reconcile
+            return reconcile(self,body['operation_id'],body['uid'])
         if action == 'warehouse-open' and set(body)=={'action'}:
             npc=self.vendor(0)
             if self.vendor(0)!=npc:
@@ -535,6 +561,14 @@ class TownTrade:
                 if 'not active' in str(error) or 'absent' in str(error):
                     return {'closed':True}
                 raise
+            from conquest.game_panels import PANELS,TRANSACTIONS
+            from conquest.merchants.memory import GuiReader
+            def panel_signature():
+                return tuple(sorted((item['name'],item['address'],tuple(item['geometry']),tuple(item['scroll']))
+                    for item in GuiReader(self.observer.adapter).windows()
+                    if (item['name'] in PANELS or item['name'] in TRANSACTIONS
+                        or item['name'].startswith(body['window']+'/'))))
+            panels=panel_signature()
             self.input_attempted = True
             from conquest.panel_close import click_close
             click_close(self,body['window'])
@@ -544,7 +578,35 @@ class TownTrade:
                     if 'not active' in str(error) or 'absent' in str(error):return True
                     raise
                 return False
-            self.verified_read(closed,bool,'Town panel close was not verified',timeout=2)
+            try:
+                self.verified_read(closed,bool,'Town panel close was not verified',timeout=2)
+            except ValueError as error:
+                if str(error) != 'Town panel close was not verified':
+                    raise
+                # Closing a display panel has no financial or ownership side
+                # effect.  Retry it once only after fresh memory proves that
+                # this is the exact same still-open panel instance.
+                self.observer.adapter.assert_identity()
+                try:current=self.shop.gui.read(body['window'])
+                except ValueError as current_error:
+                    if 'not active' in str(current_error) or 'absent' in str(current_error):
+                        return {'closed':True}
+                    raise
+                if current != window:
+                    raise ValueError('Town panel changed after its close attempt') from error
+                def retry_guard():
+                    self.observer.adapter.assert_identity()
+                    current_panels=panel_signature()
+                    if current_panels != panels:
+                        raise ValueError('Town panel set changed before retrying its close')
+                    if any(name in TRANSACTIONS for name,*_ in current_panels):
+                        raise ValueError('Transaction dialog appeared before retrying panel close')
+                retry={'submitted':False}
+                click_close(self,body['window'],validate=retry_guard,
+                            before_mouse_down=lambda:retry.update(submitted=True))
+                if not retry['submitted']:
+                    raise ValueError('Town panel close retry did not reach its input boundary')
+                self.verified_read(closed,bool,'Town panel close was not verified',timeout=2)
             return {'closed':True}
         if action == 'buy' and set(body) == {'action','vendor_type','type_id'}:
             if body['type_id'] not in (1000020,1050000,1050001,1050002,1060020):

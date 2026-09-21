@@ -32,6 +32,23 @@ def calibration_failure(error):
     return {'verified':False,'note':note,'diagnostic':detail}
 
 
+def callback_failure(error):
+    """Return a bounded, useful UI-callback failure without a traceback dump."""
+    def message(value,limit=180):
+        # Callback errors reach a durable probe journal.  Keep control
+        # characters/newlines from corrupting that record or its UI rendering.
+        text=''.join(char if char.isprintable() else ' ' for char in str(value))
+        text=' '.join(text.split())
+        return text if len(text)<=limit else text[:limit-1]+'…'
+    chain=[];seen=set();current=error
+    while current is not None and id(current) not in seen and len(chain)<3:
+        seen.add(id(current))
+        detail=message(current)
+        chain.append(type(current).__name__+(f': {detail}' if detail else ''))
+        current=current.__cause__ or current.__context__
+    return ('Embedded client UI action failed: '+' <- '.join(chain))[:640]
+
+
 def wait_for_calibration_idle(coordinator, cancel, closed, *, clock=time.monotonic):
     deadline = clock()+15
     while True:
@@ -66,9 +83,35 @@ def wait_for_merchant_surface(host, others, check, *, clock=time.monotonic, slee
         sleep(.025)
 
 
+def client_tab_character(notebook, frames, detail_tabs, client_tabs):
+    """Return the merchant whose native Client pane currently owns the view."""
+    selected=notebook.select()
+    for character in CHARACTERS:
+        if (selected==str(frames[character]) and
+                str(detail_tabs[character].select())==str(client_tabs[character])):
+            return character
+    return None
+
+
+def set_packed(widget, visible, **options):
+    """Show or hide packed chrome without disturbing unrelated geometry."""
+    if visible:
+        if not widget.winfo_manager():widget.pack(**options)
+    elif widget.winfo_manager():
+        widget.pack_forget()
+
+
+def refresh_permission_menu(menu, entries, state):
+    """Refresh the saved permission entries without relying on menu offsets."""
+    manage,refill=entries
+    menu.entryconfigure(manage,label=('Pause' if state['enabled'] else 'Enable')+' trading & repricing')
+    menu.entryconfigure(refill,label=('Pause' if state['refill']['enabled'] else 'Enable')+' automatic refill')
+
+
 class UnifiedUI:
     def __init__(self, app):
         self.app,self.root = app,app.root
+        app.stale_handoff_dispatch=self.dispatch
         host=getattr(app,'host',None)
         if host is not None and getattr(host,'mode',None)=='owned':
             # Preserve the saved standalone preference, but an owned game in
@@ -79,7 +122,7 @@ class UnifiedUI:
         self.grant_fence=GrantFence()
         self.input_revision_marker=(app.control.snapshot()['revision'],bool(app.mouse_priority.active()))
         self.ui_requests = queue.Queue()
-        self.hosts,self.client_panes,self.detail_tabs = {},{},{}
+        self.hosts,self.client_panes,self.client_tabs,self.detail_tabs = {},{},{},{}
         self.render_sizes,self.resize_jobs = {},{}
         self.visibility_job = None
         self.auto_embedding = False
@@ -92,6 +135,8 @@ class UnifiedUI:
         self.calibration_cancel = {}
         self.input_bookmarks = {}
         self.header_status = {}
+        self.merchant_chrome = {}
+        self.permission_menu_entries = {}
         self.background_probe = {}
         self.background_cancel = threading.Event()
         self.background_surfaces = {}
@@ -115,7 +160,7 @@ class UnifiedUI:
                                                      for label in self.header_labels])
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill='both',expand=True)
-        self.notebook.bind('<<NotebookTabChanged>>',lambda event:self.schedule_visibility())
+        self.notebook.bind('<<NotebookTabChanged>>',lambda event:self.on_tab_changed())
         self.root.bind('<Configure>',lambda event:self.schedule_visibility() if event.widget==self.root else None,add='+')
         self.frames=ProfileMap()
         for name in ('Overview','Farmer',*CHARACTERS):
@@ -129,14 +174,28 @@ class UnifiedUI:
         app.pane.lift()
         self.coordinator = InputCoordinator(self.safe_to_yield,app.mouse_priority.active)
         self.runtime = MerchantRuntime(app.catalog,self.coordinator)
+        self.runtime.configure_manual_farmer(lambda:getattr(app,'observer',None),app.control.snapshot)
         from conquest.merchants.delivery_status import enrich
         self.runtime.status_projection=lambda states:enrich(self,states)
         self.connect_threads={}
         from conquest.merchants.presentation import MerchantPresentation
         self.presentation = MerchantPresentation(self.runtime)
-        self.coordinator.owner_allowed = lambda character:is_farmer_owner(character) or self.runtime.input_allowed(character) or (
-            not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
-            and character in self.calibrating and not self.calibration_cancel[character].is_set())
+        def owner_allowed(character):
+            if is_farmer_owner(character):
+                return True
+            # A disabled merchant may perform only the single receipt-bound
+            # delivery accept probe.  It must not fall through the historical
+            # broad calibration exception when a delivery/refill fence exists.
+            if self.coordinator.purpose=='delivery_accept_probe':
+                from conquest.merchants.delivery_accept_probe import lease_authorized
+                return lease_authorized(self,character)
+            if self.coordinator.purpose=='delivery_probe_abort':
+                from conquest.merchants.delivery_abort_probe import lease_authorized
+                return lease_authorized(self,character)
+            return self.runtime.input_allowed(character) or (
+                not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
+                and character in self.calibrating and not self.calibration_cancel[character].is_set())
+        self.coordinator.owner_allowed = owner_allowed
         self.coordinator.on_acquire = self.prepare_input
         self.coordinator.on_release = self.release_input
         self.coordinator.fence=self.grant_fence
@@ -145,6 +204,7 @@ class UnifiedUI:
         self.bridge = MerchantBridge(self.dispatch)
         install(self.coordinator)
         self.rows,self.labels,self.tables = ProfileMap(),{},{}
+        self.manual_displayed,self.manual_texts,self.manual_buttons = ProfileMap(),ProfileMap(),ProfileMap()
         self.build_overview()
         for character in CHARACTERS:
             self.build_merchant(character)
@@ -203,12 +263,22 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action in ('delivery-stale-pre-admission-preview','delivery-stale-pre-admission-clear'):
+            from conquest.merchants.pre_admission_clear import dispatch
+            return dispatch(self,body)
+        if action in ('farmer-loop-acceptance', 'farmer-loop-acceptance-status','farmer-loop-acceptance-abort',
+                      'farmer-loop-acceptance-override-preview','farmer-loop-acceptance-override'):
+            from conquest.merchant_loop_acceptance import configure
+            return configure(self, body)
         if action=='notification-workers-restart' and set(body)=={'action','worker'}:
             from conquest.notification_workers import restart
             return restart(body['worker'])
         if action=='delivery-target' and set(body)=={'action','character'}:
             from conquest.merchants.farmer_trade import delivery_target_status
             return delivery_target_status(self,character_name(body['character']))
+        if action=='trade-qualification-prep-target' and set(body)=={'action','character'}:
+            from conquest.merchants.trade_qualification_prep import target_projection
+            return target_projection(self,character_name(body['character']))
         if action in ('recovery-status','recovery-recheck','recovery-override'):
             allowed={'action','character'} if action=='recovery-status' else {'action','character','incident_id'}
             if action=='recovery-override':
@@ -234,7 +304,7 @@ class UnifiedUI:
             if not 1 <= scale <= 1.15: raise ValueError('Height scale must be between 1 and 1.15')
             if self.app.control.snapshot()['enabled']: raise ValueError('Stop farming before resizing')
             from conquest.discord_notify import write_json
-            write_json('.runtime/farmer-view.json', {'height_scale':scale})
+            write_json(state_path('.runtime/farmer-view.json'), {'height_scale':scale})
             from conquest.farmer_view import apply
             self.ui_requests.put((lambda:apply(self.app),None,{}))
             return {'height_scale':scale,'queued':True}
@@ -244,7 +314,7 @@ class UnifiedUI:
         if action=='start-account-diagnostic' and set(body)=={'action','character'}:
             import subprocess,sys
             character=character_name(body['character'])
-            path=Path('.runtime')/f'account-diagnostic-{character.lower()}.json'
+            path=Path(state_path(f'.runtime/account-diagnostic-{character.lower()}.json'))
             if path.exists():
                 from conquest.worker import request as worker_request
                 result=worker_request(path,'health')
@@ -260,12 +330,63 @@ class UnifiedUI:
         if action=='cancel-empty-delivery' and set(body)=={'action','character'}:
             from conquest.merchants.empty_delivery_cancel import start
             return start(self,body['character'])
-        if action=='probe-delivery-request' and set(body)=={'action','character'}:
+        if action=='probe-delivery-request' and set(body)=={'action','character','uids'}:
             from conquest.merchants.delivery_probe import start
-            return start(self,body['character'])
+            return start(self,body['character'],uids=body['uids'])
+        if isinstance(action,str) and action.startswith('probe-delivery-abort-'):
+            from conquest.merchants.delivery_abort_probe import dispatch
+            return dispatch(self,body)
+        if action=='probe-delivery-recheck' and set(body)=={'action'}:
+            from conquest.merchants.delivery_probe import recheck
+            return recheck(self)
+        if action=='probe-delivery-promote':
+            if set(body)!={'action'}:raise ValueError('Unsupported delivery promotion arguments')
+            from conquest.merchants.delivery_promotion import promote_current
+            return promote_current(self)
+        if action=='probe-delivery-reconciliation-diagnostic':
+            if set(body)!={'action'}:raise ValueError('Unsupported reconciliation diagnostic arguments')
+            from conquest.merchants.delivery_probe import read_probe
+            from conquest.merchants.delivery_bridge import pair
+            from conquest.merchants.manual_runtime import probe_attempt_projection
+            with self.coordinator.lock:
+                last=probe_attempt_projection(getattr(self.runtime,'last_probe_reconciliation',None))
+                state=read_probe(read_only=True)
+                if not state:raise ValueError('No supervised delivery probe exists')
+                character=character_name(state['character'])
+                farmer,merchant=pair(self,character)
+                return {**self.runtime.inspect_probe_reconciliation(character,farmer,merchant),'last_attempt':last}
+        if action=='probe-delivery-reconcile-request':
+            if set(body)!={'action'}:raise ValueError('Unsupported request reconciliation arguments')
+            from conquest.merchants.delivery_request_reconciliation import reconcile_request
+            return reconcile_request(self)
+        if action=='probe-delivery-override':
+            allowed={'action','operator_confirmed','confirmation_reference','incident_digest'}
+            if 'operator' in body:allowed.add('operator')
+            if set(body)!=allowed:raise ValueError('Unsupported trade-probe override arguments')
+            from conquest.merchants.delivery_probe import operator_override
+            return operator_override(self,operator_confirmed=body['operator_confirmed'],
+                confirmation_reference=body['confirmation_reference'],
+                incident_digest=body['incident_digest'],operator=body.get('operator'))
         if action=='probe-delivery-stage' and set(body)=={'action','stage'}:
             from conquest.merchants.delivery_live import start
             return start(self,body['stage'])
+        if action=='prepare-trade-qualification' and set(body)=={'action','character','selected_uid'}:
+            from conquest.merchants.trade_qualification_prep import start
+            return start(self,body['character'],selected_uid=body['selected_uid'])
+        if action=='trade-qualification-prep-status' and set(body)=={'action'}:
+            from conquest.merchants.trade_qualification_prep import status
+            return status(self)
+        if action=='trade-qualification-prep-recheck' and set(body)=={'action'}:
+            from conquest.merchants.trade_qualification_prep import recheck
+            return recheck(self)
+        if action=='trade-qualification-prep-override':
+            allowed={'action','operator_confirmed','confirmation_reference','incident_digest'}
+            if 'operator' in body:allowed.add('operator')
+            if set(body)!=allowed:raise ValueError('Unsupported trade-prep override arguments')
+            from conquest.merchants.trade_qualification_prep import operator_override
+            return operator_override(self,operator_confirmed=body['operator_confirmed'],
+                confirmation_reference=body['confirmation_reference'],
+                incident_digest=body['incident_digest'],operator=body.get('operator'))
         if action=='reconcile-stall-inspection' and set(body)=={'action','character'}:
             character=character_name(body['character'])
             from conquest.merchants.stall_probe import reconcile_interrupted_probe
@@ -294,10 +415,11 @@ class UnifiedUI:
             for c in CHARACTERS:
                 if c not in self.runtime.observers:raise ValueError('Both merchants must be attached')
                 self.runtime.controllers[c].driver.memory.read()
-            repo=Path(__file__).resolve().parents[3]
+            from conquest.application_layout import RuntimeLayout
+            layout=RuntimeLayout.resolve();repo=layout.root
             self.readonly_diagnostics=subprocess.Popen(
-                [sys.executable,str(repo/'scripts/start_merchant_diagnostics.py')],
-                cwd=repo,creationflags=subprocess.CREATE_NO_WINDOW,
+                [str(layout.python()),str(layout.script('start_merchant_diagnostics.py'))],
+                cwd=repo,env=layout.environment(),creationflags=subprocess.CREATE_NO_WINDOW,
                 stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             return {'pid':self.readonly_diagnostics.pid,'read_only':True}
         if action=='peer-identity-evidence' and set(body)=={'action','character','peer'}:
@@ -365,14 +487,19 @@ class UnifiedUI:
                 if self.coordinator.owner:raise ValueError('Merchant still owns delivery input')
                 self.runtime.refill_window=key
                 self.runtime.delivery_window=None
+                from conquest.merchant_loop_acceptance import refill_source
                 for character in CHARACTERS:
                     if self.runtime.refill_enabled(character) and (
                             self.runtime.refills[character].due()
                             or self.runtime.journal.get(character,'new_stock',False)):
                         self.runtime.refills[character].start(visit_id=self.grant.get('visit_id'),
-                            town_visit_id=self.grant.get('town_visit_id'),operation_id=key)
+                            town_visit_id=self.grant.get('town_visit_id'),operation_id=key,
+                            source_delivery_operation_id=refill_source(key,character))
             finally:self.coordinator.lock.release()
             return {'refill':True,'expires_at':self.grant['expires_at']}
+        if action=='delivery-service-retry':
+            from conquest.merchants.service_retry import dispatch
+            return dispatch(self,body)
         if action in ('delivery-start','delivery-test','delivery-status','delivery-readiness','delivery-reconcile','delivery-cleanup','delivery-recheck','delivery-override'):
             from conquest.merchants.delivery_operation import dispatch
             return dispatch(self,body)
@@ -391,15 +518,34 @@ class UnifiedUI:
                 raise ValueError('Farmer focus request expired')
             if result.get('error'):raise ValueError(result['error'])
             return result
+        if action=='manual-status' and set(body) in ({'action'},{'action','character'}):
+            character=body.get('character')
+            if character is not None:character='Farmer' if character=='Farmer' else character_name(character)
+            return {'sessions':self.runtime.manual_status(character),
+                    'farmer':self.runtime.manual_farmer_status()}
+        if action in ('manual-approve','manual-reject'):
+            allowed={'action','binding'} | ({'operator'} if 'operator' in body else set())
+            if set(body)!=allowed:raise ValueError('Unsupported manual decision arguments')
+            binding=body.get('binding')
+            if not isinstance(binding,dict):raise ValueError('Exact displayed approval binding is required')
+            operation=self.runtime.approve_manual if action=='manual-approve' else self.runtime.reject_manual
+            return operation(binding,operator=body.get('operator','local UI'))
+        if action=='manual-override':
+            allowed={'action','session_id','confirmation_reference','operator','reason'}
+            if set(body)!=allowed:raise ValueError('Unsupported manual override arguments')
+            return self.runtime.override_manual(body['session_id'],
+                confirmation_reference=body['confirmation_reference'],operator=body['operator'],reason=body['reason'])
         if action=='status' and set(body)=={'action'}:
             return {'characters':self.runtime.status(),'input_owner':self.coordinator.owner,
                 'handoff_requested':self.runtime.handoff,'handoff_granted':bool(self.grant and self.safe_to_yield()),
                 'calibration':dict(self.calibration_results),'layout':dict(self.layout_status),
                 'ui_health':{**self.ui_health,'tick_age_ms':round((time.monotonic()-self.last_ui_tick)*1000)},
                 'sales_reporting':self.runtime.sales_worker.status(),
+                'manual_sessions':self.runtime.manual_status(),
+                'manual_farmer':self.runtime.manual_farmer_status(),
                 'header':dict(self.header_status),
                 'background_probe':dict(self.background_probe),
-                'merchant_ui_version':29}
+                'merchant_ui_version':30}
         if action=='background-probe' and set(body)=={'action','character','mode'}:
             from conquest.merchants.background_probe import start_probe
             character=character_name(body['character'])
@@ -569,6 +715,19 @@ class UnifiedUI:
             text = tk.StringVar(value='Connecting…')
             self.rows[name] = text
             ttk.Label(box,textvariable=text,wraplength=900).pack(anchor='w')
+            manual=tk.StringVar(value='Checking manual visitor status…')
+            self.manual_texts[name]=manual
+            ttk.Separator(box).pack(fill='x',pady=8)
+            ttk.Label(box,textvariable=manual,wraplength=900,justify='left').pack(anchor='w',fill='x')
+            actions=ttk.Frame(box);actions.pack(fill='x',pady=(6,0))
+            approve=ttk.Button(actions,text='Approve exact visitor',state='disabled',
+                command=lambda target=name:self.approve_manual_displayed(target))
+            reject=ttk.Button(actions,text='Reject request',state='disabled',
+                command=lambda target=name:self.reject_manual_displayed(target))
+            override=ttk.Button(actions,text='Resolve attention hold…',state='disabled',
+                command=lambda target=name:self.override_manual_displayed(target))
+            approve.pack(side='left');reject.pack(side='left',padx=6);override.pack(side='left')
+            self.manual_buttons[name]={'approve':approve,'reject':reject,'override':override}
         row = ttk.Frame(frame);row.pack(fill='x',padx=20,pady=10)
         ttk.Button(row,text='Update all shops now',command=self.list_once).pack(side='left')
         ttk.Button(row,text='How shop controls work',command=self.shop_help).pack(side='left',padx=8)
@@ -578,6 +737,82 @@ class UnifiedUI:
         ttk.Label(frame,textvariable=self.discord_note,wraplength=900).pack(anchor='w',padx=20,pady=6)
         self.input_note = tk.StringVar()
         ttk.Label(frame,textvariable=self.input_note,wraplength=900).pack(anchor='w',padx=20,pady=10)
+
+    def refresh_manual_operator(self, statuses, control, *, now=None):
+        """Refresh views atomically; button callbacks retain only this displayed JSON."""
+        from conquest.merchants.manual_operator import displayed,status_text,action_state
+        now=time.time() if now is None else now
+        farmer=self.runtime.manual_farmer_status()
+        for target in ('Farmer',*CHARACTERS):
+            row=farmer.get('session') if target=='Farmer' else self.runtime.manual_status(target)
+            shown=displayed(row)
+            self.manual_displayed[target]=shown
+            intent=(control if target=='Farmer' else {
+                'enabled':bool(statuses.get(target,{}).get('enabled')),
+                'refill_enabled':bool(statuses.get(target,{}).get('refill',{}).get('enabled'))})
+            self.manual_texts[target].set(status_text(target,shown,farmer_status=farmer,
+                                                       intent=intent,now=now))
+            state=action_state(shown,now=now)
+            for action,button in self.manual_buttons[target].items():
+                button.configure(state='normal' if state[action] else 'disabled')
+
+    def _displayed_manual(self, target, *, binding=False):
+        from conquest.merchants.manual_operator import displayed
+        row=displayed(self.manual_displayed.get(target))
+        if row is None:raise ValueError('The displayed manual session is no longer available')
+        if binding and not isinstance(row.get('approval_binding'),dict):
+            raise ValueError('The displayed session has no exact approval binding')
+        return row
+
+    def approve_manual_displayed(self, target):
+        from conquest.merchants.manual_operator import exact_binding_text,visitor_text,decision_seconds
+        try:row=self._displayed_manual(target,binding=True)
+        except ValueError as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+        seconds=decision_seconds(row)
+        prompt=(f"Target: {target}\nVisitor: {visitor_text(row.get('visitor'))}\n"
+                f"Decision time remaining: {seconds if seconds is not None else '?'} second(s)\n\n"
+                "Approve this exact request? Approval only saves permission and activates the memory-observed "
+                "manual interval. It sends no gameplay input and does not enable farming, trading or refill.\n\n"
+                "Exact approval binding:\n"+exact_binding_text(row))
+        if not messagebox.askyesno('Approve exact manual visitor',prompt,parent=self.root):return None
+        try:return self.runtime.approve_manual(row['approval_binding'],operator='local UI')
+        except (ValueError,OSError) as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+
+    def reject_manual_displayed(self, target):
+        from conquest.merchants.manual_operator import exact_binding_text,visitor_text
+        try:row=self._displayed_manual(target,binding=True)
+        except ValueError as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+        prompt=(f"Target: {target}\nVisitor: {visitor_text(row.get('visitor'))}\n\n"
+                "Reject this exact request? This persists decline intent only; any native decline remains at the "
+                "independently qualified input boundary.\n\nExact approval binding:\n"+exact_binding_text(row))
+        if not messagebox.askyesno('Reject exact manual request',prompt,parent=self.root):return None
+        try:return self.runtime.reject_manual(row['approval_binding'],operator='local UI')
+        except (ValueError,OSError) as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+
+    def override_manual_displayed(self, target):
+        from tkinter import simpledialog
+        try:row=self._displayed_manual(target)
+        except ValueError as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
+        if row.get('phase')!='needs_attention' and not row.get('rebaseline'):
+            messagebox.showerror('Manual visitor','Only a displayed attention/rebaseline hold can be overridden.',parent=self.root);return None
+        reason=simpledialog.askstring('Manual visitor hold','Reason for the explicit disposition/retry:',parent=self.root)
+        if not reason:return None
+        reference=simpledialog.askstring('Manual visitor hold',
+            'Enter a durable confirmation reference for this exact displayed session:\n'+str(row.get('id')),parent=self.root)
+        if not reference:return None
+        if not messagebox.askyesno('Confirm manual visitor disposition',
+                f"Target: {target}\nExact session: {row.get('id')}\nReason: {reason}\n\n"
+                "This does not prove a transfer or enable automation. Fresh stable memory is still required.",parent=self.root):
+            return None
+        try:return self.runtime.override_manual(row['id'],confirmation_reference=reference,
+                                                operator='local UI',reason=reason)
+        except (ValueError,OSError) as error:
+            messagebox.showerror('Manual visitor',str(error),parent=self.root);return None
 
     def configure_shops(self):
         from tkinter import simpledialog,messagebox
@@ -618,9 +853,15 @@ class UnifiedUI:
         self.permission_menus[character]=menu
         menu.add_command(label='How shop controls work',command=self.shop_help)
         menu.add_command(label='Full status details',command=lambda:self.show_merchant_details(character))
+        menu.add_command(label='Recovery status',command=lambda:self.show_recovery_status(character))
+        menu.add_command(label='Recheck recovery',command=lambda:self.recheck_merchant_recovery(character))
+        menu.add_command(label='Override recovery & resume',command=lambda:self.override_merchant_recovery(character))
         menu.add_separator()
         menu.add_command(label='Toggle trading & repricing permission',command=lambda:self.toggle_manage(character))
+        manage_entry=menu.index('end')
         menu.add_command(label='Toggle automatic refill permission',command=lambda:self.toggle_refill(character))
+        refill_entry=menu.index('end')
+        self.permission_menu_entries[character]=(manage_entry,refill_entry)
         menu.add_separator()
         from conquest.portable_ui import copy_diagnostics
         menu.add_command(label='Copy attachment diagnostics',command=lambda:copy_diagnostics(self,character))
@@ -643,13 +884,15 @@ class UnifiedUI:
         ttk.Label(recovery,textvariable=recovery_text,width=55).pack(side='left',fill='x',expand=True)
         ttk.Button(recovery,text='Recheck',command=lambda c=character:self.recheck_merchant_recovery(c)).pack(side='left',padx=(6,0))
         ttk.Button(recovery,text='Override & resume',command=lambda c=character:self.override_merchant_recovery(c)).pack(side='left',padx=(6,0))
-        ttk.Label(frame,text='Pause merchant stops both activities without closing the game. Settings keeps separate permissions.',
-                  wraplength=950).pack(anchor='w',padx=12,pady=(3,0))
+        help_text=ttk.Label(frame,text='Pause merchant stops both activities without closing the game. Settings keeps separate permissions.',
+                  wraplength=950)
+        help_text.pack(anchor='w',padx=12,pady=(3,0))
         tabs = ttk.Notebook(frame);tabs.pack(fill='both',expand=True,padx=12,pady=12)
         self.detail_tabs[character] = tabs
-        tabs.bind('<<NotebookTabChanged>>',lambda event:self.schedule_visibility())
+        tabs.bind('<<NotebookTabChanged>>',lambda event:self.on_tab_changed())
         client = ttk.Frame(tabs)
         tabs.add(client,text='Client')
+        self.client_tabs[character] = client
         pane = ttk.Frame(client,width=1,height=1)
         # Expand with the viewport; a fixed requested size clipped in-game windows.
         pane.pack(fill='both',expand=True)
@@ -680,6 +923,10 @@ class UnifiedUI:
                 tree.heading(col,text=col);tree.column(col,width=130 if col!='Details' and col!='Reason' else 440)
             tables[label] = tree
         self.tables[character] = tables
+        self.merchant_chrome[character] = (
+            (status,{'fill':'x','padx':12,'pady':(8,4),'before':controls}),
+            (recovery,{'fill':'x','padx':12,'pady':(3,0),'before':tabs}),
+            (help_text,{'anchor':'w','padx':12,'pady':(3,0),'before':tabs}))
 
     # ------------------------------------------------------------------
     # Merchant recovery holds
@@ -988,6 +1235,10 @@ class UnifiedUI:
             'Each item has a reason in the Waiting items tab. Unknown prices are never guessed.\n\n'
             'Stop all (including farmer)\nStops farming, merchant actions and auto-refill.',parent=self.root)
 
+    def show_recovery_status(self, character):
+        text=self.recovery_texts.get(character)
+        messagebox.showinfo(character+' recovery',text.get() if text else 'Recovery status is unavailable.',parent=self.root)
+
     def toggle_merchant(self, character):
         from conquest.merchants.simple_controls import toggle
         toggle(self,character)
@@ -1023,6 +1274,28 @@ class UnifiedUI:
             self.root.after_cancel(old)
         self.resize_jobs[character] = self.root.after(150,lambda:self.finish_resize(character))
 
+    def on_tab_changed(self):
+        # Apply the compact geometry synchronously: an embed can validate its
+        # pane before Tk gets a later idle visibility refresh.
+        if len(self.client_tabs)==len(CHARACTERS):self.apply_client_compact_layout()
+        self.schedule_visibility()
+
+    def apply_client_compact_layout(self):
+        """Give the selected native Client pane the vertical space it needs.
+
+        The Client tab retains its pause/stop/settings controls and all detail
+        tabs.  Status and recovery text remain reachable from Settings &
+        details, and reappear immediately outside Client.
+        """
+        # Tab events may be delivered while the notebook is still being built.
+        if len(self.client_tabs)!=len(CHARACTERS):return None
+        character=client_tab_character(self.notebook,self.frames,self.detail_tabs,self.client_tabs)
+        set_packed(self.header,character is None,fill='x',before=self.notebook)
+        for name,widgets in self.merchant_chrome.items():
+            for widget,options in widgets:
+                set_packed(widget,name!=character,**options)
+        return character
+
     def schedule_visibility(self):
         if not self.closed and self.visibility_job is None:
             self.visibility_job = self.root.after_idle(self.refresh_visibility)
@@ -1030,6 +1303,8 @@ class UnifiedUI:
     def refresh_visibility(self):
         self.visibility_job = None
         if not self.closed:
+            layout=getattr(self,'apply_client_compact_layout',None)
+            if layout:layout()
             for character in tuple(self.hosts):
                 self.finish_resize(character)
             self.auto_show_selected()
@@ -1057,6 +1332,13 @@ class UnifiedUI:
     def finish_resize(self, character):
         self.resize_jobs.pop(character,None)
         if self.closed or probe_busy(self):
+            return
+        # A delayed Tk layout event is not allowed to alter merchant permission
+        # while a delivery or another native input handoff owns the surface.
+        # Explicit input preparation still validates geometry with automatic=True;
+        # this merely defers the stale resize callback until that handoff ends.
+        if (getattr(getattr(self,'coordinator',None),'owner',None)
+                or getattr(self.runtime,'delivery_window',None)):
             return
         try:
             host=self.hosts.get(character)
@@ -1145,6 +1427,8 @@ class UnifiedUI:
             host.detach()
         self.notebook.select(self.frames[character])
         self.detail_tabs[character].select(0)
+        layout=getattr(self,'apply_client_compact_layout',None)
+        if layout:layout()
         self.root.update_idletasks()
         pane = self.client_panes[character]
         from conquest.character_context import registry
@@ -1189,6 +1473,8 @@ class UnifiedUI:
         self.input_bookmarks[character] = bookmark
         self.notebook.select(self.frames[character])
         self.detail_tabs[character].select(0)
+        layout=getattr(self,'apply_client_compact_layout',None)
+        if layout:layout()
         self.root.update_idletasks()
         # Switching Tk tabs does not synchronously hide the owned top-level
         # game. Explicitly hide siblings before showing the next input owner.
@@ -1221,7 +1507,20 @@ class UnifiedUI:
                         raise ValueError('Activate the selected login client before continuing')
                 return
         done,result = threading.Event(),{}
-        callback=lambda:self.show_merchant(character)
+        # A staged acceptance has no safe fallback to the previously selected
+        # pane.  Select the named observer's owned host on the Tk thread,
+        # creating it only when none is attached, then wait for its native
+        # surface below.  This does not inspect a screen or send game input.
+        if self.coordinator.purpose=='delivery_probe_abort':
+            capability=self.coordinator._probe_abort_capability
+            def callback():
+                from conquest.merchants.delivery_abort_surface import prepare
+                result['profile']=prepare(self,character,capability)
+        elif self.coordinator.purpose=='delivery_accept_probe':
+            def callback():
+                result['profile']=self.prepare_delivery_accept_surface(character)
+        else:
+            callback=lambda:self.show_merchant(character)
         fence=getattr(self,'grant_fence',None)
         if fence:callback=fence.guard_callback(fence.capture(),callback)
         self.ui_requests.put((callback,done,result))
@@ -1231,9 +1530,168 @@ class UnifiedUI:
             raise ValueError('Embedded merchant pane did not become available')
         if result.get('error'):
             raise ValueError(result['error'])
-        host=self.hosts[character]
-        others=[h for c,h in self.hosts.items() if c!=character]
+        profile=result.get('profile',character)
+        host=self.hosts[profile]
+        others=[other for _key,other in self.hosts.items() if other is not host]
         wait_for_merchant_surface(host,others,self.coordinator.check)
+
+    def prepare_delivery_accept_surface(self, character):
+        """Show the exact observer's owned host for one acceptance probe."""
+        observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character)
+        expected=(target.hwnd,identity,profile_id)
+        if not host or not host.saved:
+            self.embed_delivery_accept_merchant(character,expected)
+            # The attach path may not authorize presentation after a journal,
+            # observer, or HWND replacement.
+            observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
+        self.show_delivery_accept_merchant(character,expected)
+        # Do not return control to the worker after a same-named replacement.
+        return self.delivery_accept_binding(character,expected)[4]
+
+    def delivery_accept_binding(self, character, expected=None):
+        """Read-only journal/observer/HWND binding for a staged accept."""
+        # Read the durable receipt on the UI thread before touching an owned
+        # window.  A stale/partial/replaced receipt cannot authorize focus,
+        # embedding, or any eventual click.
+        from conquest.merchants.delivery_probe import read_probe
+        state=read_probe()
+        if (not isinstance(state,dict) or state.get('phase')!='request_verified'
+                or state.get('character')!=character):
+            raise ValueError('Trade acceptance probe is no longer request-verified; no client action sent')
+        intent=state.get('intent')
+        merchant=intent.get('merchant') if isinstance(intent,dict) else None
+        if (not isinstance(merchant,dict) or merchant.get('character')!=character
+                or merchant.get('server')!='America' or not isinstance(merchant.get('identity'),dict)):
+            raise ValueError('Trade acceptance merchant binding is unreadable; no client action sent')
+        from conquest.character_context import registry,ProfileName
+        profiles=registry();profile_id=state.get('target_profile_id')
+        if not isinstance(profile_id,str) or not profile_id:
+            raise ValueError('Trade acceptance merchant profile binding is unreadable; no client action sent')
+        if profiles:
+            try:
+                resolved=profiles.resolve(profile_id,role='Merchant',server=merchant['server'])
+            except ValueError as error:
+                raise ValueError('Trade acceptance merchant profile is unavailable; no client action sent') from error
+            # The serialized ID is the authority.  ProfileRegistry.resolve also
+            # accepts names for normal UI entry, so reject that fallback here.
+            if (resolved.id!=profile_id or not resolved.local_enabled
+                    or resolved.name!=character or resolved.name!=merchant['character']
+                    or resolved.server!=merchant['server']):
+                raise ValueError('Trade acceptance merchant profile changed; no client action sent')
+            profile=ProfileName(resolved.name,resolved.id)
+        else:
+            if profile_id!=character:
+                raise ValueError('Trade acceptance merchant profile changed; no client action sent')
+            profile=character
+        receipt_identity=merchant['identity']
+        if (type(receipt_identity.get('pid')) is not int or receipt_identity['pid']<=0
+                or type(receipt_identity.get('creation_time_100ns')) is not int
+                or receipt_identity['creation_time_100ns']<=0
+                or not isinstance(receipt_identity.get('path'),str) or not receipt_identity['path']):
+            raise ValueError('Trade acceptance merchant identity is incomplete; no client action sent')
+        observer=self.runtime.observers.get(profile)
+        if (not observer or observer.adapter.identity!=receipt_identity):
+            raise ValueError('Waiting for the exact merchant process before trade acceptance')
+        observer.adapter.assert_identity()
+        target=observer.operations.target
+        if type(getattr(target,'hwnd',None)) is not int or target.hwnd<=0:
+            raise ValueError('Trade acceptance merchant window is unavailable; no client action sent')
+        if expected is not None and (target.hwnd,receipt_identity,profile_id)!=expected:
+            raise ValueError('Trade acceptance merchant mapping changed; no client action sent')
+        host=self.hosts.get(profile)
+        # HostApi.assert_owner proves that the current observer's target HWND
+        # still belongs to the full journaled process identity.  Use the
+        # existing host API when possible; it avoids creating any window or
+        # changing presentation state during this read-only binding check.
+        if host:
+            host.api.assert_owner(target.hwnd,receipt_identity)
+        else:
+            from conquest.window_host import HostApi
+            HostApi().assert_owner(target.hwnd,receipt_identity)
+        if host and host.saved:
+            # Never detach, reconnect, or guess at a replacement during a
+            # delivery.  A saved host must still be the observer's exact HWND
+            # and complete process identity before it may be shown.
+            host.api.assert_owner(host.saved.hwnd,host.saved.identity)
+            if (host.saved.hwnd!=target.hwnd or host.saved.identity!=receipt_identity):
+                raise ValueError('Selected merchant host changed; re-embed was not attempted')
+            if host.mode!='owned':
+                raise ValueError('Selected merchant is not an owned host; no client action sent')
+        return observer,target,host,receipt_identity,profile,profile_id
+
+    def embed_delivery_accept_merchant(self, character, expected):
+        """Attach only ``expected``; generic merchant fallback is forbidden."""
+        if probe_busy(self):
+            raise ValueError('Background diagnostic owns the client; no client action sent')
+        observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
+        if host and host.saved:
+            return
+        if not self.safe_to_yield():
+            raise ValueError('Farmer has not granted a safe handoff')
+        from conquest.window_host import EmbeddedWindow
+        host=host or EmbeddedWindow(mode='owned')
+        if not host.mode=='owned':
+            raise ValueError('Selected merchant is not an owned host; no client action sent')
+        self.notebook.select(self.frames[profile])
+        self.detail_tabs[profile].select(0)
+        layout=getattr(self,'apply_client_compact_layout',None)
+        if layout:layout()
+        self.root.update_idletasks()
+        pane=self.client_panes[profile]
+        from conquest.character_context import registry
+        if registry():
+            from conquest.client_attachment import require_viewport
+            require_viewport(pane.winfo_width(),pane.winfo_height())
+        # Re-read just before the native operation; never replace a stale host
+        # with a newly observed same-named process.
+        observer,target,current,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
+        if current is not None and current is not host:
+            raise ValueError('Selected merchant host changed; no client action sent')
+        self.hosts[profile]=host
+        host.attach(expected[0],expected[1],pane.winfo_id(),pane.winfo_width(),pane.winfo_height())
+        self.delivery_accept_binding(character,expected)
+
+    def show_delivery_accept_merchant(self, character, expected):
+        """Present only a receipt-bound owned host, without generic lookup."""
+        if self.closed or self.app.closing:
+            raise ValueError('App is closing')
+        observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
+        if not host or not host.saved:
+            raise ValueError('Selected merchant host is unavailable; no client action sent')
+        foreground=host.api.gui.GetForegroundWindow()
+        bookmark={'tab':self.notebook.select(),'hwnd':foreground,'identity':None}
+        if foreground:
+            try:
+                import ctypes
+                from ctypes import wintypes
+                pid=wintypes.DWORD()
+                host.api.backend.window_pid(foreground,ctypes.byref(pid))
+                bookmark['identity']=host.api.backend.identity(pid.value)
+            except (OSError,ValueError):
+                pass
+        self.input_bookmarks[profile]=bookmark
+        self.notebook.select(self.frames[profile])
+        self.detail_tabs[profile].select(0)
+        layout=getattr(self,'apply_client_compact_layout',None)
+        if layout:layout()
+        self.root.update_idletasks()
+        # The layout callback can reconnect a merchant.  Rebind before hiding
+        # siblings or making the receipt-bound host visible.  Viewport
+        # rejection is also pre-presentation: it must not hide another client.
+        observer,target,host,identity,profile,profile_id=self.delivery_accept_binding(character,expected)
+        pane=self.client_panes[profile]
+        from conquest.character_context import registry
+        if registry():
+            from conquest.client_attachment import require_viewport
+            require_viewport(pane.winfo_width(),pane.winfo_height())
+        self.delivery_accept_binding(character,expected)
+        for _key,other_host in self.hosts.items():
+            if other_host is not host and other_host.saved:
+                other_host.api.assert_owner(other_host.saved.hwnd,other_host.saved.identity)
+                other_host.api.show_async(other_host.saved.hwnd,0)
+        self.delivery_accept_binding(character,expected)
+        host.resize(pane.winfo_width(),pane.winfo_height())
+        self.delivery_accept_binding(character,expected)
 
     def release_input(self, character):
         if not is_farmer_owner(character):
@@ -1285,7 +1743,10 @@ class UnifiedUI:
                 if not result.get('expired'):
                     callback()
             except Exception as error:
-                result['error'] = str(error) if isinstance(error,(ValueError,OSError)) else 'Embedded client UI action failed'
+                # The worker journal needs the actual callback failure to
+                # distinguish an unavailable layout from a failed UI action.
+                # Keep it concise and never expose traceback locals.
+                result['error'] = callback_failure(error)
             finally:
                 if done:
                     done.set()
@@ -1441,6 +1902,8 @@ class UnifiedUI:
             statuses = data['characters']
             self.update_header(statuses)
             control = self.app.control.snapshot()
+            if hasattr(self,'manual_texts'):
+                self.refresh_manual_operator(statuses,control)
             self.rows['Farmer'].set(f'{self.app.state_text.get()} · {self.app.activity_text.get()}\n{self.app.stats_text.get()}')
             self.input_note.set(f'Input owner: {self.coordinator.owner or "none"}. '
                 + ('Farmer handoff available.' if self.safe_to_yield() else 'Waiting for the farmer to stop or explicitly grant a safe handoff.'))
@@ -1460,10 +1923,9 @@ class UnifiedUI:
                     state='disabled' if active_batch and state['enabled'] else 'normal')
                 self.merchant_buttons[character].configure(text='Pause merchant' if
                     state['enabled'] or state['refill']['enabled'] else 'Resume merchant')
-                if character in getattr(self,'permission_menus',{}):
-                    menu=self.permission_menus[character]
-                    menu.entryconfigure(3,label=('Pause' if state['enabled'] else 'Enable')+' trading & repricing')
-                    menu.entryconfigure(4,label=('Pause' if state['refill']['enabled'] else 'Enable')+' automatic refill')
+                entries=getattr(self,'permission_menu_entries',{}).get(character)
+                if entries and character in getattr(self,'permission_menus',{}):
+                    refresh_permission_menu(self.permission_menus[character],entries,state)
                 from conquest.merchants.simple_controls import summary
                 note=summary(state,now=time.time(),global_stopped=self.coordinator.stopped)
                 recovery_reader=getattr(self,'_merchant_recovery_incidents',None)

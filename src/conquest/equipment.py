@@ -149,13 +149,10 @@ class EquipmentReview:
             shop=loop.town('shop',vendor_type=vendor)
             if 'products' not in shop or 'level' not in state or 'equipment' not in state:
                 raise ValueError('Equipment review memory snapshot unavailable')
-            catalog=Path('profiles/archer-shop-catalog.json')
-            saved=read_json(catalog,{})
             map_id=state.get('map_id',getattr(getattr(loop,'terrain',None),'map_id',None))
             if map_id is None:raise ValueError('Shop city is unknown')
-            saved.setdefault('cities',{}).setdefault(str(map_id),{})[str(vendor)]={
-                'observed_at':time.time(),'products':shop['products']}
-            write_json(catalog,saved)
+            from conquest.archer_shop_catalog import record
+            record(map_id,vendor,shop['products'],observed_at=time.time())
             if vendor==5:
                 from conquest.arrow_upgrades import review_arrows
                 state=review_arrows(loop,shop['products'],state,bag['silver'])

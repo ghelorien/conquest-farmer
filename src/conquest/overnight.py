@@ -111,6 +111,16 @@ class OvernightLoop:
                 time.sleep(.025)
         if event == 'heartbeat':
             return
+        if event == 'level_route_pending':
+            # Keep status fresh, but an unchanged unavailable route is not a
+            # new incident every five-second level check.
+            fingerprint=json.dumps({'route':getattr(getattr(self,'route',None),'id',None),
+                                    'phase':self.phase,**fields},sort_keys=True)
+            now=time.monotonic()
+            previous=getattr(self,'pending_route_event',None)
+            if previous and previous[0]==fingerprint and 0<=now-previous[1]<60:
+                return
+            self.pending_route_event=(fingerprint,now)
         with (self.output/'events.jsonl').open('a',encoding='utf-8') as out:
             out.write(json.dumps({'time':time.time(),'event':event,'phase':self.phase,**fields})+'\n')
 
@@ -235,7 +245,7 @@ class OvernightLoop:
                     raise ValueError('Previous death return did not release the route')
                 time.sleep(.1)
 
-    def travel(self, destination, *, activity=None, vendor_type=None, service_name=None, arrival_radius=0):
+    def travel(self, destination, *, activity=None, vendor_type=None, service_name=None, arrival_radius=0, avoid=()):
         from conquest.runback_monitor import RunbackMonitor
         life=self.living()['embedded_controls']['life']
         self.runback_watch=watch=RunbackMonitor(destination,life.get('map_id',self.terrain.map_id),'town',
@@ -250,13 +260,13 @@ class OvernightLoop:
         outcome='interrupted'
         try:
             result=self._travel(destination,activity=activity,vendor_type=vendor_type,service_name=service_name,
-                                arrival_radius=arrival_radius)
+                                arrival_radius=arrival_radius,avoid=avoid)
             outcome='arrived';return result
         finally:
             if stepper is not None:stepper.on_life=previous
             watch.finish(outcome);self.runback_watch=None
 
-    def _travel(self, destination, *, activity=None, vendor_type=None, service_name=None, arrival_radius=0):
+    def _travel(self, destination, *, activity=None, vendor_type=None, service_name=None, arrival_radius=0, avoid=()):
         if type(arrival_radius) is not int or not 0<=arrival_radius<=2:
             raise ValueError('Intermediate arrival radius must be zero to two tiles')
         from conquest.city_travel import service_role
@@ -267,6 +277,10 @@ class OvernightLoop:
                    4:'Armorer to check armor and headgear',
                    1:'Shopkeeper to check ring, boots and necklace'}.get(vendor_role,str(destination))
         self.record('travel',destination=destination,activity=activity or 'Heading to '+purpose)
+        # Read-only memory occupancy is a hard constraint for this trip.  Keep
+        # it distinct from transient failed movement edges, which may be reset
+        # after verified progress.
+        occupied = set(map(tuple,avoid))
         avoided = set()
         recovery_run_until=0
         deadline = time.monotonic()+90
@@ -288,6 +302,7 @@ class OvernightLoop:
             h = self.living()
             life = h['embedded_controls']['life']
             source = tuple(life['position'])
+            occupied.discard(source)
             from conquest.viewport import scene_bounds,clear_scene
             viewport=tuple(h.get('window',{}).get('client_size',(1036,793)))
             bounds=scene_bounds(viewport)
@@ -332,14 +347,15 @@ class OvernightLoop:
                 self.care.check(h)
                 try:
                     planner=getattr(self.terrain,'travel_path',self.terrain.straight_path)
-                    if cached_path and cached_avoid==frozenset(avoided) and source in cached_path:
+                    blocked=occupied|avoided
+                    if cached_path and cached_avoid==frozenset(blocked) and source in cached_path:
                         path=cached_path[cached_path.index(source):]
-                    else:path = planner(source,tuple(destination),avoid=avoided)
-                    cached_path=path;cached_avoid=frozenset(avoided)
+                    else:path = planner(source,tuple(destination),avoid=blocked)
+                    cached_path=path;cached_avoid=frozenset(blocked)
                 except TravelStalled:
                     raise
                 except ValueError:
-                    if not avoided:
+                    if not avoided and not occupied:
                         from conquest.town_corner import recover_corner
                         if recover_corner(self,destination):
                             cached_path=None;cached_avoid=None
@@ -347,9 +363,9 @@ class OvernightLoop:
                         raise
                     # Temporary failed steps can cut the only town corridor.
                     # Revalidate the actual terrain and retry with short runs.
-                    path = planner(source,tuple(destination))
+                    path = planner(source,tuple(destination),avoid=occupied)
                     avoided.clear()
-                    cached_path=path;cached_avoid=frozenset()
+                    cached_path=path;cached_avoid=frozenset(occupied)
                     recovery_run_until=time.monotonic()+6
                     self.record('town_path_retry',activity='Retrying the town corridor with running steps')
                 remaining=sum(max(abs(a[0]-b[0]),abs(a[1]-b[1])) for a,b in zip(path,path[1:]))
@@ -363,12 +379,17 @@ class OvernightLoop:
                     continue
                 from conquest.navigation import travel_waypoint
                 step_limit=4 if blocked_jump_origin is not None or time.monotonic()<recovery_run_until else 12
-                target = (travel_waypoint(self.terrain,path,step_limit,avoid=avoided,viewport=viewport)
+                blocked=occupied|avoided
+                target = (travel_waypoint(self.terrain,path,step_limit,avoid=blocked,viewport=viewport)
                           if hasattr(self.terrain,'travel_path') else native_waypoint(path,step_limit,viewport=viewport))
                 from types import SimpleNamespace
                 from conquest.scene_input import memory_player_anchor,visible_route_delta,clear_route_point
                 anchor=memory_player_anchor(SimpleNamespace(adapter=self.care.session),SimpleNamespace(**life))
-                if self.terrain.map_id in (1036,1011) and market_failures>=2 and len(market_landings)<3:
+                # Generic Market recovery has no occupancy input.  Retain a
+                # fresh merchant probe's hard exclusions instead of bypassing
+                # them with an alternate landing guessed from terrain alone.
+                if (self.terrain.map_id in (1036,1011) and not occupied
+                        and market_failures>=2 and len(market_landings)<3):
                     from conquest.market_navigation import recovery_landing
                     alternate=recovery_landing(self.terrain,source,tuple(destination),anchor,
                                                failed=market_failed,used=market_landings,viewport=viewport)
@@ -385,7 +406,7 @@ class OvernightLoop:
                 if getattr(self,'runback_watch',None) and self.runback_watch.urgent:
                     from conquest.runback_monitor import escape_step
                     escape=escape_step(self.terrain,source,tuple(destination),anchor,
-                                       h['embedded_controls'].get('monsters',[]),avoid=avoided,viewport=viewport)
+                                       h['embedded_controls'].get('monsters',[]),avoid=blocked,viewport=viewport)
                     if escape is not None:
                         target=escape;self.runback_watch.recovery()
                         self.record('runback_evading',activity='Under attack during runback; healing and moving away')
@@ -410,7 +431,7 @@ class OvernightLoop:
                     else:
                         target=(source[0]+shorter[0],source[1]+shorter[1])
                 from conquest.navigation import clear_segment
-                if hasattr(self.terrain,'travel_path') and not clear_segment(self.terrain,source,target,avoid=avoided):
+                if hasattr(self.terrain,'travel_path') and not clear_segment(self.terrain,source,target,avoid=blocked):
                     avoided.add(target);continue
                 result = self.stepper.step_to(target,expected_position=source)
             except TravelStateChanged:
@@ -457,6 +478,9 @@ class OvernightLoop:
                 avoided.add(tuple(path[1]))
                 if len(avoided) > 8:
                     raise ValueError('Town route remains obstructed')
+        if service_deadline is not None and time.time()>=service_deadline:
+            raise TravelStalled('Market merchant-service deadline expired; defer further input',
+                                code='service_deadline')
         raise ValueError('Town travel has made no position progress for 90 seconds')
 
     def sell_junk(self, vendor_type):
@@ -723,10 +747,16 @@ class OvernightLoop:
                 raise OvernightStopped('Farming was switched Off')
             if data['control'].get('execution_state')=='runner_stopped':
                 note=data['control']['note']
-                reason=note.removeprefix('Farm runner stopped: ')
-                if reason=='valuable_banking_required':
+                if note.removeprefix('Farm runner stopped: ')=='valuable_banking_required':
                     self.stop_farm()
                     return 'urgent_banking'
+            from conquest.merchant_loop_acceptance import observe_hunting
+            if observe_hunting(self,h):
+                self.stop_farm()
+                return 'merchant_acceptance'
+            if data['control'].get('execution_state')=='runner_stopped':
+                note=data['control']['note']
+                reason=note.removeprefix('Farm runner stopped: ')
                 if reason=='map_changed':
                     self.stop_farm()
                     self.return_to_route_map()
@@ -754,6 +784,7 @@ class OvernightLoop:
                         elapsed_seconds=completed['elapsed_seconds'],
                         verified_resume_kill=completed['first_verified_resume_kill'],
                         activity='Required town visit complete; resumed hunting is verified')
+                    observe_hunting(self,h)
             left,top,right,bottom = self.route.hunting_boundary
             margin = self.route.patrol_search.expansion_tiles*self.route.patrol_search.maximum_expansions
             if left-margin <= life['position'][0] <= right+margin and top-margin <= life['position'][1] <= bottom+margin:
@@ -902,8 +933,12 @@ class OvernightLoop:
 
     def _run_route(self):
         from conquest.merchants.delivery_operation import guard_protected_assets
-        guard_protected_assets()
         from conquest.merchants import delivery_journey
+        # A journal-matching scroll operation gets one read-only reconciliation
+        # before generic asset guards. No farming stop, focus or movement input
+        # is allowed until that read has released the durable ownership hold.
+        delivery_journey.reconcile_pending_scroll(self)
+        guard_protected_assets()
         if delivery_journey.pending():
             self.stop_farm()
             delivery_journey.resume(self)
@@ -921,6 +956,8 @@ class OvernightLoop:
             resume(self)
             from conquest.banking import close_warehouse
             close_warehouse(self)
+        from conquest.merchant_loop_acceptance import cycle_pending
+        if cycle_pending():self.bank_acceptance_delivery()
         if self.living()['embedded_controls']['life']['map_id']!=self.route.map_id:
             self.return_to_route_map()
         from conquest.city_travel import ensure_city_visit
@@ -929,6 +966,9 @@ class OvernightLoop:
         self.select_level_route()
         while True:
             outcome=self.hunt()
+            if outcome=='merchant_acceptance':
+                self.bank_acceptance_delivery()
+                continue
             if outcome=='urgent_banking':
                 self.bank_urgent_valuables()
                 continue
@@ -937,6 +977,35 @@ class OvernightLoop:
                 if finish_in_town(self):return
                 continue
             if outcome!='route_changed':self.restock()
+
+    def bank_acceptance_delivery(self):
+        """Temporary early town obligation; reuse only native bank/trade paths."""
+        from conquest import merchant_loop_acceptance as acceptance
+        if not acceptance.cycle_pending():return
+        self.check_stop()
+        acceptance.reconcile_route_receipts()
+        from conquest.merchants.bridge import request as merchant
+        source=merchant({'action':'delivery-source'})['farmer']
+        carried=acceptance.verify_carried_or_delivered(source)
+        visit=self.town_visit.begin('merchant_acceptance',hunt_map_id=self.route.map_id,route_id=self.route.id)
+        acceptance.town_started(self,visit,source)
+        self.phase='restocking'
+        if carried:
+            self.record('merchant_acceptance_return',activity='Acceptance: newly looted deliverable; returning for native merchant delivery')
+            from conquest.return_scroll import return_to_town
+            from conquest.world_travel import travel_to_map
+            from conquest.banking import after_shopping
+            acceptance.town_input_boundary()
+            return_to_town(self)
+            travel_to_map(self,self.route.restock_map_id)
+            self.town('close',window='Shop');self.town('close',window='Inventory')
+            if not after_shopping(self):raise ValueError('Acceptance requires the normal native banking policy')
+        from conquest.merchants.handoff import service_window
+        acceptance.refill_observed(merchant({'action':'status'}).get('characters',{}))
+        if not acceptance.refill_complete():service_window(self,town=True)
+        acceptance.finish_town(self,send=merchant)
+        bag=self.town('supplies')
+        if needs_town(supply_counts(bag,self.route),self.route):self.restock()
 
     def protect_during_movement_retry(self):
         """Retain the controller and life care instead of abandoning a runback."""
@@ -974,6 +1043,11 @@ class OvernightLoop:
         self.record('started')
         from conquest.travel_progress import TravelStalled
         try:
+            # A pending acceptance recovery checks the exact live controller
+            # identity before it reaches the ordinary route/life loop.
+            # Establish it from fresh read-only health memory; never infer it
+            # from the acceptance journal.
+            self.health()
             while True:
                 try:
                     self._run_route()
@@ -990,7 +1064,14 @@ class OvernightLoop:
             self.record('stopped',detail=str(error))
         except Exception as error:
             self.phase = 'needs_attention'
-            self.record('failed',detail=str(error))
+            # Preserve the failing boundary without retaining locals or other
+            # process data.  A generic message is not enough to distinguish a
+            # pre-input acquisition denial from an uncertain submitted action.
+            import traceback
+            frames=traceback.extract_tb(error.__traceback__)[-8:]
+            self.record('failed',detail=str(error),error_type=type(error).__module__+'.'+type(error).__qualname__,
+                        failure_trace=[{'file':frame.filename,'line':frame.lineno,
+                                        'function':frame.name} for frame in frames])
         finally:
             try:
                 request(self.info,'controls',{'enabled':False})

@@ -44,24 +44,24 @@ def participant_uid(observer, name):
                 for i in range(0, len(entries), 16)]
     if len(set(pointers)) != len(pointers):
         raise ValueError('Incoming request scene has duplicate actors')
-    observations = []
-    matches = []
-    for address in pointers:
-        raw = session.read_block(checked_address(address), 0xc4)
-        observations.append((address, raw))
-        if (struct.unpack_from('<Q', raw)[0] == base + 0x5c5e20
-                and raw[0xa4:0xc4].split(b'\0')[0] == name.encode('utf-8')):
-            matches.append(struct.unpack_from('<I', raw, 0x78)[0])
-    # Check every actor, including nonmatches: a concurrent rename/addition
-    # must not turn a unique match into an ambiguous identity after scanning.
-    for address, raw in observations:
-        fresh = session.read_block(address, len(raw))
-        if any(raw[a:b] != fresh[a:b] for a, b in ((0, 8), (0x78, 0x7c), (0xa4, 0xc4))):
-            raise ValueError('Incoming request actor identity changed')
+    def matching_actors():
+        matches = []
+        for address in pointers:
+            raw = session.read_block(checked_address(address), 0xc4)
+            if (struct.unpack_from('<Q', raw)[0] == base + 0x5c5e20
+                    and raw[0xa4:0xc4].split(b'\0')[0] == name.encode('utf-8')):
+                matches.append((address, struct.unpack_from('<I', raw, 0x78)[0]))
+        return matches
+    matches = matching_actors()
+    # Re-evaluate the complete set, including previous nonmatches: a rename
+    # into this name, duplicate or address takeover must change the binding.
+    # Unrelated actors may change while remaining outside that matching set.
+    if matching_actors() != matches:
+        raise ValueError('Incoming request actor identity changed')
     if (sample_fields(session, fields) != header
             or (end > begin and session.read_block(begin, end - begin) != entries)
             or sample_fields(session, [(a, 'u64') for a, _ in trace]) != [v for _, v in trace]
             or time.monotonic() - started > 2):
         raise ValueError('Incoming request scene changed or expired')
     session.assert_identity()
-    return matches[0] if len(matches) == 1 and matches[0] > 0 else None
+    return matches[0][1] if len(matches) == 1 and matches[0][1] > 0 else None

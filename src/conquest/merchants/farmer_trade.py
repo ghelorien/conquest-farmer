@@ -7,7 +7,6 @@ from conquest.character_context import state_path
 from contextlib import contextmanager,ExitStack
 from pathlib import Path
 import struct
-import threading
 import time
 
 from conquest.capture import CaptureUnavailable
@@ -31,6 +30,10 @@ class RecipientAbsent(CaptureUnavailable):
 
 class RecipientAmbiguous(ValueError):
     """More than one live scene object claims the qualified receiver UID."""
+
+
+class RecipientSceneChanged(ValueError):
+    """The receiver scene changed during a read-only target observation."""
 
 
 def partial_offer(intent,farmer,merchant):
@@ -102,7 +105,7 @@ def _recipient_record(observer,profile,merchant,*,targeting=False):
             or any(s.read_block(obj,span)[offsets[2]:offsets[2]+8]
                    !=raw[offsets[2]:offsets[2]+8] for obj,raw in occupied_blocks)
             or sample_fields(s,[(a,'u64') for a,_ in trace])!=[v for _,v in trace]):
-        raise ValueError('Receiver scene changed')
+        raise RecipientSceneChanged('Receiver scene changed')
     s.assert_identity()
     if time.monotonic()-started>.5:raise CaptureUnavailable('Receiver observation expired')
     if not matches:
@@ -128,6 +131,26 @@ def recipient_record(observer,profile,merchant,*,farmer=None,targeting=False):
         from conquest.target_actionability import TargetNotActionable
         raise TargetNotActionable(result)
     return result['recipient']
+
+
+def recipient_binding(record):
+    """Bind input to one target, excluding scene occupancy used for pathing.
+
+    Each caller still obtains a fresh recipient_record, which validates the
+    complete scene within that read, targeting mode and target actionability.
+    Other players may move or reorder between two valid scene observations.
+    """
+    fields=('address','uid','name','position','point')
+    if not isinstance(record,dict) or any(field not in record for field in fields):
+        raise ValueError('Trade recipient input binding is incomplete')
+    if (any(type(record[key]) is not int or record[key]<=0 for key in ('address','uid'))
+            or not isinstance(record['name'],str) or not record['name']
+            or any(not isinstance(record[key],(list,tuple)) or len(record[key])!=2
+                   or any(type(value) is not int for value in record[key])
+                   for key in ('position','point'))):
+        raise ValueError('Trade recipient input binding is invalid')
+    return (record['address'],record['uid'],record['name'],
+            tuple(record['position']),tuple(record['point']))
 
 
 class FarmerTradeDriver:
@@ -172,9 +195,16 @@ class FarmerTradeDriver:
         grant=getattr(self.ui,'grant',None)
         if grant and grant['expires_at']<=time.time():
             raise CaptureUnavailable('Merchant delivery work window expired; reconcile before further input')
-        if (self.ui.closed or state['enabled'] or state.get('paused')
-                or state['revision']!=self.revision or not self.ui.safe_to_yield()):
-            raise CaptureUnavailable('Farmer delivery input permission changed or expired')
+        if self.ui.closed:
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: ui_closed')
+        if state['enabled']:
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: farming_enabled')
+        if state.get('paused'):
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: farming_paused')
+        if state['revision']!=self.revision:
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: control_revision_changed')
+        if not self.ui.safe_to_yield():
+            raise CaptureUnavailable('Farmer delivery input permission changed or expired: safe_handoff_unavailable')
         if self.recipient and not self.ui.runtime.enabled(self.recipient):
             raise CaptureUnavailable('Merchant trading was paused during delivery')
         import ctypes
@@ -185,7 +215,7 @@ class FarmerTradeDriver:
         return pair(self.ui,merchant)
 
     @contextmanager
-    def action(self,intent):
+    def action(self,intent,*,stage):
         self.recipient=intent['merchant']['character']
         self.require_qualified()
         if not self.ui.runtime.enabled(intent['merchant']['character']):
@@ -198,7 +228,7 @@ class FarmerTradeDriver:
             while True:
                 try:
                     self.check()
-                    stack.enter_context(self.ui.coordinator.lease('Farmer'))
+                    stack.enter_context(self.ui.coordinator.lease('Farmer',purpose='farmer_delivery'))
                     break
                 except CaptureUnavailable as error:
                     if (str(error) not in ('Another character owns game input','Waiting for input owner',
@@ -206,16 +236,10 @@ class FarmerTradeDriver:
                             or time.monotonic()>=deadline):raise
                     time.sleep(.03)
             stack.enter_context(physical_coordinates())
-            done=threading.Event();result={}
-            callback=self.ui.app.show_game
-            fence=getattr(self.ui.coordinator,'fence',None)
-            if fence is not None:
-                callback=fence.guard_callback(fence.capture(),callback)
-            self.ui.ui_requests.put((callback,done,result))
-            if not done.wait(3):
-                result['expired']=True
-                raise CaptureUnavailable('Farmer surface did not become available')
-            if result.get('error'):raise ValueError(result['error'])
+            from conquest.merchants.delivery_farmer_surface import prepare_delivery,verify_stage_pair
+            presentation=prepare_delivery(self,intent,stage=stage,deadline=time.monotonic()+3)
+            f,m=self.read_pair(intent['merchant']['character'])
+            verify_stage_pair(intent,f,m,stage=stage);presentation()
             self.check()
             from conquest.focus_recovery import activate_client
             if not activate_client(self.driver.target.hwnd,self.driver.observer.adapter.identity):
@@ -251,6 +275,14 @@ class FarmerTradeDriver:
             result=recipient_actionability(self.driver.observer,profile,receiver,farmer=farmer)
         except RecipientAbsent as error:
             result=None;absent_occupied=error.occupied_tiles
+            deferred_reason='recipient_absent'
+        except RecipientSceneChanged:
+            # This dispatcher path runs before any focus, lease, or input.  A
+            # changing scene is therefore only a volatile observation: return
+            # a non-actionable projection so the route can retry without
+            # carrying a possibly stale click point into an input phase.
+            result=None;absent_occupied=[]
+            deferred_reason='recipient_scene_changed'
         from conquest.memory_life import read_life
         from conquest.scene_input import memory_player_anchor
         life=read_life(self.driver.observer.adapter,self.driver.observer.health_layout,
@@ -260,7 +292,7 @@ class FarmerTradeDriver:
         anchor=memory_player_anchor(self.driver.observer,life)
         if result is None:
             return {'schema_version':1,'ready':False,'actionable':False,
-                    'reason':'recipient_absent','character':farmer['character'],
+                    'reason':deferred_reason,'character':farmer['character'],
                     'farmer_position':farmer['position'],'merchant':receiver['character'],
                     'merchant_position':receiver['position'],'point':None,
                     'viewport':list(profile['gui_size']),'client_size':list(profile['client_size']),
@@ -285,19 +317,44 @@ class FarmerTradeDriver:
                         or current['character_uid']!=intent[role]['character_uid']
                         or exact_items(current['inventory'])!=exact_items(intent[role]['inventory'])):
                     raise ValueError('Delivery participants or stock changed before request')
-        with self.action(intent):
+        with self.action(intent,stage='open'):
             profile=self.require_qualified();f,m=self.read_pair(intent['merchant']['character'])
             unchanged(f,m);recipient_record(self.driver.observer,profile,m,farmer=f)
             self.button(intent,'start_trade',unchanged,stage='trade_target_mode')
-            targeting_f,targeting_m=self.read_pair(m['character']);unchanged(targeting_f,targeting_m)
-            recipient=recipient_record(self.driver.observer,profile,targeting_m,
-                                       farmer=targeting_f,targeting=True)
+            # Target-mode selection can briefly mutate the receiver collection.
+            # Re-read only; never replay the already-recorded mode-selection input.
+            deadline=time.monotonic()+1.5
+            while True:
+                self.check();targeting_f,targeting_m=self.read_pair(m['character'])
+                unchanged(targeting_f,targeting_m)
+                try:
+                    recipient=recipient_record(self.driver.observer,profile,targeting_m,
+                                               farmer=targeting_f,targeting=True)
+                    break
+                except RecipientSceneChanged:
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0:raise
+                    time.sleep(min(.05,remaining))
+            binding=recipient_binding(recipient)
             self._action_observed('trade_target_mode',{'targeting_trade':True})
             point=tuple(round(v*p/g) for v,p,g in zip(recipient['point'],profile['client_size'],profile['gui_size']))
             layout=self.driver.layout_revision();layout_revision=layout.stable()
             def before():
-                self.check();fresh_f,fresh_m=self.read_pair(m['character']);unchanged(fresh_f,fresh_m)
-                if recipient_record(self.driver.observer,profile,fresh_m,farmer=fresh_f,targeting=True)!=recipient:
+                # The target-mode input is already recorded and is never
+                # replayed.  Its renderer transition can still briefly reorder
+                # the remote-player collection before the request click.
+                deadline=time.monotonic()+1.5
+                while True:
+                    self.check();fresh_f,fresh_m=self.read_pair(m['character']);unchanged(fresh_f,fresh_m)
+                    try:
+                        fresh_recipient=recipient_record(self.driver.observer,profile,fresh_m,
+                                                         farmer=fresh_f,targeting=True)
+                        break
+                    except RecipientSceneChanged:
+                        remaining=deadline-time.monotonic()
+                        if remaining<=0:raise
+                        time.sleep(min(.05,remaining))
+                if recipient_binding(fresh_recipient)!=binding:
                     raise ValueError('Receiver changed before trade request')
                 layout.assert_current(layout_revision)
                 self._before_action('trade_request')
@@ -309,7 +366,7 @@ class FarmerTradeDriver:
     def place_item(self,intent,item):
         self.report('Placing '+item['name']+' in the trade with '+intent['merchant']['character'])
         from conquest.foreground import foreground_drag
-        with self.action(intent):
+        with self.action(intent,stage='place'):
             f,m=self.read_pair(intent['merchant']['character']);placed=partial_offer(intent,f,m)
             if item['uid'] not in exact_items(intent['items']):raise ValueError('Item is outside reserved batch')
             if item['uid'] in exact_items(placed):raise ValueError('Item already offered; no repeat drag')
@@ -348,7 +405,7 @@ class FarmerTradeDriver:
 
     def confirm(self,intent):
         self.report('Confirming the exact item transfer to '+intent['merchant']['character'])
-        with self.action(intent):
+        with self.action(intent,stage='confirm'):
             f,m=self.read_pair(intent['merchant']['character']);validate_offers(intent,f,m)
             self.button(intent,'confirm_trade',lambda f,m:validate_offers(intent,f,m),stage='farmer_confirm')
 

@@ -63,6 +63,9 @@ def test_catalog_accepts_login_title_but_excludes_small_or_hidden_windows():
     windows = ClientCatalog(backend).windows()
     assert [w.hwnd for w in windows]==[1]
     assert windows[0].title=='Login'
+    # Merchant discovery may opt into a hidden, size-qualified embedded
+    # client, while the launcher/farmer default remains visible-only.
+    assert [w.hwnd for w in ClientCatalog(backend).windows(include_hidden=True)]==[1,2]
 
 
 def test_restart_never_switches_to_another_client_or_reused_pid():

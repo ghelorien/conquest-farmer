@@ -11,7 +11,7 @@ MODELS={'Conductress':{280,287},'MillionaireLee':{4290,4294,4297},
         'Warehouseman':{80,87,200,210},'Mark.Controller':{417}}
 
 
-def discover(entities,map_id,name):
+def discover(entities,map_id,name,*,stable_identity_only=False):
     started=time.monotonic()
     if name not in MODELS:raise ValueError('Unsupported Market service')
     s,p=entities.session,entities.layout
@@ -33,7 +33,13 @@ def discover(entities,map_id,name):
                 (a+p.id_offset,'u32'),(a+p.kind_offset,'u32'),
                 (a+p.draw_position_offset,'i32'),(a+p.draw_position_offset+4,'i32')]
         values=sample_fields(s,fields)
-        if sample_fields(s,fields)!=values:raise ValueError('Service changed during observation')
+        fresh_values=sample_fields(s,fields)
+        # Warehouse item input targets the verified inventory grid, not the
+        # NPC's animated draw coordinates. Keep strict draw sampling for every
+        # ordinary NPC interaction; this narrower mode is only for identity.
+        if (fresh_values[:5] if stable_identity_only else fresh_values)!=(values[:5] if stable_identity_only else values):
+            raise ValueError('Service changed during observation')
+        values=fresh_values
         kind,found,position,uid,species,dx,dy=values
         if found==name:
             if not uid or species!=0 or any(not 0<=v<2048 for v in position):
@@ -55,6 +61,7 @@ def discover(entities,map_id,name):
             (a+p.draw_position_offset,'i32'),(a+p.draw_position_offset+4,'i32')]
     expected=[base+p.monster_vtable_rva,identity.model,identity.type_id,identity.name,
               identity.position,npc.entity_id,0,*npc.draw_position]
+    if stable_identity_only:fields=fields[:7];expected=expected[:7]
     if members.count(a)!=1 or sample_fields(s,fields)!=expected:
         raise ValueError('Service identity changed during observation')
     if sample_fields(s,[(a,'u64') for a,_ in trace])!=[v for _,v in trace]:
@@ -83,7 +90,17 @@ def execute(trade,body):
     if action=='service-close-panel' and set(body)=={'action','window'}:
         if body['window'] not in ('Inventory','Dialog'):raise ValueError('Unsupported service panel')
         from conquest.memory_shop import MemoryGui
-        gui=MemoryGui(trade.observer.adapter);window=gui.read(body['window'])
+        gui=MemoryGui(trade.observer.adapter)
+        try:window=gui.read(body['window'])
+        except ValueError as error:
+            # The broad travel-panel reader can observe a panel record during
+            # the few frames in which it becomes inactive.  This qualified
+            # reader is authoritative at the input boundary: an inactive or
+            # absent display needs no close click and is already safe for
+            # movement.  Other observation failures remain fail-closed.
+            if str(error)=='Requested GUI window is not active':
+                return {'closed':True,'already_closed':True}
+            raise
         if gui.read(body['window'])!=window:raise ValueError('Service panel moved')
         trade.input_attempted=True
         trade.click((round(window.position[0]+window.size[0]-18),round(window.position[1]+18)))

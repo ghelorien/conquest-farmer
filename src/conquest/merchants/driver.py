@@ -146,12 +146,12 @@ class MerchantDriver:
             raise ValueError('Merchant control is outside the current GUI/client geometry')
         return tuple(round(v*physical/logical) for v,physical,logical in zip((px,py),client_size,gui_size))
 
-    def click(self, snapshot, control, slot=None, *, validate=None):
+    def click(self, snapshot, control, slot=None, *, validate=None, before_mouse_down=None):
         from conquest.desktop_runtime import physical_coordinates
         with physical_coordinates():
-            return self._click(snapshot,control,slot,validate=validate)
+            return self._click(snapshot,control,slot,validate=validate,before_mouse_down=before_mouse_down)
 
-    def _click(self, snapshot, control, slot=None, *, validate=None):
+    def _click(self, snapshot, control, slot=None, *, validate=None, before_mouse_down=None):
         self.coordinator.check()
         self.observer.adapter.assert_identity()
         if self.observer.adapter.identity != snapshot['identity']:
@@ -211,7 +211,8 @@ class MerchantDriver:
         # item order or control position while waiting for its hover ID.
         return foreground_click(self.target,*point,size,require_foreground=False,
             before_press=lambda:wait_hover_validation(before_press,self.coordinator.check),
-            layout_guard=(lambda:layout.assert_current(revision)) if layout is not None else None)
+            layout_guard=(lambda:layout.assert_current(revision)) if layout is not None else None,
+            before_mouse_down=before_mouse_down)
 
     def accept_request(self, snapshot):
         self.click(snapshot,'accept_request')
@@ -338,8 +339,8 @@ class MerchantDriver:
         def validate_price():
             if unpack(self.observer.adapter,model+0x50,'<I')[0] != uid or entered_price()!=price:
                 raise ValueError('Listing item or price changed before button press')
-        if submission is not None:submission['attempted']=True
-        self.click(confirmed,'confirm_listing',validate=validate_price)
+        self.click(confirmed,'confirm_listing',validate=validate_price,
+                   before_mouse_down=(lambda:submission.update(attempted=True)) if submission is not None else None)
 
     def ensure_visible(self, snapshot, control, slot, check):
         """Scroll only the memory-owned grid; no offscreen item click is sent."""

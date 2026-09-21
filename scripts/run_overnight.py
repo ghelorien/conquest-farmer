@@ -1,5 +1,10 @@
 """Run a saved route without an AI connection. F12 stops the complete loop."""
 import argparse
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).absolute().parent))
+from _bootstrap import activate
+activate(__file__)
 from conquest.overnight import OvernightLoop
 
 if __name__ == '__main__':

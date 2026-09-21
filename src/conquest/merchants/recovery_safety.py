@@ -83,6 +83,10 @@ def submitted(runtime, character, *, now=None):
 def observe(runtime, character, identity, life=None, *, now=None, close=None):
     state = runtime.journal.get(character, KEY) or {}
     if not state.get('active'): return False
+    coordinator = getattr(runtime, 'coordinator', None)
+    if (coordinator and hasattr(coordinator, 'manual_session_blocked')
+            and coordinator.manual_session_blocked(character)):
+        return True  # Manual ownership cannot authorize a protective close.
     now = time.time() if now is None else now
     if life is None and state.get('last_progress') is None:
         return True  # Still at login awaiting exclusive input, not exposed in town.

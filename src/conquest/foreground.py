@@ -107,7 +107,7 @@ def require_click_position(snapshot, hwnd, expected_size, expected_point):
 @coordinated_input
 def foreground_click(target, x, y, expected_size, button="left", control=False,
                      require_foreground=False, expected_origin=None,diagnostics=None,
-                     before_press=None,layout_guard=None):
+                     before_press=None,layout_guard=None,before_mouse_down=None):
     if button not in ("left", "right"):
         raise ValueError("Unsupported mouse button")
     if type(control) is not bool:
@@ -207,6 +207,8 @@ def foreground_click(target, x, y, expected_size, button="left", control=False,
             if key_state(0x7B) & 0x8000:
                 raise ValueError("Emergency stop before click")
             require_current_client_point()
+            if before_mouse_down:
+                before_mouse_down()
             mouse(down)
             time.sleep(0.04 if require_foreground else 0.1)
         finally:

@@ -75,19 +75,19 @@ class EmbeddedBridge:
                                 if window['root_hwnd']!=window['hwnd']:
                                     raise ValueError('Wait for the native client window before probing')
                         from conquest.mouse_priority import active, MESSAGE
-                        if operation=='town' and body.get('action') not in ('supplies','shop','gear','vendor-status','ground-items','service-locate','service-dialog','warehouse-items') and active():
+                        if operation=='town' and body.get('action') not in ('supplies','shop','gear','vendor-status','ground-items','service-locate','service-dialog','warehouse-items','warehouse-reconcile-scroll') and active():
                             from conquest.town_trade import TownObservationUnavailable
                             raise TownObservationUnavailable(MESSAGE)
                         if operation=='town':
                             if bridge.on_town is None:
                                 raise ValueError('Town actions are unavailable')
-                            if body.get('action') not in ('supplies','shop','gear','vendor-status','ground-items','service-locate','service-dialog','warehouse-items'):
+                            if body.get('action') not in ('supplies','shop','gear','vendor-status','ground-items','service-locate','service-dialog','warehouse-items','warehouse-reconcile-scroll'):
                                 expiry = body.get('expires_at')
                                 if type(expiry) not in (int,float) or not math.isfinite(expiry) or not 0<expiry-time.time()<=5:
                                     raise ValueError('Town input must expire within five seconds')
                                 if bridge.snapshot()['control']['enabled']:
                                     raise ValueError('Stop farming before town input')
-                            read_only=body.get('action') in ('supplies','shop','gear','vendor-status','ground-items','service-locate','service-dialog','warehouse-items')
+                            read_only=body.get('action') in ('supplies','shop','gear','vendor-status','ground-items','service-locate','service-dialog','warehouse-items','warehouse-reconcile-scroll')
                             town=bridge.on_town
                             previous=getattr(town,'check_input',None)
                             revision=bridge.snapshot()['control'].get('revision') if not read_only else None
@@ -142,6 +142,8 @@ class EmbeddedBridge:
                             if bridge.character_context:result['profile_id']=bridge.character_context.profile.id
                             result['embedded_controls'] = bridge.snapshot()
                             result['embedded_controls']['manual_mouse'] = active()
+                            from conquest.merchants.coordination import manual_session_blocked
+                            result['embedded_controls']['manual_input_fence'] = manual_session_blocked('Farmer')
                             result['window_mode'] = getattr(bridge,'window_mode','unknown')
                     status = 200
                 except (ValueError,OSError,KeyError,TypeError) as error:
@@ -149,6 +151,9 @@ class EmbeddedBridge:
                     from conquest.capture import CaptureUnavailable
                     if self.path.strip('/')=='route-jump' and isinstance(error,CaptureUnavailable):
                         result['code']='foreground_unavailable'
+                    from conquest.merchants.coordination import InputAcquisitionBusy
+                    if isinstance(error,InputAcquisitionBusy):
+                        result['code']='input_acquisition_busy'
                     if getattr(error,'code',None) == 'town_observation_unavailable':
                         result['code'] = error.code
                 encoded = json.dumps(result).encode('utf-8')

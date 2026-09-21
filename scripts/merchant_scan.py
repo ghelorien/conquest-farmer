@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 from conquest.merchants.bridge import request
+from conquest.character_context import state_path
 from conquest.merchants.market import import_snapshot,browser_pages
 
 
@@ -38,7 +39,7 @@ def main():
         from conquest.discord_notify import write_json
         definitions = json.loads(Path(r'C:\Program Files\Classic Conquer 2.0\ini\itemtype.json').read_text(encoding='utf-8'))
         data = browser_pages(json.loads(Path(args.browser_pages).read_text(encoding='utf-8')),definitions)
-        write_json('reports/merchants/market.json',data)
+        write_json(state_path('reports/merchants/market.json'),data)
     if args.snapshot:
         import_snapshot(args.snapshot)
     body = {'action':'status'} if args.status else {'action':'scan',

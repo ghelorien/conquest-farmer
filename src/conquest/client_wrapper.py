@@ -49,12 +49,19 @@ class ClientCatalog:
             result.append(identity)
         return result
 
-    def windows(self):
+    def windows(self, *, include_hidden=False):
+        """Return qualified game-client windows.
+
+        Launcher and farmer selection deliberately see only visible clients.
+        Merchant clients may be hosted in an embedded surface after a desktop
+        restart, however, so the merchant runtime can opt in to hidden HWNDs
+        and still prove the account identity from process memory before use.
+        """
         result = []
         for identity in self.identities():
             for window in self.backend.windows(identity['pid']):
                 size = window.get('client_size') or [0,0]
-                if not window['visible'] or size[0]<200 or size[1]<150:
+                if (not include_hidden and not window['visible']) or size[0]<200 or size[1]<150:
                     continue
                 if window['title'].strip()=='ClassicConquer Loading':
                     continue  # Transient splash HWND is replaced by the login shell.

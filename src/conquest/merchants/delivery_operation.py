@@ -15,20 +15,29 @@ from conquest.merchants.farmer_trade import FarmerTradeDriver
 JOURNAL=Path(state_path('reports/banking/merchant-deliveries.sqlite3'))
 
 
+def pending():
+    if not JOURNAL.exists():return False
+    try:
+        with sqlite3.connect(JOURNAL.resolve().as_uri()+'?mode=ro',uri=True,timeout=2) as db:
+            return bool(db.execute("SELECT 1 FROM transactions WHERE kind='farmer_delivery' AND phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1").fetchone())
+    except sqlite3.Error as error:
+        raise ValueError('Farmer delivery journal is unreadable; reconcile before input') from error
+
+
 def guard_protected_assets():
     from conquest.protected_withdrawal import pending
     if pending():
         raise ValueError('Protected warehouse withdrawal needs inventory reconciliation before continuing')
+    from conquest.merchants.trade_qualification_prep import pending as prep_pending
+    if prep_pending():
+        raise ValueError('Supervised trade preparation needs reconciliation before continuing')
 
 
 def guard_reload():
     guard_protected_assets()
-    from conquest.merchants.delivery_route import pending
+    from conquest.merchants.delivery_route import pending as route_pending
+    if route_pending():raise ValueError('Reconcile the pending farmer delivery before reloading')
     if pending():raise ValueError('Reconcile the pending farmer delivery before reloading')
-    if not JOURNAL.exists():return
-    with sqlite3.connect(JOURNAL.resolve().as_uri()+'?mode=ro',uri=True,timeout=2) as db:
-        if db.execute("SELECT 1 FROM transactions WHERE kind='farmer_delivery' AND phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1").fetchone():
-            raise ValueError('Reconcile the pending farmer delivery before reloading')
 
 
 def clear_settled_attention(ui,key,receipt):
@@ -231,11 +240,13 @@ def prepare_new(ui,journal,key,character,uids,action,origin):
         window=getattr(getattr(ui,'runtime',None),'delivery_window',None)
         if window and window!=key:
             raise ValueError('Delivery request ID must match its reserved work window')
-        from conquest.merchants.farmer_preferences import permits_new_delivery
+        from conquest.merchants.farmer_preferences import permits_new_delivery,rollout_enabled
         from conquest.merchants.farmer_identity import ui_character
         permits_new_delivery(ui_character(ui))
         policy=read_json('profiles/merchant-deliveries.json')
-        if action!='delivery-test' and (not policy.get('enabled') or not policy.get('parity_verified')):
+        from conquest.merchant_loop_acceptance import trial_delivery_permitted
+        trial = action == 'delivery-start' and trial_delivery_permitted(ui,key,character,uids,origin)
+        if action!='delivery-test' and not trial and not rollout_enabled(ui_character(ui),policy=policy):
             raise ValueError('Merchant delivery rollout is not enabled')
         if action=='delivery-test' and len(uids)>5:
             raise ValueError('Supervised delivery test is limited to five items')
@@ -247,6 +258,13 @@ def prepare_new(ui,journal,key,character,uids,action,origin):
         receiver.driver.require_qualified('trade_request')
         receiver.driver.require_qualified('trade')
         farmer,merchant=driver.read_pair(character)
+        if trial:
+            from conquest.merchant_loop_acceptance import state, source_checked
+            source_checked(farmer,state())
+            if (not trial_delivery_permitted(ui,key,character,uids,origin)
+                    or merchant['identity']!=state()['merchants'][str(character)]['identity']
+                    or merchant['character_uid']!=state()['merchants'][str(character)]['character_uid']):
+                raise ValueError('Acceptance merchant or trial permission changed before delivery admission')
         items=[item for item in farmer['inventory'] if item['uid'] in uids]
         if len(items)!=len(uids):raise ValueError('Selected delivery items are not carried')
         journal.update_delivery_admission(key,'admitted',items=items)

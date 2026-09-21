@@ -102,6 +102,27 @@ def test_full_merchants_do_not_cause_travel(rig):
     assert not any(e=='travel' for e,_ in rig.events)
 
 
+def test_exact_requested_scroll_wins_only_slot_over_competing_plus_two(rig):
+    wanted=item(99,720027);urgent={**item(98),'plus':2}
+    rig.f['inventory']=[urgent,wanted]
+    rig.s['inventory'].append(item(999))
+    receipts=route.market_storage(rig.loop,send=rig.send,items=[wanted])
+    assert [row['uid'] for record in receipts for row in record['items']]==[99]
+    assert [row['uid'] for row in rig.f['inventory']]==[98]
+    assert [event['uids'] for action,event in rig.events if action=='delivery-start']==[[99]]
+
+
+def test_exact_delivery_admission_is_reported_before_native_trade_submission(rig):
+    wanted=item(99,720027);rig.f['inventory']=[wanted];admitted=[]
+    def on_admitted(active):
+        assert not any(action=='delivery-start' for action,body in rig.events)
+        assert active['items']==[wanted]
+        assert read_json(route.STATE)['active']['request_id']==active['request_id']
+        admitted.append(active['request_id'])
+    receipts=route.market_storage(rig.loop,send=rig.send,items=[wanted],on_admitted=on_admitted)
+    assert [receipt['request_id'] for receipt in receipts]==admitted
+
+
 def test_unreachable_first_merchant_defers_to_second_without_repeated_approach(rig,monkeypatch):
     visits=[]
     original=route.approach_merchant
@@ -310,6 +331,41 @@ def test_merchant_already_in_trade_range_does_not_move(rig):
     assert not any(e=='travel' for e,_ in rig.events)
 
 
+def test_actionable_target_at_thirteen_tiles_continues_to_checked_range(rig):
+    rig.f['position']=[226,209];rig.d['position']=[239,213]
+    def send(body):
+        result=rig.send(body)
+        if body['action']=='delivery-target':result['ready']=True
+        return result
+    assert route.approach_merchant(
+        rig.loop,{'merchant':'Dutch','position':[239,213]},send)
+    assert max(abs(a-b) for a,b in zip(rig.f['position'],rig.d['position']))<=12
+    assert any(event=='travel' for event,_ in rig.events)
+
+
+def test_actionable_out_of_range_target_fails_when_no_checked_tile_exists(rig):
+    rig.f['position']=[226,209];rig.d['position']=[239,213]
+    rig.loop.terrain.walkable=lambda point:False
+    def send(body):
+        result=rig.send(body)
+        if body['action']=='delivery-target':result['ready']=True
+        return result
+    assert not route.approach_merchant(
+        rig.loop,{'merchant':'Dutch','position':[239,213]},send)
+    assert not any(event=='travel' for event,_ in rig.events)
+
+
+def test_actionable_target_at_exactly_twelve_tiles_does_not_move(rig):
+    rig.f['position']=[227,209];rig.d['position']=[239,213]
+    def send(body):
+        result=rig.send(body)
+        if body['action']=='delivery-target':result['ready']=True
+        return result
+    assert route.approach_merchant(
+        rig.loop,{'merchant':'Dutch','position':[239,213]},send)
+    assert not any(event=='travel' for event,_ in rig.events)
+
+
 def test_merchant_approach_requires_visible_reachable_tile(rig):
     rig.f['position']=[10,10];rig.d['position']=[40,10]
     assert route.approach_merchant(rig.loop,{'merchant':'Dutch','position':[40,10]},rig.send)
@@ -360,6 +416,27 @@ def test_ambiguous_remote_recipient_is_hard_failure_without_movement(rig):
     with pytest.raises(ValueError,match='ambiguous'):
         route.approach_merchant(rig.loop,{'merchant':'Dutch','position':rig.d['position']},send)
     assert not any(event=='travel' for event,_ in rig.events)
+
+
+def test_changed_receiver_scene_retries_target_observation_without_movement(rig,monkeypatch):
+    attempts=[]
+    def send(body):
+        if body['action']=='delivery-target':
+            attempts.append(copy.deepcopy(body))
+            if len(attempts)==1:
+                return {'ready':False,'actionable':False,'reason':'recipient_scene_changed',
+                        'farmer_position':list(rig.f['position']),
+                        'merchant_position':list(rig.d['position']),'point':None,
+                        'viewport':[1416,850],'occupied_tiles':[list(rig.f['position'])]}
+        return rig.send(body)
+    monkeypatch.setattr(route.time,'sleep',lambda _:None)
+
+    assert route.approach_merchant(rig.loop,
+                                   {'merchant':'Dutch','position':rig.d['position']},send)
+    assert len(attempts)==2
+    assert not any(event=='travel' for event,_ in rig.events)
+    assert any(event=='merchant_target_deferred' and fields['reason']=='recipient_scene_changed'
+               for event,fields in rig.events)
 
 
 def test_slow_target_observation_cannot_authorize_after_approach_deadline(rig,monkeypatch):

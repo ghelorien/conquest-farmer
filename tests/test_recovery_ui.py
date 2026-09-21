@@ -1,5 +1,6 @@
 import threading
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
@@ -71,6 +72,47 @@ def test_farmer_recheck_dispatch_uses_fresh_worker_health_shape(monkeypatch):
     assert result["rechecked"]["life"]["character"] == "Parasite"
     assert result["rechecked"]["observations_available"] is True
     assert result["rechecked"]["target"] == health["target"]
+
+
+def test_meteor_recheck_dispatch_uses_memory_worker_bag_and_warehouse(monkeypatch):
+    from conquest import meteor_banking
+    incident={"id":"meteor-consolidation:one","digest":"m" * 64,
+              "kind":"meteor-consolidation","phase":"travelling","items":[]}
+    evidence={"life":{"map_id":1011},"supplies":{"items":[{"uid":1}]},
+              "warehouse":{"items":[{"uid":2}]}}
+    app=DesktopApp.__new__(DesktopApp)
+    app.last={"worker_info_path":"worker-info.json"}
+    app._farmer_recovery_incidents=lambda:[incident]
+    recheck=Mock(return_value=evidence)
+    monkeypatch.setattr(meteor_banking,"recheck_worker",recheck)
+
+    result=app.dispatch({"action":"recovery-recheck","incident_id":incident["id"]})
+
+    recheck.assert_called_once_with("worker-info.json")
+    assert result["rechecked"]["supplies"]==evidence["supplies"]
+    assert result["rechecked"]["warehouse"]==evidence["warehouse"]
+
+
+def test_meteor_override_uses_the_same_bag_and_warehouse_recheck(monkeypatch):
+    from conquest import meteor_banking
+    incident={"id":"meteor-consolidation:one","digest":"m" * 64,
+              "kind":"meteor-consolidation","phase":"travelling","items":[]}
+    evidence={"life":{"map_id":1011},"supplies":{"items":[{"uid":1}]},
+              "warehouse":{"items":[{"uid":2}]}}
+    app=DesktopApp.__new__(DesktopApp)
+    app.last={"worker_info_path":"worker-info.json"}
+    recheck=Mock(return_value=evidence);override=Mock(return_value={"phase":"operator_overridden"})
+    monkeypatch.setattr(meteor_banking,"recheck_worker",recheck)
+    monkeypatch.setattr(meteor_banking,"operator_override",override)
+    @contextmanager
+    def unlocked():
+        yield True
+    monkeypatch.setattr("conquest.route_controller.controller_guard",unlocked)
+
+    assert app._apply_farmer_override(incident,incident["digest"])["phase"]=="operator_overridden"
+    recheck.assert_called_once_with("worker-info.json")
+    assert override.call_args.kwargs["fresh_evidence"]==evidence
+    assert override.call_args.kwargs["incident_digest"]==incident["digest"]
 
 
 def test_merchant_listing_recheck_dispatches_against_merchant_journal(tmp_path):

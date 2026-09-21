@@ -83,16 +83,108 @@ def test_login_reattachment_requires_exact_previously_assigned_process(monkeypat
     observer=NS(adapter=NS(identity=identity),health_layout=None,close=lambda:None,
                 operations=NS(target=NS(hwnd=56)))
     from conquest.client_attachment import AttachmentStatus
-    r=NS(attachments={'Dutch':AttachmentStatus()},discovery_lock=threading.Lock(),catalog=NS(windows=lambda:[candidate]),observers={},
+    requested=[]
+    def windows(*,include_hidden=False):
+        requested.append(include_hidden)
+        return [candidate] if include_hidden else []
+    r=NS(attachments={'Dutch':AttachmentStatus()},discovery_lock=threading.Lock(),catalog=NS(windows=windows),observers={},
         observer_factory=lambda *a:observer,journal=NS(get=lambda *a:identity if same_identity else {'pid':12,'creation_time_100ns':1}),
         bind=lambda c,o:bound.append(o))
+    r.merchant_windows=lambda:MerchantRuntime.merchant_windows(r)
     if same_identity:
         # bind() already schedules the saved itinerary. The login shell has no map.
         MerchantRuntime.attach(r,'Dutch')
-        assert bound==[observer]
+        assert bound==[observer] and requested==[True]
     else:
         with pytest.raises(ValueError):MerchantRuntime.attach(r,'Dutch')
-        assert not bound
+        assert not bound and requested==[True]
+
+
+def test_hidden_logged_in_merchants_are_memory_verified_before_reattachment(monkeypatch):
+    """An embedded pair is discoverable without admitting the visible farmer."""
+    from conquest.client_wrapper import ClientCatalog
+    from conquest.client_attachment import AttachmentStatus
+    identities={
+        1:{'pid':1,'creation_time_100ns':10,'path':'ImConquer.exe'},
+        2:{'pid':2,'creation_time_100ns':20,'path':'ImConquer.exe'},
+        3:{'pid':3,'creation_time_100ns':30,'path':'ImConquer.exe'},
+    }
+    names={1:'Parasite',2:'Spiritual',3:'Dutch'}
+    backend=NS(processes=lambda exe:[{'pid':pid} for pid in identities],
+               identity=lambda pid:identities[pid],
+               windows=lambda pid:[dict(hwnd=pid+100,title='ClassicConquer',visible=pid==1,
+                                        client_size=[1024,768])])
+    catalog=ClientCatalog(backend)
+    assert [client.identity['pid'] for client in catalog.windows()]==[1]
+    closed,bound=[],[]
+    def observer_factory(client,character):
+        return NS(adapter=NS(identity=client.identity),health_layout=None,
+                  operations=NS(target=NS(hwnd=client.hwnd)),close=lambda:closed.append(client.identity['pid']))
+    def read_life(adapter,_layout,expected):
+        if names[adapter.identity['pid']] != expected:
+            raise ValueError('Wrong character in memory')
+        return NS(character=expected,map_id=1036)
+    monkeypatch.setattr('conquest.reconnect.login_screen',lambda hwnd:False)
+    monkeypatch.setattr('conquest.memory_life.read_life',read_life)
+    r=NS(attachments={name:AttachmentStatus() for name in ('Spiritual','Dutch')},
+         discovery_lock=threading.Lock(),catalog=catalog,observers={},
+         observer_factory=observer_factory,journal=NS(get=lambda *args:None))
+    r.merchant_windows=lambda:MerchantRuntime.merchant_windows(r)
+    def bind(character,observer):
+        bound.append((character,observer.adapter.identity))
+        r.observers[character]=observer
+    r.bind=bind
+    MerchantRuntime.attach(r,'Spiritual')
+    MerchantRuntime.attach(r,'Dutch')
+    assert bound==[('Spiritual',identities[2]),('Dutch',identities[3])]
+    # The farmer and the other merchant are never retained as a match.
+    assert closed==[1,3,1]
+
+
+def test_hidden_merchant_ambiguity_closes_every_candidate_and_fails_closed(monkeypatch):
+    from conquest.client_wrapper import ClientCatalog
+    from conquest.client_attachment import AttachmentStatus
+    identities={pid:{'pid':pid,'creation_time_100ns':pid*10,'path':'ImConquer.exe'} for pid in (1,2,3)}
+    backend=NS(processes=lambda exe:[{'pid':pid} for pid in identities],identity=lambda pid:identities[pid],
+               windows=lambda pid:[dict(hwnd=pid+100,title='ClassicConquer',visible=pid==1,
+                                        client_size=[1024,768])])
+    closed,bound=[],[]
+    def observer_factory(client,character):
+        return NS(adapter=NS(identity=client.identity),health_layout=None,
+                  operations=NS(target=NS(hwnd=client.hwnd)),close=lambda:closed.append(client.identity['pid']))
+    def read_life(adapter,_layout,expected):
+        if adapter.identity['pid']==1:raise ValueError('Wrong character in memory')
+        return NS(character='Spiritual',map_id=1036)
+    monkeypatch.setattr('conquest.reconnect.login_screen',lambda hwnd:False)
+    monkeypatch.setattr('conquest.memory_life.read_life',read_life)
+    r=NS(attachments={'Spiritual':AttachmentStatus()},discovery_lock=threading.Lock(),catalog=ClientCatalog(backend),
+         observers={},observer_factory=observer_factory,journal=NS(get=lambda *args:None),
+         bind=lambda *args:bound.append(args))
+    r.merchant_windows=lambda:MerchantRuntime.merchant_windows(r)
+    with pytest.raises(ValueError,match='found 2'):MerchantRuntime.attach(r,'Spiritual')
+    assert not bound and sorted(closed)==[1,2,3]
+
+
+def test_market_guard_uses_hidden_merchant_lookup_and_exact_saved_identity(monkeypatch):
+    from conquest.merchants.market_guard import MarketGuard
+    identity={'pid':2,'creation_time_100ns':20,'path':'ImConquer.exe'}
+    candidate=NS(identity=identity,hwnd=102)
+    observed,closed=[],[]
+    class Stop:
+        stopped=False
+        def is_set(self):return self.stopped
+        def wait(self,_seconds):self.stopped=True
+    stop=Stop()
+    observer=NS(adapter=NS(identity=identity),close=lambda:closed.append(True))
+    r=NS(stop_event=stop,merchant_windows=lambda:[candidate],
+         journal=NS(get=lambda character,name:identity if (character,name)==('Spiritual','last_identity') else None),
+         observer_factory=lambda client,character:(observed.append((character,client.identity)) or observer))
+    monkeypatch.setattr('conquest.discord_notify.write_json',lambda *args:None)
+    guard=MarketGuard(r)
+    guard.check=lambda character,reader:observed.append(('checked',character,reader.adapter.identity))
+    guard.run()
+    assert observed==[('Spiritual',identity),('checked','Spiritual',identity)]
+    assert closed==[True]
 
 
 def test_login_focus_recovery_uses_verified_wrapper_caption(monkeypatch):

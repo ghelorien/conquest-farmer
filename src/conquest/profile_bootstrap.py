@@ -1,5 +1,5 @@
 """Configure the process namespace before importing behavior modules."""
-from contextlib import contextmanager, closing
+from contextlib import contextmanager
 from pathlib import Path
 import argparse
 import json
@@ -9,10 +9,11 @@ from conquest.character_profiles import ProfileRegistry, data_root, write_json, 
 
 
 @contextmanager
-def app_owner(root,timeout=15):
+def _owner_file(path,timeout,error):
     import msvcrt
-    root=Path(root);root.mkdir(parents=True,exist_ok=True)
-    with (root/'app.lock').open('a+b') as lock:
+    from conquest.managed_security import open_managed_lock
+    path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
+    with open_managed_lock(path) as lock:
         lock.seek(0,2)
         if not lock.tell():lock.write(b'0');lock.flush()
         deadline=time.monotonic()+timeout
@@ -20,9 +21,55 @@ def app_owner(root,timeout=15):
             lock.seek(0)
             try:msvcrt.locking(lock.fileno(),msvcrt.LK_NBLCK,1);break
             except OSError:
-                if time.monotonic()>=deadline:raise ValueError('Conquest is already running on this PC') from None
+                if time.monotonic()>=deadline:raise ValueError(error) from None
                 time.sleep(.1)
         yield
+
+
+@contextmanager
+def managed_root_owner(root,timeout=15):
+    """Exclude both migration and a managed app before the root is created."""
+    root=Path(root);root.parent.mkdir(parents=True,exist_ok=True)
+    path=root.parent/('.'+root.name+'.managed.lock')
+    with _owner_file(path,timeout,'Conquest is already running on this PC'):
+        yield
+
+
+@contextmanager
+def legacy_app_owner_if_present(root,timeout=0):
+    """Honor app.lock held by a managed build predating the sibling fence."""
+    path=Path(root)/'app.lock'
+    if not path.exists():
+        yield
+        return
+    import msvcrt
+    # This may be a migration source: never initialize or otherwise write it.
+    with path.open('r+b') as lock:
+        lock.seek(0,2)
+        if not lock.tell():
+            yield
+            return
+        deadline=time.monotonic()+timeout
+        while True:
+            lock.seek(0)
+            try:msvcrt.locking(lock.fileno(),msvcrt.LK_NBLCK,1);break
+            except OSError:
+                if time.monotonic()>=deadline:
+                    raise ValueError('Conquest is already running on this PC') from None
+                time.sleep(.1)
+        yield
+
+
+@contextmanager
+def app_owner(root,timeout=15):
+    root=Path(root)
+    with managed_root_owner(root,timeout=timeout):
+        from conquest.managed_security import ensure_managed_directory
+        ensure_managed_directory(root)
+        # Retain the established artifact for older support tooling.  The
+        # sibling lock is the shared application/migration ownership fence.
+        with _owner_file(root/'app.lock',timeout,'Conquest is already running on this PC'):
+            yield
 
 
 def initialize(repo,argv):
@@ -86,19 +133,7 @@ def select_profile(repo,args,destination):
 
 
 def offline_edit_ready(root):
-    """Unfinished receipts must not be orphaned by changing roles or trust."""
-    import sqlite3
-    terminal={'complete','completed','verified','aborted','cancelled','idle','skipped','operator_overridden'}
-    for path in (Path(root)/'characters').glob('*/reports/banking/*.json'):
-        value=json.loads(path.read_text(encoding='utf-8'))
-        if value.get('phase') and value['phase'] not in terminal:return False
-    path=Path(root)/'machine-state/reports/merchants/journal.sqlite3'
-    if not path.exists():return True
-    with closing(sqlite3.connect(f'file:{path.as_posix()}?mode=ro',uri=True)) as db:
-        tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if 'transactions' in tables and db.execute("SELECT 1 FROM transactions WHERE phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1").fetchone():
-            return False
-        if 'delivery_reservations' in tables:
-            for row in db.execute('SELECT state FROM delivery_reservations'):
-                if json.loads(row[0]).get('phase') not in ('verified','cancelled','expired','operator_overridden'):return False
-    return True
+    """Compatibility aggregate; edit APIs use profile-scoped readiness."""
+    from conquest.profile_readiness import ProfileReadiness
+    registry=ProfileRegistry(root);readiness=ProfileReadiness(root)
+    return all(readiness.transaction_idle(profile.id) for profile in registry.profiles())

@@ -19,9 +19,9 @@ def trip(tmp_path):
     sample={'available':True,'observed_at':1000,'cursor':10,'session_id':900,
             'kills':20,'last_kill':{'rowid':8,'time':990,'count':1}}
     visit=TownVisit(tmp_path/'trip.json',clock=lambda:now[0],probe=lambda:deepcopy(sample),profile='farmer-1')
-    health={'target':{'pid':7,'created':100},'embedded_controls':{
-        'observed_at':1021,'control':{'enabled':True},
-        'life':{'map_id':1000,'dead_candidate':False}}}
+    health={'target':{'pid':7,'creation_time_100ns':100,'path':'game.exe'},'embedded_controls':{
+        'observed_at':1021,'control':{'enabled':True},'manual_input_fence':False,'manual_mouse':False,
+        'life':{'map_id':1000,'dead_candidate':False,'current_hp':100}}}
     return visit,now,sample,health
 
 
@@ -117,6 +117,89 @@ def test_unavailable_return_baseline_requires_a_later_kill_after_recovery(trip):
     sample.update(observed_at=1022,cursor=17,kills=24,last_kill={'rowid':17,'time':1022,'count':1})
     now[0]=1022;health['embedded_controls']['observed_at']=1022
     assert visit.observe_hunting(health)['phase']=='complete'
+
+
+def test_stop_before_first_return_kill_rebases_new_session_then_requires_later_kill(trip,tmp_path):
+    from conquest.session_kills import SessionKills
+    from conquest.discord_notify import write_json
+    visit,now,sample,health=trip
+    output=tmp_path/'stats';output.mkdir()
+    with sqlite3.connect(output/'trial.sqlite3') as db:
+        db.execute('CREATE TABLE events(time REAL,event TEXT,payload TEXT)')
+    stats=SessionKills(output,clock=lambda:now[0]);stats.begin()
+    def publish():
+        write_json(output/'app-state.json',{'character':'Parasite','updated_at':now[0],**stats.refresh()})
+        health['embedded_controls']['observed_at']=now[0]
+    visit.probe=lambda:kill_checkpoint(now=now[0],output=output)
+    publish();visit.begin('restock',hunt_map_id=1000)
+    now[0]=1020;publish();visit.returning(1000,target=health['target'])
+    original=visit.state()['return_baseline']
+    now[0]=1021;stats.stop();publish();health['embedded_controls']['control']['enabled']=False
+    assert visit.observe_hunting(health) is None
+    now[0]=1030;stats.begin();publish();health['embedded_controls']['control']['enabled']=True
+    assert visit.observe_hunting(health) is None
+    row=visit.state()
+    assert row['phase']=='returning_to_hunt' and visit.active_id()==row['town_visit_id']
+    assert row['return_baseline']['session_id']==1030 and row['return_baseline']['kills']==0
+    assert row['return_baseline_history'][0]['previous_baseline']==original
+    assert row['baseline']['session_id']==1000  # Historical town metrics are preserved.
+    assert visit.observe_hunting(health) is None and len(visit.state()['return_baseline_history'])==1
+    now[0]=1031
+    with sqlite3.connect(output/'trial.sqlite3') as db:
+        db.execute('INSERT INTO events VALUES(?,?,?)',(now[0],'kill_verified',json.dumps({'count':1})))
+    publish()
+    completed=visit.observe_hunting(health)
+    assert completed['phase']=='complete' and completed['resumed_hunting']['session_id']==1030
+    assert completed['first_verified_resume_kill']['time']==1031 and visit.active_id() is None
+    assert stats.snapshot()['kills']==1
+
+
+def test_kills_already_seen_in_the_new_session_cannot_complete_the_rebase(trip):
+    visit,now,sample,health=returned(trip)
+    now[0]=1030;health['embedded_controls']['observed_at']=1030
+    sample.update(session_id=1030,observed_at=1030,cursor=99,kills=50,
+                  last_kill={'rowid':99,'time':1030,'count':1})
+    assert visit.observe_hunting(health) is None
+    assert visit.state()['return_baseline']['kills']==50
+    assert visit.observe_hunting(health) is None
+    now[0]=1031;health['embedded_controls']['observed_at']=1031
+    sample.update(observed_at=1031,cursor=100,kills=51,last_kill={'rowid':100,'time':1031,'count':1})
+    assert visit.observe_hunting(health)['first_verified_resume_kill']['rowid']==100
+
+
+@pytest.mark.parametrize('failure',['pid','creation','path','missing_identity','map','stale','dead','hp',
+                                  'off','paused','manual','fence','missing_fence','metrics','old_session'])
+def test_session_rollover_requires_same_live_unfenced_return_evidence(trip,failure):
+    visit,now,sample,health=returned(trip)
+    before=visit.path.read_bytes()
+    now[0]=1030;sample.update(session_id=1030,observed_at=1030,kills=0)
+    data=health['embedded_controls'];data['observed_at']=1030
+    if failure=='pid':health['target']['pid']=8
+    if failure=='creation':health['target']['creation_time_100ns']=101
+    if failure=='path':health['target']['path']='another.exe'
+    if failure=='missing_identity':health['target'].pop('creation_time_100ns')
+    if failure=='map':data['life']['map_id']=1036
+    if failure=='stale':data['observed_at']=1020
+    if failure=='dead':data['life']['dead_candidate']=True
+    if failure=='hp':data['life']['current_hp']=0
+    if failure=='off':data['control']['enabled']=False
+    if failure=='paused':data['control']['paused']=True
+    if failure=='manual':data['manual_mouse']=True
+    if failure=='fence':data['manual_input_fence']=True
+    if failure=='missing_fence':data.pop('manual_input_fence')
+    if failure=='metrics':sample['available']=False
+    if failure=='old_session':sample['session_id']=901
+    assert visit.observe_hunting(health) is None
+    assert visit.path.read_bytes()==before and visit.active_id() is not None
+
+
+@pytest.mark.parametrize('change',[{'pid':8},{'creation_time_100ns':101},{'path':'other.exe'}])
+def test_hunt_reentry_cannot_replace_an_unfinished_return_identity(trip,change):
+    visit,now,sample,health=returned(trip)
+    before=visit.path.read_bytes();health['target'].update(change)
+    with pytest.raises(ValueError,match='target changed'):
+        visit.returning(1000,target=health['target'])
+    assert visit.path.read_bytes()==before
 
 
 def test_readonly_checkpoint_uses_verified_rows_without_touching_counter_files(tmp_path):

@@ -8,6 +8,7 @@ import pytest
 from conquest.foreground import Input, scan_key_event, press_scan_sequence
 from conquest.worker import Operations, request
 from conquest.capture import CaptureUnavailable
+from conquest.merchants.coordination import InputAcquisitionBusy
 
 
 class Session:
@@ -27,6 +28,7 @@ class Session:
 
 
 @pytest.mark.parametrize('code,expected', [('foreground_unavailable',CaptureUnavailable),
+                                         ('input_acquisition_busy',InputAcquisitionBusy),
                                          ('bad_geometry',ValueError)])
 def test_worker_preserves_recoverable_focus_errors(tmp_path,monkeypatch,code,expected):
     import io

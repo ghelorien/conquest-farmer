@@ -32,6 +32,18 @@ def test_bridge_reuses_worker_protocol_and_reports_current_controls(bridge):
     assert calls==[('health',{})]
 
 
+def test_health_exposes_the_current_manual_session_fence_without_changing_intent(bridge,monkeypatch):
+    from conquest.merchants import coordination
+    service,info,calls,control=bridge
+    blocked=[False]
+    monkeypatch.setattr(coordination,'manual_session_blocked',lambda character:blocked[0])
+    control['enabled']=True
+    assert request(info,'health')['embedded_controls']['manual_input_fence'] is False
+    blocked[0]=True
+    assert request(info,'health')['embedded_controls']['manual_input_fence'] is True
+    assert control['enabled'] is True and calls==[('health',{}),('health',{})]
+
+
 def test_vendor_reader_is_read_only_bound_callback(bridge):
     service, info, calls, control = bridge
     with pytest.raises(ValueError, match='unavailable'):

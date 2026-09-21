@@ -204,6 +204,27 @@ def test_healing_cleanup_does_not_mask_receipt_or_repeat_uncertain_input(monkeyp
     assert not supervisor.supply_panel_pending
 
 
+@pytest.mark.parametrize('error,retryable', [
+    ('Inventory opening unverified', True),
+    ('Healing consumption unverified; no repeat input issued', False),
+])
+def test_healing_inventory_open_failure_reobserves_but_uncertain_consumption_does_not(monkeypatch,error,retryable):
+    monkeypatch.setattr(native_farm,'logical_coordinates',nullcontext)
+    supervisor=native_farm.NativeFarmSupervisor.__new__(native_farm.NativeFarmSupervisor)
+    calls=[]
+    def trade(body):
+        calls.append(body)
+        if body['action']=='consume-healing':raise ValueError(error)
+    supervisor.observer=SimpleNamespace(town_trade=trade)
+    supervisor.dispatch=lambda callback:callback()
+    with pytest.raises(CaptureUnavailable if retryable else ValueError):
+        supervisor.heal_potion(42)
+    assert calls==[
+        {'action':'consume-healing','uid':42},
+        {'action':'close','window':'Inventory'},
+    ]
+
+
 def test_stationary_damage_enters_defense_and_expires_after_damage_stops(monkeypatch):
     supervisor,_,life,_=setup(monkeypatch)
     now=[100.0]

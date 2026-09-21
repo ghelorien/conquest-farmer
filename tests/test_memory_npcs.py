@@ -183,6 +183,52 @@ def test_warehouse_type_zero_requires_matching_model_name_and_tile(replay):
         reader.read(1002)
 
 
+@pytest.mark.parametrize('stable,accepted',[(False,False),(True,True)])
+def test_market_identity_only_sampling_excludes_animated_draw_coordinates(replay,stable,accepted):
+    from conquest.market_services import discover
+    memory,reader=replay;obj=next(iter(memory.blocks));record=memory.blocks[obj]
+    struct.pack_into('<I',record,0x7c,0);struct.pack_into('<I',record,0x84,87)
+    struct.pack_into('<II',record,0xe8,182,180);record[0xa4:0xc4]=b'Warehouseman'+bytes(20)
+    draw=memory.layout.draw_position_offset
+    def mutate():
+        if memory.read_counts.get(obj+draw)==2:
+            struct.pack_into('<ii',record,draw,800,320)
+    memory.mutate=mutate
+    if accepted:
+        identity,npc=discover(reader.entities,1036,'Warehouseman',stable_identity_only=stable)
+        assert npc.draw_position==(800,320) and npc.position==(182,180)
+    else:
+        with pytest.raises(ValueError,match='changed during observation'):
+            discover(reader.entities,1036,'Warehouseman',stable_identity_only=stable)
+
+
+@pytest.mark.parametrize('offset,value',[(0x78,999),(0xe8,183),(0x7c,1)])
+def test_market_stable_identity_sampling_still_rejects_uid_world_tile_and_type_drift(replay,offset,value):
+    from conquest.market_services import discover
+    memory,reader=replay;obj=next(iter(memory.blocks));record=memory.blocks[obj]
+    struct.pack_into('<I',record,0x7c,0);struct.pack_into('<I',record,0x84,87)
+    struct.pack_into('<II',record,0xe8,182,180);record[0xa4:0xc4]=b'Warehouseman'+bytes(20)
+    def mutate():
+        if memory.read_counts.get(obj+offset)==2:struct.pack_into('<I',record,offset,value)
+    memory.mutate=mutate
+    with pytest.raises(ValueError,match='changed during observation'):
+        discover(reader.entities,1036,'Warehouseman',stable_identity_only=True)
+
+
+def test_market_withdrawal_vendor_uses_selected_identity_without_whole_scene_resample(monkeypatch):
+    from types import SimpleNamespace as NS
+    from conquest.memory_npcs import NpcObservation
+    from conquest.town_trade import TownTrade
+    from conquest import market_services,town_trade
+    trade=TownTrade.__new__(TownTrade);trade.observer=NS(entities='scene')
+    trade.life=lambda **kw:NS(map_id=1036,position=(183,180))
+    npc=NpcObservation(123,456,0,'Warehouseman',1036,(182,180),(400,300));calls=[]
+    monkeypatch.setattr(market_services,'discover',lambda *a,**kw:calls.append((a,kw)) or (None,npc))
+    monkeypatch.setattr(town_trade,'MemoryNpcReader',lambda *a,**kw:pytest.fail('unrelated NPC scene resample'))
+    assert trade.vendor(0,stable_identity_only=True)==npc
+    assert calls==[(('scene',1036,'Warehouseman'),{'stable_identity_only':True})]
+
+
 def test_phoenix_service_roles_resolve_city_specific_memory_types():
     from conquest.memory_npcs import vendor_identity
     from conquest.town_trade import TownTrade

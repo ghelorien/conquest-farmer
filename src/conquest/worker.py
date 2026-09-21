@@ -239,6 +239,9 @@ def serve(pid, hwnd, expected_sha256, info_path, lifetime=1800, *, read_only=Fal
                     result, status = {"error": str(error)}, 400
                     if isinstance(error, CaptureUnavailable):
                         result['code'] = 'foreground_unavailable'
+                    from conquest.merchants.coordination import InputAcquisitionBusy
+                    if isinstance(error, InputAcquisitionBusy):
+                        result['code'] = 'input_acquisition_busy'
                 payload = json.dumps(result, ensure_ascii=True).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
@@ -298,4 +301,7 @@ def request(info_path, operation, body=None):
             raise TownObservationUnavailable(detail) from error
         if error_code == 'foreground_unavailable':
             raise CaptureUnavailable(detail) from error
+        if error_code == 'input_acquisition_busy':
+            from conquest.merchants.coordination import InputAcquisitionBusy
+            raise InputAcquisitionBusy(detail) from error
         raise ValueError(detail) from error

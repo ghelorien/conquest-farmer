@@ -31,7 +31,8 @@ def setup(tmp_path):
     history=PriceHistory(tmp_path/'price-history.sqlite3')
     history.remember(MarketSnapshot(dict(source='https://conqueronline.net/market',server='America',complete=True,
         observed_at=100,total=2,listings=rows,equipment_categories={'130':'Trojan Armor','120':'Necklace'}),now=100))
-    state=dict(character='Dutch',identity={'pid':1,'creation_time_100ns':2},timestamp=time.time(),
+    state=dict(character='Dutch',character_uid=123,own_booth_uid=123,
+        identity={'pid':1,'creation_time_100ns':2,'path':'C:/Game/ImConquer.exe'},timestamp=time.time(),
         map_id=1036,position=[264,214],server='America',hp=100,capacity=40,silver=100,
         inventory=[stock(1),stock(2,120005)],booth=[],booth_open=True,request=None,trade=None)
     def read():return {**copy.deepcopy(state),'timestamp':time.time()}
@@ -135,7 +136,8 @@ def test_refill_never_accepts_incoming_trades_while_operations_paused(setup,fiel
     x=setup;x.runtime.enable('Dutch',False);x.state[field]={'participant':'Parasite'}
     x.runtime.controllers['Dutch'].accept_request=lambda *args:pytest.fail('Trading is paused')
     x.runtime.controllers['Dutch'].accept_delivery=lambda *args:pytest.fail('Trading is paused')
-    with pytest.raises(CaptureUnavailable,match='Inventory refill waits'):x.runtime.step('Dutch')
+    x.runtime.step('Dutch')
+    assert x.runtime.manual_status('Dutch')['phase']=='needs_attention'
     assert not x.calls
 
 
@@ -208,10 +210,10 @@ def test_delivery_refill_window_cannot_reconnect_or_accept_trade(setup):
     assert not x.calls
 
 
-def test_unrelated_request_clears_before_historical_held_stock_mode(setup,monkeypatch):
+def test_unrelated_request_waits_for_approval_before_historical_held_stock_mode(setup,monkeypatch):
     x=setup;incident={'phase':'needs_attention','note':'Preserved historical incident'}
     x.j.set('Dutch','shop_return',incident)
-    x.state.update(request={'participant':'Stranger','message':'Stranger wishes to trade with you.'},
+    x.state.update(request={'participant':'Stranger','participant_uid':44,'message':'Stranger wishes to trade with you.'},
                    own_booth_uid=123)
     x.runtime.returns['Dutch']=SimpleNamespace(state=lambda:copy.deepcopy(incident),
                                                remember=lambda snapshot:None,
@@ -224,7 +226,8 @@ def test_unrelated_request_clears_before_historical_held_stock_mode(setup,monkey
                         lambda controller,snapshot,operations_enabled:
                             calls.append(operations_enabled) or True)
     x.runtime.step('Dutch')
-    assert calls==[True]
+    assert calls==[]
+    assert x.runtime.manual_status('Dutch')['phase']=='approval_pending'
     assert x.j.get('Dutch','shop_return')==incident
     assert not x.calls
 
@@ -233,7 +236,7 @@ def test_unrelated_request_clears_before_historical_held_stock_mode(setup,monkey
 def test_historical_request_decline_preserves_explicit_input_blocks(setup,monkeypatch,mode):
     x=setup;incident={'phase':'needs_attention','note':'Preserved historical incident'}
     x.j.set('Dutch','shop_return',incident)
-    x.state.update(request={'participant':'Stranger','message':'Stranger wishes to trade with you.'},
+    x.state.update(request={'participant':'Stranger','participant_uid':44,'message':'Stranger wishes to trade with you.'},
                    own_booth_uid=123)
     x.runtime.returns['Dutch']=SimpleNamespace(state=lambda:copy.deepcopy(incident),
                                                remember=lambda snapshot:None)
@@ -247,7 +250,8 @@ def test_historical_request_decline_preserves_explicit_input_blocks(setup,monkey
                         lambda controller,snapshot,operations_enabled:
                             calls.append(operations_enabled) or False)
     x.runtime.step('Dutch')
-    assert calls==[False]
+    assert calls==[]
+    assert x.runtime.manual_status('Dutch')['phase']=='approval_pending'
     assert x.j.get('Dutch','shop_return')==incident
 
 

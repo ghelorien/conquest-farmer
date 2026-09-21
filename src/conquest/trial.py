@@ -277,6 +277,10 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     break
                 if supervised and supervised['waiting']:
                     healing = reloading = picking_up = moving = pending_attack = None
+                    if supervised.get('manual_session'):
+                        # Keep verified totals; a later manual kill must never
+                        # be attributed to the automation counter interval.
+                        last_kill_counter = None
                     time.sleep(.08)
                     continue
                 defending=bool(supervised and supervised.get('defending'))

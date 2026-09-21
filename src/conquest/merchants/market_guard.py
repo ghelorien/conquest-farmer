@@ -3,6 +3,7 @@ import time
 import copy
 import hashlib
 import json
+from conquest.character_context import state_path
 from conquest.merchants.journal import CHARACTERS
 
 
@@ -85,6 +86,17 @@ class MarketGuard:
         from conquest.memory_life import read_life
         read = read or read_life
         identity = observer.adapter.identity
+        coordinator = getattr(self.runtime,'coordinator',None)
+        if (coordinator and hasattr(coordinator,'manual_session_blocked')
+                and coordinator.manual_session_blocked(character)):
+            # Keep observing location but do not reinterpret manual movement
+            # as permission to pause saved intent, reconnect, or disconnect.
+            try:
+                observer.adapter.assert_identity()
+                life = read(observer.adapter,observer.health_layout,character)
+                self.observations[character] = {'map_id':life.map_id,'observed_at':time.time()}
+            except (ValueError,OSError):pass
+            return
         from conquest.merchants.recovery_safety import arm
         from conquest.reconnect import login_screen
         # A known disconnected client is a recovery trigger, not an unsafe
@@ -120,7 +132,10 @@ class MarketGuard:
         r = self.runtime
         while not r.stop_event.is_set():
             try:
-                clients = r.catalog.windows()
+                # Merchant clients can be deliberately hidden by their
+                # embedded host.  Match only their saved exact identity; do
+                # not broaden the normal visible-only farmer catalog.
+                clients = r.merchant_windows()
                 for character in CHARACTERS:
                     identity = r.journal.get(character, 'last_identity')
                     client = next((c for c in clients if c.identity == identity), None)
@@ -137,6 +152,9 @@ class MarketGuard:
                             started = self.unknown_since.setdefault(character, time.monotonic())
                             if time.monotonic() - started >= 2:
                                 from conquest.merchants.recovery_safety import active, observe
+                                coordinator=getattr(r,'coordinator',None)
+                                if (coordinator and hasattr(coordinator,'manual_session_blocked')
+                                        and coordinator.manual_session_blocked(character)):continue
                                 if active(r,character): observe(r,character,identity)
                                 else: protect(r, character, identity, 'Merchant safety reader unavailable for two seconds')
                             continue
@@ -149,7 +167,7 @@ class MarketGuard:
                 pass
             from conquest.discord_notify import write_json
             try:
-                write_json('reports/merchants/market-guard.json', {'running':True, 'updated_at':time.time(),
+                write_json(state_path('reports/merchants/market-guard.json'), {'running':True, 'updated_at':time.time(),
                     'interval_seconds':0.25, 'unknown_grace_seconds':2, 'observations':self.observations})
             except OSError: pass
             r.stop_event.wait(0.25)
