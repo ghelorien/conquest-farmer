@@ -49,6 +49,13 @@ class ReadBuildLayout:
     skill_vtable_rva: int
     selected_skill_vtable_rva: int
     selection_renderer_pins: tuple[tuple[int, int, str], ...]
+    merchant_server_rva: int
+    merchant_booth_offset: int
+    merchant_own_booth_offset: int
+    merchant_trade_vtable_rva: int
+    merchant_confirm_vtable_rva: int
+    merchant_booth_vtable_rva: int
+    merchant_uid_accessor_pins: tuple[tuple[int, str], ...]
 
 
 _OLD_SLOTS=MappingProxyType({'head':0xbd8,'necklace':0xbe8,'armor':0xbf8,'bow':0xc08,
@@ -64,7 +71,9 @@ READ_LAYOUTS = {
         0x5c5a38,((0x9acc2,314,'0da14be41a59bd653ed11d0f576ebebfeb477d3a5aa9679fa5f0b30046b2ab5a'),
         (0x1097a5,19,'213a60b72ae5bd5566a3c7af1e7106d80ce2291a7134c87584c03d5653d35075'),
         (0x109845,190,'8db295b764220983700cdc0e9d6f69c95fef86c22a191d7e3a8800a5ecd44527'),
-        (0x10995c,19,'7e6b636f9cbe2d438fe2b3737dd4fe941c7098ba4e38ef75eba0df8bd3d96366'))),
+        (0x10995c,19,'7e6b636f9cbe2d438fe2b3737dd4fe941c7098ba4e38ef75eba0df8bd3d96366')),
+        0x697860,0x3468,0x3258,0x5cb328,0x5c4f30,0x5c27f8,
+        ((0x8dc8,'e8638d17008b486841394f10'),(0x97bc,'e86f8317008b4868394e687520'))),
     CLIENT_SHA256_1078: ReadBuildLayout(CLIENT_SHA256_1078,'classic-1078-player-candidate.yaml','classic-1078-health-candidate.yaml',
         'classic-1078-inventory-candidate.yaml',0x5EA9F8,_NEW_SLOTS,0x6B5EF0,0x6B8E48,
         0x6BCEF0,0x1030,0x1058,0x106C,0x16,0x5E7250,0x6BAF30,0x5EB8D0,0x1088,
@@ -73,7 +82,9 @@ READ_LAYOUTS = {
         0x5e0cb8,((0x9bf92,314,'24d86082c85a31abb467bf6d4ea68b518bfccf7001f19205659ae842baa05886'),
         (0x10dd75,19,'6aac4ef4f2fa3b392d27ee24dcab5ea875c590217654f37300d668aee4c152a9'),
         (0x10de15,190,'2ecad0ce9f726c83a31fd12ca30bad5a25e26f9ab22c9479970bdc66fe10266d'),
-        (0x10df2c,19,'b8c9185de155072def8fdc9365403e73a2e36f7dfb16dca0940e1cffde8b84f3'))),
+        (0x10df2c,19,'b8c9185de155072def8fdc9365403e73a2e36f7dfb16dca0940e1cffde8b84f3')),
+        0x6b7fc0,0x34b0,0x32a0,0x5e6a80,0x5e0148,0x5dd9c0,
+        ((0x925b,'e8201618008b486841394f10'),(0xa1d3,'e8a80618008b4868394e687520'))),
 }
 
 

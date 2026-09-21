@@ -23,21 +23,23 @@ def unpack(session, address, fmt):
     return struct.unpack(fmt, session.read_block(checked_address(address), struct.calcsize(fmt)))
 
 
-def assert_booth_stable(session,actor,model,owned_uid,before):
+def assert_booth_stable(session,actor,model,owned_uid,before,*,layout=None):
     # +0x54 begins the editable price buffer. Native queued typing may change
     # it during a read; price submission has its own exact-value guard. Keep
     # the model/header, open state, owner and selected item UID stable.
     after=session.read_block(model,0x58)
-    if (unpack(session,actor+0x3258,'<I')[0]!=owned_uid or after[:0x54]!=before[:0x54]):
+    offset=layout.merchant_own_booth_offset if layout is not None else 0x3258
+    if (unpack(session,actor+offset,'<I')[0]!=owned_uid or after[:0x54]!=before[:0x54]):
         raise ValueError('Booth ownership or selected item changed during observation')
 
 
-def character_uid(session, base, actor):
+def character_uid(session, base, actor, *, layout=None):
     # Both pinned call sites resolve the self actor using RVA 0x181b30,
     # then compare actor+0x68 with a received/other actor identity.
     # actor+0x3258 instead belongs to the owned booth and can be zero.
-    for rva,encoded in ((0x8dc8,'e8638d17008b486841394f10'),
-                        (0x97bc,'e86f8317008b4868394e687520')):
+    pins=layout.merchant_uid_accessor_pins if layout is not None else (
+        (0x8dc8,'e8638d17008b486841394f10'),(0x97bc,'e86f8317008b4868394e687520'))
+    for rva,encoded in pins:
         expected=bytes.fromhex(encoded)
         if session.read_block(base+rva,len(expected))!=expected:
             raise ValueError('Character identity accessor needs qualification for this client')
@@ -331,6 +333,34 @@ class MerchantMemory:
             yaml.safe_load(Path('profiles/classic-1074-inventory-candidate.yaml').read_text())))
         self.definitions = definitions or {}
 
+    @classmethod
+    def for_session(cls,session,character,*,definitions=None):
+        """Explicit 1078 closed-modal stock observation with no input surface."""
+        from types import SimpleNamespace
+        from conquest.memory_build_layout import read_build_layout
+        from conquest.memory_inventory import MemoryInventoryReader
+        if not hasattr(session,'read_block'):
+            session=SimpleNamespace(expected_sha256=session.expected_sha256,modules=session.modules,
+                identity=session.identity,read=session.read,read_block=session.read,
+                assert_identity=session.assert_identity,
+                viewport_size=getattr(session,'viewport_size',None))
+        layout=read_build_layout(session)
+        if layout.expected_sha256==CLIENT_SHA256:
+            raise ValueError('Use the default MerchantMemory constructor for 1074')
+        self=cls.__new__(cls)
+        self.observer=SimpleNamespace(character=character,adapter=session)
+        self.s=session;self.layout=layout;self.gui=GuiReader.for_session(session);self.base=self.gui.base
+        self.player=None;self.inventory=MemoryInventoryReader.for_session(session)
+        self.definitions=definitions or {};self._closed_modal_only=True
+        return self
+
+    @classmethod
+    def for_observer(cls,observer,*,definitions=None):
+        from conquest.memory_build_layout import read_build_layout
+        layout=read_build_layout(observer.adapter)
+        if layout.expected_sha256==CLIENT_SHA256:return cls(observer,definitions=definitions)
+        return cls.for_session(observer.adapter,observer.character,definitions=definitions)
+
     def item(self, ptr, slot, booth=False):
         raw = self.s.read_block(ptr,0xa0)
         d = item_details(self.s,ptr,self.base)
@@ -355,6 +385,8 @@ class MerchantMemory:
         return pointers[slot]
 
     def read_travel(self, *, max_seconds=3):
+        if getattr(self,'_closed_modal_only',False):
+            raise ValueError('1078 merchant travel observation is not qualified')
         """Transit evidence only; never a stock, capacity or trade snapshot."""
         started=time.monotonic();s=self.s
         server=s.read_block(self.base+0x697860,64)
@@ -385,7 +417,72 @@ class MerchantMemory:
                 'hp':fresh.current_hp,'silver':silver,'trade':bool(flags[0]),
                 'request':bool(flags[1]),'windows':windows}
 
+    def _read_closed_1078(self, *, max_seconds):
+        """Reuse the normal stock decoder, but never decode an open trade."""
+        from conquest.memory_life import MemoryLifeReader
+        from conquest.addressing import resolve_object
+        started=time.monotonic();s=self.s;layout=self.layout
+        life_reader=MemoryLifeReader.for_session(s,self.observer.character)
+        life=life_reader.read();actor=life.object_address
+        if life.dead_candidate or life.current_hp<=0 or life.map_id!=1036:
+            raise ValueError('Merchant must be alive in Market for closed stock observation')
+        server=s.read_block(self.base+layout.merchant_server_rva,64)
+        if server.split(b'\0',1)[0]!=b'Classic_US':raise ValueError('Merchant is not on the verified America server')
+        wrapper=resolve_object(s,expected_sha256=layout.expected_sha256,module='imconquer.exe',
+            root_rva=self.inventory.layout.owner_root_rva,pointer_offsets=self.inventory.layout.owner_pointer_offsets,
+            vtable_rva=self.inventory.layout.owner_vtable_rva)
+        inv=self.inventory.read();inv_ptrs,inv_header=deque_items(s,wrapper+self.inventory.layout.deque_map,40)
+        stock=[self.item(pointer,index) for index,pointer in enumerate(inv_ptrs)]
+        if [item.uid for item in stock]!=[item.uid for item in inv.items]:raise ValueError('Inventory identities changed')
+        trade_model=self.gui.model(14,layout.merchant_trade_vtable_rva)
+        request_model=self.gui.model(15,layout.merchant_confirm_vtable_rva)
+        # No acceptance/silver semantics are read while a modal is live.
+        if s.read_block(trade_model+12,1)!=b'\0' or s.read_block(request_model+12,1)!=b'\0':
+            raise ValueError('Merchant trade or request must be closed')
+        booth_ptrs,booth_header=deque_items(s,actor+layout.merchant_booth_offset,32)
+        booth=[self.item(pointer,index,True) for index,pointer in enumerate(booth_ptrs)]
+        model=self.gui.model(25,layout.merchant_booth_vtable_rva);model_raw=s.read_block(model,0x58)
+        own_uid=character_uid(s,self.base,actor,layout=layout)
+        own_booth_uid=unpack(s,actor+layout.merchant_own_booth_offset,'<I')[0]
+        booth_open=bool(model_raw[12])
+        if booth_open and (not own_booth_uid or struct.unpack_from('<I',model_raw,0x4c)[0]!=own_booth_uid):
+            raise ValueError('Displayed booth is not this merchant’s booth')
+        if not own_booth_uid and booth_ptrs:raise ValueError('Booth items have no owned booth')
+        final_inventory=self.inventory.read()
+        if (s.read_block(wrapper+self.inventory.layout.deque_map,32)!=inv_header
+                or s.read_block(actor+layout.merchant_booth_offset,32)!=booth_header
+                or final_inventory.items!=inv.items or final_inventory.silver!=inv.silver):
+            raise ValueError('Merchant inventory changed during observation')
+        if len({item.uid for item in stock+booth})!=len(stock)+len(booth):
+            raise ValueError('Item appears in both booth and inventory')
+        windows=self.gui.windows()
+        if (self.gui.model(14,layout.merchant_trade_vtable_rva)!=trade_model
+                or self.gui.model(15,layout.merchant_confirm_vtable_rva)!=request_model
+                or s.read_block(trade_model+12,1)!=b'\0' or s.read_block(request_model+12,1)!=b'\0'
+                or s.read_block(self.base+layout.merchant_server_rva,64)!=server):
+            raise ValueError('Merchant modal or server changed during observation')
+        assert_booth_stable(s,actor,model,own_booth_uid,model_raw,layout=layout)
+        fresh=MemoryLifeReader.for_session(s,self.observer.character).read()
+        final_wrapper=resolve_object(s,expected_sha256=layout.expected_sha256,module='imconquer.exe',
+            root_rva=self.inventory.layout.owner_root_rva,pointer_offsets=self.inventory.layout.owner_pointer_offsets,
+            vtable_rva=self.inventory.layout.owner_vtable_rva)
+        if (fresh.object_address!=actor or fresh.map_id!=life.map_id or fresh.position!=life.position or fresh.dead_candidate
+                or fresh.current_hp<=0 or character_uid(s,self.base,actor,layout=layout)!=own_uid
+                or final_wrapper!=wrapper
+                or time.monotonic()-started>max_seconds):
+            raise ValueError('Merchant observation expired or identity changed')
+        s.assert_identity()
+        return {'character':self.observer.character,'character_uid':own_uid,'identity':s.identity,
+            'timestamp':time.time(),'server':'America','map_id':life.map_id,'position':list(life.position),
+            'hp':fresh.current_hp,'capacity':inv.capacity,'silver':inv.silver,
+            'inventory':[asdict(item) for item in stock],'booth':[asdict(item) for item in booth],
+            'own_booth_uid':own_booth_uid,'booth_open':booth_open,'trade':None,'request':None,
+            'windows':windows,'source':'read_only_memory'}
+
     def read(self, *, max_seconds=3, recovery=False, farmer_preflight=False):
+        if getattr(self,'_closed_modal_only',False):
+            if recovery or farmer_preflight:raise ValueError('1078 merchant recovery/preflight is not qualified')
+            return self._read_closed_1078(max_seconds=max_seconds)
         started = time.monotonic()
         s = self.s
         server_raw = s.read_block(self.base+0x697860,64)
