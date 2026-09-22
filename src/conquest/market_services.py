@@ -90,7 +90,11 @@ def execute(trade,body):
     if action=='service-close-panel' and set(body)=={'action','window'}:
         if body['window'] not in ('Inventory','Dialog'):raise ValueError('Unsupported service panel')
         from conquest.memory_shop import MemoryGui
-        gui=MemoryGui(trade.observer.adapter)
+        # The selected memory layout is already required by this input path.
+        # Use the explicit factory so its GUI observation matches the exact
+        # client build (including the qualified 1078 context) rather than
+        # silently falling back to MemoryGui's historical 1074-only default.
+        gui=MemoryGui.for_session(trade.observer.adapter)
         try:window=gui.read(body['window'])
         except ValueError as error:
             # The broad travel-panel reader can observe a panel record during
@@ -129,7 +133,7 @@ def execute(trade,body):
     if max(abs(a-b) for a,b in zip(life.position,npc.position))>18:raise ValueError('Travel closer to service NPC')
     if action=='service-open':
         from conquest.memory_shop import MemoryGui
-        try:MemoryGui(trade.observer.adapter).read('Dialog')
+        try:MemoryGui.for_session(trade.observer.adapter).read('Dialog')
         except ValueError as error:
             if not any(t in str(error) for t in ('not active','absent')):raise
         else:execute(trade,{'action':'service-close-panel','window':'Dialog'})
