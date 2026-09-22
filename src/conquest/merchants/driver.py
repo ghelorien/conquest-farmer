@@ -32,6 +32,9 @@ def wait_hover_validation(validate, check, *, clock=time.monotonic, sleep=time.s
 
 class MerchantDriver:
     def __init__(self, observer, qualification, coordinator):
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        if observer.adapter.expected_sha256 == CLIENT_SHA256_1078:
+            raise ValueError('1078 merchant input is not qualified; use its read-only observer')
         self.observer,self.qualification,self.coordinator = observer,Path(qualification),coordinator
         self.memory = MerchantMemory(observer)
         self.target = observer.operations.target

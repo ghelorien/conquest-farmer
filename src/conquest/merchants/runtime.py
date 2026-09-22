@@ -16,14 +16,23 @@ from conquest.merchants.manual_runtime import ManualRuntime
 
 
 def make_observer(client, character):
+    from conquest.identity import fingerprint
+    from conquest.memory_build_layout import CLIENT_SHA256_1074, CLIENT_SHA256_1078
+    from conquest.character_context import merchant_context
+    digest = fingerprint(Path(client.identity['path']))['sha256']
+    context = merchant_context(character)
+    if digest == CLIENT_SHA256_1078:
+        from conquest.merchants.read_only_observer import ReadOnlyMerchantObserver
+        return ReadOnlyMerchantObserver(client, character, context=context)
+    if digest != CLIENT_SHA256_1074:
+        from conquest.memory import UnsupportedClientBuildError
+        raise UnsupportedClientBuildError('No qualified merchant read layout for this client build')
     import yaml
     from conquest.embedded_observer import EmbeddedObserver
     from conquest.memory_health import HealthLayout
     from conquest.memory_entities import EntityLayout
     health = HealthLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-health-candidate.yaml').read_text()))
     entities = EntityLayout.model_validate(yaml.safe_load(Path('profiles/classic-1074-entities-candidate.yaml').read_text()))
-    from conquest.character_context import merchant_context
-    context=merchant_context(character)
     kwargs={'context':context} if context else {}
     observer = EmbeddedObserver(client.identity['pid'],client.hwnd,health,entities,character,**kwargs)
     if observer.adapter.identity != client.identity:
@@ -243,6 +252,8 @@ class MerchantRuntime(ManualRuntime):
                 self.returns[character].begin()
 
     def bind(self, character, observer):
+        if getattr(observer,'merchant_observation_only',False):
+            raise ValueError('1078 merchant observation does not qualify automation or refill input')
         from conquest.character_context import merchant_context, merchant_directory
         context=merchant_context(character)
         status=getattr(self,'attachments',{}).get(character)

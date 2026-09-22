@@ -83,6 +83,16 @@ class MarketGuard:
         self.observations = {}
 
     def check(self, character, observer, *, clock=time.monotonic, read=None, close=None):
+        if getattr(observer,'merchant_observation_only',False):
+            # Read-only attachment must not arm recovery, disconnect, or
+            # reinterpret a read gap as permission to change saved controls.
+            try:
+                life = observer.read_life()
+                self.observations[character] = {'map_id':life.map_id,
+                    'observed_at':time.time(),'observation_only':True}
+            except (ValueError,OSError):
+                self.observations.pop(character,None)
+            return
         from conquest.memory_life import read_life
         read = read or read_life
         identity = observer.adapter.identity

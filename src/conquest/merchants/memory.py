@@ -378,6 +378,8 @@ class MerchantMemory:
             bool(raw[0x44]&1),quantity,slot,price,self.definitions.get(d['type_id']))
 
     def booth_pointer(self, slot, uid):
+        if getattr(self,'_closed_modal_only',False):
+            raise ValueError('1078 booth input targeting is not qualified')
         life = read_life(self.s,self.observer.health_layout,self.observer.character)
         pointers,_ = deque_items(self.s,life.object_address+0x3468,32)
         if not 0 <= slot < len(pointers) or self.item(pointers[slot],slot,True).uid!=uid:
@@ -422,6 +424,7 @@ class MerchantMemory:
         from conquest.memory_life import MemoryLifeReader
         from conquest.addressing import resolve_object
         started=time.monotonic();s=self.s;layout=self.layout
+        s.assert_identity()
         life_reader=MemoryLifeReader.for_session(s,self.observer.character)
         life=life_reader.read();actor=life.object_address
         if life.dead_candidate or life.current_hp<=0 or life.map_id!=1036:
@@ -449,12 +452,19 @@ class MerchantMemory:
             raise ValueError('Displayed booth is not this merchant’s booth')
         if not own_booth_uid and booth_ptrs:raise ValueError('Booth items have no owned booth')
         final_inventory=self.inventory.read()
+        final_booth_ptrs,final_booth_header=deque_items(s,actor+layout.merchant_booth_offset,32)
+        final_booth=[self.item(pointer,index,True) for index,pointer in enumerate(final_booth_ptrs)]
+        final_stock=[self.item(pointer,index) for index,pointer in enumerate(inv_ptrs)]
         if (s.read_block(wrapper+self.inventory.layout.deque_map,32)!=inv_header
-                or s.read_block(actor+layout.merchant_booth_offset,32)!=booth_header
-                or final_inventory.items!=inv.items or final_inventory.silver!=inv.silver):
-            raise ValueError('Merchant inventory changed during observation')
+                or final_booth_header!=booth_header or final_booth_ptrs!=booth_ptrs
+                or final_booth!=booth or final_stock!=stock
+                or final_inventory.items!=inv.items or final_inventory.silver!=inv.silver
+                or final_inventory.capacity!=inv.capacity):
+            raise ValueError('Merchant owned stock changed during observation')
         if len({item.uid for item in stock+booth})!=len(stock)+len(booth):
             raise ValueError('Item appears in both booth and inventory')
+        if len(stock)+len(booth)>inv.capacity:
+            raise ValueError('Merchant owned stock exceeds qualified combined capacity')
         windows=self.gui.windows()
         if (self.gui.model(14,layout.merchant_trade_vtable_rva)!=trade_model
                 or self.gui.model(15,layout.merchant_confirm_vtable_rva)!=request_model
@@ -475,9 +485,13 @@ class MerchantMemory:
         return {'character':self.observer.character,'character_uid':own_uid,'identity':s.identity,
             'timestamp':time.time(),'server':'America','map_id':life.map_id,'position':list(life.position),
             'hp':fresh.current_hp,'capacity':inv.capacity,'silver':inv.silver,
+            'owned_free_slots':inv.capacity-len(stock)-len(booth),
             'inventory':[asdict(item) for item in stock],'booth':[asdict(item) for item in booth],
             'own_booth_uid':own_booth_uid,'booth_open':booth_open,'trade':None,'request':None,
-            'windows':windows,'source':'read_only_memory'}
+            'windows':windows,'source':'read_only_memory',
+            'client_sha256':layout.expected_sha256,'observation_only':True,
+            'capabilities':{'read_inventory':True,'read_owned_booth':True,
+                'read_capacity':True,'automatic_input':False,'refill_input':False}}
 
     def read(self, *, max_seconds=3, recovery=False, farmer_preflight=False):
         if getattr(self,'_closed_modal_only',False):
