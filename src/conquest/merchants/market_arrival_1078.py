@@ -14,6 +14,7 @@ from conquest.memory_build_layout import CLIENT_SHA256_1078
 from conquest.merchants.journal import character_name
 from conquest.merchants.observe_1078 import observe
 from conquest.merchants.recovery_safety import KEY
+from conquest.merchants.delivery_reservation import TERMINAL as TERMINAL_RESERVATIONS
 
 
 def _blocker(reason):
@@ -91,10 +92,7 @@ def _incident(runtime, character):
     with runtime.journal.db() as db:
         row = db.execute('SELECT value FROM state WHERE character=? AND name=?',
                          (character, KEY)).fetchone()
-        pending = db.execute(
-            "SELECT 1 FROM transactions WHERE character=? "
-            "AND phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1",
-            (character,)).fetchone()
+        pending = _pending_bot_work(db, character)
     if not row:
         return None, None, 'recovery_safety_not_active'
     try:
@@ -105,8 +103,40 @@ def _incident(runtime, character):
             and state.get('source') == 'unexpected_connection_loss'):
         return None, None, 'unexpected_connection_loss_watchdog_not_active'
     if pending:
-        return None, None, 'unresolved_merchant_transaction'
+        return None, None, 'unresolved_bot_transaction_or_delivery'
     return state, row[0], None
+
+
+def _pending_bot_work(db, character):
+    if db.execute(
+            "SELECT 1 FROM transactions WHERE character=? "
+            "AND phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1",
+            (character,)).fetchone():
+        return True
+    if db.execute(
+            "SELECT 1 FROM delivery_admissions WHERE character=? "
+            "AND phase IN ('admitted','transaction_started') LIMIT 1",
+            (character,)).fetchone():
+        return True
+    reservations = db.execute(
+        'SELECT state FROM delivery_reservations WHERE character=?',
+        (character,)).fetchall()
+    for row in reservations:
+        try:
+            if json.loads(row[0]).get('phase') not in TERMINAL_RESERVATIONS:
+                return True
+        except (TypeError, ValueError, AttributeError):
+            return True
+    row = db.execute("SELECT value FROM state WHERE character=? AND name='delivery_reservation'",
+                     (character,)).fetchone()
+    if row:
+        try:
+            state = json.loads(row[0])
+            if state and state.get('phase') not in TERMINAL_RESERVATIONS:
+                return True
+        except (TypeError, ValueError, AttributeError):
+            return True
+    return False
 
 
 def settle(runtime, character, *, now=None):
@@ -165,12 +195,9 @@ def settle(runtime, character, *, now=None):
         # handoff or any other saved control.
         if _manual_fenced(runtime, target):
             return _blocker('manual_handoff_or_session_fence_active')
-        pending = db.execute(
-            "SELECT 1 FROM transactions WHERE character=? "
-            "AND phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1",
-            (journal_character,)).fetchone()
+        pending = _pending_bot_work(db, journal_character)
         if pending:
-            return _blocker('unresolved_merchant_transaction')
+            return _blocker('unresolved_bot_transaction_or_delivery')
         changed = db.execute('UPDATE state SET value=? WHERE character=? AND name=? AND value=?',
                              (encoded_after, journal_character, KEY, encoded_before)).rowcount
         if changed != 1:
