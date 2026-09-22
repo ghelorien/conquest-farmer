@@ -134,7 +134,7 @@ class TownTrade:
         with physical_coordinates():
             layout, layout_revision = self.warehouse_layout()
             npc = self.vendor(0)
-            reader = MemoryWarehouseReader.for_session(self.observer.adapter)
+            reader = MemoryWarehouseReader(self.observer.adapter)
             before = self.inventory.read()
             stored = reader.read()
             candidates = [i for i in before.items if i.uid == uid and stash_candidate(i)]
@@ -348,7 +348,7 @@ class TownTrade:
         if action=='warehouse-items' and (set(body)=={'action'} or
                 set(body)=={'action','rich'} and body['rich'] is True):
             self.vendor(0)
-            reader=MemoryWarehouseReader.for_session(self.observer.adapter)
+            reader=MemoryWarehouseReader(self.observer.adapter)
             if body.get('rich'):
                 from conquest.merchants.memory import MerchantMemory
                 memory=MerchantMemory(self.observer)
@@ -487,7 +487,7 @@ class TownTrade:
             return self.warehouse_deposit(body['uid'])
         if action=='warehouse-withdraw-meteor' and set(body)=={'action','uid'}:
             from conquest.memory_warehouse import withdrawal_received
-            npc=self.vendor(0);reader=MemoryWarehouseReader.for_session(self.observer.adapter)
+            npc=self.vendor(0);reader=MemoryWarehouseReader(self.observer.adapter)
             before=self.inventory.read();stored=reader.read()
             candidates=[i for i in stored.items if i.uid==body['uid'] and i.type_id==1088001 and i.amount==i.limit==1]
             if len(candidates)!=1 or len(before.items)>=before.capacity:
