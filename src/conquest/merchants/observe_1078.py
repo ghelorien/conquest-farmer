@@ -53,7 +53,8 @@ def _processes(catalog):
     return by_pid
 
 
-def observe(runtime, character, *, listing_preflight=False):
+def observe(runtime, character, *, listing_preflight=False,
+            booth_target_preflight=False):
     """Called only behind the existing authenticated merchant bridge."""
     profiles = registry()
     if profiles is None:
@@ -97,6 +98,7 @@ def observe(runtime, character, *, listing_preflight=False):
         if owned > capacity:
             raise ValueError('Merchant stock exceeds qualified combined capacity')
         preflight = None
+        booth_target = None
         if listing_preflight:
             from conquest.merchants.listing_preflight_1078 import collect
             preflight = collect(session, snapshot)
@@ -106,6 +108,16 @@ def observe(runtime, character, *, listing_preflight=False):
                 'booth', 'own_booth_uid', 'booth_open', 'trade', 'request')
             if any(fresh[key] != snapshot[key] for key in stable_fields):
                 raise ValueError('Merchant ownership or modal state changed during listing preflight')
+            snapshot = fresh
+        if booth_target_preflight:
+            from conquest.merchants.booth_target_1078 import collect
+            booth_target = collect(session, snapshot)
+            fresh = open_read_only_1078(session, profile.name).read_manual_ownership()
+            stable_fields = ('character', 'character_uid', 'identity', 'server',
+                'map_id', 'position', 'hp', 'silver', 'capacity', 'inventory',
+                'booth', 'own_booth_uid', 'booth_open', 'trade', 'request')
+            if any(fresh[key] != snapshot[key] for key in stable_fields):
+                raise ValueError('Merchant ownership changed during booth target preflight')
             snapshot = fresh
         if _processes(runtime.catalog) != candidates:
             raise ValueError('Client processes changed during merchant observation')
@@ -128,4 +140,5 @@ def observe(runtime, character, *, listing_preflight=False):
             'capacity_kind': 'combined_inventory_and_booth',
             'owned_free_slots': capacity - owned,
             'input_qualified': False, 'refill_input_ready': False,
-            **({'listing_preflight': preflight} if listing_preflight else {})}
+            **({'listing_preflight': preflight} if listing_preflight else {}),
+            **({'booth_target_preflight': booth_target} if booth_target_preflight else {})}
