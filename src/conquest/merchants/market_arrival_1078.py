@@ -24,6 +24,8 @@ def _blocker(reason):
 
 def _manual_fenced(runtime, character):
     coordinator = getattr(runtime, 'coordinator', None)
+    if coordinator and getattr(coordinator, 'stopped', False):
+        return True
     if (coordinator and hasattr(coordinator, 'manual_session_blocked')
             and coordinator.manual_session_blocked(character)):
         return True
