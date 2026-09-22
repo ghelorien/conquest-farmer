@@ -7,6 +7,17 @@ import json
 KEY = 'recovery_safety'
 
 
+def settle_market_arrival_1078(runtime, character, *, now=None):
+    """Exact-build, read-only Market-arrival command.
+
+    Kept here as the recovery-safety entrypoint while the strict 1078 memory
+    qualification lives in its own module to avoid granting it to legacy
+    observers.
+    """
+    from conquest.merchants.market_arrival_1078 import settle
+    return settle(runtime, character, now=now)
+
+
 def operator_override(runtime, character, *, operator_confirmed=False,
                       confirmation_reference=None, operator=None, fresh_evidence=None,
                       incident_digest=None):
