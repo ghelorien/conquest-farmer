@@ -19,7 +19,7 @@ def close_one(trade,check=lambda:None):
 def _close_one(trade,check):
     # This helper is called only by farmer travel/combat, never by sellers.
     if trade.observer.character!=farmer_name():raise ValueError('Panel cleanup requires the farmer')
-    check();gui=GuiReader(trade.observer.adapter);windows=gui.windows()
+    check();gui=GuiReader.for_session(trade.observer.adapter);windows=gui.windows()
     if any(w['name'] in TRANSACTIONS for w in windows):
         raise CaptureUnavailable('A transaction dialog needs reconciliation before movement')
     chosen=next((name for name in PANELS if any(w['name']==name for w in windows)),None)

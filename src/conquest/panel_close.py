@@ -6,7 +6,7 @@ from conquest.merchants.driver import wait_hover_validation
 
 def click_close(trade,name,*,validate=None,before_mouse_down=None):
     if name not in ('Inventory','Shop','Warehouse'):raise ValueError('Unsupported display panel')
-    gui=GuiReader(trade.observer.adapter)
+    gui=GuiReader.for_session(trade.observer.adapter)
     def read_windows():
         # These reads run during preparation or before_press, never after a
         # button event. Town input marks intent early, so classify this race

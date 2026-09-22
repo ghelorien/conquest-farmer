@@ -4,21 +4,24 @@ import time
 
 from conquest.capture import CaptureUnavailable
 from conquest.character_context import farmer_name
+from conquest.memory_build_layout import read_build_layout
 from conquest.merchants.memory import MerchantMemory, GuiReader, string, unpack
 
 
 def presence(observer):
     """Map-independent modal presence; no inventory/participant inference."""
     observer.adapter.assert_identity()
-    gui=GuiReader(observer.adapter)
-    trade=gui.model(14,0x5cb328)
-    request=gui.model(15,0x5c4f30)
-    flags=[unpack(observer.adapter,address+12,'<B')[0] for address in (trade,request)]
+    layout=read_build_layout(observer.adapter)
+    gui=GuiReader.for_session(observer.adapter)
+    session=gui.session
+    trade=gui.model(14,layout.merchant_trade_vtable_rva)
+    request=gui.model(15,layout.merchant_confirm_vtable_rva)
+    flags=[unpack(session,address+12,'<B')[0] for address in (trade,request)]
     if any(value not in (0,1) for value in flags):raise ValueError('Trade modal flags are invalid')
-    title=string(observer.adapter,request+0x48) if flags[1] else None
-    if [unpack(observer.adapter,address+12,'<B')[0] for address in (trade,request)]!=flags:
+    title=string(session,request+0x48) if flags[1] else None
+    if [unpack(session,address+12,'<B')[0] for address in (trade,request)]!=flags:
         raise ValueError('Trade modal presence changed during observation')
-    observer.adapter.assert_identity()
+    session.assert_identity()
     return bool(flags[0] or flags[1] and title=='Trade###Confirm')
 
 
