@@ -53,7 +53,7 @@ def _processes(catalog):
     return by_pid
 
 
-def observe(runtime, character):
+def observe(runtime, character, *, listing_preflight=False):
     """Called only behind the existing authenticated merchant bridge."""
     profiles = registry()
     if profiles is None:
@@ -96,6 +96,17 @@ def observe(runtime, character):
         owned = len(snapshot['inventory']) + len(snapshot['booth'])
         if owned > capacity:
             raise ValueError('Merchant stock exceeds qualified combined capacity')
+        preflight = None
+        if listing_preflight:
+            from conquest.merchants.listing_preflight_1078 import collect
+            preflight = collect(session, snapshot)
+            fresh = open_read_only_1078(session, profile.name).read_manual_ownership()
+            stable_fields = ('character', 'character_uid', 'identity', 'server',
+                'map_id', 'position', 'hp', 'silver', 'capacity', 'inventory',
+                'booth', 'own_booth_uid', 'booth_open', 'trade', 'request')
+            if any(fresh[key] != snapshot[key] for key in stable_fields):
+                raise ValueError('Merchant ownership or modal state changed during listing preflight')
+            snapshot = fresh
         if _processes(runtime.catalog) != candidates:
             raise ValueError('Client processes changed during merchant observation')
         if profiles.resolve(profile.id, role='Merchant', server='America') != profile:
@@ -116,4 +127,5 @@ def observe(runtime, character):
             'request_open': snapshot['request'] is not None,
             'capacity_kind': 'combined_inventory_and_booth',
             'owned_free_slots': capacity - owned,
-            'input_qualified': False, 'refill_input_ready': False}
+            'input_qualified': False, 'refill_input_ready': False,
+            **({'listing_preflight': preflight} if listing_preflight else {})}

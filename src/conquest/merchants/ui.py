@@ -263,11 +263,12 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
-        if action=='merchant-observe-1078':
+        if action in ('merchant-observe-1078','merchant-listing-preflight-1078'):
             if set(body)!={'action','character'}:
                 raise ValueError('Read-only merchant observation requires exactly one character')
             from conquest.merchants.observe_1078 import observe
-            return observe(self.runtime,body['character'])
+            return observe(self.runtime,body['character'],
+                           listing_preflight=action=='merchant-listing-preflight-1078')
         if action in ('delivery-stale-pre-admission-preview','delivery-stale-pre-admission-clear'):
             from conquest.merchants.pre_admission_clear import dispatch
             return dispatch(self,body)

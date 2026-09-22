@@ -47,6 +47,21 @@ controls, credentials or input surface are returned. It neither attaches an
 automation observer nor changes saved permissions, journals or manual handoffs.
 Read gaps and a four-second overall deadline require a fresh read-only retry.
 
+`merchant-listing-preflight-1078` accepts the same character/profile selection
+and authentication. It brackets passive live GUI reads with identical merchant
+ownership snapshots. A missing/closed owned booth, open trade/request or merchant
+outside Market produces an explicit blocker instead of guessed controls. When
+available, it reports the owned booth panel and live window-owned inventory and
+booth tables (column/row/clip geometry), stripped of memory addresses. Relevant
+windows, table geometry and the typed owned-booth model are rechecked.
+
+A currently rendered price dialog contributes its observed bounds and any
+passive amount/OK/Cancel label-hash matches under the existing pointer. It never
+moves the pointer. These matches do not qualify handlers or click targets. The
+1078 selected-item/amount-buffer semantics and input behavior remain explicit
+blockers; no 1074 modal button offsets are reused. All input/readiness flags stay
+false, and the command writes no qualifications or saved state.
+
 ## Qualification still required
 
 Before enabling any listing/refill input, obtain fresh exact-1078 evidence for
