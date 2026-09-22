@@ -6,7 +6,7 @@ import json
 import struct
 import time
 from conquest.addressing import checked_address
-from conquest.memory_life import CLIENT_SHA256
+from conquest.memory_build_layout import CLIENT_SHA256_1074, CLIENT_SHA256_1078
 
 OWNERSHIP_MESSAGE="You can`t pick up other player`s loot at the moment. Please wait."
 
@@ -28,7 +28,12 @@ def ownership_rejected(before,after):
 
 class SystemMessageReader:
     def __init__(self,session):
-        if session.expected_sha256!=CLIENT_SHA256:raise ValueError('Unqualified system-message client')
+        # Both head RVAs are pinned to their exact executable fingerprints.
+        # The 1078 getter at RVA 0x77c65 returns manager RVA 0x6b8e90;
+        # its System-channel tree, deque and records retain the checked layout.
+        heads={CLIENT_SHA256_1074:0x698740,CLIENT_SHA256_1078:0x6b8ed0}
+        try:self.head_rva=heads[session.expected_sha256]
+        except KeyError as error:raise ValueError('Unqualified system-message client') from error
         self.session=session
         self.base=next(m['base'] for m in session.modules if m['name'].lower()=='imconquer.exe')
 
@@ -40,7 +45,7 @@ class SystemMessageReader:
             checks.append((address,raw));return raw
         # Renderer ef7f8 calls 76590, returning module+698700. Channel lookup
         # 196e20 walks the tree at manager+40, key node+20, deque node+28.
-        head=struct.unpack('<Q',read(self.base+0x698740,8))[0]
+        head=struct.unpack('<Q',read(self.base+self.head_rva,8))[0]
         node=struct.unpack('<Q',read(head+8,8))[0];visited=set();found=None
         for _ in range(64):
             if node==head:break

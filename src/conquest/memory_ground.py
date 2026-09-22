@@ -34,10 +34,10 @@ def wanted_drop(drop):
 
 class MemoryGroundReader:
     def __init__(self,entities,*,layout=None):
-        from conquest.memory_life import CLIENT_SHA256
-        if layout is None and entities.session.expected_sha256 != CLIENT_SHA256:
-            raise ValueError('Unqualified ground-item client')
-        if layout is not None and entities.session.expected_sha256 != layout.expected_sha256:
+        from conquest.memory_build_layout import read_build_layout
+        if layout is None:
+            layout=read_build_layout(entities.session)
+        if entities.session.expected_sha256 != layout.expected_sha256:
             raise ValueError('Ground layout differs from client')
         self.entities=entities
         self.layout=layout
