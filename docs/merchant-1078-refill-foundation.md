@@ -23,6 +23,30 @@ merchant's memory location, but this observer cannot initiate recovery or change
 saved controls. No refill timer, trading, listing, login, travel, focus or other
 input is enabled by this foundation.
 
+## Authenticated observation command
+
+The existing app-owned `/merchants` bridge accepts
+`{"action":"merchant-observe-1078","character":"Spiritual"}` (or Dutch).
+Its existing profile-ID normalization also accepts `profile_id` instead of
+`character`. The existing bridge token authentication remains mandatory.
+
+This command independently opens short-lived read-only process sessions inside
+the elevated app. It resolves exact-build actor names, pinned character UIDs and
+server memory without window/title selection, rejects ambiguous matches or
+unreadable candidates, and rechecks the selected process/profile and process
+inventory before returning. A configured UID must match; an unbound profile
+reports `profile_uid_verified: false` without binding or writing that profile.
+Non-1078 executables are skipped rather than interpreted using 1078 offsets.
+
+The compact result includes identity, map/position/HP, inventory, booth items and
+prices, combined ownership capacity, booth owner/open state and closed-modal
+flags. It deliberately reports `input_qualified: false` and
+`refill_input_ready: false`, even when every observation succeeds. Open requests
+or trades are observation evidence only. No coordinates, raw memory addresses,
+controls, credentials or input surface are returned. It neither attaches an
+automation observer nor changes saved permissions, journals or manual handoffs.
+Read gaps and a four-second overall deadline require a fresh read-only retry.
+
 ## Qualification still required
 
 Before enabling any listing/refill input, obtain fresh exact-1078 evidence for
