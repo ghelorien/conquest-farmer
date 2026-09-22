@@ -8,14 +8,9 @@ reviewed input qualification.
 """
 import struct
 import time
-from types import SimpleNamespace
-
 from conquest.addressing import checked_address
-from conquest.memory_build_layout import (
-    CLIENT_SHA256_1078, entity_reader_layout, health_reader_layout,
-)
-from conquest.memory_entities import MemoryEntityReader
-from conquest.merchants.stalls import owned_booth
+from conquest.memory_build_layout import CLIENT_SHA256_1078, entity_reader_layout
+from conquest.memory_entities import MemoryEntityReader, sample_fields
 
 
 def _read(session, address, fmt):
@@ -46,6 +41,63 @@ def _native_method(session, address, module):
             'method_prefix_hex': first.hex()}
 
 
+def _owned_scene_actor(session, entities, snapshot, module):
+    """Enumerate this exact 1078 scene without the 1074 life reader."""
+    p = entities.layout
+    base, collection, trace = entities._resolve()
+    if base != module['base']:
+        raise ValueError('1078 scene module differs from selected client')
+
+    def members():
+        begin, end, capacity = sample_fields(session, [
+            (collection + offset, 'u64') for offset in
+            (p.begin_offset, p.end_offset, p.capacity_offset)])
+        if (not begin <= end <= capacity or (end - begin) % p.entry_stride
+                or (capacity - begin) % p.entry_stride
+                or (capacity - begin) // p.entry_stride > p.max_objects):
+            raise ValueError('1078 scene membership bounds changed')
+        objects = sample_fields(session, [
+            (address + p.entry_object_offset, 'u64')
+            for address in range(begin, end, p.entry_stride)])
+        if len(objects) != len(set(objects)) or any(a < 0x10000 for a in objects):
+            raise ValueError('1078 scene membership is ambiguous')
+        return objects
+
+    objects = members()
+    vtables = sample_fields(session, [(a, 'u64') for a in objects])
+    typed = [a for a, vtable in zip(objects, vtables)
+             if vtable == base + p.monster_vtable_rva]
+    ids = sample_fields(session, [(a + p.id_offset, 'u32') for a in typed])
+    matches = [a for a, uid in zip(typed, ids)
+               if uid == snapshot['own_booth_uid']]
+    if len(matches) != 1:
+        raise ValueError('Expected exactly one 1078 owned booth scene actor')
+    address = matches[0]
+    fields = [(address, 'u64'), (address + p.id_offset, 'u32'),
+              (address + 0x7c, 'u32'), (address + 0x84, 'u32'),
+              (address + p.kind_offset, 'u32'),
+              (address + p.name_offset, 'utf8'),
+              (address + p.position_offset, 'xy_u32'),
+              (address + p.draw_position_offset, 'i32'),
+              (address + p.draw_position_offset + 4, 'i32')]
+    values = sample_fields(session, fields)
+    vtable, uid, type_id, model, species, name, position, dx, dy = values
+    if (vtable != base + p.monster_vtable_rva
+            or uid != snapshot['own_booth_uid'] or type_id != 0
+            or model != 406 or species != 0
+            or name != snapshot['character']
+            or any(not 0 <= v < 2048 for v in position)
+            or max(abs(a - b) for a, b in zip(position, snapshot['position'])) > 8
+            or any(abs(v) > 32768 for v in (dx, dy))):
+        raise ValueError('1078 owned booth actor identity or location changed')
+    if (sample_fields(session, fields) != values or members() != objects
+            or sample_fields(session, [(a, 'u64') for a, _ in trace])
+            != [v for _, v in trace]):
+        raise ValueError('1078 owned booth scene changed during observation')
+    return {'address': address, 'uid': uid, 'position': list(position),
+            'draw_position': [dx, dy]}
+
+
 def collect(session, snapshot):
     """Return scene/method evidence, never a point or permission to press it."""
     started = time.monotonic()
@@ -60,13 +112,8 @@ def collect(session, snapshot):
         raise ValueError('1078 booth module is missing or truncated')
     module = modules[0]
     layout = entity_reader_layout(session)
-    adapter = SimpleNamespace(expected_sha256=session.expected_sha256,
-        modules=session.modules, read=session.read, read_block=session.read,
-        assert_identity=session.assert_identity)
-    observer = SimpleNamespace(adapter=adapter, character=snapshot['character'],
-        health_layout=health_reader_layout(session),
-        entities=MemoryEntityReader(session, layout))
-    booth = owned_booth(observer, snapshot)
+    entities = MemoryEntityReader(session, layout)
+    booth = _owned_scene_actor(session, entities, snapshot, module)
     address = booth['address']
     if (_read(session, address, '<Q')[0] != module['base'] + layout.monster_vtable_rva
             or _read(session, address + layout.id_offset, '<I')[0] != snapshot['own_booth_uid']):
@@ -87,7 +134,7 @@ def collect(session, snapshot):
         if method is not None and 0 <= orientation < 8:
             candidates.append({'actor_offset': offset, 'orientation_candidate': orientation,
                                **method})
-    if owned_booth(observer, snapshot) != booth:
+    if _owned_scene_actor(session, entities, snapshot, module) != booth:
         raise ValueError('1078 owned booth scene membership changed')
     if (_read(session, address + 0x10, '<Q')[0] != actor_vtable
             or (_module_rva(actor_vtable, module) is not None
