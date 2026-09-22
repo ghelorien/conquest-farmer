@@ -618,8 +618,8 @@ class ProtectedWithdrawal:
                 raise ValueError('Protected warehouse layout, slot or ownership changed before input')
             if hover or state['phase']=='input_maybe_sent':
                 from conquest.merchants.memory import unpack,HoverNotReady,GuiReader
-                gui=GuiReader(self.town.observer.adapter)
-                context=unpack(gui.session,gui.base+0x6966f0,'<Q')[0]
+                gui=GuiReader.for_session(self.town.observer.adapter)
+                context=unpack(gui.session,gui.base+gui.context_rva,'<Q')[0]
                 if unpack(gui.session,context+0x3ec0,'<Q')[0]!=fresh['grid']['address']:
                     raise HoverNotReady('Protected warehouse item is covered by another window')
             # Observation and hover sampling can consume most of the bounded

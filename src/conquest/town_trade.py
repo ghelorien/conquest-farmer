@@ -123,7 +123,7 @@ class TownTrade:
         """Require the pointer's topmost ImGui window to be this exact grid."""
         from conquest.merchants.memory import GuiReader, HoverNotReady, unpack
         gui=GuiReader.for_session(self.observer.adapter)
-        context=unpack(gui.session,gui.base+0x6966f0,'<Q')[0]
+        context=unpack(gui.session,gui.base+gui.context_rva,'<Q')[0]
         address=window['address'] if isinstance(window,dict) else window.address
         if unpack(gui.session,context+0x3ec0,'<Q')[0]!=address:
             raise HoverNotReady('Warehouse drag endpoint is covered by another window')
@@ -359,7 +359,7 @@ class TownTrade:
             return use(self)
         if action=='open-bank' and set(body)=={'action'}:
             from conquest.memory_warehouse import WarehouseMoneyReader
-            npc=self.vendor(0);reader=WarehouseMoneyReader(self.observer.adapter)
+            npc=self.vendor(0);reader=WarehouseMoneyReader.for_session(self.observer.adapter)
             try:
                 reader.read()
                 return {'opened':True,'npc_id':npc.entity_id}
@@ -378,7 +378,7 @@ class TownTrade:
         if action=='warehouse-money' and set(body)=={'action'}:
             from conquest.memory_warehouse import WarehouseMoneyReader
             self.vendor(0)
-            bank=WarehouseMoneyReader(self.observer.adapter).read()
+            bank=WarehouseMoneyReader.for_session(self.observer.adapter).read()
             return {'silver':self.inventory.read().silver,'stored_silver':bank.silver,'amount':bank.amount}
         if action in ('warehouse-money-deposit','warehouse-money-withdraw') and set(body)=={'action','amount'}:
             from conquest.warehouse_money import transfer

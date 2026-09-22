@@ -42,7 +42,7 @@ def inventory_button(gui):
     """Items button: renderer 09a740, second column/top of ##Control's table."""
     s=gui.session
     window=gui.read('##Control')
-    context=struct.unpack('<Q',s.read_block(gui.base+0x6966f0,8))[0]
+    context=struct.unpack('<Q',s.read_block(gui.base+gui.context_rva,8))[0]
     header=s.read_block(context+0x4338,16)
     count,capacity,table=struct.unpack('<IIQ',header)
     if not 0<count<=capacity<=128:

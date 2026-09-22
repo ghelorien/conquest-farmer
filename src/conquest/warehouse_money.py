@@ -91,7 +91,7 @@ def transfer(trade,direction,amount):
 
 
 def _transfer_owned(trade,direction,amount):
-    npc=trade.vendor(0);reader=WarehouseMoneyReader(trade.observer.adapter)
+    npc=trade.vendor(0);reader=WarehouseMoneyReader.for_session(trade.observer.adapter)
     before=trade.inventory.read();bank=reader.read();points=money_points(reader,bank)
     available=before.silver if direction=='deposit' else bank.silver
     if amount>available:raise ValueError('Insufficient money for warehouse transfer')
