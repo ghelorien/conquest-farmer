@@ -39,6 +39,11 @@ class MemoryGui:
         self.context_rva = layout.gui_context_rva if layout is not None else 0x6966f0
         self.names = {}
 
+    @classmethod
+    def for_session(cls, session):
+        """Read GUI state using the exact fingerprinted client layout."""
+        return cls(session, layout=read_build_layout(session))
+
     def read(self, name):
         s = self.session
         from conquest.viewport import size_for
