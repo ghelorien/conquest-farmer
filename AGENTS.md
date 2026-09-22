@@ -77,10 +77,10 @@ and validated. A remembered screen coordinate is not NPC identification.
 
 # Standing route-optimization requirement
 
-Latest performance goal: sustain 40–50 verified kills per minute, with 40 as
-the minimum and 50 as the stretch target (not a speed cap). Include normal
+Latest performance goal: sustain at least 60 verified kills per minute, with
+75 as an aspirational stretch target (not a speed cap). Include normal
 travel, shopping, loot and recovery downtime. Review every five minutes;
-a complete fifteen-minute rate below 40/min plus two non-overlapping low
+a complete fifteen-minute rate below 60/min plus two non-overlapping low
 five-minute windows requires diagnosis and route/pathing reassessment. Preserve
 manual control and survival; do not disguise failures by resetting metrics or
 counting unverified kills. Reuse measured safe routes, and continue improving.

@@ -55,16 +55,17 @@ The comparison budget never stops farming. No farming time or money cap is added
 
 ## Current performance target
 
-The September 10 user target supersedes the earlier 30/min target: sustain
-40–50 verified kills/minute, minimum 40 and stretch 50 (2,400–3,000/hour).
+The September 22 user target supersedes the earlier 40/min target: sustain
+at least 60 verified kills/minute; 75/min is an aspirational stretch target
+(3,600–4,500/hour), not a speed cap.
 Read both values from the policy. Review five-minute windows and the full
 fifteen-minute average, and keep actual last-hour counts separate from projected
-hourly rates. Below 40/min for a full fifteen minutes, confirmed by two
+hourly rates. Below 60/min for a full fifteen minutes, confirmed by two
 non-overlapping five-minute windows, requires reassessment. Diagnose telemetry,
 stops, supplies, movement stalls and competition before changing patrols.
 Do not churn candidates during an otherwise valid ongoing comparison; finish
 its repeated samples unless safety or invalid telemetry interrupts it. Above
-50/min is welcome; never slow down merely to stay in the target band.
+75/min is welcome; never slow down merely to stay in the target band.
 
 The scheduled monitor applies this policy; the app itself does not autonomously
 compare and choose whole routes. Manual activity defers route changes. A failed
