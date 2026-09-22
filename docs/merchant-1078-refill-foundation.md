@@ -62,6 +62,18 @@ moves the pointer. These matches do not qualify handlers or click targets. The
 blockers; no 1074 modal button offsets are reused. All input/readiness flags stay
 false, and the command writes no qualifications or saved state.
 
+`merchant-refill-preview-1078` uses the same authenticated read-only 1078
+observation for one configured merchant. It reads the saved comparable price
+catalog in SQLite query-only mode and brackets planning with unchanged merchant
+ownership, journal and quote reads. Every carried item appears in a queue:
+verified prior booth listings retain their exact saved total price, other items
+use the last comparable historical quote (including the specified +1-to-+2
+equipment fallback), and items without reliable prices remain deferred. Known
+totals are sorted highest first, with only the first free booth slots shown as
+potential next listings. The preview reports blockers and never submits a
+listing, grants input, changes controls or writes runtime state. A missing or
+unreadable price catalog defers non-restoration inventory.
+
 ## Qualification still required
 
 Before enabling any listing/refill input, obtain fresh exact-1078 evidence for
