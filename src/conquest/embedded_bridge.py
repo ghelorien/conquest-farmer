@@ -7,6 +7,7 @@ from pathlib import Path
 import secrets
 import threading
 import time
+import traceback
 
 
 class EmbeddedBridge:
@@ -159,6 +160,19 @@ class EmbeddedBridge:
                         result['code']='input_acquisition_busy'
                     if getattr(error,'code',None) == 'town_observation_unavailable':
                         result['code'] = error.code
+                except Exception as error:
+                    # A bridge-side crash can occur after an input callback has
+                    # started.  Do not expose exception text (which can carry
+                    # request data), and never classify this as pre-input.
+                    frames = traceback.extract_tb(error.__traceback__)[-6:]
+                    result,status = {
+                        'error':'Unexpected embedded bridge error; input outcome is uncertain',
+                        'code':'input_outcome_uncertain',
+                        'type':type(error).__name__,
+                        'frames':[{'file':Path(frame.filename).name,
+                                   'function':frame.name,'line':frame.lineno}
+                                  for frame in frames],
+                    },400
                 encoded = json.dumps(result).encode('utf-8')
                 self.send_response(status)
                 self.send_header('Content-Type','application/json')
