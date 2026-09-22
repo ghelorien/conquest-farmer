@@ -1,4 +1,4 @@
-"""Read-only, exact-1078 settlement of an unexpected-loss Market arrival.
+"""No-game-input, exact-1078 settlement of an unexpected-loss Market arrival.
 
 This deliberately is not a recovery driver.  It only turns a still-active
 ``recovery_safety`` incident into ``market_arrived`` after two independent
@@ -19,7 +19,7 @@ from conquest.merchants.recovery_safety import KEY
 def _blocker(reason):
     """Keep a failed qualification explicit and side-effect free."""
     return {'settled': False, 'phase': 'blocked', 'blocker': reason,
-            'read_only': True, 'input_qualified': False}
+            'game_input': False, 'journal_updated': False}
 
 
 def _manual_fenced(runtime, character):
@@ -120,7 +120,7 @@ def settle(runtime, character, *, now=None):
         profile_id = target.profile_id
         journal_character = character_name(target)
     except (AttributeError, TypeError, ValueError) as error:
-        return _blocker('merchant_profile_unavailable: ' + str(error))
+        return _blocker('merchant_profile_unavailable')
     if _manual_fenced(runtime, target):
         return _blocker('manual_handoff_or_session_fence_active')
     state, encoded_before, reason = _incident(runtime, journal_character)
@@ -137,8 +137,8 @@ def settle(runtime, character, *, now=None):
         second_evidence, reason = _qualified(second, profile_id)
         if reason:
             return _blocker(reason)
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        return _blocker('native_memory_observation_failed: ' + str(error))
+    except (OSError, ValueError, KeyError, TypeError):
+        return _blocker('native_memory_observation_failed')
     if first_evidence != second_evidence:
         return _blocker('native_memory_observations_do_not_match')
     if _manual_fenced(runtime, target):
@@ -158,6 +158,11 @@ def settle(runtime, character, *, now=None):
     encoded_after = json.dumps(state, sort_keys=True)
     with runtime.journal.db() as db:
         db.execute('BEGIN IMMEDIATE')
+        # Keep the final fence check adjacent to the state CAS.  It gives a
+        # just-started global manual handoff precedence without changing that
+        # handoff or any other saved control.
+        if _manual_fenced(runtime, target):
+            return _blocker('manual_handoff_or_session_fence_active')
         pending = db.execute(
             "SELECT 1 FROM transactions WHERE character=? "
             "AND phase NOT IN ('verified','aborted','operator_overridden') LIMIT 1",
@@ -172,6 +177,6 @@ def settle(runtime, character, *, now=None):
                    (journal_character, 'recovery_safety_market_arrived_1078',
                     json.dumps({'identity': identity, 'ownership_digest': ownership_digest,
                                 'observations': 2}, sort_keys=True), arrived_at))
-    return {'settled': True, 'phase': 'market_arrived', 'read_only': True,
-            'input_qualified': False, 'observations': 2,
+    return {'settled': True, 'phase': 'market_arrived', 'game_input': False,
+            'journal_updated': True, 'observations': 2,
             'ownership_digest': ownership_digest}
