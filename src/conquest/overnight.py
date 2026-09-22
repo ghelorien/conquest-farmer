@@ -1088,6 +1088,12 @@ class OvernightLoop:
                                         'function':frame.name} for frame in frames])
         finally:
             try:
-                request(self.info,'controls',{'enabled':False})
+                # The desktop app removes the authenticated bridge receipt as
+                # it exits.  A missing receipt during controller teardown is
+                # already a stopped input surface, not a new route failure.
+                try:
+                    request(self.info,'controls',{'enabled':False})
+                except FileNotFoundError:
+                    pass
             finally:
                 ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)

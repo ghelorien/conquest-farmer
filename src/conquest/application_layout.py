@@ -82,19 +82,22 @@ def application_root(explicit=None, *, verify=True):
 class RuntimeLayout:
     root: Path
     immutable: bool
+    state_root: Path | None
 
     @classmethod
     def resolve(cls, explicit=None, *, verify=True):
         root = application_root(explicit, verify=verify)
         immutable = bool(os.environ.get(MANIFEST_PIN))
+        state_root = None
+        state = os.environ.get('CONQUEST_DATA_ROOT')
+        if state and Path(state).is_absolute():
+            state_root = real_path(state)
         if immutable:
-            state = os.environ.get('CONQUEST_DATA_ROOT')
-            if not state or not Path(state).is_absolute():
+            if state_root is None:
                 raise ValueError('Immutable release requires an absolute managed state root')
-            state = real_path(state)
-            if state == root or root in state.parents or state in root.parents:
+            if state_root == root or root in state_root.parents or state_root in root.parents:
                 raise ValueError('Managed state and immutable application roots must be separate')
-        return cls(root, immutable)
+        return cls(root, immutable, state_root)
 
     def verify_for_launch(self):
         application_root(self.root)
@@ -123,6 +126,11 @@ class RuntimeLayout:
     def environment(self):
         environment = os.environ.copy()
         environment[APP_ROOT] = str(self.root)
+        # Keep the data namespace selected during bootstrap.  A worker must
+        # not fall back to the launcher host's LOCALAPPDATA (for example a
+        # Windows Store LocalCache) if its ambient environment changes.
+        if self.state_root is not None:
+            environment['CONQUEST_DATA_ROOT'] = str(self.state_root)
         if self.immutable:
             environment['PYTHONDONTWRITEBYTECODE'] = '1'
         return environment

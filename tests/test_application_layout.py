@@ -59,6 +59,7 @@ def test_immutable_controller_uses_pinned_script_interpreter_and_external_state(
     assert argv[1:]==['-B',str(root/'scripts/run_overnight.py'),'--route','bandit']
     assert options['cwd']==root and options['env'][layout.APP_ROOT]==str(root)
     assert options['env'][layout.MANIFEST_PIN]==digest
+    assert options['env']['CONQUEST_DATA_ROOT']==str(state.resolve())
     assert (state/'.runtime/route-controller-launch.json').exists()
     assert (root/release.MANIFEST).read_bytes()==before
     release.verify_release(root, expected_manifest_sha256=digest)
@@ -114,6 +115,18 @@ def test_immutable_layout_requires_external_state_before_launch(tmp_path,monkeyp
     with pytest.raises(ValueError,match='managed state root'):layout.RuntimeLayout.resolve()
     monkeypatch.setenv('CONQUEST_DATA_ROOT',str(root/'state'))
     with pytest.raises(ValueError,match='separate'):layout.RuntimeLayout.resolve()
+
+
+def test_runtime_layout_keeps_resolved_data_root_for_children(tmp_path,monkeypatch):
+    root=app(tmp_path/'release');state=tmp_path/'state';other=tmp_path/'store-cache'
+    release.write_manifest(root);digest=release.verify_release(root)['manifest_sha256']
+    monkeypatch.setenv(layout.APP_ROOT,str(root));monkeypatch.setenv(layout.MANIFEST_PIN,digest)
+    monkeypatch.setenv('CONQUEST_DATA_ROOT',str(state))
+    runtime=layout.RuntimeLayout.resolve()
+    # The launcher can no longer redirect a previously qualified worker by
+    # changing its ambient data-root environment after layout resolution.
+    monkeypatch.setenv('CONQUEST_DATA_ROOT',str(other))
+    assert runtime.environment()['CONQUEST_DATA_ROOT']==str(state.resolve())
 
 
 def test_full_verification_failure_backoff_never_writes_or_caches_success(tmp_path,monkeypatch):

@@ -159,6 +159,7 @@ def test_active_release_pins_manifest_and_launcher_uses_release_cwd(tmp_path):
     command, options = calls[0]
     assert command[0][0] == str(executable)
     assert command[0][1] == "-B"
+    assert command[0][3:5] == ["--data-root", str(state.resolve())]
     assert options["cwd"] == str(root)
     assert options["env"]["CONQUEST_DATA_ROOT"] == str(state)
     assert options["env"]["CONQUEST_APP_ROOT"] == str(root)

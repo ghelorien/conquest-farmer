@@ -641,6 +641,20 @@ def test_town_handoff_cancels_old_death_return_before_new_travel(tmp_path,monkey
     assert calls==[{'enabled':False},{'route_id':'bandit'}]
 
 
+def test_route_shutdown_ignores_removed_bridge_receipt(monkeypatch):
+    from conquest import overnight
+    loop=OvernightLoop.__new__(OvernightLoop)
+    loop.phase='starting';loop.info='removed-bridge.json'
+    loop.check_stop=lambda:None;loop.refresh=lambda:None
+    loop.record=lambda *args,**kwargs:None
+    loop.health=lambda:(_ for _ in ()).throw(overnight.OvernightStopped('Stopped by user'))
+    monkeypatch.setattr(overnight,'request',lambda *args:(_ for _ in ()).throw(FileNotFoundError()))
+    monkeypatch.setattr(overnight.ctypes,'windll',SimpleNamespace(kernel32=SimpleNamespace(
+        SetThreadExecutionState=lambda *_:None)),raising=False)
+    loop.run()
+    assert loop.phase=='stopped'
+
+
 def test_non_market_typed_stall_keeps_survival_and_recovery_active(monkeypatch):
     from conquest.merchants import delivery_route
     from conquest.travel_progress import TravelStalled

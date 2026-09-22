@@ -386,7 +386,11 @@ def launch_active_release(arguments=(), *, state_root=None, popen=subprocess.Pop
     environment["CONQUEST_RELEASE_MANIFEST_SHA256"] = receipt["manifest_sha256"]
     # Imports must not create __pycache__ files inside the verified release.
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
-    return popen([str(python), "-B", str(launcher), *arguments], cwd=str(root), env=environment)
+    # Preserve the selected state namespace through the launcher bootstrap as
+    # well as its process environment.  This is important for elevated or
+    # packaged launch hosts whose inherited LOCALAPPDATA differs from ours.
+    return popen([str(python), "-B", str(launcher), "--data-root", str(state_root), *arguments],
+                 cwd=str(root), env=environment)
 
 
 def main(argv=None) -> int:
