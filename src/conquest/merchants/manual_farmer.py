@@ -84,7 +84,12 @@ def observe(runtime,observer=None):
             runtime.manual_farmer_observation={'available':True,'windows_absent':True,'observed_at':time.time(),
                 'source':'read_only_memory','qualified_full_snapshot_maps':[1002,1011,1036]}
             return False
-        snapshot=MerchantMemory(observer).read(farmer_preflight=True)
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        if read_build_layout(observer.adapter).expected_sha256 == CLIENT_SHA256_1078:
+            from conquest.merchants.reader_1078 import open_read_only_1078
+            snapshot=open_read_only_1078(observer.adapter,observer.character).read_manual_ownership()
+        else:
+            snapshot=MerchantMemory(observer).read(farmer_preflight=True)
     except (ValueError,OSError) as error:
         reason='Farmer manual memory unavailable: '+str(error)
         runtime.manual_farmer_observation={'available':False,'reason':reason,
