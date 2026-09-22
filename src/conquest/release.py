@@ -408,6 +408,9 @@ def main(argv=None) -> int:
     elif args.command == "verify": value = verify_release(args.release)
     elif args.command == "rollback": value = rollback_release(state_root=args.data_root)
     else:
-        launch_active_release(args.arguments, state_root=args.data_root); return 0
+        # argparse requires `--` before options meant for the desktop app.
+        # Do not pass that separator on to the app's own argument parser.
+        arguments = args.arguments[1:] if args.arguments[:1] == ['--'] else args.arguments
+        launch_active_release(arguments, state_root=args.data_root); return 0
     print(json.dumps(value, indent=2))
     return 0
