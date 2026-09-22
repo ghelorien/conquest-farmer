@@ -114,7 +114,7 @@ def _preview(snapshot, state):
         current_price = actual.get('price')
         wanted.append({'uid': uid, 'name': item['name'], 'quantity': item['quantity'],
                        'attributes': {key: item[key] for key in _ITEM_FIELDS},
-                       'prior_unit_price': price, 'prior_total_price': price * item['quantity'],
+                       'prior_listing_price': price, 'prior_total_price': price,
                        'current_location': location, 'current_price': current_price,
                        'already_restored': location == 'booth' and current_price == price})
     wanted.sort(key=lambda item: (-item['prior_total_price'], item['uid']))
