@@ -8,6 +8,11 @@ name, model, position and scene membership identify the merchant's own booth.
 It brackets the scene read with fresh ownership observations.
 
 The endpoint deliberately returns `input_qualified: false` and no target point.
+For read-only qualification it examines at most 17 aligned pointer fields of
+the verified booth actor (`+0x2d0..+0x350`), and only three fixed vtable slots
+(`0x20`, `0x28`, `0x40`) when those pointers resolve inside the exact client
+module. Method evidence is limited to a 24-byte prefix. Actor pointer fields,
+scene membership and ownership are reread before returning.
 The 1074 booth graphics vtable, tile footprint, camera and hit-test instructions
 are not carried over. Its bounded graphics-method evidence is for identifying
 the 1078 native hit-test path in a supervised read-only observation. Until its

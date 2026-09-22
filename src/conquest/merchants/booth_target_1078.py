@@ -24,21 +24,27 @@ def _module_rva(value, module, *, minimum=0):
     return value - base
 
 
-def _native_method(session, address, module):
-    """Read only one module-vtable method and a bounded instruction prefix."""
+def _graphics_methods(session, address, module):
+    """Inspect three fixed vtable slots, never a caller-supplied address."""
     vtable = _read(session, address, '<Q')[0]
-    if _module_rva(vtable, module) is None:
+    vtable_rva = _module_rva(vtable, module)
+    if vtable_rva is None or vtable_rva + 0x48 > module['size']:
         return None
-    method = _read(session, vtable + 0x40, '<Q')[0]
-    rva = _module_rva(method, module, minimum=0x1000)
-    if rva is None or rva + 48 > module['size']:
+    methods = []
+    for slot in (0x20, 0x28, 0x40):
+        method = _read(session, vtable + slot, '<Q')[0]
+        rva = _module_rva(method, module, minimum=0x1000)
+        if rva is None or rva + 24 > module['size']:
+            continue
+        prefix = session.read(method, 24)
+        if (session.read(method, 24) != prefix
+                or _read(session, vtable + slot, '<Q')[0] != method):
+            raise ValueError('Booth graphics method changed during read-only observation')
+        methods.append({'slot': slot, 'method_rva': rva,
+                        'method_prefix_hex': prefix.hex()})
+    if not methods:
         return None
-    first = session.read(method, 48)
-    if session.read(method, 48) != first:
-        raise ValueError('Booth graphics method changed during read-only observation')
-    return {'graphics_vtable_rva': _module_rva(vtable, module),
-            'method_slot': 0x40, 'method_rva': rva,
-            'method_prefix_hex': first.hex()}
+    return {'graphics_vtable_rva': vtable_rva, 'methods': methods}
 
 
 def _owned_scene_actor(session, entities, snapshot, module):
@@ -121,19 +127,23 @@ def collect(session, snapshot):
     actor_vtable = _read(session, address + 0x10, '<Q')[0]
     accessor = (_read(session, actor_vtable + 0x28, '<Q')[0]
                 if _module_rva(actor_vtable, module) is not None else 0)
+    offsets = tuple(range(0x2d0, 0x351, 8))
+    pointers = tuple(_read(session, address + offset, '<Q')[0] for offset in offsets)
     candidates = []
-    for offset in (0x2f8, 0x300):
-        graphics = _read(session, address + offset, '<Q')[0]
+    for offset, graphics in zip(offsets, pointers):
         if not 0x10000 <= graphics <= 0x7fffffffffff:
             continue
         try:
-            method = _native_method(session, graphics, module)
+            method = _graphics_methods(session, graphics, module)
             orientation = _read(session, graphics + 0xc, '<i')[0]
         except OSError:
             continue
-        if method is not None and 0 <= orientation < 8:
-            candidates.append({'actor_offset': offset, 'orientation_candidate': orientation,
-                               **method})
+        if method is not None:
+            candidates.append({'actor_offset': offset,
+                'orientation_candidate': orientation if 0 <= orientation < 8 else None,
+                **method})
+    if tuple(_read(session, address + offset, '<Q')[0] for offset in offsets) != pointers:
+        raise ValueError('1078 booth actor pointer fields changed during observation')
     if _owned_scene_actor(session, entities, snapshot, module) != booth:
         raise ValueError('1078 owned booth scene membership changed')
     if (_read(session, address + 0x10, '<Q')[0] != actor_vtable
