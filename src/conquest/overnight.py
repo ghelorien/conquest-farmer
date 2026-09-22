@@ -697,6 +697,8 @@ class OvernightLoop:
             raise ValueError('Supplies or inventory room remain insufficient after restocking and storage')
         from conquest.merchants.handoff import service_window
         service_window(self,town=True)
+        if visits is not None:
+            visits.complete_town_work('restock')
         self.cycles += 1
         self.record('restock_complete',supplies=counts)
 
@@ -726,6 +728,8 @@ class OvernightLoop:
             # safe town visit for the bounded refill window without shopping.
             from conquest.merchants.handoff import service_window
             service_window(self,town=True)
+        if visits is not None:
+            visits.complete_town_work('urgent_banking')
 
     def hunt(self):
         self.phase = 'hunting'
@@ -958,6 +962,10 @@ class OvernightLoop:
             close_warehouse(self)
         from conquest.merchant_loop_acceptance import cycle_pending
         if cycle_pending():self.bank_acceptance_delivery()
+        # Never leave town merely because a restarted worker sees stocked
+        # supplies. The previous process may have stopped before banking or
+        # may have submitted a transfer whose result needs reconciliation.
+        self.town_visit.require_town_work_complete()
         if self.living()['embedded_controls']['life']['map_id']!=self.route.map_id:
             self.return_to_route_map()
         from conquest.city_travel import ensure_city_visit
@@ -1006,6 +1014,7 @@ class OvernightLoop:
         acceptance.finish_town(self,send=merchant)
         bag=self.town('supplies')
         if needs_town(supply_counts(bag,self.route),self.route):self.restock()
+        self.town_visit.complete_town_work('merchant_acceptance')
 
     def protect_during_movement_retry(self):
         """Retain the controller and life care instead of abandoning a runback."""

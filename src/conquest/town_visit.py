@@ -94,20 +94,57 @@ class TownVisit:
             raise ValueError('A town visit requires an existing restock or urgent-bank obligation')
         old=self.state()
         if old.get('phase') in ('town_work','returning_to_hunt'):
-            if reason not in old['reasons']:
-                old['reasons'].append(reason);write_json(self.path,old)
+            changed=reason not in old['reasons']
+            if changed:old['reasons'].append(reason)
+            if old.get('town_work_completed_at'):
+                old.setdefault('town_work_history',[]).append({
+                    'completed_at':old.pop('town_work_completed_at'),
+                    'kind':old.pop('town_work_completed_kind',None)})
+                old['phase']='town_work'
+                changed=True
+            if changed:write_json(self.path,old)
             return old
         history=list(old.get('history',[]))
         if old:history.append({key:value for key,value in old.items() if key!='history'})
-        row={'version':1,'town_visit_id':uuid.uuid4().hex,'farmer_profile_id':self.profile,
+        row={'version':2,'town_visit_id':uuid.uuid4().hex,'farmer_profile_id':self.profile,
              'phase':'town_work','reasons':[reason],'required_at':self.clock(),
              'hunt_map_id':hunt_map_id,'route_id':route_id,'baseline':self.probe(),
              'history':history}
         write_json(self.path,row)
         return row
 
-    def returning(self,hunt_map_id,*,target):
+    def complete_town_work(self,kind):
+        """Persist the successful end of native town work before return begins.
+
+        This must be called only after banking, supplies and any required
+        handoff have returned successfully. An absent marker after a crash is
+        deliberately not inferred from full supplies or a later hunting kill:
+        the last warehouse or monetary input may have been submitted without
+        its receipt reaching this process.
+        """
+        if kind not in ('restock','urgent_banking','merchant_acceptance'):
+            raise ValueError('Unknown completed town work')
         row=self.state()
+        if row.get('phase')!='town_work':
+            raise ValueError('No active town work can be completed')
+        if kind not in row.get('reasons',[]):
+            raise ValueError('Town work completion does not match the visit')
+        if row.get('town_work_completed_at'):
+            return row
+        row.update(town_work_completed_at=self.clock(),town_work_completed_kind=kind)
+        write_json(self.path,row)
+        return row
+
+    def require_town_work_complete(self):
+        row=self.state()
+        if row.get('phase') in ('town_work','returning_to_hunt') and not row.get('town_work_completed_at'):
+            raise ValueError(
+                'Unfinished town work needs read-only transaction reconciliation before return; '
+                'do not replay a warehouse, purchase, or monetary action')
+        return row
+
+    def returning(self,hunt_map_id,*,target):
+        row=self.require_town_work_complete()
         if row.get('phase') not in ('town_work','returning_to_hunt'):return None
         if not _process_identity(target):
             raise ValueError('Required town return needs the exact game process identity')
@@ -123,6 +160,10 @@ class TownVisit:
     def observe_hunting(self,health):
         row=self.state()
         if row.get('phase')!='returning_to_hunt':return None
+        if not row.get('town_work_completed_at'):
+            # A legacy or interrupted visit must not become "complete" merely
+            # because a later process observed a verified hunting kill.
+            return None
         data=health.get('embedded_controls',{});control=data.get('control',{});life=data.get('life') or {}
         now=self.clock();baseline=row.get('return_baseline') or {}
         if (control.get('enabled') is not True or control.get('paused') or data.get('manual_mouse') is not False
