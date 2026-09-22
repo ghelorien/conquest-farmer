@@ -6,6 +6,7 @@ import time
 
 from conquest.addressing import checked_address
 from conquest.memory_shop import MemoryGui
+from conquest.memory_build_layout import CLIENT_SHA256_1074, CLIENT_SHA256_1078
 
 
 class SelectionReader:
@@ -95,8 +96,8 @@ class SelectionReader:
         return matches[0]
 
     def menu_point(self):
-        if self.layout is not None and self.layout.expected_sha256!='c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396':
-            raise ValueError('1078 skill-selection points are read-only')
+        if self.layout is not None and self.layout.expected_sha256 not in (CLIENT_SHA256_1074, CLIENT_SHA256_1078):
+            raise ValueError('Skill-selection input is not qualified for this build')
         window=self.gui.read('##Control')
         n,rect,columns=self.table(window,6)
         width=struct.unpack_from('<f',columns,5*0x68+0x10)[0]
@@ -145,8 +146,8 @@ class SelectionReader:
         return round(x),round(y)
 
     def scatter_point(self,actor):
-        if self.layout is not None and self.layout.expected_sha256!='c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396':
-            raise ValueError('1078 skill-selection points are read-only')
+        if self.layout is not None and self.layout.expected_sha256 not in (CLIENT_SHA256_1074, CLIENT_SHA256_1078):
+            raise ValueError('Skill-selection input is not qualified for this build')
         entries=self.entries(actor)
         if entries.count(8001)!=1:raise ValueError('Exactly one selectable Scatter is required')
         window=self.gui.read('Skills')
