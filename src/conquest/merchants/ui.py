@@ -271,6 +271,11 @@ class UnifiedUI:
             return observe(self.runtime,body['character'],
                            listing_preflight=action=='merchant-listing-preflight-1078',
                            booth_target_preflight=action=='merchant-booth-target-preflight-1078')
+        if action=='merchant-restoration-preview-1078':
+            if set(body)!={'action','character'}:
+                raise ValueError('Read-only restoration preview requires exactly one merchant')
+            from conquest.merchants.restoration_preview_1078 import preview
+            return preview(self.runtime,body['character'])
         if action in ('delivery-stale-pre-admission-preview','delivery-stale-pre-admission-clear'):
             from conquest.merchants.pre_admission_clear import dispatch
             return dispatch(self,body)
