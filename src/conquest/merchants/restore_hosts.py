@@ -2,16 +2,49 @@
 from conquest.merchants.journal import CHARACTERS
 
 
-def _readonly_market_hosting_safe(ui):
-    """Require a fresh, stopped farmer baseline before hosting 1078 HWNDs."""
+def _farmer_health_cache(ui):
+    """Fetch farmer health off the Tk poll thread, sharing a short-lived read."""
     import os
+    import threading
     import time
     from pathlib import Path
 
     from conquest.character_context import state_path
+    from conquest.worker import request
+
+    lock=getattr(ui,'_readonly_farmer_health_lock',None)
+    if lock is None:
+        lock=threading.Lock()
+        ui._readonly_farmer_health_lock=lock
+        ui._readonly_farmer_health_cache={'pending':False,'requested_at':0.0,'health':None}
+    cache=ui._readonly_farmer_health_cache
+    now=time.monotonic()
+    with lock:
+        if not cache['pending'] and now-cache['requested_at']>=0.5:
+            cache['pending']=True
+            cache['requested_at']=now
+            info=Path(state_path('.runtime')) / f'embedded-worker-{os.getpid()}.json'
+
+            def read_health():
+                try:
+                    health=request(info,'health')
+                except Exception:
+                    health=None
+                with lock:
+                    cache['health']=health
+                    cache['pending']=False
+
+            threading.Thread(target=read_health,name='readonly-farmer-health',daemon=True).start()
+        return cache['health']
+
+
+def _readonly_market_hosting_safe(ui):
+    """Require a fresh, stopped farmer baseline before hosting 1078 HWNDs."""
+    import time
+
+    from conquest.character_context import state_path
     from conquest.discord_notify import process_alive, read_json
     from conquest.merchants.background_probe import probe_busy
-    from conquest.worker import request
 
     app, runtime, coordinator = ui.app, ui.runtime, ui.coordinator
     control = app.control.snapshot()
@@ -41,8 +74,9 @@ def _readonly_market_hosting_safe(ui):
         if (route.get('phase') not in ('stopped', 'completed', 'failed')
                 or type(route_pid) is not int or process_alive(route_pid) is not False):
             return False
-        info = Path(state_path('.runtime')) / f'embedded-worker-{os.getpid()}.json'
-        health = request(info, 'health')
+        health = _farmer_health_cache(ui)
+        if health is None:
+            return False
         controls = health.get('embedded_controls') or {}
         life = controls.get('life') or {}
         if (health.get('profile_id') != runtime.manual_target('Farmer')
@@ -100,7 +134,9 @@ def restore(ui, *, host_factory=None):
                         continue
                     if host.saved:
                         continue
-                    size=(max(1,pane.winfo_width()),max(1,pane.winfo_height()))
+                    size=(pane.winfo_width(),pane.winfo_height())
+                    from conquest.client_attachment import require_viewport
+                    require_viewport(*size)
                     host.attach(observer.hwnd,observer.adapter.identity,pane.winfo_id(),*size)
                     observer.adapter.assert_identity()
                     ui.coordinator.surface_blocks[character]=True
