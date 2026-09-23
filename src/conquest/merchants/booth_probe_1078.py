@@ -91,7 +91,45 @@ def _validate_snapshot(snapshot, profile, expected):
     _item(snapshot)
 
 
-def _policy(ui, character, profile, control, *, request_id=None, deadline=None):
+def _farmer_safe_market(ui, expected_target=None):
+    """A stopped farmer still needs a live, identity-bound safe location."""
+    import os
+
+    from conquest.character_context import state_path
+    from conquest.discord_notify import process_alive, read_json
+    from conquest.worker import request
+
+    if ui.app.thread and ui.app.thread.is_alive():
+        raise CaptureUnavailable('Farmer route must exit before merchant focus')
+    route = read_json(state_path('reports/overnight/status.json'))
+    route_pid = route.get('pid')
+    if (route.get('phase') not in ('stopped', 'completed', 'failed')
+            or type(route_pid) is not int or process_alive(route_pid) is not False):
+        raise CaptureUnavailable('Farmer route worker must exit before merchant focus')
+    info = Path(state_path('.runtime')) / f'embedded-worker-{os.getpid()}.json'
+    health = request(info, 'health')
+    controls = health.get('embedded_controls') or {}
+    life = controls.get('life') or {}
+    target = health.get('target')
+    if (health.get('profile_id') != ui.runtime.manual_target('Farmer')
+            or not isinstance(target, dict)
+            or expected_target is not None and target != expected_target
+            or life.get('map_id') != 1036
+            or life.get('dead_candidate') is not False
+            or not isinstance(life.get('current_hp'), int)
+            or life['current_hp'] <= 0
+            or controls.get('manual_mouse')
+            or controls.get('manual_input_fence')
+            or controls.get('external_execution') is not False
+            or not isinstance(controls.get('observed_at'), (int, float))
+            or not 0 <= time.time() - controls['observed_at'] <= 1
+            or controls.get('control', {}).get('enabled') is not False):
+        raise CaptureUnavailable('Farmer must be alive and stopped in Market before merchant focus')
+    return target
+
+
+def _policy(ui, character, profile, control, *, request_id=None, deadline=None,
+            farmer_target=None):
     runtime, coordinator = ui.runtime, ui.coordinator
     current_control = ui.app.control.snapshot()
     if (ui.closed or ui.app.closing or runtime.stop_event.is_set() or coordinator.stopped
@@ -106,6 +144,7 @@ def _policy(ui, character, profile, control, *, request_id=None, deadline=None):
             or runtime.refilling or runtime.connecting or ui.calibrating
             or deadline is not None and time.monotonic() >= deadline):
         raise CaptureUnavailable('Booth probe stopped, expired, or lacks a safe farmer handoff')
+    _farmer_safe_market(ui, farmer_target)
     from conquest.merchants.delivery_reservation import active
     from conquest.merchants.background_probe import probe_busy
     if active(runtime.journal, character) or probe_busy(ui):
@@ -241,7 +280,8 @@ def dispatch(ui, body):
             raise ValueError('Probe request ID was used for different work')
         return _status(journal, request_id, character)
     control = ui.app.control.snapshot()
-    _policy(ui, character, profile, control)
+    farmer_target = _farmer_safe_market(ui)
+    _policy(ui, character, profile, control, farmer_target=farmer_target)
     from conquest.merchants.observe_1078 import observe
     observed = observe(ui.runtime, character, listing_preflight=True)
     preflight = observed['listing_preflight']
@@ -263,11 +303,12 @@ def dispatch(ui, body):
     native = target.snapshot()
     if native['root_hwnd'] != hwnd or native['foreground'] != hwnd or native['minimized']:
         raise ValueError('Probe requires Dutch already foreground in a standalone native window')
-    _policy(ui, character, profile, control)
+    _policy(ui, character, profile, control, farmer_target=farmer_target)
     fence = ui.coordinator.fence
     token = fence.capture() if fence else None
     before = {'request': dict(body), 'profile_id': profile.id, 'hwnd': hwnd,
               'control': control, 'client_sha256': CLIENT_SHA256_1078,
+              'farmer_target': farmer_target,
               'observed': observed, 'listing_submission_permitted': False}
     if not journal.begin(request_id, character, KIND, before):
         return _status(journal, request_id, character)
@@ -301,7 +342,8 @@ def _run(ui, character, profile, before, token):
             booth_vtable = read_build_layout(session).merchant_booth_vtable_rva
             model = gui.model(25, booth_vtable)
             def policy():
-                _policy(ui, character, profile, before['control'], request_id=request_id, deadline=deadline)
+                _policy(ui, character, profile, before['control'], request_id=request_id,
+                        deadline=deadline, farmer_target=before['farmer_target'])
                 session.assert_identity()
                 state = target.snapshot()
                 if state['root_hwnd'] != target.hwnd or state['foreground'] != target.hwnd:
