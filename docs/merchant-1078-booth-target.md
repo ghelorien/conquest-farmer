@@ -27,3 +27,21 @@ prove the live click opens only this booth's owned native model and still pass
 the existing Stop, mouse, modal, process, scene and input-lease guards. Listing
 items from an already-open booth is a separate input qualification. This
 preflight neither issues nor authorizes a click.
+
+## Price dialog, read-only qualification
+
+Both exact-build merchant processes produced byte-identical loaded booth-render
+code while their owned booths and inventories stayed stable. The render function
+at RVA `0x75b90` binds selected item UID at booth-model `+0x50` and a 12-byte
+`##Amount` buffer at `+0x54`. Its **OK** handler parses a price in
+`1..999,999,999`, calls the native listing callback with that UID and price,
+then clears and closes the dialog. **Cancel** only clears and closes it. The
+read-only listing preflight now pins the complete loaded function hash and
+vtable slot before describing those field/button semantics.
+
+This is not listing-input authorization. Button hit geometry, a submitted
+callback's transport outcome, and server acceptance remain unverified. A
+closed popup alone is not a receipt. The next supervised proof must compare
+the exact UID in inventory and the booth, with verified price and durable
+before/after observations; no automatic Confirm is enabled yet. The bounded
+loaded-code diagnostic is `scripts/probe_booth_modal_code_1078.py`.

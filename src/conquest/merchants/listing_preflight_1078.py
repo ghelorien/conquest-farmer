@@ -1,8 +1,34 @@
 """Read-only live booth layout evidence, never an input qualification."""
+import hashlib
 import struct
 
 from conquest.memory_build_layout import CLIENT_SHA256_1078, read_build_layout
 from conquest.merchants.memory import GuiReader, HoverNotReady, unpack
+
+
+_MODAL_RENDER_RVA = 0x75b90
+_MODAL_RENDER_LENGTH = 5313
+_MODAL_RENDER_SHA256 = '97c9069d8c500a9ff90b474dfb34871a36ba8dda689f1b537319c83568fcba04'
+
+
+def _modal_code_verified(session, layout):
+    """Pin the loaded 1078 UID/amount/OK/Cancel render function, read-only."""
+    modules = [module for module in session.modules
+               if module['name'].casefold() == 'imconquer.exe']
+    if len(modules) != 1:
+        raise ValueError('Expected one exact ImConquer module')
+    module = modules[0]
+    if _MODAL_RENDER_RVA + _MODAL_RENDER_LENGTH > module['size']:
+        raise ValueError('1078 price-dialog code is outside the client module')
+    base = module['base']
+    vtable = base + layout.merchant_booth_vtable_rva
+    render = struct.unpack('<Q', session.read(vtable + 0x10, 8))[0]
+    if render != base + _MODAL_RENDER_RVA:
+        raise ValueError('1078 booth render binding changed')
+    code = session.read(render, _MODAL_RENDER_LENGTH)
+    if hashlib.sha256(code).hexdigest() != _MODAL_RENDER_SHA256:
+        raise ValueError('1078 price-dialog button/field code changed')
+    return True
 
 
 def _window(windows, name, *, prefix=False):
@@ -110,6 +136,7 @@ def collect(session, snapshot):
     if modals:
         modal = modals[0]
         candidate = _modal_candidate(adapter, model, snapshot)
+        _modal_code_verified(session, layout)
         hovered = []
         # A native label hash under the current pointer is passive evidence,
         # not proof of the label's handler, button geometry, or input behavior.
@@ -122,10 +149,13 @@ def collect(session, snapshot):
         result['price_modal'] = {**_panel(modal), 'observed': True,
             'hovered_label_hash_matches': hovered,
             **candidate,
-            'selected_item_uid_verified': False, 'price_buffer_verified': False,
+            'selected_item_uid_verified': True,
+            'price_buffer_binding_verified': True,
+            'native_ok_cancel_handlers_verified': True,
+            'server_acceptance_verified': False,
             'controls_qualified': False}
-        blocked('price_modal_semantics_unqualified',
-                '1078 selected-item, amount-buffer and confirm/cancel behavior still need exact-build proof')
+        blocked('price_modal_input_unqualified',
+                'Native field and button bindings are pinned, but click geometry and server outcome remain unverified')
     else:
         result['price_modal'] = {'observed': False, 'controls_qualified': False}
         blocked('price_modal_not_observed', 'No live Add Item to Booth dialog; no price controls were inferred')
