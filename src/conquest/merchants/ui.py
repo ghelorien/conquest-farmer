@@ -1466,7 +1466,26 @@ class UnifiedUI:
             return
         if (getattr(self.runtime.observers.get(character),'merchant_observation_only',False)
                 and self.runtime.manual_handoff_status() is None):
-            return  # Only the explicit manual view may alter this native HWND.
+            # Safe automatic 1078 hosting may follow the pane's geometry, but
+            # it never activates the client or changes the selected notebook tab.
+            status=self.layout_status.get(character,{})
+            host=self.hosts.get(character)
+            observer=self.runtime.observers.get(character)
+            pane=self.client_panes[character]
+            if (status.get('auto_read_only_host') and host and host.saved
+                    and observer and host.saved.identity==observer.adapter.identity
+                    and pane.winfo_ismapped()):
+                try:
+                    observer.adapter.assert_identity()
+                    size=(pane.winfo_width(),pane.winfo_height())
+                    if min(size)>1:
+                        host.resize(*size)
+                        status.update(native_visible=bool(host.api.gui.IsWindowVisible(host.saved.hwnd)),
+                                      selected=True)
+                except (OSError,ValueError):
+                    self.calibration_results[character]={'verified':False,
+                        'note':'Read-only client layout is unavailable; input remains fenced'}
+            return
         # A delayed Tk layout event is not allowed to alter merchant permission
         # while a delivery or another native input handoff owns the surface.
         # Explicit input preparation still validates geometry with automatic=True;
