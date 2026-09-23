@@ -4,6 +4,7 @@ The legacy claim is an explicit operator action. Route startup may consume a
 claim once, but cannot create one from stocked supplies or a terminal journal.
 """
 import json
+import math
 from pathlib import Path
 import time
 
@@ -131,6 +132,17 @@ def resume_claimed(loop):
     if not claim:return False
     if row.get('phase')!='town_work' or row.get('reasons')!=['urgent_banking']:
         return False
+    completed=row.get('town_work_completed_at')
+    if completed is not None:
+        if (type(completed) not in (int,float) or not math.isfinite(completed)
+                or completed<=0 or row.get('town_work_completed_kind')!='urgent_banking'
+                or not row.get('urgent_recovery_attempted_at')
+                or not row.get('urgent_banking_tail_completed_at')
+                or not row.get('urgent_followup_completed_at')
+                or not _process_identity(row.get('urgent_target'))
+                or row['urgent_target']!=loop.identity):
+            raise ValueError('Completed urgent recovery marker is inconsistent')
+        return False  # TownVisit.returning() still establishes the hunt baseline.
     if row.get('urgent_recovery_attempted_at'):
         raise ValueError('Urgent recovery tail was already attempted; reconcile before any retry')
     health=loop.health();target=health.get('target')

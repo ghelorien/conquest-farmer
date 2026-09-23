@@ -107,16 +107,37 @@ class TownVisit:
                 raise ValueError('Urgent bank item identities are duplicated')
         old=self.state()
         if old.get('phase') in ('town_work','returning_to_hunt'):
-            if urgent_intent is not None and old.get('urgent_intent') is not None:
-                if (old['urgent_intent']!=urgent_intent or old.get('urgent_target')!=target):
-                    raise ValueError('Active urgent bank intent changed during the town visit')
+            prior_intent=old.get('urgent_intent')
+            terminal_urgent=(bool(old.get('town_work_completed_at'))
+                             and old.get('town_work_completed_kind')=='urgent_banking')
+            if urgent_intent is not None:
+                if (prior_intent is not None
+                        and (prior_intent!=urgent_intent or old.get('urgent_target')!=target)
+                        and not terminal_urgent):
+                    raise ValueError('Unresolved urgent bank intent changed during the town visit')
+                if (prior_intent is None and not terminal_urgent
+                        and any(old.get(field) for field in
+                                ('urgent_target','urgent_recovery_claim',
+                                 'urgent_recovery_attempted_at',
+                                 'urgent_banking_tail_completed_at',
+                                 'urgent_followup_completed_at'))):
+                    raise ValueError('Unresolved urgent state needs reconciliation')
             changed=reason not in old['reasons']
             if changed:old['reasons'].append(reason)
             if old.get('town_work_completed_at'):
-                old.setdefault('town_work_history',[]).append({
+                completed={
                     'completed_at':old.pop('town_work_completed_at'),
-                    'kind':old.pop('town_work_completed_kind',None)})
+                    'kind':old.pop('town_work_completed_kind',None)}
+                if completed['kind']=='urgent_banking':
+                    for field in ('urgent_intent','urgent_target',
+                                  'urgent_banking_tail_completed_at','urgent_followup_completed_at',
+                                  'urgent_recovery_claim','urgent_recovery_attempted_at'):
+                        if field in old:completed[field]=old.pop(field)
+                old.setdefault('town_work_history',[]).append(completed)
                 old['phase']='town_work'
+                changed=True
+            if urgent_intent is not None and old.get('urgent_intent') is None:
+                old.update(urgent_intent=urgent_intent,urgent_target=deepcopy(target))
                 changed=True
             if changed:write_json(self.path,old)
             return old
