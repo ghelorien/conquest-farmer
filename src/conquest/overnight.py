@@ -708,7 +708,8 @@ class OvernightLoop:
         if not items:return
         visits=getattr(self,'town_visit',None)
         if visits is not None:
-            visits.begin('urgent_banking',hunt_map_id=self.route.map_id,route_id=self.route.id)
+            visits.begin('urgent_banking',hunt_map_id=self.route.map_id,route_id=self.route.id,
+                         target=self.identity,urgent_items=items)
         self.phase='restocking'
         self.record('urgent_banking_started',uids=[i['uid'] for i in items],
                     activity='Heading directly to the warehouse to protect a Dragonball or +2 item')
@@ -718,6 +719,8 @@ class OvernightLoop:
         travel_to_map(self,self.route.restock_map_id)
         self.town('close',window='Shop');self.town('close',window='Inventory')
         if not after_shopping(self):raise ValueError('Urgent valuable banking is disabled')
+        if visits is not None:
+            visits.record_urgent_tail('banking',target=self.identity)
         bag=self.town('supplies')
         if urgent_valuables(bag['items']):
             raise ValueError('Urgent valuables remain carried; farming will not resume')
@@ -729,6 +732,7 @@ class OvernightLoop:
             from conquest.merchants.handoff import service_window
             service_window(self,town=True)
         if visits is not None:
+            visits.record_urgent_tail('followup',target=self.identity)
             visits.complete_town_work('urgent_banking')
 
     def hunt(self):
@@ -962,6 +966,8 @@ class OvernightLoop:
             close_warehouse(self)
         from conquest.merchant_loop_acceptance import cycle_pending
         if cycle_pending():self.bank_acceptance_delivery()
+        from conquest.urgent_town_recovery import resume_claimed
+        resume_claimed(self)
         # Never leave town merely because a restarted worker sees stocked
         # supplies. The previous process may have stopped before banking or
         # may have submitted a transfer whose result needs reconciliation.

@@ -89,11 +89,27 @@ class TownVisit:
         row=self.state()
         return row.get('town_visit_id') if row.get('phase') in ('town_work','returning_to_hunt') else None
 
-    def begin(self,reason,*,hunt_map_id,route_id=None):
+    def begin(self,reason,*,hunt_map_id,route_id=None,target=None,urgent_items=None):
         if reason not in ('restock','urgent_banking','merchant_acceptance'):
             raise ValueError('A town visit requires an existing restock or urgent-bank obligation')
+        urgent_intent=None
+        if reason=='urgent_banking' and target is not None and urgent_items is not None:
+            if not _process_identity(target) or not isinstance(urgent_items,list) or not urgent_items:
+                raise ValueError('Urgent bank intent needs an exact process and inventory items')
+            urgent_intent=[]
+            for item in urgent_items:
+                if (not isinstance(item,dict) or type(item.get('uid')) is not int
+                        or item['uid']<=0 or type(item.get('type_id')) is not int
+                        or item['type_id']<=0):
+                    raise ValueError('Urgent bank item identity is invalid')
+                urgent_intent.append({'uid':item['uid'],'type_id':item['type_id']})
+            if len({item['uid'] for item in urgent_intent})!=len(urgent_intent):
+                raise ValueError('Urgent bank item identities are duplicated')
         old=self.state()
         if old.get('phase') in ('town_work','returning_to_hunt'):
+            if urgent_intent is not None and old.get('urgent_intent') is not None:
+                if (old['urgent_intent']!=urgent_intent or old.get('urgent_target')!=target):
+                    raise ValueError('Active urgent bank intent changed during the town visit')
             changed=reason not in old['reasons']
             if changed:old['reasons'].append(reason)
             if old.get('town_work_completed_at'):
@@ -110,8 +126,100 @@ class TownVisit:
              'phase':'town_work','reasons':[reason],'required_at':self.clock(),
              'hunt_map_id':hunt_map_id,'route_id':route_id,'baseline':self.probe(),
              'history':history}
+        if urgent_intent is not None:
+            row.update(urgent_intent=urgent_intent,urgent_target=deepcopy(target))
         write_json(self.path,row)
         return row
+
+    def record_urgent_tail(self,stage,*,target):
+        """Checkpoint successfully returned native work, not an inferred result."""
+        field={'banking':'urgent_banking_tail_completed_at',
+               'followup':'urgent_followup_completed_at'}.get(stage)
+        if field is None:raise ValueError('Unknown urgent bank tail stage')
+        row=self.state()
+        if (row.get('phase')!='town_work' or 'urgent_banking' not in row.get('reasons',[])
+                or not _process_identity(target) or row.get('urgent_target')!=target
+                or not row.get('urgent_intent')):
+            raise ValueError('Urgent bank tail does not match the active visit and process')
+        if stage=='followup' and not row.get('urgent_banking_tail_completed_at'):
+            raise ValueError('Urgent bank followup cannot precede banking')
+        if not row.get(field):
+            row[field]=self.clock();write_json(self.path,row)
+        return row
+
+    def claim_urgent_recovery(self,*,visit_id,target,intent,evidence):
+        """Persist one explicitly reviewed legacy continuation, without game input."""
+        row=self.state()
+        if (row.get('phase')!='town_work' or row.get('reasons')!=['urgent_banking']
+                or row.get('town_visit_id')!=visit_id or row.get('urgent_recovery_claim')
+                or row.get('urgent_recovery_attempted_at') or not _process_identity(target)
+                or not isinstance(intent,list) or not intent
+                or not isinstance(evidence,dict) or not evidence.get('reference')):
+            raise ValueError('Urgent recovery claim does not match one unfinished visit')
+        if row.get('urgent_target') is not None and row['urgent_target']!=target:
+            raise ValueError('Urgent recovery process differs from the original visit')
+        if row.get('urgent_intent') is not None and row['urgent_intent']!=intent:
+            raise ValueError('Urgent recovery items differ from the original visit')
+        if (len({item.get('uid') for item in intent})!=len(intent)
+                or any(type(item.get('uid')) is not int or item['uid']<=0
+                       or type(item.get('type_id')) is not int or item['type_id']<=0
+                       for item in intent)):
+            raise ValueError('Urgent recovery item identities are invalid')
+        row.update(urgent_target=deepcopy(target),urgent_intent=deepcopy(intent),
+                   urgent_recovery_claim={**deepcopy(evidence),'claimed_at':self.clock()})
+        write_json(self.path,row)
+        return row
+
+    def start_urgent_recovery_once(self,*,target):
+        row=self.state()
+        if (row.get('phase')!='town_work' or row.get('reasons')!=['urgent_banking']
+                or not row.get('urgent_recovery_claim') or not _process_identity(target)
+                or row.get('urgent_target')!=target or row.get('urgent_recovery_attempted_at')):
+            raise ValueError('Urgent recovery is unclaimed or already attempted')
+        row['urgent_recovery_attempted_at']=self.clock()
+        write_json(self.path,row)
+        return row
+
+    def reconcile_urgent_town_work(self,*,target,bag,warehouse,meteor,transaction_holds,needs_town):
+        """Complete only a fully checkpointed urgent tail with fresh native ownership."""
+        row=self.state()
+        if row.get('phase')!='town_work' or row.get('reasons')!=['urgent_banking']:
+            return False
+        intent=row.get('urgent_intent')
+        if (not isinstance(intent,list) or not intent or not _process_identity(target)
+                or row.get('urgent_target')!=target
+                or not row.get('urgent_banking_tail_completed_at')
+                or not row.get('urgent_followup_completed_at')
+                or transaction_holds or needs_town):
+            return False
+        try:
+            wanted={item['uid']:item['type_id'] for item in intent}
+            if len(wanted)!=len(intent):return False
+            carried={item['uid']:item['type_id'] for item in bag['items']}
+            stored={item['uid']:item['type_id'] for item in warehouse['items']}
+            if (any(uid in carried or stored.get(uid)!=kind for uid,kind in wanted.items())
+                    or not all(item.get('uid') in stored and
+                               stored[item['uid']]==item.get('type_id')
+                               for item in intent)):
+                return False
+            # A completed Meteor journal is required when this visit packed a
+            # scroll. It must show exact terminal receipts for every banked UID.
+            started=meteor.get('started_at')
+            if type(started) in (int,float) and started>=row['required_at']:
+                if (meteor.get('phase')!='completed' or meteor.get('exchange_verified') is not True
+                        or not meteor.get('market_verified_at') or not meteor.get('completed_at')):
+                    return False
+                receipts={receipt.get('stored'):receipt for receipt in meteor.get('receipts',[])
+                          if receipt.get('verified_in_warehouse') is True}
+                if (any(receipts.get(uid,{}).get('type_id')!=kind
+                        for uid,kind in wanted.items())
+                        or stored.get(meteor.get('scroll_uid'))!=720027
+                        or meteor.get('scroll_uid') not in receipts):
+                    return False
+        except (KeyError,TypeError,ValueError):
+            return False
+        self.complete_town_work('urgent_banking')
+        return True
 
     def complete_town_work(self,kind):
         """Persist the successful end of native town work before return begins.
