@@ -88,6 +88,13 @@ def scatter_landing(supervisor, targets, position, boundary, radius,minimum_coun
             steps=max(abs(dx),abs(dy))*4
             if (blocked or not fast) and any((round(x+dx*i/steps),round(y+dy*i/steps)) in blocked for i in range(1,steps+1)):continue
             count=sum(max(abs(p[0]-point[0]),abs(p[1]-point[1]))<=radius for p in live)
+            # Scatter can reach a dense group from its edge. The 1078 live
+            # trace showed a jump into a 16-target group followed by lethal
+            # contact damage before the next cast. Never choose a landing in
+            # the middle of that group merely for a higher attack count.
+            contact=sum(max(abs(p[0]-point[0]),abs(p[1]-point[1]))<=3 for p in live)
+            close=sum(max(abs(p[0]-point[0]),abs(p[1]-point[1]))<=5 for p in live)
+            if contact>2 or close>5:continue
             future=0.
             for center,group_count,separation in groups:
                 remaining=max(abs(a-b) for a,b in zip(center,point))
@@ -116,7 +123,10 @@ def scatter_landing(supervisor, targets, position, boundary, radius,minimum_coun
     else:
         winner=max(candidates,key=lambda row:row[0])
     score,destination=winner
+    landing_contact=sum(max(abs(p[0]-destination[0]),abs(p[1]-destination[1]))<=3 for p in live)
+    landing_close=sum(max(abs(p[0]-destination[0]),abs(p[1]-destination[1]))<=5 for p in live)
     supervisor.scatter_plan={'lookahead':score[0]>score[1],
-        'immediate_targets':score[1],'discounted_group_score':score[0]}
+        'immediate_targets':score[1],'discounted_group_score':score[0],
+        'contact_targets':landing_contact,'nearby_targets_5':landing_close}
     supervisor.scatter_landings=recent+[(position,now)]
     return destination
