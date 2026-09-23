@@ -1580,8 +1580,10 @@ class DesktopApp:
         ranges=read_combat_ranges(self.observer,require_scatter=False)
         from conquest.equipment import read_equipment
         from conquest.arrow_upgrades import current_arrow,NORMAL_ARROWS
-        reserves=[i.type_id for i in self.observer.town_trade.inventory.read().items if i.amount>=3]
-        ammo_type=current_arrow(read_equipment(self.observer),route.supplies.arrow_type,reserves)
+        inventory=self.observer.town_trade.inventory.read()
+        reserves=[i.type_id for i in inventory.items if i.amount>=3]
+        ammo_type=current_arrow(read_equipment(self.observer),route.supplies.arrow_type,reserves,
+                                equipped_ammo=inventory.equipped_ammo)
         self.record(ammunition={'type_id':ammo_type,'name':NORMAL_ARROWS[ammo_type]})
         self.record(combat_ranges=ranges)
         from conquest.navigation import read_terrain

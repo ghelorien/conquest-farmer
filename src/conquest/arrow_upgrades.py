@@ -34,10 +34,23 @@ def eligible_arrow(product,state):
             and get('profession',0) in (0,40,41))
 
 
-def current_arrow(state,default=1050000,reserves=()):
+def current_arrow(state,default=1050000,reserves=(),*,equipped_ammo=None):
+    """Choose a Scatter-usable tier from freshly observed carried ammunition.
+
+    Equipment metadata identifies the arrow tier but does not contain its live
+    remaining count. Only a matching inventory observation can qualify the
+    equipped stack; an empty SpeedArrow must not hide a usable IronArrow pack.
+    """
     item=state['equipment'].get('arrows')
     usable=[kind for kind in reserves if kind in ARROW_LEVELS and ARROW_LEVELS[kind]<=state['level']]
-    if item and eligible_arrow(item,state):usable.append(item['type_id'])
+    if equipped_ammo is not None:
+        observed=(equipped_ammo if isinstance(equipped_ammo,dict)
+                  else {key:getattr(equipped_ammo,key,None) for key in ('uid','type_id','amount')})
+        if (item and eligible_arrow(item,state)
+                and observed.get('uid')==item.get('uid')
+                and observed.get('type_id')==item['type_id']
+                and (observed.get('amount') or 0)>=3):
+            usable.append(item['type_id'])
     return max(usable,key=ARROW_LEVELS.get) if usable else default
 
 

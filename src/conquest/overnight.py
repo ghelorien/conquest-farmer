@@ -911,8 +911,10 @@ class OvernightLoop:
     def adopt_ammunition(self,state=None):
         from conquest.arrow_upgrades import current_arrow,NORMAL_ARROWS,ARROW_REFILL_AMOUNTS
         state=state or self.town('gear')
-        reserves=[i['type_id'] for i in self.town('supplies')['items'] if i['amount']>=3]
-        kind=current_arrow(state,self.route.supplies.arrow_type,reserves)
+        supplies=self.town('supplies')
+        reserves=[i['type_id'] for i in supplies['items'] if i['amount']>=3]
+        kind=current_arrow(state,self.route.supplies.arrow_type,reserves,
+                           equipped_ammo=supplies.get('equipped_ammo'))
         target=ARROW_REFILL_AMOUNTS[kind]
         if kind!=self.route.supplies.arrow_type or target!=self.route.supplies.arrows_restock_to:
             supplies=self.route.supplies.model_copy(update={'arrow_type':kind,'arrows_restock_to':target})
