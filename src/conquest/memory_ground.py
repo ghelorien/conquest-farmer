@@ -71,9 +71,15 @@ class MemoryGroundReader:
             raise ValueError('Too many ground records')
         if begin:checked_address(begin,max(1,end-begin))
         entries=s.read_block(begin,end-begin) if end>begin else b''
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
         result=[];seen_uids=set();seen_objects=set();record_checks=[]
         for at in range(0,len(entries),16):
             address,owner=struct.unpack_from('<QQ',entries,at)
+            # The live 1078 vector can contain an all-zero slot. A half-cleared
+            # record is still uncertain and must fail closed. The full vector
+            # is checked again below before any observation is returned.
+            if layout.expected_sha256==CLIENT_SHA256_1078 and address==owner==0:
+                continue
             checked_address(owner,0x30)
             if address!=owner+0x10 or sample_fields(s,[(owner,'u64')])[0]!=base+holder_vtable:
                 raise ValueError('Ground registry record ownership changed')
