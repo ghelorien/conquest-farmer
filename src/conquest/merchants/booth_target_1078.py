@@ -64,7 +64,9 @@ def _projection_candidate(session, booth, module, actor_vtable, accessor, candid
                             for m in c['methods']))]
     if len(selected) != 1:
         raise ValueError('1078 owned booth graphics are not uniquely pinned')
-    if _read(session, booth['address'] + 0x2b0, '<I')[0] != 14:
+    # The pinned native hit-test runs with this = actor + 0x10. Its
+    # [this + 0x2b0] kind is therefore actor + 0x2c0.
+    if _read(session, booth['address'] + 0x2c0, '<I')[0] != 14:
         raise ValueError('1078 owned booth actor has a different hit-test kind')
     offsets = _read(session, base + 0x5daa70, '<10i')
     footprint = tuple(zip(offsets[::2], offsets[1::2]))
