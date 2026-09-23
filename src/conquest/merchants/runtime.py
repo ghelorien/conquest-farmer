@@ -129,7 +129,7 @@ class MerchantRuntime(ManualRuntime):
         self.journal.event(character,'refill_resumed' if enabled else 'refill_paused')
 
     def input_allowed(self, character):
-        if self.manual_1078_registry.blocks_automation(character):
+        if self.read_only_1078(character):
             return False
         if self.coordinator.manual_session_blocked(character, purpose=getattr(self.coordinator,'purpose',None)):
             return False
@@ -206,8 +206,17 @@ class MerchantRuntime(ManualRuntime):
         """
         return self.catalog.windows(include_hidden=True)
 
+    def read_only_1078(self, character, *, force=False):
+        # A live read-only attachment remains fenced even if a concurrent
+        # process enumeration briefly misses its exact executable.
+        observer=self.observers.get(character)
+        if observer is not None and getattr(observer,'merchant_observation_only',False):
+            return True
+        self.manual_1078_registry.refresh_build_presence(force=force)
+        return self.manual_1078_registry.blocks_automation(character)
+
     def attach(self, character):
-        if self.manual_1078_registry.blocks_automation(character):
+        if self.read_only_1078(character,force=True):
             raise ValueError('1078 manual-only profile cannot attach an automation observer')
         from conquest.memory_life import read_life
         status=self.attachments[character];status.enter('discovery')
@@ -310,26 +319,37 @@ class MerchantRuntime(ManualRuntime):
 
     def step_observation_1078(self, character):
         observer=self.observers.get(character)
+        if observer is not None and not getattr(observer,'merchant_observation_only',False):
+            # An older attached 1074 controller must never be interpreted as
+            # a 1078 reader or continue work during a newly detected build.
+            with self.lock:self.latest.pop(character,None)
+            raise CaptureUnavailable('1078 client appeared; existing merchant input is fenced')
         if observer is not None:
             try:observer.adapter.assert_identity()
             except (OSError,ValueError):
-                observer.close()
                 with self.lock:
                     self.observers.pop(character,None)
                     self.latest.pop(character,None)
                 self.attachments[character].observation_ready=False
+                observer.close()
                 observer=None
         if observer is None:
             self.attach_observation_1078(character)
             return
         try:snapshot=observer.read_ownership()
-        except (ValueError,OSError):
+        except (ValueError,OSError) as error:
             with self.lock:self.latest.pop(character,None)
+            self.attachments[character].observation_ready=False
+            if 'ownership differs from the configured profile' in str(error):
+                with self.lock:self.observers.pop(character,None)
+                observer.close()
             raise
         with self.lock:self.latest[character]=snapshot
+        self.attachments[character].observation_ready=True
 
     def bind(self, character, observer):
-        if getattr(observer,'merchant_observation_only',False):
+        if (getattr(observer,'merchant_observation_only',False)
+                or self.read_only_1078(character,force=True)):
             raise ValueError('1078 merchant observation does not qualify automation or refill input')
         from conquest.character_context import merchant_context, merchant_directory
         context=merchant_context(character)
@@ -366,7 +386,7 @@ class MerchantRuntime(ManualRuntime):
         return login_screen(observer.operations.target.hwnd)
 
     def recover(self, character, *, crashed=False):
-        if self.manual_1078_registry.blocks_automation(character):
+        if self.read_only_1078(character,force=True):
             raise CaptureUnavailable('1078 manual-only profile cannot reconnect automatically')
         from conquest.merchants.recovery_safety import arm, submitted
         arm(self,character)
@@ -411,8 +431,9 @@ class MerchantRuntime(ManualRuntime):
             self.recoveries[character].attempt(lambda:submit_login(driver.target,
                 credential_path(character),session=driver.observer.adapter))
 
-    def step(self, character):
-        if self.manual_1078_registry.blocks_automation(character):
+    def step(self, character, *, read_only_path=None):
+        if read_only_path is None:read_only_path=self.read_only_1078(character)
+        if read_only_path:
             # Persistent observation has no driver or input capability. The
             # separate manual-handoff registry still owns its own baseline.
             return self.step_observation_1078(character)
@@ -695,11 +716,13 @@ class MerchantRuntime(ManualRuntime):
 
     def run(self, character):
         while not self.stop_event.is_set():
+            read_only_path=False
             try:
                 from contextlib import nullcontext
                 fence=getattr(self.coordinator,'fence',None)
                 with fence.bind_worker(fence.capture()) if fence else nullcontext():
-                    self.step(character)
+                    read_only_path=self.read_only_1078(character)
+                    self.step(character,read_only_path=read_only_path)
                 with self.lock:
                     self.errors.pop(character,None)
             except (ValueError,OSError,CaptureUnavailable) as error:
@@ -714,14 +737,16 @@ class MerchantRuntime(ManualRuntime):
             except Exception:
                 # Keep the other character and UI alive, with no exception
                 # text that could disclose an account or notifier secret.
-                if not self.manual_1078_registry.blocks_automation(character):
+                observation_only=(read_only_path or self.manual_1078_registry.read_only_build or
+                    getattr(self.observers.get(character),'merchant_observation_only',False))
+                if not observation_only:
                     self.enable(character,False)
                     self.set_refill_enabled(character,False)
                     self.journal.set(character,'attention',{'kind':'unexpected',
                         'note':'Unexpected merchant failure; automatically paused. Check diagnostics and resume when ready.'})
                 with self.lock:
                     self.errors[character] = {'note':'Unexpected merchant observer failure; input remains fenced.'
-                        if self.manual_1078_registry.blocks_automation(character) else
+                        if observation_only else
                         'Unexpected merchant failure; paused. Check qualification and diagnostics.','since':time.time()}
             self.stop_event.wait(1)
         observer = self.observers.pop(character,None)
@@ -732,7 +757,8 @@ class MerchantRuntime(ManualRuntime):
         with self.lock:
             result = {}
             for character in CHARACTERS:
-                if self.manual_1078_registry.blocks_automation(character):
+                if (self.manual_1078_registry.blocks_automation(character)
+                        or getattr(self.observers.get(character),'merchant_observation_only',False)):
                     manual=self.manual_status(character)
                     snapshot=self.latest.get(character)
                     fresh=bool(snapshot and 0<=time.time()-snapshot['timestamp']<=5

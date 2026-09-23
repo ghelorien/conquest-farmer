@@ -19,11 +19,14 @@ booth input control or a listing slot limit.
 The 1078 runtime now retains one exact-process read-only observer for each
 memory-identified Spiritual/Dutch client and polls the manual ownership reader
 even outside a global Manual handoff. The attached observer provides a verified
-native HWND to the owned Client pane, while its current inventory and booth
-snapshot feeds the merchant display. Open trade/request modals remain observation
-evidence. A read gap clears the displayed stock until a fresh read succeeds;
+native HWND to the guarded Manual handoff Client view, while its current inventory
+and booth snapshot feeds the merchant display. Background host restoration skips
+read-only clients; it cannot change a manually operated window. Open
+trade/request modals remain observation evidence. A read gap clears the displayed stock until a fresh read succeeds;
 process replacement requires a new memory-identified attachment. Manual handoff
 still uses its independent frozen reader registry and baseline.
+The exact-build fence refreshes while the app runs and stays active once 1078
+is observed, including across process identity changes, until the app restarts.
 
 The 1078 runtime attachment fence remains. Binding an observation-only merchant
 to automation is explicitly denied, and `MerchantDriver` independently rejects

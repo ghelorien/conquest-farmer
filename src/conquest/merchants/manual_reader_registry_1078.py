@@ -6,6 +6,8 @@ read-only session for each poll while that handoff is fenced.
 """
 from dataclasses import dataclass
 from pathlib import Path
+import threading
+import time
 
 from conquest.memory import MemorySession
 from conquest.merchants.reader_1078 import CLIENT_SHA256_1078, open_read_only_1078
@@ -32,6 +34,8 @@ class ManualReaderRegistry1078:
         self.catalog, self.session_factory = catalog, session_factory
         self.bindings = {}
         self.read_only_build = False
+        self._build_lock = threading.Lock()
+        self._checked_at = 0.0
 
     def exact_build_present(self):
         """Read the executable fingerprint only; do not open a game session."""
@@ -45,10 +49,21 @@ class ManualReaderRegistry1078:
         return False
 
     def activate_if_present(self):
-        self.read_only_build = self.exact_build_present()
-        if not self.read_only_build:
-            self.bindings = {}
-        return self.read_only_build
+        return self.refresh_build_presence(force=True)
+
+    def refresh_build_presence(self, *, force=False, now=None):
+        """Bounded fingerprint refresh before selecting any merchant input path."""
+        now=time.monotonic() if now is None else now
+        with self._build_lock:
+            if not force and now-self._checked_at<1:
+                return self.read_only_build
+            present=self.exact_build_present()
+            self._checked_at=now
+            # Once the newer build is seen, retain the fence for this app
+            # process. A transient enumeration gap or identity rollover must
+            # never re-enable the older input controller.
+            self.read_only_build=self.read_only_build or present or bool(self.bindings)
+            return self.read_only_build
 
     @staticmethod
     def _profiles():

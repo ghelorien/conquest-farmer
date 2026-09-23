@@ -19,12 +19,14 @@ def restore(ui, *, host_factory=None):
             if host and host.saved: continue
             observer=ui.runtime.observers.get(character)
             if observer is None: continue
+            # Passive 1078 observation does not authorize changing a user's
+            # window state. Its explicit guarded Client-tab path owns hosting.
+            if getattr(observer,'merchant_observation_only',False): continue
             try:
                 observer.adapter.assert_identity()
                 host=host or host_factory()
                 ui.hosts[character]=host
-                hwnd=observer.hwnd if getattr(observer,'merchant_observation_only',False) else observer.operations.target.hwnd
-                host.attach(hwnd,observer.adapter.identity,pane.winfo_id(),
+                host.attach(observer.operations.target.hwnd,observer.adapter.identity,pane.winfo_id(),
                     max(1,pane.winfo_width()),max(1,pane.winfo_height()))
                 ui.layout_status[character]={'attached':True,'native_visible':False,'selected':False}
                 ui.calibration_results[character]={'verified':False,

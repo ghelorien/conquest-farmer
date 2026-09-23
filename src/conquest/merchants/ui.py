@@ -1391,7 +1391,8 @@ class UnifiedUI:
         if host and host.saved:return
         # Attachment is independent of booth/trade read availability. A foreign
         # shop panel must not make the actual game window inaccessible.
-        if character not in self.runtime.observers:return
+        observer=self.runtime.observers.get(character)
+        if observer is None or getattr(observer,'merchant_observation_only',False):return
         self.auto_embedding=True
         try:
             self.embed_client(character,automatic=True)
@@ -1453,6 +1454,9 @@ class UnifiedUI:
         self.resize_jobs.pop(character,None)
         if self.closed or probe_busy(self):
             return
+        if (getattr(self.runtime.observers.get(character),'merchant_observation_only',False)
+                and self.runtime.manual_handoff_status() is None):
+            return  # Only the explicit manual view may alter this native HWND.
         # A delayed Tk layout event is not allowed to alter merchant permission
         # while a delivery or another native input handoff owns the surface.
         # Explicit input preparation still validates geometry with automatic=True;
@@ -1907,6 +1911,17 @@ class UnifiedUI:
         return False
 
     def start_qualification(self, character):
+        observer=self.runtime.observers.get(character)
+        try:read_only=(getattr(observer,'merchant_observation_only',False)
+                       or self.runtime.read_only_1078(character,force=True))
+        except (ValueError,OSError):
+            self.calibration_results[character] = {'verified':False,
+                'note':'Merchant build could not be verified; booth input is unavailable'}
+            return
+        if read_only:
+            self.calibration_results[character] = {'verified':False,
+                'note':'1078 merchant input is unavailable; read-only observation does not qualify booth controls'}
+            return
         if self.calibrating:
             self.calibration_results[character] = {'verified':False,'note':'Another booth verification is active'}
             return
