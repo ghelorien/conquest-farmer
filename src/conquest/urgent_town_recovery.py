@@ -172,6 +172,10 @@ def resume_claimed(loop):
             or receipt_for(claim['scroll_uid'],720027)
             or any(item['uid']==claim['scroll_uid'] for item in bag['items'])):
         raise ValueError('Claimed Meteor terminal journal changed')
+    # An explicit restart can have the combat controller enabled. Town travel
+    # and warehouse input must own the lane exclusively, just as the normal
+    # urgent-bank path does after its return-to-town transition.
+    loop.stop_farm()
     # Only the original skipped tail is permitted. A further ten-Meteor batch
     # would be a new fare/exchange and belongs to a separately reviewed visit.
     open_warehouse(loop)
