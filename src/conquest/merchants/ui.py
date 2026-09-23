@@ -291,6 +291,11 @@ class UnifiedUI:
                 raise ValueError('Read-only refill preview requires exactly one merchant')
             from conquest.merchants.refill_preview_1078 import preview
             return preview(self.runtime,body['character'])
+        if action=='merchant-refill-cursor-reconcile-1078':
+            if set(body)!={'action','character'}:
+                raise ValueError('1078 refill cursor reconciliation requires exactly one merchant')
+            from conquest.merchants.refill_cursor_reconcile_1078 import reconcile
+            return reconcile(self.runtime,body['character'])
         if action=='merchant-market-arrival-1078':
             if set(body)!={'action','character'}:
                 raise ValueError('Market arrival settlement requires exactly one merchant')
