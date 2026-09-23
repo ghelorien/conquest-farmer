@@ -68,6 +68,7 @@ class EmbeddedObserver:
         from conquest.reconnect import login_screen
         if self.read_only_build:
             life=self.read_life()
+            writable_bridge=bool(self.bridge is not None and not self.bridge.read_only)
             try:
                 entities = self.entities.read()
                 monsters=[asdict(monster) for monster in entities.monsters]
@@ -80,8 +81,9 @@ class EmbeddedObserver:
                 'life':{**asdict(life),'dead_candidate':life.dead_candidate},
                 'focused':window['foreground']==root and bool(win32gui.IsWindowVisible(window['hwnd'])),
                 'minimized':bool(win32gui.IsIconic(root)) or not bool(win32gui.IsWindowVisible(window['hwnd'])),
-                'observed_at':time.time(),'read_only_worker':True,
-                'blockers':['This client version supports observation only; farming and input are disabled']}
+                'observed_at':time.time(),'read_only_worker':not writable_bridge,
+                'blockers':([] if writable_bridge else
+                    ['This client version supports observation only; farming and input are disabled'])}
         if login_screen(self.operations.target.hwnd):
             return {'monsters':[],'observations_available':False,
                 'observation_note':'Disconnected; reconnecting before reading player stats',

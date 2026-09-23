@@ -213,7 +213,8 @@ def collect(session, snapshot):
             or not snapshot['own_booth_uid']):
         raise ValueError('Booth target preflight requires a living, idle Market owner')
     modules = [m for m in session.modules if m['name'].casefold() == 'imconquer.exe']
-    if len(modules) != 1 or modules[0]['size'] < 0x6b9b58:
+    # The last camera field is at RVA 0x6b9b40 + 0x26c and spans 16 bytes.
+    if len(modules) != 1 or modules[0]['size'] < 0x6b9dbc:
         raise ValueError('1078 booth module is missing or truncated')
     module = modules[0]
     layout = entity_reader_layout(session)
