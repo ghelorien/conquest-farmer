@@ -75,6 +75,13 @@ def observe(journal, snapshot):
             if gap:
                 db.execute('INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)',
                     (character,'sales_observation_gap',json.dumps({'from':before['timestamp'],'to':at}),at))
+                # A missing booth UID across an observation gap may have been
+                # sold, moved, or traded. None of those outcomes is attributable
+                # from these two samples. Establish a fresh baseline without
+                # manufacturing even an unconfirmed sale/departure receipt.
+                db.execute('INSERT OR REPLACE INTO sales_baseline VALUES(?,?,?)',
+                           (character,json.dumps(current),row['started_at']))
+                return
             busy = db.execute("SELECT 1 FROM transactions WHERE character=? AND created<=? AND updated>=? LIMIT 1",
                               (character,at,before['timestamp'])).fetchone()
             # An unrelated incoming request cannot move stock or silver. Treat

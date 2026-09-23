@@ -346,6 +346,17 @@ class MerchantRuntime(ManualRuntime):
             raise
         with self.lock:self.latest[character]=snapshot
         self.attachments[character].observation_ready=True
+        # The 1078 surface is input-fenced, but its exact-process, configured
+        # ownership reader can still maintain sales observation. Never bridge
+        # an unresolved bot transaction into a sale baseline. The sales
+        # observer handles manual-session holds and records a gap (not a sale)
+        # before replacing a stale baseline with this fresh memory snapshot.
+        # read_ownership() above has already pinned the configured name,
+        # server, UID and process; the persistent snapshot has no bridge-only
+        # profile_uid_verified field.
+        if not self.journal.pending(character):
+            from conquest.merchants.sales import observe
+            observe(self.journal, snapshot)
 
     def bind(self, character, observer):
         if (getattr(observer,'merchant_observation_only',False)
