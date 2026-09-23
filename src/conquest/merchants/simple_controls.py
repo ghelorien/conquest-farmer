@@ -18,6 +18,12 @@ def summary(state, *, now, global_stopped=False):
     trading=bool(state.get('enabled'));refill=state.get('refill') or {}
     running=trading or refill.get('enabled',False)
     snapshot=state.get('snapshot') or {}
+    if state.get('manual_only_1078'):
+        title='OBSERVING ONLY — 1078 merchant input qualification pending' if state.get('connected') else 'WAITING FOR 1078 CLIENT — memory observation unavailable'
+        stock=(f"Shop {len(snapshot.get('booth',[]))} · Inventory {len(snapshot.get('inventory',[]))}/{snapshot.get('capacity','?')}"
+               if snapshot else 'Shop and inventory counts unavailable')
+        error=state.get('error') or {}
+        return '\n'.join(x for x in (title,stock,error.get('note')) if x)
     attention=state.get('needs_attention')
     uncertain=any(p.get('phase')=='uncertain' for p in state.get('pending',[]))
     if global_stopped:title='STOPPED — Global Stop is active'

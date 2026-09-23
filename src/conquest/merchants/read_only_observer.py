@@ -23,6 +23,9 @@ class ReadOnlyMerchantObserver:
         self.lock = threading.RLock()
         self.character = character
         self.character_context = context
+        # A verified native HWND is presentation data only.  Do not create an
+        # Operations/MessageTarget object for this unqualified build.
+        self.hwnd = client.hwnd
         self.session = MemorySession(client.identity['pid'], CLIENT_SHA256_1078).__enter__()
         try:
             if self.session.identity != client.identity:
@@ -48,6 +51,21 @@ class ReadOnlyMerchantObserver:
     def read(self, *, max_seconds=3):
         with self.lock:
             return self.memory.read(max_seconds=max_seconds)
+
+    def read_ownership(self):
+        """Persistent full stock observation, including open manual modals."""
+        from conquest.merchants.reader_1078 import open_read_only_1078
+        with self.lock:
+            snapshot = open_read_only_1078(self.session, self.character).read_manual_ownership()
+            if snapshot['identity'] != self.adapter.identity:
+                raise ValueError('Merchant process changed during ownership observation')
+            profile=getattr(self.character_context,'profile',None)
+            if profile is not None and (snapshot['character']!=profile.name
+                    or snapshot['server']!=profile.server
+                    or (profile.character_uid is not None
+                        and snapshot['character_uid']!=profile.character_uid)):
+                raise ValueError('Merchant ownership differs from the configured profile')
+            return snapshot
 
     def __call__(self):
         return self.read()

@@ -1425,15 +1425,16 @@ class UnifiedUI:
         host=self.hosts.setdefault(character,EmbeddedWindow(mode='owned'))
         if host.saved and host.saved.identity!=observer.adapter.identity:
             raise ValueError('Merchant host identity changed; manual view is withheld')
+        hwnd=observer.hwnd if getattr(observer,'merchant_observation_only',False) else observer.operations.target.hwnd
         if not host.saved:
-            if host.api.gui.IsIconic(observer.operations.target.hwnd):
+            if host.api.gui.IsIconic(hwnd):
                 # EmbeddedWindow.attach restores an iconic top-level window.
                 # Manual view is intentionally no-activate, so leave that
                 # explicit user action outside this path.
                 raise ValueError('Merchant is minimized; restore it yourself before manual view')
             # This is an explicit user surface operation on the already
             # verified attached HWND, never discovery or input preparation.
-            host.attach(observer.operations.target.hwnd,observer.adapter.identity,pane.winfo_id(),
+            host.attach(hwnd,observer.adapter.identity,pane.winfo_id(),
                         pane.winfo_width(),pane.winfo_height())
         for other,other_host in self.hosts.items():
             if other!=character and other_host.saved:
@@ -1476,9 +1477,10 @@ class UnifiedUI:
                     native_visible=bool(host.api.gui.IsWindowVisible(host.saved.hwnd)),
                     selected=bool(self.client_panes[character].winfo_ismapped()))
         except (OSError,ValueError):
-            if self.runtime.manual_handoff_status() is not None:
+            if (self.runtime.manual_handoff_status() is not None
+                    or getattr(self.runtime.observers.get(character),'merchant_observation_only',False)):
                 self.calibration_results[character] = {'verified':False,
-                    'note':'Manual handoff view layout is unavailable; automation remains fenced and saved permissions are unchanged'}
+                    'note':'Read-only client layout is unavailable; input remains fenced and saved permissions are unchanged'}
                 return
             self.pause(character)
             self.calibration_results[character] = {'verified':False,'note':'Client layout unavailable; re-embed before continuing'}
@@ -1575,12 +1577,15 @@ class UnifiedUI:
             from conquest.client_attachment import require_viewport
             require_viewport(pane.winfo_width(),pane.winfo_height())
         if not host.saved:
-            host.attach(observer.operations.target.hwnd,observer.adapter.identity,pane.winfo_id(),
+            hwnd=observer.hwnd if getattr(observer,'merchant_observation_only',False) else observer.operations.target.hwnd
+            host.attach(hwnd,observer.adapter.identity,pane.winfo_id(),
                         pane.winfo_width(),pane.winfo_height())
         self.resize_merchant(character,automatic=automatic)
-        self.coordinator.surface_blocks[character]=False
+        read_only=getattr(observer,'merchant_observation_only',False)
+        self.coordinator.surface_blocks[character]=read_only
         if status:
-            status.attached=True;status.enter('behavior')
+            status.attached=True;status.enter('memory' if read_only else 'behavior')
+            if read_only:status.observation_ready=True
             self.runtime.journal.set(character,'attachment',status.snapshot())
         return observer
 

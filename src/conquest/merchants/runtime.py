@@ -251,6 +251,83 @@ class MerchantRuntime(ManualRuntime):
                     and read_life(matches[0].adapter,matches[0].health_layout,character).map_id==1002):
                 self.returns[character].begin()
 
+    def attach_observation_1078(self, character):
+        """Bind one memory-identified exact process for passive stock and HWND display."""
+        from conquest.character_context import merchant_context
+        from conquest.memory import MemorySession, UnsupportedClientBuildError
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        from conquest.merchants.observe_1078 import _actor_identity
+        context=merchant_context(character)
+        if context is None or not context.profile.local_enabled:
+            raise ValueError('A configured local merchant profile is required for 1078 observation')
+        status=self.attachments[character]
+        status.enter('discovery')
+        with self.discovery_lock:
+            matches=[]
+            for client in self.merchant_windows():
+                if any(o.adapter.identity==client.identity for o in self.observers.values()):
+                    continue
+                from conquest.reconnect import login_screen
+                if login_screen(client.hwnd):
+                    continue  # No logged-in actor exists to identify in memory.
+                try:
+                    with MemorySession(client.identity['pid'],CLIENT_SHA256_1078) as session:
+                        if session.identity!=client.identity:
+                            raise ValueError('Merchant process changed during 1078 discovery')
+                        name,uid,server=_actor_identity(session)
+                except UnsupportedClientBuildError:
+                    continue
+                if (name==context.profile.name and server==b'Classic_US'
+                        and (context.profile.character_uid is None or uid==context.profile.character_uid)):
+                    matches.append(client)
+            if len(matches)!=1:
+                raise ValueError(f'{character}: expected one memory-identified 1078 window, found {len(matches)}')
+            client=matches[0]
+            status.enter('access',pid=client.identity['pid'],hwnd=client.hwnd,
+                         process_created=client.identity.get('creation_time_100ns'))
+            observer=self.observer_factory(client,character)
+            try:
+                if not getattr(observer,'merchant_observation_only',False):
+                    raise ValueError('Exact 1078 discovery did not produce a read-only observer')
+                if observer.adapter.identity!=client.identity or observer.hwnd!=client.hwnd:
+                    raise ValueError('Merchant observer differs from the discovered process/window')
+                snapshot=observer.read_ownership()
+                if (snapshot['character']!=context.profile.name or snapshot['identity']!=client.identity
+                        or snapshot['server']!=context.profile.server
+                        or (context.profile.character_uid is not None
+                            and snapshot['character_uid']!=context.profile.character_uid)):
+                    raise ValueError('1078 merchant ownership differs from the configured profile')
+                with self.lock:
+                    self.observers[character]=observer
+                    self.latest[character]=snapshot
+                status.enter('memory',pid=client.identity['pid'])
+                status.observation_ready=True
+                # Do not set last_identity or create a controller/return driver:
+                # those are automation and recovery state, not observation.
+            except BaseException:
+                observer.close()
+                raise
+
+    def step_observation_1078(self, character):
+        observer=self.observers.get(character)
+        if observer is not None:
+            try:observer.adapter.assert_identity()
+            except (OSError,ValueError):
+                observer.close()
+                with self.lock:
+                    self.observers.pop(character,None)
+                    self.latest.pop(character,None)
+                self.attachments[character].observation_ready=False
+                observer=None
+        if observer is None:
+            self.attach_observation_1078(character)
+            return
+        try:snapshot=observer.read_ownership()
+        except (ValueError,OSError):
+            with self.lock:self.latest.pop(character,None)
+            raise
+        with self.lock:self.latest[character]=snapshot
+
     def bind(self, character, observer):
         if getattr(observer,'merchant_observation_only',False):
             raise ValueError('1078 merchant observation does not qualify automation or refill input')
@@ -336,10 +413,9 @@ class MerchantRuntime(ManualRuntime):
 
     def step(self, character):
         if self.manual_1078_registry.blocks_automation(character):
-            # Never attach, recover, or route a read-only profile through the
-            # 1074 observer/controller stack. Its separate poller runs only
-            # while an explicit global manual handoff is active.
-            return
+            # Persistent observation has no driver or input capability. The
+            # separate manual-handoff registry still owns its own baseline.
+            return self.step_observation_1078(character)
         if character in self.connecting:return
         refill_only=bool(getattr(self,'refill_window',None))
         observer = self.observers.get(character)
@@ -638,12 +714,15 @@ class MerchantRuntime(ManualRuntime):
             except Exception:
                 # Keep the other character and UI alive, with no exception
                 # text that could disclose an account or notifier secret.
-                self.enable(character,False)
-                self.set_refill_enabled(character,False)
-                self.journal.set(character,'attention',{'kind':'unexpected',
-                    'note':'Unexpected merchant failure; automatically paused. Check diagnostics and resume when ready.'})
+                if not self.manual_1078_registry.blocks_automation(character):
+                    self.enable(character,False)
+                    self.set_refill_enabled(character,False)
+                    self.journal.set(character,'attention',{'kind':'unexpected',
+                        'note':'Unexpected merchant failure; automatically paused. Check diagnostics and resume when ready.'})
                 with self.lock:
-                    self.errors[character] = {'note':'Unexpected merchant failure; paused. Check qualification and diagnostics.','since':time.time()}
+                    self.errors[character] = {'note':'Unexpected merchant observer failure; input remains fenced.'
+                        if self.manual_1078_registry.blocks_automation(character) else
+                        'Unexpected merchant failure; paused. Check qualification and diagnostics.','since':time.time()}
             self.stop_event.wait(1)
         observer = self.observers.pop(character,None)
         if observer:
@@ -655,10 +734,15 @@ class MerchantRuntime(ManualRuntime):
             for character in CHARACTERS:
                 if self.manual_1078_registry.blocks_automation(character):
                     manual=self.manual_status(character)
-                    result[character]={'enabled':self.enabled(character),'connected':False,'input_active':False,
-                        'activity':'1078 manual observation only; farming and merchant automation unavailable',
-                        'snapshot':None,'error':None,'scan':self.journal.get(character,'scan',{}),
-                        'capacity':None,'ready':False,'qualification':{},'credentials_saved':credential_path(character).exists(),
+                    snapshot=self.latest.get(character)
+                    fresh=bool(snapshot and 0<=time.time()-snapshot['timestamp']<=5
+                               and character in self.observers)
+                    result[character]={'enabled':self.enabled(character),'connected':fresh,'input_active':False,
+                        'activity':'1078 read-only merchant observation; input qualification pending',
+                        'snapshot':snapshot if fresh else None,'error':self.errors.get(character),
+                        'scan':self.journal.get(character,'scan',{}),
+                        'capacity':snapshot['capacity']-len(snapshot['inventory'])-len(snapshot['booth']) if fresh else None,
+                        'ready':False,'qualification':{},'credentials_saved':credential_path(character).exists(),
                         'needs_attention':None,'pending':self.journal.pending(character),
                         'recovery':self.recoveries[character].state(),'recovery_safety':self.journal.get(character,'recovery_safety'),
                         'shop_return':self.returns[character].state(),'connect_market':self.journal.get(character,'connect_market'),

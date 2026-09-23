@@ -23,7 +23,8 @@ def restore(ui, *, host_factory=None):
                 observer.adapter.assert_identity()
                 host=host or host_factory()
                 ui.hosts[character]=host
-                host.attach(observer.operations.target.hwnd,observer.adapter.identity,pane.winfo_id(),
+                hwnd=observer.hwnd if getattr(observer,'merchant_observation_only',False) else observer.operations.target.hwnd
+                host.attach(hwnd,observer.adapter.identity,pane.winfo_id(),
                     max(1,pane.winfo_width()),max(1,pane.winfo_height()))
                 ui.layout_status[character]={'attached':True,'native_visible':False,'selected':False}
                 ui.calibration_results[character]={'verified':False,

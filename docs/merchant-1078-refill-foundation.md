@@ -16,12 +16,22 @@ and booth prices are re-read, not just deque headers. Capacity here is the
 combined inventory/booth ownership limit; it is not evidence of a newly qualified
 booth input control or a listing slot limit.
 
+The 1078 runtime now retains one exact-process read-only observer for each
+memory-identified Spiritual/Dutch client and polls the manual ownership reader
+even outside a global Manual handoff. The attached observer provides a verified
+native HWND to the owned Client pane, while its current inventory and booth
+snapshot feeds the merchant display. Open trade/request modals remain observation
+evidence. A read gap clears the displayed stock until a fresh read succeeds;
+process replacement requires a new memory-identified attachment. Manual handoff
+still uses its independent frozen reader registry and baseline.
+
 The 1078 runtime attachment fence remains. Binding an observation-only merchant
 to automation is explicitly denied, and `MerchantDriver` independently rejects
 1078 before loading any old qualification. Market safety may report a read-only
 merchant's memory location, but this observer cannot initiate recovery or change
-saved controls. No refill timer, trading, listing, login, travel, focus or other
-input is enabled by this foundation.
+saved controls. Hosting leaves the merchant input surface blocked. No refill
+timer, trading, listing, login, travel, focus or other input is enabled by this
+foundation.
 
 ## Authenticated observation command
 
@@ -86,4 +96,5 @@ submission reconciliation without replay. Qualify any removal/repricing path
 separately. Old 1074 input evidence must never satisfy these requirements.
 
 This change adds source foundations only. No tests or live qualification/input
-were run, and it does not claim live validation of the new observer integration.
+were run, and it does not claim live validation of the persistent observer or
+host integration.
