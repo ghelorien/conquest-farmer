@@ -152,6 +152,11 @@ def resume_claimed(loop):
             or life.get('dead_candidate') is not False or life.get('current_hp',0)<=0
             or transaction_holds() or delivery_enabled()):
         raise ValueError('Urgent recovery process, town, safety, or transaction hold changed')
+    # A restarted route begins with its saved arrow tier. The ordinary town
+    # path selects the currently equipped/owned usable tier before checking
+    # supplies; recovery must do the same or SpeedArrows look like zero IronArrows.
+    # This is memory-only and occurs before opening the warehouse or any input.
+    loop.adopt_ammunition()
     bag=loop.town('supplies')
     if (urgent_valuables(bag['items']) or any(stash_candidate(item) for item in bag['items'])
             or needs_town(supply_counts(bag,loop.route),loop.route)
