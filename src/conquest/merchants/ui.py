@@ -1598,6 +1598,11 @@ class UnifiedUI:
         observer = self.runtime.observers.get(character)
         if not observer:
             raise ValueError('Waiting for a verified merchant process')
+        if getattr(observer,'merchant_observation_only',False):
+            from conquest.merchants.restore_hosts import _readonly_market_hosting_safe
+            if not _readonly_market_hosting_safe(self):
+                raise ValueError('Park the farmer alive in Market with Farming Off, no active input '
+                                 'or unresolved transaction, before showing this merchant game')
         from conquest.window_host import EmbeddedWindow
         host = self.hosts.setdefault(character,EmbeddedWindow(mode='owned'))
         if host.saved and host.saved.identity!=observer.adapter.identity:
