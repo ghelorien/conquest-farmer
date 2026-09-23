@@ -1,8 +1,8 @@
 """Bounded 1078 booth-modal code evidence for offline, read-only research.
 
 The caller supplies only a configured merchant.  All memory ranges come from
-the exact client layout and an observed live Add Item to Booth modal.  This
-does not identify a Confirm handler or authorize listing input.
+the exact client layout and an observed live Add Item to Booth modal. The
+native OK/Cancel handlers are pinned, but listing input remains unauthorized.
 """
 
 import struct
@@ -11,7 +11,7 @@ import time
 from conquest.character_context import registry
 from conquest.memory import MemorySession
 from conquest.memory_build_layout import CLIENT_SHA256_1078, read_build_layout
-from conquest.merchants.listing_preflight_1078 import _modal_candidate
+from conquest.merchants.listing_preflight_1078 import _modal_candidate, _modal_code_verified
 from conquest.merchants.memory import GuiReader, HoverNotReady
 from conquest.merchants.observe_1078 import observe
 from conquest.merchants.reader_1078 import open_read_only_1078
@@ -69,6 +69,7 @@ def collect(runtime, character):
         if session.identity != identity:
             raise ValueError('Merchant process changed before booth diagnostic')
         layout = read_build_layout(session)
+        _modal_code_verified(session, layout)
         snapshot = open_read_only_1078(session, profile.name).read_manual_ownership()
         for key in _STABLE:
             if key in baseline and baseline[key] != snapshot[key]:
@@ -128,7 +129,8 @@ def collect(runtime, character):
     if time.monotonic() - started > 6:
         raise ValueError('1078 booth diagnostic expired; retry the read-only observation')
     return {'read_only': True, 'input_qualified': False,
-            'confirm_handler_identified': False,
+            'native_ok_cancel_handlers_verified': True,
+            'server_acceptance_verified': False,
             'client_sha256': CLIENT_SHA256_1078,
             'profile_id': profile.id, 'character': profile.name,
             'character_uid': profile.character_uid,
