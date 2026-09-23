@@ -428,7 +428,7 @@ class TownTrade:
             self.verified_read(reader.read,lambda b:True,'Warehouse opening unverified; no repeat input issued')
             return {'opened':True,'npc_id':npc.entity_id}
         if action=='warehouse-locate' and set(body)=={'action'}:
-            _,npc=self.warehouse_vendor_snapshot()
+            _,npc=self.warehouse_vendor_snapshot(grid_input=True)
             return {'npc_id':npc.entity_id,'position':npc.position,'map_id':npc.map_id}
         if action=='warehouse-money' and set(body)=={'action'}:
             from conquest.memory_warehouse import WarehouseMoneyReader
