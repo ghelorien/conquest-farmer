@@ -1928,7 +1928,9 @@ class UnifiedUI:
         self.root.after(50,self.poll_ui_requests)
 
     def focus_clicked_merchant(self):
-        if self.closed or self.coordinator.owner:
+        # A pointer click must not make a hosted merchant the app's input
+        # target while the farmer still owns an active route or combat input.
+        if self.closed or self.coordinator.owner or not self.safe_to_yield():
             return False
         for character,host in self.hosts.items():
             if not host.saved or host.mode!='owned':
