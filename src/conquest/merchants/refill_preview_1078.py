@@ -1,7 +1,9 @@
-"""Read-only 1078 refill queue from verified stock and durable price history.
+"""Read-only 1078 refill queue from owned booth quotes and durable history.
 
 This preview never creates a PriceHistory instance (its constructor writes a
 database) and never obtains a merchant driver or input lease.
+Both configured local merchants are reobserved; an unreadable peer cannot be
+silently dropped from the owned price floor. Unknown values remain deferred.
 """
 import json
 import math
@@ -10,9 +12,9 @@ import time
 from fractions import Fraction
 from pathlib import Path
 
-from conquest.character_context import resolve_merchant, state_path
+from conquest.character_context import registry, resolve_merchant, state_path
 from conquest.merchants.observe_1078 import observe
-from conquest.merchants.pricing import ItemKey, quote_item, validate_booth_price
+from conquest.merchants.pricing import OWNED, ItemKey, Listing, quote_item, validate_booth_price
 from conquest.merchants.refill import HistoricalComparisons
 from conquest.merchants.restoration_preview_1078 import _journal_image, _preview
 from conquest.valuables import require_marketable
@@ -67,8 +69,39 @@ def _same_stock(first, second):
     return all(first[key] == second[key] for key in fields)
 
 
-def _queue(snapshot, catalog, quotes, restoration):
+def _owned_profiles():
+    profiles = registry()
+    if profiles is None:
+        raise ValueError('Configured merchant profiles are required for owned-price evidence')
+    return sorted((profile for profile in profiles.profiles()
+                   if profile.role == 'Merchant' and profile.server == 'America'
+                   and profile.local_enabled), key=lambda profile: profile.id)
+
+
+def _owned_listings(market, snapshots):
+    """Same live-owned quote inputs as MerchantController.plan, memory only."""
+    listings = []
+    for snapshot in snapshots:
+        if (snapshot['character'].casefold() not in OWNED or snapshot['server'] != 'America'
+                or not snapshot['profile_uid_verified'] or not snapshot['closed_modal']
+                or not 0 <= time.time()-snapshot['timestamp'] <= 5):
+            raise ValueError('Fresh profile-verified owned merchant evidence is required')
+        if not snapshot['booth_open'] or not snapshot['own_booth_uid']:
+            continue
+        if snapshot['map_id'] != 1036 or snapshot['hp'] <= 0:
+            raise ValueError('An open owned booth is not a living Market merchant')
+        for item in snapshot['booth']:
+            try:
+                key = market.key_for(item)
+                listings.append(Listing(snapshot['character'], key, item['price'], item['quantity']))
+            except ValueError:
+                continue  # Incomplete type/socket/quantity evidence cannot set a floor.
+    return listings
+
+
+def _queue(snapshot, catalog, quotes, restoration, *, owned_snapshots=()):
     market = HistoricalComparisons(catalog)
+    owned = _owned_listings(market, (snapshot, *owned_snapshots))
     prior = {row['uid']: row for row in restoration['restore_prior_listings']} if restoration else {}
     rows = []
     for item in snapshot['inventory']:
@@ -93,13 +126,14 @@ def _queue(snapshot, catalog, quotes, restoration):
                            reason='Restore verified prior total price')
             else:
                 key = market.key_for(item)
-                decision = quote_item(key, (), quantity=item['quantity'], history=quotes,
+                decision = quote_item(key, owned, quantity=item['quantity'], history=quotes,
                     allow_plus_conversion=100000 <= item['type_id'] < 600000)
                 if decision.price is None:
                     raise ValueError(decision.reason)
                 validate_booth_price(decision.price)
                 row.update(total_listing_price=decision.price,
-                           source='saved_comparable_price',
+                           source=('fresh_owned_booth_price' if decision.source_observed_at is None
+                                   else 'saved_comparable_price'),
                            source_observed_at=decision.source_observed_at,
                            reason=decision.reason)
         except (KeyError, TypeError, ValueError) as error:
@@ -116,6 +150,9 @@ def preview(runtime, character, *, history_path=None):
     profile_id = getattr(target, 'profile_id', None)
     if not profile_id:
         raise ValueError('1078 refill preview requires a managed merchant profile')
+    profiles = _owned_profiles()
+    if profile_id not in {profile.id for profile in profiles}:
+        raise ValueError('Selected merchant is not in the configured local owned profiles')
     state = _journal_image(runtime.journal.path, profile_id)
     catalog, quotes = _saved_prices(history_path or state_path(
         'reports/merchants/price-history.sqlite3'))
@@ -124,19 +161,32 @@ def preview(runtime, character, *, history_path=None):
         raise ValueError('Configured merchant identity and closed trade/request are required')
     if snapshot['map_id'] != 1036 or snapshot['hp'] <= 0 or not snapshot['own_booth_uid']:
         raise ValueError('Merchant must be alive at an owned Market booth')
+    # A peer with unreadable/ambiguous ownership cannot be silently removed
+    # from our price floor. observe binds its configured name AND character
+    # UID to one exact process; no runtime name-only cache is price authority.
+    peers = [observe(runtime, profile.id) for profile in profiles if profile.id != profile_id]
+    if len({source['character_uid'] for source in (snapshot, *peers)}) != len(profiles):
+        raise ValueError('Owned merchant identity attribution is ambiguous')
     incident = state.get('shop_return') or {}
     restoration = (_preview(snapshot, state)
                    if incident.get('phase') not in (None, 'complete', 'operator_overridden')
                    else None)
-    rows = _queue(snapshot, catalog, quotes, restoration)
+    rows = _queue(snapshot, catalog, quotes, restoration, owned_snapshots=peers)
     fresh = observe(runtime, target)
     if not _same_stock(snapshot, fresh):
         raise ValueError('Merchant ownership changed during 1078 refill preview')
+    for peer in peers:
+        if not _same_stock(peer, observe(runtime, peer['profile_id'])):
+            raise ValueError('Peer owned booth changed during 1078 refill preview')
+    if _owned_profiles() != profiles:
+        raise ValueError('Owned merchant profiles changed during 1078 refill preview')
     if _journal_image(runtime.journal.path, profile_id) != state:
         raise ValueError('Merchant journal changed during 1078 refill preview')
     if _saved_prices(history_path or state_path(
             'reports/merchants/price-history.sqlite3')) != (catalog, quotes):
         raise ValueError('Saved comparable price history changed during 1078 refill preview')
+    if any(not 0 <= time.time()-source['timestamp'] <= 5 for source in (snapshot, *peers)):
+        raise ValueError('Owned booth price evidence expired during 1078 refill preview')
     free = 32 - len(snapshot['booth'])
     known = [row for row in rows if row['total_listing_price'] is not None]
     blockers = []
@@ -156,6 +206,9 @@ def preview(runtime, character, *, history_path=None):
             'booth_open': snapshot['booth_open'], 'capacity_kind': 'booth_listing_slots',
             'booth_capacity': 32, 'booth_used': len(snapshot['booth']),
             'booth_free_slots': free, 'queue': rows,
+            'owned_booth_observations': [{key: source[key] for key in
+                ('character', 'profile_id', 'character_uid', 'identity', 'timestamp',
+                 'own_booth_uid', 'booth_open', 'booth')} for source in (snapshot, *peers)],
             'next_slots_if_qualified': known[:free],
             'deferred': [row for row in rows if row['total_listing_price'] is None],
             'restoration_incident_phase': incident.get('phase'),
