@@ -6,11 +6,108 @@ click.  The authenticated merchant observation endpoint uses this to pin the
 scene actor and collect only the native methods needed for a later, separately
 reviewed input qualification.
 """
+import math
 import struct
 import time
 from conquest.addressing import checked_address
 from conquest.memory_build_layout import CLIENT_SHA256_1078, entity_reader_layout
 from conquest.memory_entities import MemoryEntityReader, sample_fields
+from conquest.merchants.memory import GuiReader
+from conquest.viewport import clear_scene
+
+
+# These are exact 1078 instructions, not the similar 1074 booth projection.
+# The client camera getter returns module+0x6b9b40.  The tile conversion uses
+# 32/16 pixel isometric axes and its inverse reads the two doubles below.
+_PROJECTION_CODE = {
+    0x982b5: '488d0584186200',
+    0x13fe90: '8bc24103d0412bc0c1e204c1e005034144418901488b4424280351488910c3',
+    0x13fe10: ('40534883ec40442b4148498bd92b51440f297424300f297c2420'
+               '660f6ef0f30fe6f6660f6efaf20f5935010a4b00f30fe6ff0f28c6'
+               'f20f593dda094b00f20f58c7e829142800f20f2cc0f20f5cf78903'
+               '0f28c6e817142800488b4424700f287424300f287c2420f20f2cc8'
+               '89084883c4405bc3'),
+    0x3c1280: ('66480f7ec0488bd048c1ea344881e2ff0700004881fa33040000731d'
+               '4881faff030000721a48c7c133040000482bca48d3e84883d00048d3e0'
+               '660f6ec0c3'),
+    0x1abfa4: '4183beb00200000e7571498b06488d542470498bceff5028',
+    0x1abf45: ('8b8b78020000990faf8b6c0200002bc2d1f82bf7448bc8c1e608'
+               'b81f85eb51412be9c1e508f7e98bc6448bc29941c1f805418bc8'
+               'c1e91f4403c141f7f88d3438'),
+    0x1abfc4: ('e877c2eeff4c8bf84c8d4c2460498bcf448b40508b504c4403c7'
+               '488d44246403d64889442420e8213ef9'),
+    0x18a770: '488b81d8000000488902c3',
+    0x274cd0: ('40535556574863490c4c8d1da05c36008b742448488d2d995c3600'
+               '33c08bda4c8d148949c1e2034d03da660f1f440000418b14c34103'
+               'd13bd3750e498d0c2a8b14c103d6413bd0740effc083f8057ce0'
+               '33c05f5e5d5bc3b8010000005f5e5d5b'),
+}
+
+
+def _projection_candidate(session, booth, module, actor_vtable, accessor, candidates):
+    """Return arithmetic evidence only; never authorize a booth-open click."""
+    base = module['base']
+    for rva, expected_hex in _PROJECTION_CODE.items():
+        expected = bytes.fromhex(expected_hex)
+        if session.read(base + rva, len(expected)) != expected:
+            raise ValueError('1078 native booth projection or hit-test code changed')
+    if (_read(session, base + 0x5f0828, '<d')[0] != 1 / 64
+            or _read(session, base + 0x5f0840, '<d')[0] != 1 / 32
+            or actor_vtable != base + 0x5eb2d0
+            or accessor != base + 0x18a770):
+        raise ValueError('1078 native booth conversion or accessor differs')
+    selected = [c for c in candidates
+                if (c['actor_offset'] == 0x308
+                    and c['graphics_vtable_rva'] == 0x5f04d0
+                    and c['orientation_candidate'] == 6
+                    and any(m['slot'] == 0x40 and m['method_rva'] == 0x274cd0
+                            for m in c['methods']))]
+    if len(selected) != 1:
+        raise ValueError('1078 owned booth graphics are not uniquely pinned')
+    if _read(session, booth['address'] + 0x2b0, '<I')[0] != 14:
+        raise ValueError('1078 owned booth actor has a different hit-test kind')
+    offsets = _read(session, base + 0x5daa70, '<10i')
+    footprint = tuple(zip(offsets[::2], offsets[1::2]))
+    if footprint != ((0, 1), (0, 0), (0, 0), (0, 0), (0, -1)):
+        raise ValueError('1078 booth hit-test footprint changed')
+    camera = base + 0x6b9b40
+    camera_fields = tuple((camera + offset, session.read(camera + offset, size))
+                          for offset, size in ((0x30, 8), (0x44, 16), (0x26c, 16)))
+    map_width, map_height = struct.unpack('<2i', camera_fields[0][1])
+    origin_x, origin_y, scroll_x, scroll_y = struct.unpack('<4i', camera_fields[1][1])
+    zoom, width, height, percent = struct.unpack('<4i', camera_fields[2][1])
+    viewport = tuple(GuiReader.for_session(session).viewport_size())
+    scale_numerator = zoom * percent // 100
+    x, y = booth['position']
+    if (not 0 < x < map_width <= 4096 or not 0 < y < map_height <= 4096
+            or (width, height) != viewport or not 640 <= width <= 7680
+            or not 480 <= height <= 4320 or not 64 <= scale_numerator <= 1024):
+        raise ValueError('1078 booth camera or viewport is outside supported bounds')
+    draw = ((x - y) * 32 + origin_x - scroll_x,
+            (x + y) * 16 + origin_y - scroll_y)
+    if any(abs(a - b) > 1 for a, b in zip(draw, booth['draw_position'])):
+        raise ValueError('1078 booth draw position differs from native tile projection')
+    scale = scale_numerator / 256
+    candidate = tuple(round((value - dimension // 2) * scale + dimension // 2)
+                      for value, dimension in zip(draw, viewport))
+    if not clear_scene(candidate, viewport):
+        raise ValueError('1078 booth projection overlaps reserved screen controls')
+    unscaled = tuple(math.trunc((value - dimension // 2) / scale) + dimension // 2
+                     for value, dimension in zip(candidate, viewport))
+    local_x = unscaled[0] + scroll_x - origin_x
+    local_y = unscaled[1] + scroll_y - origin_y
+    tile = (math.floor(local_y / 32 + local_x / 64 + .5),
+            math.floor(local_y / 32 - local_x / 64 + .5))
+    if tile != (x, y):
+        raise ValueError('1078 booth candidate does not round-trip through native tile math')
+    if (any(session.read(address, len(raw)) != raw for address, raw in camera_fields)
+            or tuple(GuiReader.for_session(session).viewport_size()) != viewport):
+        raise ValueError('1078 booth camera changed during projection')
+    session.assert_identity()
+    return {'candidate_point': list(candidate), 'roundtrip_tile': list(tile),
+            'viewport': list(viewport), 'native_footprint': [list(v) for v in footprint],
+            'camera_rva': 0x6b9b40, 'zoom_numerator': scale_numerator,
+            'candidate_only': True, 'input_qualified': False}
 
 
 def _read(session, address, fmt):
@@ -142,6 +239,8 @@ def collect(session, snapshot):
             candidates.append({'actor_offset': offset,
                 'orientation_candidate': orientation if 0 <= orientation < 8 else None,
                 **method})
+    projection = _projection_candidate(
+        session, booth, module, actor_vtable, accessor, candidates)
     if tuple(_read(session, address + offset, '<Q')[0] for offset in offsets) != pointers:
         raise ValueError('1078 booth actor pointer fields changed during observation')
     if _owned_scene_actor(session, entities, snapshot, module) != booth:
@@ -155,10 +254,11 @@ def collect(session, snapshot):
         raise ValueError('1078 booth target preflight expired')
     return {'read_only': True, 'input_qualified': False,
             'target_point': None, 'native_hit_test_qualified': False,
-            'blocker': '1078 booth hit test and projection are not yet live-qualified',
+            'blocker': '1078 booth candidate has no live open-click outcome or input qualification',
             'owned_booth_uid': booth['uid'], 'actor_address': hex(address),
             'actor_vtable_rva': _module_rva(actor_vtable, module),
             'position_accessor_rva': _module_rva(accessor, module, minimum=0x1000),
             'scene_position': booth['position'],
             'draw_position': booth['draw_position'],
-            'graphics_candidates': candidates}
+            'graphics_candidates': candidates,
+            'projection_candidate': projection}
