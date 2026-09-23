@@ -1,4 +1,6 @@
 """Read-only live booth layout evidence, never an input qualification."""
+import struct
+
 from conquest.memory_build_layout import CLIENT_SHA256_1078, read_build_layout
 from conquest.merchants.memory import GuiReader, HoverNotReady, unpack
 
@@ -23,10 +25,33 @@ def _table(gui, window, label):
             'window_ownership_verified': True, 'input_qualified': False}
 
 
+def _modal_candidate(adapter, model, snapshot):
+    """Read a provisional 1078 dialog value without assigning it control semantics."""
+    # The legacy 1074 reader observed this contiguous selected-UID / 12-byte
+    # text shape.  This only records a build-pinned 1078 candidate; it does
+    # not qualify the amount field, buttons, or any submission behavior.
+    raw = adapter.read_block(model + 0x50, 16)
+    if len(raw) != 16:
+        raise ValueError('Incomplete candidate price-dialog model read')
+    uid = struct.unpack_from('<I', raw)[0]
+    buffer = raw[4:]
+    terminator = buffer.find(b'\0')
+    if terminator < 0 or any(buffer[terminator:]):
+        raise ValueError('Candidate price-dialog buffer is invalid')
+    try:
+        text = buffer[:terminator].decode('ascii')
+    except UnicodeDecodeError as error:
+        raise ValueError('Candidate price-dialog buffer is not ASCII') from error
+    if not uid or sum(item.get('uid') == uid for item in snapshot['inventory']) != 1:
+        raise ValueError('Candidate selected item does not match exactly one observed inventory item')
+    return {'candidate_selected_item_uid': uid, 'candidate_price_buffer_text': text}
+
+
 def collect(session, snapshot):
     """Caller brackets this with identical exact merchant ownership reads."""
     if session.expected_sha256 != CLIENT_SHA256_1078:
         raise ValueError('Listing preflight is restricted to the exact 1078 build')
+    session.assert_identity()
     result = {'read_only': True, 'layout_observed': False,
               'input_qualified': False, 'refill_input_ready': False,
               'blockers': [], 'inventory_grid': None, 'owned_booth': None,
@@ -84,6 +109,7 @@ def collect(session, snapshot):
         raise ValueError('Multiple live listing price dialogs are ambiguous')
     if modals:
         modal = modals[0]
+        candidate = _modal_candidate(adapter, model, snapshot)
         hovered = []
         # A native label hash under the current pointer is passive evidence,
         # not proof of the label's handler, button geometry, or input behavior.
@@ -95,6 +121,7 @@ def collect(session, snapshot):
             hovered.append(label)
         result['price_modal'] = {**_panel(modal), 'observed': True,
             'hovered_label_hash_matches': hovered,
+            **candidate,
             'selected_item_uid_verified': False, 'price_buffer_verified': False,
             'controls_qualified': False}
         blocked('price_modal_semantics_unqualified',
@@ -112,6 +139,8 @@ def collect(session, snapshot):
             or unpack(adapter, model + 0x4c, '<I')[0] != model_owner
             or unpack(adapter, model + 12, '<B')[0] != model_active):
         raise ValueError('Merchant booth or GUI layout changed during preflight')
+    if modals and _modal_candidate(adapter, model, snapshot) != candidate:
+        raise ValueError('Candidate price-dialog model changed during preflight')
     for panel, label, evidence in table_reads:
         if _table(gui, panel, label) != evidence:
             raise ValueError('Merchant table layout changed during preflight')
