@@ -45,3 +45,11 @@ closed popup alone is not a receipt. The next supervised proof must compare
 the exact UID in inventory and the booth, with verified price and durable
 before/after observations; no automatic Confirm is enabled yet. The bounded
 loaded-code diagnostic is `scripts/probe_booth_modal_code_1078.py`.
+
+An isolated, explicit `merchant-booth-list-once-1078` source path prepares
+that proof. It is not scheduled, does not qualify the ordinary merchant
+driver, and does not enable automatic refill. Its exact-price OK candidate
+requires a native `OK` hover match at the input boundary; a durable marker
+precedes any mouse-down and an uncertain outcome cannot be replayed. No live
+listing with this path has been attempted or verified, and the active release
+does not yet contain it.

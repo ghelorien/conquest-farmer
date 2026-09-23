@@ -194,6 +194,8 @@ class UnifiedUI:
                 return lease_authorized(self,character)
             if self.coordinator.purpose=='booth_probe_1078_no_submit':
                 return self.coordinator.booth_probe_authorized(character)
+            if self.coordinator.purpose=='booth_listing_1078_once':
+                return self.coordinator.booth_listing_once_authorized(character)
             return self.runtime.input_allowed(character) or (
                 not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
                 and character in self.calibrating and not self.calibration_cancel[character].is_set())
@@ -267,6 +269,10 @@ class UnifiedUI:
         action = body.get('action')
         if action in ('merchant-booth-probe-1078', 'merchant-booth-probe-status-1078'):
             from conquest.merchants.booth_probe_1078 import dispatch
+            return dispatch(self, body)
+        if action in ('merchant-booth-list-once-1078', 'merchant-booth-list-once-status-1078',
+                      'merchant-booth-list-once-reconcile-1078'):
+            from conquest.merchants.booth_listing_once_1078 import dispatch
             return dispatch(self, body)
         if action=='merchant-booth-confirm-diagnostic-1078':
             if set(body)!={'action','character'}:
