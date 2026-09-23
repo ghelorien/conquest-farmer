@@ -508,6 +508,15 @@ def resume(loop):
     loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),world)
     if world==state['origin'] and state['phase']=='returning':
         if carried(loop):raise ValueError('Protected valuables unexpectedly carried after Market return')
+        if state.get('return_submitted_at'):
+            before=state.get('return_before')
+            after=loop.town('supplies')
+            fare=route['return']['fare']
+            if (not isinstance(before,dict) or type(fare) is not int or fare<0
+                    or before.get('silver')-after['silver']!=fare
+                    or any(before.get(key)!=after.get(key)
+                           for key in ('items','equipped_ammo','capacity'))):
+                raise ValueError('Meteor return fare or ownership is uncertain; no new input issued')
         from conquest.merchants.service_visit import MarketVisit
         MarketVisit().departed(world)
         open_warehouse(loop);save(state,'completed',completed_at=time.time())
@@ -579,7 +588,14 @@ def resume(loop):
                 or carried(loop)):
             market_bank(loop,state)
         save(state,'returning')
-        trip(loop,route['return'])
+        if state.get('return_submitted_at'):
+            # A previous process may have selected the return dialogue before
+            # losing its arrival observation.  Only the origin-map branch above
+            # can settle that submission; never select it again in Market.
+            raise ValueError('Meteor return submission is uncertain; no repeat fare issued')
+        def mark_return_submission():
+            save(state,return_submitted_at=time.time(),return_before=loop.town('supplies'))
+        trip(loop,route['return'],before_submit=mark_return_submission)
         # Arrival is checked by trip; the reopened origin bank lets shopping
         # finish its cash transfer without reusing the old city balance.
         open_warehouse(loop);save(state,'completed',completed_at=time.time())

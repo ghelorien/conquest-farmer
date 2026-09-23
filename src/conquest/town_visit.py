@@ -168,6 +168,33 @@ class TownVisit:
             row[field]=self.clock();write_json(self.path,row)
         return row
 
+    def claim_restock_tail_recovery(self,*,visit_id,target,evidence):
+        """Bind one reviewed interrupted restock tail; this sends no game input."""
+        row=self.state()
+        if (row.get('phase')!='town_work' or row.get('reasons')!=['restock']
+                or row.get('town_visit_id')!=visit_id or row.get('town_work_completed_at')
+                or row.get('restock_recovery_claim') or row.get('restock_recovery_attempted_at')
+                or not _process_identity(target) or not isinstance(evidence,dict)
+                or not evidence.get('reference')):
+            raise ValueError('Restock recovery claim does not match one unfinished visit')
+        row.update(restock_recovery_target=deepcopy(target),
+                   restock_recovery_claim={**deepcopy(evidence),'claimed_at':self.clock()})
+        write_json(self.path,row)
+        return row
+
+    def start_restock_tail_once(self,*,target):
+        """Consume the reviewed continuation before its first transaction input."""
+        row=self.state()
+        if (row.get('phase')!='town_work' or row.get('reasons')!=['restock']
+                or not row.get('restock_recovery_claim')
+                or row.get('restock_recovery_attempted_at')
+                or row.get('town_work_completed_at')
+                or not _process_identity(target) or row.get('restock_recovery_target')!=target):
+            raise ValueError('Restock recovery is unclaimed or already attempted')
+        row['restock_recovery_attempted_at']=self.clock()
+        write_json(self.path,row)
+        return row
+
     def claim_urgent_recovery(self,*,visit_id,target,intent,evidence):
         """Persist one explicitly reviewed legacy continuation, without game input."""
         row=self.state()

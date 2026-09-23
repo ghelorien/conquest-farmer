@@ -956,6 +956,8 @@ class OvernightLoop:
             after_shopping(self)
         from conquest import meteor_banking
         if meteor_banking.pending():
+            from conquest.restock_town_recovery import require_claimed_identity_before_meteor
+            require_claimed_identity_before_meteor(self)
             self.stop_farm()
             meteor_banking.resume(self)
             from conquest.banking import close_warehouse
@@ -970,6 +972,8 @@ class OvernightLoop:
         if cycle_pending():self.bank_acceptance_delivery()
         from conquest.urgent_town_recovery import resume_claimed
         resume_claimed(self)
+        from conquest.restock_town_recovery import resume_claimed as resume_restock_claimed
+        resume_restock_claimed(self)
         # Never leave town merely because a restarted worker sees stocked
         # supplies. The previous process may have stopped before banking or
         # may have submitted a transfer whose result needs reconciliation.
