@@ -187,6 +187,59 @@ class MemoryInventoryReader:
             raise ValueError('Inventory owner identity changed during observation')
         return result
 
+    def carried_pointer(self, snapshot, uid):
+        """Resolve an exact carried UID through the qualified inventory owner.
+
+        In 1078 the carried deque belongs to the inventory wrapper, not the
+        actual player object.  A pointer is usable only while the same complete
+        inventory and owner remain observable on both sides of the lookup.
+        """
+        from conquest.addressing import resolve_object
+        layout=self.layout
+        matches=[item for item in snapshot.items if item.uid==uid]
+        if len(matches)!=1 or matches[0].slot is None:
+            raise ValueError('Equipment UID not carried in one inventory slot')
+        item=matches[0]
+
+        def owner_address():
+            if layout.owner_root_rva is None:
+                return resolve_player(self.session,self.player_layout)['object']
+            return resolve_object(self.session,expected_sha256=layout.expected_sha256,
+                module=self.player_layout.module,root_rva=layout.owner_root_rva,
+                pointer_offsets=layout.owner_pointer_offsets,
+                vtable_rva=layout.owner_vtable_rva)
+
+        def same_inventory():
+            current=self.read()
+            return (current.items==snapshot.items and current.silver==snapshot.silver
+                    and current.equipped_ammo==snapshot.equipped_ammo
+                    and current.capacity==snapshot.capacity)
+
+        if not same_inventory():
+            raise ValueError('Inventory changed before equipment lookup')
+        owner=owner_address()
+        header_fields=[(owner+getattr(layout,name),'u64') for name in
+            ('deque_map','deque_map_size','deque_start','deque_count','lookup_count')]
+        table,table_size,first,count,lookup_count=sample(self.session,header_fields)
+        header=(table,table_size,first,count,lookup_count)
+        if (not 0<table_size<=256 or table_size&(table_size-1)
+                or count!=lookup_count or count!=len(snapshot.items)
+                or not 0<=item.slot<count):
+            raise ValueError('Invalid inventory equipment lookup')
+        slot_address=checked_address(table+((first+item.slot)%table_size)*8)
+        block=sample(self.session,[(slot_address,'u64')])[0]
+        pointer=sample(self.session,[(checked_address(block),'u64')])[0]
+        if not pointer or sample(self.session,[(pointer+layout.item_uid,'u32'),
+                (pointer+layout.item_type,'u32')])!=[item.uid,item.type_id]:
+            raise ValueError('Equipment pointer differs from carried item')
+        if (owner_address()!=owner or tuple(sample(self.session,header_fields))!=header
+                or sample(self.session,[(slot_address,'u64')])[0]!=block
+                or sample(self.session,[(checked_address(block),'u64')])[0]!=pointer
+                or not same_inventory()):
+            raise ValueError('Inventory changed during equipment lookup')
+        self.session.assert_identity()
+        return pointer
+
     def report(self):
         return {"stage": "inventory_candidate_sample", "qualified": False,
                 "restart_qualified": False, "snapshot": asdict(self.read())}

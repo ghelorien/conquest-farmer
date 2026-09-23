@@ -492,9 +492,7 @@ class TownTrade:
             raise ValueError('Equipment could not be scrolled into the live shop viewport')
         if action in ('equip','equip-arrows') and set(body)=={'action','uid'}:
             from conquest.equipment import read_equipment,item_details,upgrade_candidate,category,equip_receipt
-            from conquest.addressing import resolve_player
             from conquest.discard_loot import inventory_button
-            import struct
             self.life(any_map=action=='equip-arrows')
             try:self.shop.gui.read('Shop')
             except ValueError as error:
@@ -503,12 +501,8 @@ class TownTrade:
             before=self.inventory.read();state=read_equipment(self.observer)
             matches=[i for i in before.items if i.uid==body['uid']]
             if len(matches)!=1:raise ValueError('Equipment UID not carried')
-            item=matches[0];layout=self.inventory.layout;s=self.observer.adapter
-            actor=resolve_player(s,self.inventory.player_layout)['object']
-            table,capacity,first,count=struct.unpack('<4Q',s.read_block(actor+layout.deque_map,32))
-            if not 0<count<=40 or not count<=capacity<=256 or capacity&(capacity-1):raise ValueError('Invalid inventory equipment lookup')
-            shared=struct.unpack('<Q',s.read_block(table+((first+item.slot)%capacity)*8,8))[0]
-            pointer=struct.unpack('<Q',s.read_block(shared,8))[0]
+            item=matches[0];s=self.observer.adapter
+            pointer=self.inventory.carried_pointer(before,item.uid)
             details=item_details(s,pointer,self.shop.base)
             from conquest.arrow_upgrades import eligible_arrow
             eligible=eligible_arrow(details,state) if action=='equip-arrows' else upgrade_candidate(details,state)
@@ -521,11 +515,17 @@ class TownTrade:
                 self.verified_read(lambda:self.shop.gui.read('Inventory'),bool,'Inventory opening unverified')
             grid=self.shop.gui.read('Inventory/##ItemGrid_')
             if grid.size!=(407.,175.) or grid.scroll!=(0.,0.):raise ValueError('Inventory equip grid differs')
-            if self.inventory.read().items!=before.items or read_equipment(self.observer)!=state:
+            if self.inventory.carried_pointer(before,item.uid)!=pointer or read_equipment(self.observer)!=state:
                 raise ValueError('Equipment changed before equip input')
             point=(round(grid.position[0]+20+40*(item.slot%10)),round(grid.position[1]+20+40*(item.slot//10)))
+            def before_press():
+                if (self.shop.gui.read('Inventory/##ItemGrid_')!=grid
+                        or read_equipment(self.observer)!=state
+                        or self.inventory.carried_pointer(before,item.uid)!=pointer
+                        or item_details(s,pointer,self.shop.base)!=details):
+                    raise TownObservationUnavailable('Equipment changed before equip button; no input sent')
             self.input_attempted=True
-            self.click(point,'right')
+            self.click(point,'right',before_press=before_press)
             slot=category(item.type_id)
             after=self.verified_read(lambda:(self.inventory.read(),read_equipment(self.observer)),
                 lambda pair:equip_receipt(item.uid,slot,before,state,*pair),
