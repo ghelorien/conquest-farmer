@@ -1,5 +1,9 @@
 # ImConquer 1078 read-only candidate
 
+This is the original reader-qualification record. Its observation-only
+conclusion below describes that checkpoint, not the later 1078 farmer runtime.
+See the live-runtime update at the end before changing current input gates.
+
 The separate `reader_1078` and manual-reader registry now support read-only
 operator handoff observation for this exact build. The normal farming, banking,
 merchant input, travel and recovery readers remain qualified only for 1074;
@@ -98,3 +102,27 @@ protected banking receipts, restart recovery, natural death/revive, and pickup
 semantics remain unqualified. A farmer's zero booth-owner state is carried
 explicitly and is valid only while the booth model is closed and its deque is
 empty; it never synthesizes an owned booth.
+
+## Later native farmer runtime evidence (September 23)
+
+The managed `2026.09.23-1078-ammo-r2` farmer worker used a writable embedded
+bridge on the exact 1078 process. Its durable `reports/desktop-farming/trial.sqlite3`
+contains `trial_started` at Unix time `1790160004.214` with
+`observe_only=false`, 120 movement attempts and 109 movement-verification
+receipts, 107 Scatter attack attempts and 111 memory kill-counter receipts.
+The first recorded movement targeted `[277,281]` and was observed at that
+position about one second later. The overnight route log records positions
+`[269,273]` through `[495,520]`, arrows `5002` to `4676`, and the run's kill
+count `0` to `795`. A healing receipt records potion UID `296219399` consumed
+and HP `771` to `1021`. Individual kill-counter receipts do not prove that the
+specific aimed monster died.
+
+These are evidence of native 1078 farmer movement, combat and one healing
+outcome, not of a fully safe loop. A death was detected immediately after that
+healing receipt. The same run has zero verified revivals; the operator later
+revived Parasite manually. Its completed town visit inherited an earlier
+operator-supervised restock, so it does not prove an autonomous 1078 purchase
+or full restock. Merchant listing/refill and automated trade remain disabled
+on 1078 pending their separate input qualification. The observer's former
+`read_only_worker=true` label was stale; the authenticated bridge `health`
+response is authoritative for whether that worker permits input.
