@@ -128,6 +128,25 @@ class TownTrade:
         if unpack(gui.session,context+0x3ec0,'<Q')[0]!=address:
             raise HoverNotReady('Warehouse drag endpoint is covered by another window')
 
+    def warehouse_vendor_snapshot(self, *, grid_input=False):
+        """Read one nearby Warehouseman without treating Market churn as movement."""
+        life=self.life(any_map=True)
+        if life.map_id!=1036:
+            return None,self.vendor(0)
+        from conquest.market_services import discover
+        identity,npc=discover(self.observer.entities,life.map_id,'Warehouseman',
+                              stable_identity_only=grid_input)
+        if max(abs(a-b) for a,b in zip(life.position,npc.position))>18:
+            raise ValueError('Travel closer to the vendor before opening its shop')
+        return identity,npc
+
+    def reread_warehouse_vendor(self, identity, *, grid_input=False):
+        """Recheck the selected Warehouseman before an input-bearing action."""
+        fresh_identity,fresh=self.warehouse_vendor_snapshot(grid_input=grid_input)
+        if fresh_identity!=identity:
+            raise ValueError('Warehouseman model, identity or tile changed before interaction')
+        return fresh
+
     def warehouse_deposit(self, uid):
         """Deposit one exact protected UID under physical/layout input guards."""
         from conquest.desktop_runtime import physical_coordinates
@@ -385,7 +404,7 @@ class TownTrade:
         action = body.get('action')
         if action=='warehouse-items' and (set(body)=={'action'} or
                 set(body)=={'action','rich'} and body['rich'] is True):
-            self.vendor(0)
+            self.warehouse_vendor_snapshot(grid_input=True)
             reader=MemoryWarehouseReader(self.observer.adapter)
             if body.get('rich'):
                 from conquest.merchants.memory import MerchantMemory
@@ -397,22 +416,20 @@ class TownTrade:
             return use(self)
         if action=='open-bank' and set(body)=={'action'}:
             from conquest.memory_warehouse import WarehouseMoneyReader
-            npc=self.vendor(0);reader=WarehouseMoneyReader.for_session(self.observer.adapter)
+            identity,npc=self.warehouse_vendor_snapshot()
+            reader=WarehouseMoneyReader.for_session(self.observer.adapter)
             try:
                 reader.read()
                 return {'opened':True,'npc_id':npc.entity_id}
             except ValueError as error:
                 if 'not active' not in str(error) and 'absent' not in str(error):raise
             self.input_attempted=True
-            self.click_npc(npc,lambda:self.vendor(0))
+            self.click_npc(npc,lambda:self.reread_warehouse_vendor(identity))
             self.verified_read(reader.read,lambda b:True,'Warehouse opening unverified; no repeat input issued')
             return {'opened':True,'npc_id':npc.entity_id}
         if action=='warehouse-locate' and set(body)=={'action'}:
-            from conquest.memory_npcs import warehouse_identity
-            life=self.life(any_map=True);identity=warehouse_identity(self.observer.entities,life.map_id)
-            found=MemoryNpcReader(self.observer.entities,vendors=[identity]).read(life.map_id).npcs
-            if len(found)!=1:raise ValueError('Warehouseman not in the memory scene')
-            return {'npc_id':found[0].entity_id,'position':found[0].position,'map_id':life.map_id}
+            _,npc=self.warehouse_vendor_snapshot()
+            return {'npc_id':npc.entity_id,'position':npc.position,'map_id':npc.map_id}
         if action=='warehouse-money' and set(body)=={'action'}:
             from conquest.memory_warehouse import WarehouseMoneyReader
             self.vendor(0)
@@ -423,7 +440,8 @@ class TownTrade:
             return transfer(self,action.rsplit('-',1)[1],body['amount'])
         if action=='vendor-status' and set(body)=={'action','vendor_type'}:
             try:
-                npc=self.vendor(body['vendor_type'])
+                npc=(self.warehouse_vendor_snapshot()[1] if body['vendor_type']==0
+                     else self.vendor(body['vendor_type']))
                 point=interaction_point(npc)
                 from conquest.viewport import clear_scene
                 return {'reachable':clear_scene(point,size_for(self.observer)),
@@ -555,11 +573,11 @@ class TownTrade:
             from conquest.scroll_withdrawal import reconcile
             return reconcile(self,body['operation_id'],body['uid'])
         if action == 'warehouse-open' and set(body)=={'action'}:
-            npc=self.vendor(0)
-            if self.vendor(0)!=npc:
+            identity,npc=self.warehouse_vendor_snapshot()
+            if self.reread_warehouse_vendor(identity)!=npc:
                 raise ValueError('Vendor moved before interaction')
             self.input_attempted=True
-            self.click_npc(npc,lambda:self.vendor(0),
+            self.click_npc(npc,lambda:self.reread_warehouse_vendor(identity),
                            point=(npc.draw_position[0],npc.draw_position[1]-32))
             return {'interacted':True,'vendor_id':npc.entity_id,'position':npc.position}
         if action == 'supplies' and set(body) == {'action'}:
