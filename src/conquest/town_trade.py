@@ -432,7 +432,7 @@ class TownTrade:
             return {'npc_id':npc.entity_id,'position':npc.position,'map_id':npc.map_id}
         if action=='warehouse-money' and set(body)=={'action'}:
             from conquest.memory_warehouse import WarehouseMoneyReader
-            self.vendor(0)
+            self.warehouse_vendor_snapshot(grid_input=True)
             bank=WarehouseMoneyReader.for_session(self.observer.adapter).read()
             return {'silver':self.inventory.read().silver,'stored_silver':bank.silver,'amount':bank.amount}
         if action in ('warehouse-money-deposit','warehouse-money-withdraw') and set(body)=={'action','amount'}:
