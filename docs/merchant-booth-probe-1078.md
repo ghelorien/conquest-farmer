@@ -26,8 +26,10 @@ its existing receipt; a changed request with the same ID is rejected. No
 request resumes or replays any input. Prepared receipts after a crash and
 uncertain receipts require operator reconciliation before any new probe.
 
-The farmer must already be safely yielded under the normal InputCoordinator
-policy, and Dutch must already be foreground in its standalone native window.
+The farmer must already be alive in memory-verified Market, Farming Off, with
+the native route worker exited and external execution clear. This requirement
+is rechecked before every probe input, independently of any merchant handoff
+grant. Dutch must already be foreground in its standalone native window.
 This deliberately limited first probe performs no embed, focus or restore
 operation. Global Stop, manual handoff, visitor sessions, mouse priority,
 grant revision/expiry, process identity and native layout remain authoritative.
