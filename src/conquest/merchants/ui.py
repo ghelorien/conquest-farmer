@@ -268,6 +268,11 @@ class UnifiedUI:
         if action in ('merchant-booth-probe-1078', 'merchant-booth-probe-status-1078'):
             from conquest.merchants.booth_probe_1078 import dispatch
             return dispatch(self, body)
+        if action=='merchant-booth-confirm-diagnostic-1078':
+            if set(body)!={'action','character'}:
+                raise ValueError('1078 booth confirm diagnostic requires exactly one merchant')
+            from conquest.merchants.booth_confirm_diagnostic_1078 import collect
+            return collect(self.runtime,body['character'])
         if action in ('merchant-observe-1078','merchant-listing-preflight-1078',
                       'merchant-booth-target-preflight-1078'):
             if set(body)!={'action','character'}:
