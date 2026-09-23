@@ -1042,7 +1042,12 @@ class DesktopApp:
     def make_observer(self,pid,hwnd):
         from conquest.identity import fingerprint
         from conquest.memory_build_layout import READ_LAYOUTS, CLIENT_SHA256_1078
-        digest=fingerprint(Path(self.client[2]['path']))['sha256']
+        # The authenticated attach path probes an exact PID before selecting it
+        # in the picker. Multiple open clients leave self.client unset here.
+        identity=self.backend.identity(pid)
+        if self.client is not None and self.client[0]!=pid:
+            raise ValueError('Observer PID differs from the selected client')
+        digest=fingerprint(Path(identity['path']))['sha256']
         layout=READ_LAYOUTS.get(digest)
         if layout is None:
             from conquest.memory import UnsupportedClientBuildError
