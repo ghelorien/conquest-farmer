@@ -192,6 +192,8 @@ class UnifiedUI:
             if self.coordinator.purpose=='delivery_probe_abort':
                 from conquest.merchants.delivery_abort_probe import lease_authorized
                 return lease_authorized(self,character)
+            if self.coordinator.purpose=='booth_probe_1078_no_submit':
+                return self.coordinator.booth_probe_authorized(character)
             return self.runtime.input_allowed(character) or (
                 not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
                 and character in self.calibrating and not self.calibration_cancel[character].is_set())
@@ -263,6 +265,9 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action in ('merchant-booth-probe-1078', 'merchant-booth-probe-status-1078'):
+            from conquest.merchants.booth_probe_1078 import dispatch
+            return dispatch(self, body)
         if action in ('merchant-observe-1078','merchant-listing-preflight-1078',
                       'merchant-booth-target-preflight-1078'):
             if set(body)!={'action','character'}:

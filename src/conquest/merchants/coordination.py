@@ -38,6 +38,36 @@ class InputCoordinator:
         self.manual_journal = None
         self.manual_farmer_target = 'Farmer'
         self._probe_abort_capability = None
+        self._booth_probe_capability = None
+
+    @contextmanager
+    def booth_probe_scope(self, character, validate):
+        """One thread's exact, journal-bound 1078 no-submit calibration only.
+
+        This does not clear surface_blocks, change saved intent, or authorize
+        the legacy driver. Stop, manual sessions and farmer handoff still win.
+        The scope deliberately avoids ordinary embed/focus/restore callbacks.
+        """
+        with self.lock:
+            if self._booth_probe_capability is not None or self.owner is not None:
+                raise CaptureUnavailable('Another input owner or booth probe is active')
+            self._booth_probe_capability = (threading.get_ident(), character, validate)
+            try:
+                validate()
+                yield
+            finally:
+                self._booth_probe_capability = None
+
+    def booth_probe_authorized(self, character):
+        capability = self._booth_probe_capability
+        if (self.purpose != 'booth_probe_1078_no_submit' or capability is None
+                or capability[:2] != (threading.get_ident(), character)):
+            return False
+        try:
+            capability[2]()
+            return True
+        except (ValueError, OSError, KeyError, TypeError, AttributeError, CaptureUnavailable):
+            return False
 
     @contextmanager
     def probe_abort_scope(self, validate):
@@ -97,7 +127,8 @@ class InputCoordinator:
     def check(self):
         if self.fence is not None:
             self.fence.check()
-        if self.owner and self.surface_blocks.get(self.owner):
+        if (self.owner and self.surface_blocks.get(self.owner)
+                and not self.booth_probe_authorized(self.owner)):
             raise CaptureUnavailable('Client surface needs reattachment and input qualification')
         if self.stopped or self.manual_active():
             raise CaptureUnavailable('Automation stopped or manual input active')
@@ -142,8 +173,11 @@ class InputCoordinator:
             self.purpose = purpose
             owned = True
             self.check()  # Denied work must not focus or restore a merchant surface.
-            prepared = True
-            self.on_acquire(character)
+            # The separate probe requires an already foreground native HWND;
+            # ordinary callbacks can invoke unqualified 1074 surface work.
+            if not self.booth_probe_authorized(character):
+                prepared = True
+                self.on_acquire(character)
             self.check()
             yield self
         finally:
