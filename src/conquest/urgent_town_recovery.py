@@ -36,12 +36,17 @@ def transaction_holds():
 
 def _terminal_meteor(visit,events):
     from conquest.meteor_banking import JOURNAL,SCROLL
+    from conquest.merchants.delivery_route import receipt_for
     meteor=read_json(JOURNAL)
     started=meteor.get('started_at');completed=meteor.get('completed_at')
+    verified=meteor.get('market_verified_at')
     if (meteor.get('phase')!='completed' or meteor.get('exchange_verified') is not True
             or type(started) not in (int,float) or started<visit['required_at']
             or type(completed) not in (int,float) or completed<=started
-            or not meteor.get('market_verified_at') or meteor.get('origin')!=1011):
+            or type(verified) not in (int,float) or not started<=verified<=completed
+            or meteor.get('origin')!=1011
+            or meteor.get('user_confirmed_scroll_consumption')
+            or meteor.get('user_confirmed_scroll_transfer')):
         raise ValueError('Meteor consolidation lacks exact terminal proof')
     failures=[row for row in events if row.get('event')=='failed'
               and type(row.get('time')) in (int,float) and started<=row['time']<completed
@@ -53,7 +58,8 @@ def _terminal_meteor(visit,events):
     receipts={row.get('stored'):row for row in meteor.get('receipts',[])
               if row.get('verified_in_warehouse') is True}
     scroll=meteor.get('scroll_uid')
-    if (type(scroll) is not int or scroll<=0 or receipts.get(scroll,{}).get('type_id')!=SCROLL):
+    if (type(scroll) is not int or scroll<=0 or receipts.get(scroll,{}).get('type_id')!=SCROLL
+            or receipt_for(scroll,SCROLL)):
         raise ValueError('Exact MeteorScroll storage receipt is missing')
     return meteor,failures[0],receipts
 
@@ -102,7 +108,8 @@ def claim_legacy(visit,*,info_path,visit_id,original_target,reference):
     if any(type(receipt.get('time')) not in (int,float)
            or receipt['time']>=row['required_at'] for receipt in _rows(MONEY)):
         raise ValueError('Post-visit or unreadable money transfer needs reconciliation')
-    intent=[{'uid':uid,'type_id':receipts[uid]['type_id']} for uid in uids]
+    intent=[{'uid':uid,'type_id':receipts[uid]['type_id'],'storage_map_id':1036}
+            for uid in uids]
     return visit.claim_urgent_recovery(visit_id=visit_id,target=original_target,
         intent=intent,evidence={'reference':reference,'urgent_start_at':starts[0]['time'],
             'meteor_started_at':meteor['started_at'],'meteor_completed_at':meteor['completed_at'],
@@ -114,6 +121,7 @@ def resume_claimed(loop):
     from conquest.banking import after_shopping,close_warehouse,open_warehouse,urgent_valuables
     from conquest.merchants.farmer_preferences import enabled as delivery_enabled
     from conquest.merchants.handoff import service_window
+    from conquest.merchants.delivery_route import receipt_for
     from conquest.meteor_banking import JOURNAL,METEOR
     from conquest.overnight import needs_town,supply_counts
     from conquest.town_trade import stash_candidate
@@ -140,19 +148,33 @@ def resume_claimed(loop):
         raise ValueError('Urgent recovery bag or supplies changed')
     meteor=read_json(JOURNAL)
     if (meteor.get('phase')!='completed' or meteor.get('completed_at')!=claim['meteor_completed_at']
-            or meteor.get('scroll_uid')!=claim['scroll_uid']):
+            or meteor.get('scroll_uid')!=claim['scroll_uid']
+            or not meteor.get('market_verified_at')
+            or meteor.get('user_confirmed_scroll_consumption')
+            or meteor.get('user_confirmed_scroll_transfer')
+            or receipt_for(claim['scroll_uid'],720027)
+            or any(item['uid']==claim['scroll_uid'] for item in bag['items'])):
         raise ValueError('Claimed Meteor terminal journal changed')
     # Only the original skipped tail is permitted. A further ten-Meteor batch
     # would be a new fare/exchange and belongs to a separately reviewed visit.
-    visit.start_urgent_recovery_once(target=target)
     open_warehouse(loop)
-    stored=loop.town('warehouse-items')
-    if (any(next((item for item in stored['items'] if item['uid']==wanted['uid']),{}).get('type_id')
-            !=wanted['type_id'] for wanted in row['urgent_intent'])
-            or next((item for item in stored['items'] if item['uid']==claim['scroll_uid']),{}).get('type_id')!=720027
+    stored=loop.town('warehouse-items');fresh_pre=loop.town('supplies')
+    keys=('items','equipped_ammo','capacity','silver')
+    if any(fresh_pre.get(key)!=bag.get(key) for key in keys):
+        raise ValueError('Bag changed during recovery warehouse approach')
+    phoenix={item['uid']:item['type_id'] for item in stored['items']}
+    # The scroll and receipt-backed urgent items were stored in Market. They
+    # must remain out of the Phoenix bag; they are not Phoenix bank entries.
+    if (any((phoenix.get(wanted['uid'])!=wanted['type_id']
+             if wanted.get('storage_map_id',1011)==1011 else wanted['uid'] in phoenix)
+            for wanted in row['urgent_intent'])
+            or claim['scroll_uid'] in phoenix
             or sum(item['type_id']==METEOR and item['amount']==item['limit']==1
-                   for item in bag['items']+stored['items'])>=10):
+                   for item in fresh_pre['items']+stored['items'])>=10):
         raise ValueError('Fresh warehouse ownership or new Meteor batch differs; no tail submitted')
+    # Warehouse opening is non-transactional. Consume the one-shot only after
+    # its fresh native ownership read has passed, before any tail transaction.
+    visit.start_urgent_recovery_once(target=target)
     if not after_shopping(loop):
         raise ValueError('Urgent banking tail is disabled')
     open_warehouse(loop)
@@ -161,9 +183,10 @@ def resume_claimed(loop):
             or needs_town(supply_counts(fresh_bag,loop.route),loop.route)
             or transaction_holds()):
         raise ValueError('Urgent banking tail did not settle')
-    wanted={item['uid']:item['type_id'] for item in row['urgent_intent']}
     banked={item['uid']:item['type_id'] for item in fresh_bank['items']}
-    if any(banked.get(uid)!=kind for uid,kind in wanted.items()):
+    if any((banked.get(item['uid'])!=item['type_id']
+             if item.get('storage_map_id',1011)==1011 else item['uid'] in banked)
+           for item in row['urgent_intent']) or claim['scroll_uid'] in banked:
         raise ValueError('Urgent item ownership changed after banking tail')
     close_warehouse(loop)
     visit.record_urgent_tail('banking',target=target)
@@ -174,6 +197,7 @@ def resume_claimed(loop):
     open_warehouse(loop)
     final=loop.town('supplies');final_bank=loop.town('warehouse-items')
     if (urgent_valuables(final['items']) or transaction_holds()
+            or receipt_for(claim['scroll_uid'],720027)
             or not visit.reconcile_urgent_town_work(target=target,bag=final,
                 warehouse=final_bank,meteor=read_json(JOURNAL),
                 transaction_holds=False,

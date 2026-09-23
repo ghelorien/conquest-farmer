@@ -163,6 +163,7 @@ class TownVisit:
         if (len({item.get('uid') for item in intent})!=len(intent)
                 or any(type(item.get('uid')) is not int or item['uid']<=0
                        or type(item.get('type_id')) is not int or item['type_id']<=0
+                       or item.get('storage_map_id',1011) not in (1011,1036)
                        for item in intent)):
             raise ValueError('Urgent recovery item identities are invalid')
         row.update(urgent_target=deepcopy(target),urgent_intent=deepcopy(intent),
@@ -196,25 +197,36 @@ class TownVisit:
             wanted={item['uid']:item['type_id'] for item in intent}
             if len(wanted)!=len(intent):return False
             carried={item['uid']:item['type_id'] for item in bag['items']}
-            stored={item['uid']:item['type_id'] for item in warehouse['items']}
-            if (any(uid in carried or stored.get(uid)!=kind for uid,kind in wanted.items())
-                    or not all(item.get('uid') in stored and
-                               stored[item['uid']]==item.get('type_id')
-                               for item in intent)):
+            phoenix={item['uid']:item['type_id'] for item in warehouse['items']}
+            # Market and Phoenix are separate warehouses. Market ownership is
+            # evidenced by its verified pre-return receipts and terminal bank
+            # check; only Phoenix-destined items require this live local deque.
+            market=[item for item in intent if item.get('storage_map_id',1011)==1036]
+            local=[item for item in intent if item.get('storage_map_id',1011)==1011]
+            if (any(uid in carried for uid in wanted)
+                    or any(phoenix.get(item['uid'])!=item['type_id'] for item in local)
+                    or any(item['uid'] in phoenix for item in market)):
                 return False
             # A completed Meteor journal is required when this visit packed a
             # scroll. It must show exact terminal receipts for every banked UID.
             started=meteor.get('started_at')
-            if type(started) in (int,float) and started>=row['required_at']:
+            if market or (type(started) in (int,float) and started>=row['required_at']):
+                verified=meteor.get('market_verified_at');finished=meteor.get('completed_at')
                 if (meteor.get('phase')!='completed' or meteor.get('exchange_verified') is not True
-                        or not meteor.get('market_verified_at') or not meteor.get('completed_at')):
+                        or type(started) not in (int,float) or started<row['required_at']
+                        or type(verified) not in (int,float)
+                        or type(finished) not in (int,float)
+                        or not started<=verified<=finished):
                     return False
                 receipts={receipt.get('stored'):receipt for receipt in meteor.get('receipts',[])
                           if receipt.get('verified_in_warehouse') is True}
-                if (any(receipts.get(uid,{}).get('type_id')!=kind
-                        for uid,kind in wanted.items())
-                        or stored.get(meteor.get('scroll_uid'))!=720027
-                        or meteor.get('scroll_uid') not in receipts):
+                if (any(receipts.get(item['uid'],{}).get('type_id')!=item['type_id']
+                        for item in market)
+                        or receipts.get(meteor.get('scroll_uid'),{}).get('type_id')!=720027
+                        or meteor.get('scroll_uid') in carried
+                        or meteor.get('scroll_uid') in phoenix
+                        or meteor.get('user_confirmed_scroll_consumption')
+                        or meteor.get('user_confirmed_scroll_transfer')):
                     return False
         except (KeyError,TypeError,ValueError):
             return False
