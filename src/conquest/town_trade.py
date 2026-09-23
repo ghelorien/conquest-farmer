@@ -133,7 +133,45 @@ class TownTrade:
         from conquest.desktop_runtime import physical_coordinates
         with physical_coordinates():
             layout, layout_revision = self.warehouse_layout()
-            npc = self.vendor(0)
+            life = self.life(any_map=True)
+            market_warehouse = life.map_id == 1036
+            if market_warehouse:
+                from conquest.market_services import discover
+                # Market's actor vector is reordered by unrelated players.  A
+                # deposit targets the already-qualified warehouse grid, so pin
+                # the selected Warehouseman rather than the whole live scene.
+                # discover() still checks the exact object, UID, model,
+                # name/type, tile, scene owner and process on every read.
+                warehouse_identity, npc = discover(
+                    self.observer.entities, life.map_id, 'Warehouseman',
+                    stable_identity_only=True)
+                if max(abs(a-b) for a,b in zip(life.position,npc.position)) > 18:
+                    raise ValueError('Travel closer to the vendor before opening its shop')
+
+                def vendor_unchanged():
+                    fresh_life = self.life(any_map=True)
+                    if fresh_life.map_id != life.map_id:
+                        return False
+                    fresh_identity, fresh_npc = discover(
+                        self.observer.entities, fresh_life.map_id,
+                        'Warehouseman', stable_identity_only=True)
+                    if max(abs(a-b) for a,b in zip(fresh_life.position,
+                                                    fresh_npc.position)) > 18:
+                        return False
+                    # Draw coordinates animate in place and do not influence a
+                    # warehouse-grid drag.  The VendorIdentity retains model,
+                    # while this tuple retains the live object and exact UID.
+                    return (fresh_identity == warehouse_identity
+                            and (fresh_npc.object_address, fresh_npc.entity_id,
+                                 fresh_npc.type_id, fresh_npc.name,
+                                 fresh_npc.map_id, fresh_npc.position)
+                            == (npc.object_address, npc.entity_id, npc.type_id,
+                                npc.name, npc.map_id, npc.position))
+            else:
+                npc = self.vendor(0)
+
+                def vendor_unchanged():
+                    return self.vendor(0) == npc
             reader = MemoryWarehouseReader(self.observer.adapter)
             before = self.inventory.read()
             stored = reader.read()
@@ -152,7 +190,7 @@ class TownTrade:
             fresh = self.inventory.read()
             if (fresh.items != before.items or fresh.silver != before.silver
                     or fresh.equipped_ammo != before.equipped_ammo
-                    or reader.read() != stored or self.vendor(0) != npc
+                    or reader.read() != stored or not vendor_unchanged()
                     or self.shop.gui.read('Inventory/##ItemGrid_') != grid
                     or reader.gui.read('Warehouse/ScrollingRegion_') != target):
                 raise ValueError('Warehouse or inventory changed before deposit')
@@ -174,7 +212,7 @@ class TownTrade:
                     current=self.inventory.read()
                     if (current.items!=before.items or current.silver!=before.silver
                             or current.equipped_ammo!=before.equipped_ammo
-                            or reader.read()!=stored or self.vendor(0)!=npc
+                            or reader.read()!=stored or not vendor_unchanged()
                             or self.shop.gui.read('Inventory/##ItemGrid_')!=grid
                             or reader.gui.read('Warehouse/ScrollingRegion_')!=target):
                         raise TownObservationUnavailable(
@@ -189,7 +227,7 @@ class TownTrade:
                     # grid while the button is held. Releasing over a moved panel
                     # could transfer the item somewhere other than storage.
                     if (reader.gui.read('Warehouse/ScrollingRegion_')!=target
-                            or self.vendor(0)!=npc):
+                            or not vendor_unchanged()):
                         raise ValueError('Warehouse moved during deposit drag; item preserved if still carried')
                     self.require_warehouse_hover(target)
                 wait_hover_validation(ready,input_guard)
@@ -258,7 +296,7 @@ class TownTrade:
         from conquest.memory_npcs import vendor_identity
         if stable_identity_only:
             if type_id!=0 or life.map_id!=1036:
-                raise ValueError('Stable warehouse identity is restricted to Market item withdrawal')
+                raise ValueError('Stable warehouse identity is restricted to Market warehouse grid operations')
             from conquest.market_services import discover
             # The selected NPC remains in a freshly bounded scene with its
             # object, model, UID, name/type and world tile pinned. Unrelated
