@@ -301,6 +301,53 @@ def request_handoff(runtime, character):
         return runtime.handoff
 
 
+def release_completed_refill(ui, character):
+    """Retire an exact unsent completed request through normal release logic."""
+    from conquest.merchants.journal import character_name
+    from conquest.merchants.booth_listing_once_1078 import WORKER_LOCK, WORKERS
+    from conquest.merchants.background_probe import probe_busy
+    runtime, coordinator = ui.runtime, ui.coordinator
+    peer = character_name(character)
+    with runtime.lock:
+        request = runtime.handoff
+        if (not isinstance(request,str)
+                or not re.fullmatch(r'merchant-refill:'+re.escape(peer)+r':\d+',request)
+                or ui.grant is not None or ui.grant_fence.active is not None
+                or request in ui.grant_fence.requests
+                or runtime.delivery_window or runtime.refill_window
+                or getattr(ui,'host_release_pending',None)
+                or runtime.manual_handoff_status() is not None
+                or runtime.stop_event.is_set() or coordinator.stopped):
+            return False
+        if not coordinator.lock.acquire(blocking=False):return False
+        try:
+            state=runtime.refills[character].state()
+            if (state.get('pending') is not False
+                    or state.get('status') not in ('completed','no_stock','booth_full')
+                    or state.get('listing1078_request')
+                    or coordinator.owner is not None or coordinator.manual_active()
+                    or any(row.get('holds_automation') for row in coordinator.manual_sessions.values())
+                    or runtime.farmer_bot_owned() or getattr(ui,'calibrating',None)
+                    or probe_busy(ui)):
+                return False
+            workers=[getattr(ui,name,None) for name in
+                     ('delivery_probe_thread','trade_qualification_prep_thread','background_thread')]
+            workers.extend(getattr(ui,'connect_threads',{}).values())
+            if any(worker is not None and worker.is_alive() for worker in workers):return False
+            with WORKER_LOCK:
+                if any(worker.is_alive() for worker in WORKERS.values()):return False
+            with runtime.journal.db() as db:
+                if db.execute("SELECT 1 FROM transactions WHERE phase NOT IN "
+                              "('verified','aborted','operator_overridden') LIMIT 1").fetchone():
+                    return False
+            if runtime.handoff!=request:return False
+            # Same lock as grant admission: no active grant can appear between
+            # the guards and this exact-ID release. Saved controls stay intact.
+            return ui.dispatch({'action':'handoff-release','request_id':request}).get('released') is True
+        finally:
+            coordinator.lock.release()
+
+
 def release_ungranted_unavailable_peer(ui, character):
     """Forfeit only an unsent refill request from a peer that cannot be read.
 

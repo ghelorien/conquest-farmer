@@ -197,6 +197,8 @@ def step(ui, character, snapshot):
     try:
         schedule = runtime.refills[character]
         state = schedule.state()
+        from conquest.merchants.listing_handoff_1078 import release_completed_refill
+        release_completed_refill(ui, character)
         request = state.get('listing1078_request')
         if request:
             row = _row(journal, request['request_id'])
@@ -264,6 +266,7 @@ def step(ui, character, snapshot):
             schedule.complete('booth_full' if snapshot['inventory'] else 'no_stock',
                               listed=state.get('listed', 0) if state.get('pending') else 0)
             journal.set(character, 'new_stock', False)
+            release_completed_refill(ui, character)
             return {'state': 'capacity_checked'}
         try:
             require(journal, character, snapshot)
@@ -280,6 +283,7 @@ def step(ui, character, snapshot):
             schedule.complete('completed', listed=state.get('listed', 0) if state.get('pending') else 0,
                               deferred=len(queue))
             journal.set(character, 'new_stock', False)
+            release_completed_refill(ui, character)
             return {'state': 'unknown_prices_deferred', 'deferred': len(queue)}
         if control.get('enabled') or not ui.safe_to_yield():
             from conquest.merchants.listing_handoff_1078 import request_handoff

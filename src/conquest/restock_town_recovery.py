@@ -297,6 +297,11 @@ def resume_pre_admission_tail(loop):
             (['urgent_banking','restock'] if claim.get('capture_kind')=='booth_confirmation'
              else ['restock'])):
         raise ValueError('Interrupted restock visit changed')
+    loop.check_stop()
+    initial=loop.health()
+    if initial.get('target')!=claim['target'] or not _process_identity(claim['target']):
+        raise ValueError('Interrupted restock process changed before input release')
+    loop.stop_farm()  # A completed Meteor skips the pending-trip stop on restart.
     _native_tail_safe(loop,claim['target'],loop.route.restock_map_id)
     meteor=read_json(meteor_banking.JOURNAL);original=claim['meteor']
     market=read_json(MarketVisit().path)
@@ -318,6 +323,14 @@ def resume_pre_admission_tail(loop):
     fare=read_json(meteor_banking.POLICY)['origins'][str(meteor['origin'])]['return']['fare']
     expected['silver']-=fare
     loop.adopt_ammunition();bag=loop.town('supplies')
+    if _ownership(bag)!=_ownership(expected) or claim.get('unexpected_supply_addition'):
+        from conquest.restock_supply_observation import observe_addition
+        try:
+            expected=observe_addition(loop,row,claim,meteor,expected)
+        except Exception as error:
+            loop.record('restock_ownership_mismatch',expected=expected,observed=bag,
+                        return_before=meteor.get('return_before'),detail=str(error))
+            raise
     if (_ownership(bag)!=_ownership(expected) or any(stash_candidate(i) for i in bag['items'])
             or needs_town(supply_counts(bag,loop.route),loop.route)):
         raise ValueError('Returned restock ownership or supplies changed')
@@ -325,7 +338,8 @@ def resume_pre_admission_tail(loop):
     _native_tail_safe(loop,claim['target'],loop.route.restock_map_id)
     if _ownership(loop.town('supplies'))!=_ownership(expected) or bank['silver']!=expected['silver']:
         raise ValueError('Cash tail ownership changed before input')
-    claim.update(phase='cash_attempted',cash_before=bank,attempted_at=time.time())
+    claim.update(phase='cash_attempted',cash_before=bank,cash_inventory_before=bag,
+                 attempted_at=time.time())
     _save_tail(visit,row)  # Durable before any possible money submission.
     excess=bank['silver']-banking.transport_reserve();receipt=None
     if excess>0:receipt=banking.transfer(loop,'deposit',excess)
