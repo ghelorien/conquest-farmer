@@ -46,7 +46,14 @@ def _settle_cursor(journal, character, request_id):
                 or json.loads(row['before_json']).get('request') != request
                 or not json.loads(row['result_json']).get('exact_memory_listing_verified')):
             raise ValueError('Refill cursor lacks its exact verified listing receipt')
+        before = json.loads(row['before_json'])
         state.update(listing1078_request=None, listed=state.get('listed', 0)+1,
+                     last_verified_listing={'request_id': request_id,
+                                            'verified_at': row['updated'],
+                                            'character': before['request']['character'],
+                                            'profile_id': before['profile_id'],
+                                            'character_uid': before['request']['expected_character_uid'],
+                                            'identity': before['request']['expected_identity']},
                      cursor=[uid for uid in state.get('cursor', []) if uid != request['item_uid']])
         db.execute("UPDATE state SET value=? WHERE character=? AND name='refill'",
                    (json.dumps(state), character))

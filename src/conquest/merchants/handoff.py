@@ -1,11 +1,13 @@
 """Durable farmer work windows; never accumulate missed merchant intervals."""
 from conquest.character_context import state_path
 import time
+import math
 from pathlib import Path
 from conquest.discord_notify import read_json, write_json
 
 INTERVAL = 900
 WORK_SECONDS = 15
+REFILL_CONTINUATION_SECONDS = 60
 POLICY = Path('profiles/merchant-deliveries.json')
 STATE = Path(state_path('.runtime/merchant-handoff.json'))
 HOST_STATE = Path(state_path('.runtime/merchant-host-handoff.json'))
@@ -21,19 +23,28 @@ class WorkWindows:
     def due(self):
         return self.clock() >= self.state().get('next_check', 0)
 
-    def reserve(self, request_id, *, town=False, urgent=False, visit=None):
-        if not town and not urgent and not self.due():
+    def reserve(self, request_id, *, town=False, urgent=False, visit=None,
+                listing_progress=None, continuation=False):
+        if not town and not urgent and not continuation and not self.due():
             return False
         now = self.clock()
         old=self.state()
+        consumed=dict(old.get('consumed_listing_progress') or {})
+        if continuation and (town or urgent or visit or not listing_progress
+                or consumed.get(listing_progress['character'])==listing_progress['request_id']
+                or now < listing_progress['verified_at']+REFILL_CONTINUATION_SECONDS):
+            return False
+        if listing_progress:
+            consumed[listing_progress['character']]=listing_progress['request_id']
         if visit and (not town or not now<visit['deadline']<=now+60):
             return False
         same_visit=visit and old.get('visit_id')==visit['visit_id']
         # Reserve before parking/input: crashes or failed safe-spot searches
         # cannot generate repeated interruptions of the hunting loop.
-        state={'request_id':request_id, 'last_check':old.get('last_check',now) if same_visit else now,
-            'next_check':old['next_check'] if same_visit else now+INTERVAL,
+        state={'request_id':request_id, 'last_check':old.get('last_check',now) if same_visit or continuation else now,
+            'next_check':old['next_check'] if same_visit or continuation else now+INTERVAL,
             'phase':'preparing', 'town':town,'last_attempt_at':old.get('last_attempt_at',now) if same_visit else now}
+        state.update(consumed_listing_progress=consumed,refill_continuation=continuation)
         if visit:state.update(visit_id=visit['visit_id'],deadline=visit['deadline'],
                               farmer_profile_id=visit['farmer_profile_id'],scope='market_visit')
         write_json(self.path,state)
@@ -81,6 +92,39 @@ def qualified_listing_request(status):
             and state.get('qualification',{}).get('foreground_open_booth_listing_1078') is True):
         return parts[1]
     return None
+
+
+def pending_listing_progress(status):
+    """One exact verified listing can earn one more bounded backlog window."""
+    name=qualified_listing_request(status)
+    if not name:return None
+    state=status['characters'][name]
+    refill=state.get('refill') or {};snapshot=state.get('snapshot') or {}
+    proof=refill.get('last_verified_listing') or {}
+    now=time.time();observed_at=snapshot.get('timestamp');verified_at=proof.get('verified_at')
+    blocker=(state.get('foreground_refill_1078') or {}).get('blocker')
+    if (not refill.get('pending') or not refill.get('cursor')
+            or len(refill['cursor']) <= refill.get('deferred',0)
+            or refill.get('listing1078_engine')!=1 or refill.get('listing1078_request')
+            or state.get('pending') or state.get('needs_attention')
+            or state.get('manual_input_fence')
+            or blocker not in ('waiting_farmer_handoff','listing_work_budget_insufficient')
+            or not snapshot.get('inventory') or len(snapshot.get('booth',[]))>=32
+            or not snapshot.get('booth_open') or snapshot.get('map_id')!=1036
+            or type(observed_at) not in (int,float) or not math.isfinite(observed_at)
+            or not 0<=now-observed_at<=2
+            or snapshot.get('trade') is not None or snapshot.get('request') is not None
+            or not isinstance(proof.get('request_id'),str)
+            or not proof['request_id'].startswith('booth-list1078-refill-')
+            or type(verified_at) not in (int,float) or not math.isfinite(verified_at)
+            or verified_at>now
+            or proof['verified_at'] < (refill.get('attempt_started_at') or float('inf'))
+            or proof.get('character')!=name or not proof.get('profile_id')
+            or proof['profile_id']!=state.get('profile_id')
+            or proof.get('character_uid')!=snapshot.get('character_uid')
+            or proof.get('identity') != snapshot.get('identity')):
+        return None
+    return {**proof,'character':name}
 
 
 def native_host_request(status):
@@ -151,7 +195,11 @@ def service_window(loop, *, town=False):
         return False
     urgent = False if host_request else urgent_recovery(status)
     if host_request:listing_character=None
-    if not town and not urgent and not windows.due():
+    progress = pending_listing_progress(status) if not host_request and not urgent else None
+    continuation = bool(not town and progress and not windows.due()
+        and windows.state().get('consumed_listing_progress',{}).get(progress['character'])!=progress['request_id']
+        and time.time()>=progress['verified_at']+REFILL_CONTINUATION_SECONDS)
+    if not town and not urgent and not windows.due() and not continuation:
         return False
     before = loop.health()
     control = before['embedded_controls']['control']
@@ -186,7 +234,8 @@ def service_window(loop, *, town=False):
         request_id = status.get('handoff_requested')
     if not request_id or not any(service_candidate(c) for c in status.get('characters',{}).values()):
         return False
-    if not windows.reserve(request_id, town=town and not host_request, urgent=urgent, visit=visit):
+    if not windows.reserve(request_id, town=town and not host_request, urgent=urgent, visit=visit,
+                           listing_progress=progress, continuation=continuation):
         return False
     was_enabled, phase = control['enabled'], loop.phase
     loop.stop_farm()
