@@ -1,57 +1,67 @@
 schema_version: 1
 id: macaque
-name: Macaque east of ApeCity
+name: Macaque south-east of ApeCity
 map_id: 1020
 restock_map_id: 1020
 monster_type_ids: [10, 69]
 recommended_levels: [47, 51]
 town_anchor: [554, 545]
 restock_anchor: [550, 547]
-hunting_anchor: [610, 573]
+hunting_anchor: [620, 645]
 kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
-hunting_boundary: [599, 548, 622, 620]
+hunting_boundary: [600, 580, 688, 670]
 patrol_search:
   idle_seconds: 7.5
   expansion_tiles: 8
   maximum_expansions: 1
   sweep_spacing_tiles: 20
 patrol:
-  - [610, 573]
-  - [605, 555]
-  - [615, 556]
-  - [615, 575]
-  - [608, 594]
-  - [611, 611]
-  - [602, 606]
-  - [602, 584]
-  - [602, 562]
+  - [620, 645]
+  - [640, 645]
+  - [650, 645]
+  - [662, 640]
+  - [670, 639]
+  - [650, 615]
+  - [630, 610]
+  - [622, 612]
+  - [616, 621]
 outbound_waypoints:
   - [554, 545]
   - [559, 546]
+  - [562, 554]
   - [565, 558]
-  - [570, 570]
+  - [567, 568]
+  - [570, 576]
   - [571, 580]
-  - [583, 583]
-  - [592, 586]
-  - [600, 586]
-  - [609, 574]
-  - [610, 573]
+  - [583, 584]
+  - [595, 588]
+  - [600, 589]
+  - [603, 598]
+  - [606, 607]
+  - [609, 616]
+  - [612, 624]
+  - [615, 632]
+  - [618, 640]
+  - [620, 645]
 return_waypoints:
-  - [610, 573]
-  - [609, 574]
-  - [600, 586]
-  - [592, 586]
-  - [583, 583]
+  - [620, 645]
+  - [616, 633]
+  - [612, 621]
+  - [608, 609]
+  - [603, 597]
+  - [600, 589]
+  - [588, 585]
+  - [576, 581]
   - [571, 580]
-  - [570, 570]
-  - [565, 558]
-  - [559, 546]
+  - [567, 568]
+  - [564, 556]
+  - [558, 545]
   - [554, 545]
 terrain_sha256: 2feb3cdcf2a5cfe8a3358f15103c9994b83094e319f7d780908da5e85658ca80
 supplies:
-  arrow_type: 1050001
+  arrow_type: 1050002
   arrows_return_below: 3
   arrows_restock_to: 4000
   healing_type: 1000020
@@ -69,8 +79,10 @@ qualification: planned
 recover_after_death: true
 movement: jump
 notes: >-
-  Memory-observed Macaques east of ApeCity; terrain-checked candidate patrol and
-  town connection. Pharmacist, Blacksmith and Warehouseman identities were
-  observed twice in live memory. Shop interactions, travel, combat, recovery and
-  throughput remain unverified. Do not enable unattended farming until those
-  checks and the area comparison are complete.
+  Five-minute memory-only density survey favored the south field near (620,645):
+  two valid samples counted 19 and 22 positive-HP Macaques within 16 tiles.
+  Terrain-checked patrol and town connection; Pharmacist, Blacksmith and
+  Warehouseman identities were observed in live memory. The no-combat survey
+  ended on its 80-percent-HP safety guard and the farmer returned to town.
+  Shop interactions, combat, healing, recovery and sustained throughput remain
+  unverified. Keep this route planned until a safe farming cycle is qualified.

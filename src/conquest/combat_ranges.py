@@ -12,7 +12,9 @@ def _read_combat_ranges(s,life,layout,*,require_scatter=True):
     bow_address=checked_address(struct.unpack('<Q',bow_pointer)[0])
     bow=s.read_block(bow_address,0x74)
     bow_type=struct.unpack_from('<I',bow,0x10)[0];bow_range=struct.unpack_from('<H',bow,0x70)[0]
-    if struct.unpack_from('<Q',bow)[0]!=base+layout.item_vtable_rva or bow_type//1000!=500 or not 1<=bow_range<=20:
+    # Some higher-level bows report a native range above the route engine's
+    # 20-tile limit. Keep the read bounded; route_combat_settings clamps it.
+    if struct.unpack_from('<Q',bow)[0]!=base+layout.item_vtable_rva or bow_type//1000!=500 or not 1<=bow_range<=32:
         raise ValueError('Equipped bow range is invalid')
     header=s.read_block(actor+layout.learned_skills_offset,24)
     start,end,capacity=struct.unpack('<3Q',header)
