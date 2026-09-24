@@ -691,6 +691,17 @@ def approach_market_warehouse(loop, activity):
         (tuple(p), activity, 2)
         for p in policy.get("market_bank_waypoints", [[186, 184]]) + [list(target)]
     ]
+    # A direct diagonal from south-east of the corridor (e.g. the Meteor
+    # exchange at 230,240) cuts into the crowded booth pocket below the
+    # warehouse. Enter through the corridor tile every verified approach used.
+    entry = policy.get("market_bank_corridor_entry")
+    if (
+        entry
+        and life["position"][0] >= entry[0]
+        and life["position"][1] >= entry[1]
+        and max(abs(a - b) for a, b in zip(life["position"], entry)) > 2
+    ):
+        pending_points.insert(0, (tuple(entry), activity, 2))
     while pending_points:
         point, note, radius = pending_points.pop(0)
         try:

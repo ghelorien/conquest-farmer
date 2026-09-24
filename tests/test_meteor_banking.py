@@ -842,6 +842,58 @@ def test_crossing_recovery_does_not_disable_later_frontage_recovery():
     ]
 
 
+def corridor_loop(position, travel):
+    write_json(m.POLICY, {"market_bank_corridor_entry": [213, 204]})
+    return NS(
+        living=lambda: {
+            "embedded_controls": {"life": {"map_id": 1036, "position": position}}
+        },
+        town=lambda *a, **kw: None,
+        travel=travel,
+    )
+
+
+@pytest.mark.parametrize("start", [[230, 240], [225, 217]])
+def test_market_approach_from_south_east_enters_through_corridor(start):
+    # 2026-09-24 15:51: a direct (230,240) start cut into the booth pocket and
+    # stalled at (190,204); every verified approach passed through (213,204).
+    calls = []
+    loop = corridor_loop(start, lambda point, **kw: calls.append((point, kw)))
+    m.approach_market_warehouse(loop, "Bank valuables")
+    assert [p for p, kw in calls] == [(213, 204), (186, 184), (182, 184)]
+    assert all(kw["vendor_type"] == 0 and kw["arrival_radius"] == 2 for p, kw in calls)
+
+
+@pytest.mark.parametrize("start", [[211, 196], [201, 215], [190, 189], [214, 205]])
+def test_market_approach_elsewhere_keeps_direct_waypoints(start):
+    calls = []
+    loop = corridor_loop(start, lambda point, **kw: calls.append(point))
+    m.approach_market_warehouse(loop, "Bank valuables")
+    assert calls == [(186, 184), (182, 184)]
+
+
+def test_market_corridor_entry_stall_stays_bounded():
+    from conquest.travel_progress import TravelStalled
+
+    calls = []
+
+    def travel(point, **kw):
+        calls.append(point)
+        raise TravelStalled("Route made no improving progress after bounded recovery")
+
+    loop = corridor_loop([230, 240], travel)
+    with pytest.raises(TravelStalled):
+        m.approach_market_warehouse(loop, "Bank valuables")
+    assert calls == [(213, 204)]
+
+
+def test_packaged_policy_enters_market_warehouse_through_corridor():
+    policy = json.loads(
+        (Path(__file__).parents[1] / "profiles/meteor-banking.json").read_text()
+    )
+    assert policy["market_bank_corridor_entry"] == [213, 204]
+
+
 def test_service_open_retries_only_open_after_range_walk(monkeypatch):
     clock = [0.0]
     opens = []
