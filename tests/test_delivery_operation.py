@@ -59,7 +59,7 @@ def test_disabled_rollout_cannot_construct_native_input_driver(tmp_path,monkeypa
     monkeypatch.setattr(operation,'FarmerTradeDriver',lambda *a:pytest.fail('Native input must remain gated'))
     ui=NS()
     selected={'uid':10,'type_id':720027,'plus':0,'gem1':0,'gem2':0,'quantity':1,'bound':False}
-    with pytest.raises(ValueError,match='not enabled'):
+    with pytest.raises(ValueError,match='Merchant transfers are Off for Parasite'):
         operation.dispatch(ui,{'action':'delivery-start','request_id':'one','character':'Dutch',
                                'uids':[10],'items':[selected]})
     status=operation.dispatch(ui,{'action':'delivery-status','request_id':'one'})
