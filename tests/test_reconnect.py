@@ -44,6 +44,7 @@ def test_disconnected_observer_never_reads_player_stats(monkeypatch):
         lambda *args: (_ for _ in ()).throw(AssertionError("Disconnected stats")),
     )
     o = EmbeddedObserver.__new__(EmbeddedObserver)
+    o.read_only_build = False
     o.operations = SimpleNamespace(target=SimpleNamespace(hwnd=1))
     result = o._observe()
     assert result["connection_state"] == "login" and "life" not in result

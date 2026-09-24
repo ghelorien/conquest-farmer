@@ -39,7 +39,7 @@ def load_credentials(path=Path(state_path(".runtime/account.dpapi"))):
     return account
 
 
-def type_login_field(target, value):
+def type_login_field(target, value, *, field_guard=None):
     from conquest.foreground import (
         Input,
         InputUnion,
@@ -57,6 +57,8 @@ def type_login_field(target, value):
     from conquest.mouse_priority import guarded_send, require_idle
 
     require_idle()
+    if field_guard:
+        field_guard()
     send = guarded_send(
         bind(
             target.backend.user,
@@ -76,6 +78,8 @@ def type_login_field(target, value):
     press_scan_sequence(send_selection, [0x1D, 0x1E])
     if not login_screen(target.hwnd) or target.backend.foreground() != target.hwnd:
         raise CaptureUnavailable("Login field lost focus before credential entry")
+    if field_guard:
+        field_guard()
     events = []
     encoded = value.encode("utf-16-le")
     for offset in range(0, len(encoded), 2):
@@ -97,10 +101,21 @@ class LoginErrorReader:
 
     def __init__(self, session):
         from conquest.memory_shop import MemoryGui
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
 
-        self.gui = MemoryGui(session)
+        self.native1078 = (
+            getattr(session, "expected_sha256", None) == CLIENT_SHA256_1078
+        )
+        self.gui = (
+            MemoryGui.for_session(session) if self.native1078 else MemoryGui(session)
+        )
         self.session = session
-        self.root = self.gui.base + 0x698BE0
+        if self.native1078:
+            from conquest.login_1078 import assert_code, ROOT_RVA
+
+            self.root = assert_code(session) + ROOT_RVA
+        else:
+            self.root = self.gui.base + 0x698BE0
 
     def read(self):
         import struct
@@ -108,6 +123,10 @@ class LoginErrorReader:
 
         s = self.session
         s.assert_identity()
+        if self.native1078:
+            from conquest.login_1078 import assert_code
+
+            assert_code(s)
         raw = s.read_block(self.root + 0x6E8, 0x22)
         if raw[32] == 0:
             return None
@@ -181,11 +200,24 @@ def dismiss_login_error(target, session):
             raise ValueError("Login viewport changed")
         if not login_screen(target.hwnd) or reader.read() != point:
             raise CaptureUnavailable("Login dialog changed before dismissal")
+
+        def native_guard():
+            if (
+                not login_screen(target.hwnd)
+                or size_for(session) != viewport
+                or reader.read() != point
+            ):
+                raise CaptureUnavailable("Login dialog changed before dismissal")
+            from conquest.login_1078 import assert_hovered
+
+            assert_hovered(session, reader.gui.read("##ErrorModal"), "OK")
+
         foreground_click(
             target,
             round(point[0] * size[0] / viewport[0]),
             round(point[1] * size[1] / viewport[1]),
             size,
+            **({"before_press": native_guard} if reader.native1078 else {}),
         )
         for _ in range(20):
             time.sleep(0.05)
@@ -198,6 +230,12 @@ def login_form_points(session, window):
     """Pinned ImGui renderer: labels, two fields, server, checkbox, button, footer."""
     import hashlib
     import struct
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+
+    if getattr(session, "expected_sha256", None) == CLIENT_SHA256_1078:
+        from conquest.login_1078 import form_points
+
+        return form_points(session, window)
     from conquest.memory_shop import MemoryGui
 
     base = MemoryGui(session).base
@@ -252,9 +290,11 @@ def submit_login(
     dismiss_login_error(target, session)
     from conquest.memory_shop import MemoryGui
     from conquest.viewport import size_for
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
 
+    native1078 = getattr(session, "expected_sha256", None) == CLIENT_SHA256_1078
     viewport = size_for(session)
-    gui = MemoryGui(session)
+    gui = MemoryGui.for_session(session) if native1078 else MemoryGui(session)
     window = gui.read("Login")
     points = login_form_points(session, window)
     account = load_credentials(credential_path)
@@ -262,11 +302,26 @@ def submit_login(
         before = target.snapshot()
         size = before["client_size"]
 
-        def click(point):
+        def guard(label):
             if not login_screen(target.hwnd):
                 raise CaptureUnavailable("Client left login before input")
             if (
                 size_for(session) != viewport
+                or gui.read("Login") != window
+                or login_form_points(session, window) != points
+            ):
+                raise CaptureUnavailable("Login form moved before input")
+            if native1078:
+                from conquest.login_1078 import assert_hovered
+
+                assert_hovered(session, window, label)
+
+        def click(point, label):
+            # The initial layout proof precedes pointer movement; exact native
+            # widget hover is checked only after movement, before mouse-down.
+            if (
+                not login_screen(target.hwnd)
+                or size_for(session) != viewport
                 or gui.read("Login") != window
                 or login_form_points(session, window) != points
             ):
@@ -276,13 +331,32 @@ def submit_login(
                 round(point[0] * size[0] / viewport[0]),
                 round(point[1] * size[1] / viewport[1]),
                 size,
+                **({"before_press": lambda: guard(label)} if native1078 else {}),
             )
 
-        click(points[0])
-        type_login_field(target, account["username"])
-        click(points[1])
-        type_login_field(target, account["password"])
-        click(points[2])
+        def field_guard(label):
+            guard(label)
+            from conquest.login_1078 import assert_active_field
+
+            assert_active_field(session, window, label)
+
+        click(points[0], "##username")
+        type_login_field(
+            target,
+            account["username"],
+            **(
+                {"field_guard": lambda: field_guard("##username")} if native1078 else {}
+            ),
+        )
+        click(points[1], "##password")
+        type_login_field(
+            target,
+            account["password"],
+            **(
+                {"field_guard": lambda: field_guard("##password")} if native1078 else {}
+            ),
+        )
+        click(points[2], "Login")
     return {"submitted": True}  # Never include credential text or key events.
 
 
