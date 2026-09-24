@@ -167,7 +167,7 @@ def _recover_pending(ui, character, snapshot):
     if control.get('paused'):
         return _blocked('farmer_paused')
     from conquest.merchants.listing_handoff_1078 import request_handoff, scope_allows
-    if control.get('enabled') or not getattr(ui, 'grant', None) or not ui.safe_to_yield():
+    if control.get('enabled') or not ui.safe_to_yield():
         key = request_handoff(runtime, character)
         return {**_blocked('waiting_farmer_handoff'), 'handoff_request_id': key}
     if not scope_allows(ui, character, request_id=request['request_id'], cleanup=True):

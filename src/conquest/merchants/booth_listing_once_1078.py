@@ -509,7 +509,12 @@ def _run(ui, character, profile, before, token):
         target = MessageTarget(request['expected_identity']['pid'], before['hwnd'])
         coordinator = ui.coordinator
         grant = before.get('farmer_grant') or {}
-        seconds = min(35, grant['expires_at']-time.time()-3) if grant.get('scope') == 'listing_1078' else 20
+        # Scheduled safe-Off refill performs the same native checks as a route
+        # grant. Keep its bounded allowance equal; the old twenty-second
+        # fallback could expire after price entry but before confirmation.
+        seconds = (min(35, grant['expires_at']-time.time()-3)
+                   if grant.get('scope') == 'listing_1078' else
+                   35 if before.get('scheduled_foreground_refill') and not grant else 20)
         deadline = time.monotonic()+seconds
         focus_verified = False
         with MemorySession(target.pid, CLIENT_SHA256_1078) as session, physical_coordinates():
