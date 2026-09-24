@@ -313,6 +313,70 @@ def market_storage(loop,*,send=request,items=None,on_admitted=None):
     finally:loop.market_service_deadline=previous
 
 
+def _preadmission_health(loop, deadline, visit_id):
+    """Reobserve unavailable safety evidence before any delivery reservation.
+
+    Actual control, identity, manual-input and survival changes remain stops.
+    A read-only observation gap can instead defer this unsubmitted batch to
+    the caller's independently guarded warehouse fallback.
+    """
+    import math
+    from copy import deepcopy
+    from conquest.overnight import OvernightStopped
+    from conquest.safe_reload import clear_observation
+    until=time.monotonic()+2
+    identity=None;revision=None;attempts=0;first_age=None;age=None
+    reason='observation_unavailable'
+    while True:
+        check_stop(loop)
+        health=loop.health();attempts+=1
+        data=health.get('embedded_controls') or {};control=data.get('control') or {}
+        if (control.get('enabled') is not False or control.get('paused')
+                or type(control.get('revision')) is not int
+                or data.get('manual_mouse') or data.get('manual_input_fence')):
+            raise OvernightStopped('Farmer control or manual input changed before merchant delivery')
+        target=health.get('target')
+        if not isinstance(target,dict) or not target.get('pid'):
+            raise OvernightStopped('Farmer identity unavailable before merchant delivery')
+        if identity is None:
+            identity=deepcopy(target);revision=control['revision']
+        elif target!=identity or control['revision']!=revision:
+            raise OvernightStopped('Farmer identity or control revision changed before merchant delivery')
+        life=data.get('life') or {}
+        if life.get('dead_candidate') or life.get('ghost_candidate'):
+            raise ValueError('Merchant delivery stopped for Farmer survival recovery')
+        hp,maximum=life.get('current_hp'),life.get('max_hp')
+        if (type(hp) in (int,float) and type(maximum) in (int,float)
+                and maximum>0 and hp<maximum*.6):
+            raise ValueError('Merchant delivery stopped for Farmer survival recovery')
+        observed=data.get('observed_at')
+        age=time.time()-observed if type(observed) in (int,float) and math.isfinite(observed) else None
+        if attempts==1:first_age=age
+        if not data.get('observations_available'):reason='observation_unavailable'
+        elif not life:reason='life_unavailable'
+        elif age is None or not 0<=age<=1:reason='observation_stale'
+        elif not isinstance(data.get('monsters'),list):reason='monster_observation_unavailable'
+        else:
+            try:safe=clear_observation(health)
+            except (KeyError,TypeError,ValueError):reason='observation_incomplete'
+            else:
+                if safe and time.time()<deadline:return health
+                if not safe:
+                    # A fresh known threat is not merely a read gap. Preserve
+                    # the original stop instead of authorizing other input.
+                    raise ValueError('Merchant delivery stopped for unsafe Farmer observation')
+                reason='visit_deadline'
+        remaining=min(until-time.monotonic(),deadline-time.time())
+        if remaining<=0:
+            check_stop(loop)
+            loop.record('merchant_service_deferred',visit_id=visit_id,
+                        reason=reason,observation_attempts=attempts,
+                        first_observation_age=first_age,last_observation_age=age,
+                        activity='Delivery safety observation unavailable before input; using guarded warehouse fallback')
+            return None
+        time.sleep(min(.1,remaining))
+
+
 def _market_storage(loop,*,send=request,items=None,on_admitted=None):
     state=read_json(STATE)
     selected=None if items is None else list(items)
@@ -379,10 +443,9 @@ def _market_storage(loop,*,send=request,items=None,on_admitted=None):
             loop.record('merchant_service_deferred',visit_id=visit['visit_id'],
                         activity='Insufficient time for another verified trade; using safe storage')
             return receipts
-        from conquest.safe_reload import clear_observation
-        health=loop.health();control=health['embedded_controls']['control']
-        if control['enabled'] or control.get('paused') or not clear_observation(health):
-            raise ValueError('Merchant delivery requires a memory-verified safe stopped farmer')
+        health=_preadmission_health(loop,deadline,visit['visit_id'])
+        if health is None:return receipts
+        control=health['embedded_controls']['control']
         key='route-delivery:'+uuid.uuid4().hex
         windows=WorkWindows()
         if not windows.reserve(key,town=True,visit=visit):return receipts
