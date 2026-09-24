@@ -1618,6 +1618,7 @@ class DesktopApp:
         # under the same lock as bridge commands, without switching Off back On.
         from conquest.character_context import apply_overrides
         config=apply_overrides(config)
+        config=config.model_copy(update={'heal_below':max(config.heal_below,route.supplies.healing_threshold)})
         if ranges['scatter'] is None:
             # Preferences cannot enable a skill absent from this character.
             config=config.model_copy(update={'attack_button':'left','adaptive_scatter':False,'jump_scatter':False})

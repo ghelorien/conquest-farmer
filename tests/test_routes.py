@@ -140,6 +140,8 @@ def test_macaque_family_is_available_for_saved_route_selection():
     assert route.qualification=='planned'
     assert route.recommended_levels==(47,51)
     assert route_monster_names(route)==('Macaque','MacaqueL48')
+    assert route.supplies.healing_threshold==.85
+    assert route.hunting_boundary==(600,612,688,670)
     config=TrialConfig(character='Kilhiam',player_profile='player.yaml',
                        inventory_profile='inventory.yaml',template='template.png',
                        client_size=(1036,793),boundary=(600,580,688,670),monster='Macaque')
