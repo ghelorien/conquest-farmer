@@ -279,6 +279,14 @@ def entity_reader_layout(session):
 
     layout = read_build_layout(session)
     root = Path(__file__).resolve().parents[2] / "profiles"
+    if layout.expected_sha256 == CLIENT_SHA256_1078:
+        return EntityLayout.model_validate(
+            yaml.safe_load(
+                (root / "classic-1078-entities-candidate.yaml").read_text(
+                    encoding="utf-8"
+                )
+            )
+        )
     old = EntityLayout.model_validate(
         yaml.safe_load(
             (root / "classic-1074-entities-candidate.yaml").read_text(encoding="utf-8")

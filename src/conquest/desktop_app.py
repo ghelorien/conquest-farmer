@@ -1721,26 +1721,14 @@ class DesktopApp:
         health = HealthLayout.model_validate(
             yaml.safe_load(Path("profiles").joinpath(layout.health_profile).read_text())
         )
-        entities = EntityLayout.model_validate(
-            yaml.safe_load(
-                Path("profiles/classic-1074-entities-candidate.yaml").read_text()
-            )
+        entities_profile = (
+            "classic-1078-entities-candidate.yaml"
+            if digest == CLIENT_SHA256_1078
+            else "classic-1074-entities-candidate.yaml"
         )
-        if digest == CLIENT_SHA256_1078:
-            # Build the entity profile through the selected layout after the
-            # observer opens its exact-SHA read-only session.
-            entities = entities.model_copy(
-                update={
-                    "expected_sha256": digest,
-                    "root_rva": layout.entity_root_rva,
-                    "pointer_offsets": layout.entity_pointer_offsets,
-                    "collection_vtable_rva": layout.entity_collection_vtable_rva,
-                    "monster_vtable_rva": layout.entity_actor_vtable_rva,
-                    "max_hp_offset": 0x3F0,
-                    "level_offset": 0x708,
-                    "attribute_pointer_offset": layout.entity_attribute_pointer_offset,
-                }
-            )
+        entities = EntityLayout.model_validate(
+            yaml.safe_load(Path("profiles").joinpath(entities_profile).read_text())
+        )
         return EmbeddedObserver(
             pid, hwnd, health, entities, farmer_name(), context=self.character_context
         )
