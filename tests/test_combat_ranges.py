@@ -30,6 +30,22 @@ def test_range_and_aim_distance_are_separate_learned_memory_fields(monkeypatch):
     assert result['scatter']=={'type_id':8001,'level':0,'range':8,'distance':15}
 
 
+def test_high_level_bow_range_is_read_and_clamped_to_route_limit(monkeypatch):
+    observer,blobs,_=fixture(monkeypatch)
+    struct.pack_into('<H',blobs[0x200000],0x70,21)
+    ranges=combat_ranges.read_combat_ranges(observer)
+    assert ranges['bow']['range']==21
+    settings=combat_ranges.route_combat_settings(NS(attack_range_tiles=20,jump_scatter=True),ranges)
+    assert settings['single_attack_range_tiles']==20
+
+
+def test_out_of_bounds_bow_range_is_rejected(monkeypatch):
+    observer,blobs,_=fixture(monkeypatch)
+    struct.pack_into('<H',blobs[0x200000],0x70,33)
+    with pytest.raises(ValueError,match='bow range is invalid'):
+        combat_ranges.read_combat_ranges(observer)
+
+
 @pytest.mark.parametrize('header',[(0,0,0),(0x300000,0x300000,0x300010)])
 def test_empty_learned_skills_allow_only_single_bow_attacks(monkeypatch,header):
     observer,blobs,_=fixture(monkeypatch)
