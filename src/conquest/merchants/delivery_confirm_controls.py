@@ -4,6 +4,13 @@ from conquest.merchants.delivery_trade_controls import nested_table
 
 
 def confirm_control(gui,snapshot):
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    if gui.session.expected_sha256==CLIENT_SHA256_1078:
+        from types import SimpleNamespace
+        from conquest.merchants.trade_driver_1078 import locate
+        w,point,_,seeds=locate(SimpleNamespace(memory=SimpleNamespace(gui=gui)),
+                              snapshot,'native_trade_confirm')
+        return w,point,seeds[0]
     for rva,code in ((0x10fa38,'488d0dd9b74b00'),(0x10fa48,'41c6869800000001'),(0x10fa7a,'e8311a0700')):
         if gui.session.read_block(gui.base+rva,len(bytes.fromhex(code)))!=bytes.fromhex(code):
             raise ValueError('Native trade confirmation handler changed')

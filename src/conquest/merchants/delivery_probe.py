@@ -1,5 +1,6 @@
 """Explicit live qualification of a farmer trade request; no item confirmation."""
 from pathlib import Path
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -214,6 +215,29 @@ def start(ui,character,*,uids=None):
         return _start(ui,character,uids=uids)
 
 
+def prepared_resume(ui,state,character,uids,farmer,merchant):
+    """Reenter only a durable preparation with no possible input boundary."""
+    from conquest.merchants.delivery_farmer_surface import verify_stage_pair
+    from conquest.merchants.farmer_trade import targeting_state
+    allowed={'phase','character','intent','started_at','selected_uids','target_profile_id',
+             'farmer_profile_id','error','finished_at','prepared_resumes'}
+    if (state.get('phase')!='prepared' or set(state)-allowed
+            or state.get('error') not in (None,'Waiting for input owner')
+            or state.get('character')!=character or state.get('selected_uids')!=uids
+            or state.get('target_profile_id')!=ui.runtime.manual_target(character)
+            or state.get('farmer_profile_id')!=ui.runtime.manual_target('Farmer')):
+        raise ValueError('Existing probe is not an exact input-free preparation; reconcile before input')
+    intent=state['intent']
+    selected=selected_intent(farmer,merchant,uids)
+    if exact_items(selected['items'])!=exact_items(intent['items']):
+        raise ValueError('Prepared probe item changed')
+    unchanged(intent,farmer,merchant)
+    verify_stage_pair(intent,farmer,merchant,stage='open')
+    if targeting_state(ui.app.observer.adapter)['current']!=16:
+        raise ValueError('Prepared probe requires native idle targeting before resuming')
+    return intent
+
+
 def _start(ui,character,*,uids=None):
     from conquest.merchants.farmer_preferences import permits_new_delivery
     from conquest.merchants.farmer_identity import ui_character
@@ -221,25 +245,34 @@ def _start(ui,character,*,uids=None):
     character=character_name(character)
     if getattr(ui,'delivery_probe_thread',None) and ui.delivery_probe_thread.is_alive():
         raise ValueError('Trade request probe is running')
-    old=previous_probe()
+    old=read_probe()
+    resuming=old is not None and old.get('phase')=='prepared'
+    if old is not None and old.get('phase') not in TERMINAL and not resuming:
+        raise ValueError('Reconcile existing trade request probe before further input')
     from conquest.merchants.delivery_abort_probe import require_rebaseline
     require_rebaseline(ui,old)
     ui.coordinator.check()
     if not ui.safe_to_yield() or ui.app.control.snapshot()['enabled']:
         raise ValueError('Trade probe requires stopped farming and released input')
     f,m=pair(ui,character)
-    intent=selected_intent(f,m,uids)
+    intent=(prepared_resume(ui,old,character,uids,f,m) if resuming
+            else selected_intent(f,m,uids))
     from conquest.merchants.approach import within_delivery_probe_range
     if not within_delivery_probe_range(f['position'],m['position']):
         raise ValueError('Approach the memory-identified merchant before the trade probe')
     revision=ui.app.control.snapshot()['revision']
-    state={'phase':'prepared','character':character,'intent':intent,'started_at':time.time(),
-           'selected_uids':list(uids),
-           'target_profile_id':getattr(character,'profile_id',str(character))}
-    from conquest.character_context import current
-    context=current()
-    state['farmer_profile_id']=context.profile.id if context and context.profile.role=='Farmer' else 'Farmer'
     archive_probe(old)
+    if resuming:
+        state=dict(old)
+        state.pop('error',None);state.pop('finished_at',None)
+        state['prepared_resumes']=[*state.get('prepared_resumes',[]),time.time()]
+    else:
+        state={'phase':'prepared','character':character,'intent':intent,'started_at':time.time(),
+               'selected_uids':list(uids),
+               'target_profile_id':getattr(character,'profile_id',str(character))}
+        from conquest.character_context import current
+        context=current()
+        state['farmer_profile_id']=context.profile.id if context and context.profile.role=='Farmer' else 'Farmer'
     write_probe(JOURNAL,state)
     def work():
         try:run(ui,intent,revision,state)
@@ -248,20 +281,21 @@ def _start(ui,character,*,uids=None):
             write_probe(JOURNAL,state)
     ui.delivery_probe_thread=threading.Thread(target=work,name='delivery-request-probe',daemon=True)
     ui.delivery_probe_thread.start()
-    return {'started':True,'character':character,'uids':[i['uid'] for i in intent['items']]}
+    return {'started':True,'resumed_prepared':resuming,'character':character,
+            'uids':[i['uid'] for i in intent['items']]}
 
 
 def run(ui,intent,revision,state):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_click
     from conquest.memory_shop import MemoryGui
-    from conquest.merchants.memory import MerchantMemory
+    from conquest.merchants.delivery_bridge import source_memory
     from conquest.merchants.driver import wait_hover_validation
-    from conquest.merchants.trade_controls import trade_button,targeting_state
+    from conquest.merchants.farmer_trade import trade_button,targeting_state
     from conquest.merchants.farmer_trade import recipient_record,recipient_binding
     import ctypes
     deadline=time.monotonic()+15
-    observer=ui.app.observer;memory=MerchantMemory(observer)
+    observer=ui.app.observer;memory=source_memory(observer)
     character=intent['merchant']['character']
     def check():
         from conquest.merchants.farmer_preferences import permits_new_delivery
@@ -277,7 +311,20 @@ def run(ui,intent,revision,state):
             raise CaptureUnavailable('Trade request probe stopped or expired')
     def save(phase,**fields):
         state.update(phase=phase,updated_at=time.time(),**fields);write_probe(JOURNAL,state)
-    with ui.coordinator.lease('Farmer',purpose='delivery_request_probe'),physical_coordinates():
+    with ExitStack() as stack:
+        # start() still holds the admission mutex while launching this worker.
+        # Retry only that pre-acquisition boundary; never the transaction body.
+        acquire_deadline=min(deadline,time.monotonic()+3)
+        while True:
+            check()
+            try:
+                stack.enter_context(ui.coordinator.lease('Farmer',purpose='delivery_request_probe'))
+                break
+            except CaptureUnavailable as error:
+                if str(error)!='Waiting for input owner' or time.monotonic()>=acquire_deadline:
+                    raise
+                time.sleep(.03)
+        stack.enter_context(physical_coordinates())
         from conquest.merchants.delivery_farmer_surface import prepare as present,verify_stage_pair
         presentation=present(ui,state,purpose='delivery_request_probe',revision=revision,deadline=deadline)
         f,m=pair(ui,character);verify_stage_pair(intent,f,m,stage='open');presentation()
@@ -294,13 +341,13 @@ def run(ui,intent,revision,state):
             raise ValueError('Trade layout build changed')
         f,m=pair(ui,character);unchanged(intent,f,m)
         recipient=recipient_record(observer,profile,m,farmer=f)
-        point=trade_button(MemoryGui(observer.adapter))
+        point=trade_button(MemoryGui.for_session(observer.adapter))
         if targeting_state(observer.adapter)['current']!=16:
             raise ValueError('Farmer already has a targeting action active')
         def before_hud():
             check()
             f,m=pair(ui,character);unchanged(intent,f,m)
-            if trade_button(MemoryGui(observer.adapter))!=point:
+            if trade_button(MemoryGui.for_session(observer.adapter))!=point:
                 raise ValueError('Trade button moved')
             window=next(w for w in f['windows'] if w['name']=='##Control')
             # The native HUD table pushes its ID before emitting Trade.

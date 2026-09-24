@@ -12,6 +12,22 @@ from test_delivery_probe_manual_ownership import supervised, open_trade
 from test_manual_runtime import rig
 
 
+@pytest.mark.parametrize('blocked', [None, 'delivery_window', 'refill_window', 'refilling', 'paused'])
+def test_receiver_lease_optional_windows_and_real_pause_guards(midpoint, blocked):
+    x=midpoint
+    x.guard.purpose='delivery_confirm_probe'
+    x.ui.calibrating.add('Dutch')
+    x.ui.calibration_cancel['Dutch']=threading.Event()
+    # Fresh runtimes do not initialize either window until a handoff exists.
+    for name in ('delivery_window','refill_window'):
+        if hasattr(x.runtime,name):delattr(x.runtime,name)
+    assert x.farmer['trade']['accepted'] is True
+    if blocked=='paused':x.control['paused']=True
+    elif blocked:setattr(x.runtime,blocked,{'Dutch':True})
+    assert confirm.lease_authorized(x.ui,'Dutch') is (blocked is None)
+    assert x.events==[]  # Qualification never repeats the Farmer confirmation.
+
+
 @pytest.fixture
 def midpoint(supervised, monkeypatch):
     x=supervised
@@ -135,6 +151,8 @@ def test_managed_full_confirmation_preserves_farmer_then_exact_merchant_profile_
     monkeypatch.setattr('conquest.merchants.delivery_farmer_surface.prepare',prepare)
     monkeypatch.setattr('conquest.focus_recovery.activate_client',lambda *a:x.events.append(('activate','Farmer')) or True)
     monkeypatch.setattr('conquest.merchants.memory.MerchantMemory',lambda *a:x.driver.memory)
+    monkeypatch.setattr('conquest.merchants.delivery_bridge.source_memory',
+                        lambda *a:NS(gui=x.driver.memory.gui,read=lambda **kw:x.farmer_read()))
     def click(target,*a,before_press,**kw):
         role='Farmer' if target is farmer_target else 'Dutch'
         if role=='Farmer':assert type(x.guard.owner) is str and x.guard.owner=='Farmer'
@@ -324,6 +342,7 @@ def test_first_confirmation_requires_no_prior_flags_then_accepts_lagging_peer(mi
     monkeypatch.setattr('conquest.focus_recovery.activate_client',lambda *a:x.events.append(('activate','Farmer')) or True)
     monkeypatch.setattr('conquest.merchants.memory.MerchantMemory',lambda *a:x.driver.memory)
     farmer_target.snapshot=lambda:{'client_size':[1200,900]}
+    monkeypatch.setattr('conquest.merchants.delivery_bridge.source_memory',lambda *a:x.driver.memory)
     def click(target,*a,before_press,**k):
         role='Farmer' if target is farmer_target else 'Dutch'
         assert probe.read_probe()['phase']==('farmer' if role=='Farmer' else 'merchant')+'_confirm_submitted'

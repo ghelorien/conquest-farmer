@@ -215,8 +215,11 @@ class OvernightLoop:
                 if action=='service-locate' and str(error).startswith('One memory-identified '):raise
                 # Typed pre-input failures are safe to retry even for trades.
                 # An uncertain purchase/sale must never be blindly repeated.
-                retryable = action in ('supplies','shop','gear','vendor-status','service-locate','service-dialog','warehouse-items') or isinstance(error,TownObservationUnavailable)
-                if attempt == 79 or not retryable:
+                from conquest.merchants.coordination import InputAcquisitionBusy
+                deposit_busy = action=='warehouse-deposit' and isinstance(error,InputAcquisitionBusy)
+                retryable = (action in ('supplies','shop','gear','vendor-status','service-locate','service-dialog','warehouse-items')
+                             or isinstance(error,TownObservationUnavailable) or deposit_busy)
+                if attempt == 79 or (deposit_busy and attempt >= 19) or not retryable:
                     self.record('town_action_failed',action=action,detail=str(error))
                     raise
                 if attempt in (0,19,39,59):
@@ -312,13 +315,6 @@ class OvernightLoop:
             if blocked_jump_origin is not None and max(abs(a-b) for a,b in zip(source,blocked_jump_origin))>=12:
                 blocked_jump_origin=None
             if obstruction_origin is None:obstruction_origin=source
-            elif max(abs(a-b) for a,b in zip(source,obstruction_origin))>=8:
-                # Failed clicks miles back must not exhaust a new corridor's
-                # recovery allowance. Reset only after meaningful displacement,
-                # not after one-tile jitter around the same obstruction.
-                avoided.clear();cached_path=None;cached_avoid=None
-                market_failures=0;market_landings.clear();market_failed.clear()
-                obstruction_origin=source
             if source!=last_progress_position:
                 last_progress_position=source
                 avoided.discard(source)
@@ -369,6 +365,15 @@ class OvernightLoop:
                     recovery_run_until=time.monotonic()+6
                     self.record('town_path_retry',activity='Retrying the town corridor with running steps')
                 remaining=sum(max(abs(a[0]-b[0]),abs(a[1]-b[1])) for a,b in zip(path,path[1:]))
+                if (max(abs(a-b) for a,b in zip(source,obstruction_origin))>=8
+                        and (progress_deadline.best is None or remaining<progress_deadline.best)):
+                    # A retreat can cover many tiles without passing the
+                    # obstruction. Keep its failed edges until the checked
+                    # route beats our best remaining distance; otherwise the
+                    # retreat erases the evidence and selects the same failure.
+                    avoided.clear();cached_path=None;cached_avoid=None
+                    market_failures=0;market_landings.clear();market_failed.clear()
+                    obstruction_origin=source
                 if service_deadline is None and (progress_deadline.best is None or remaining<progress_deadline.best):
                     deadline=time.monotonic()+90
                 if progress_deadline.observe(remaining):
@@ -607,7 +612,7 @@ class OvernightLoop:
     def restock(self,*,review_both_cities=True):
         visits=getattr(self,'town_visit',None)
         if visits is not None:
-            visits.begin('restock',hunt_map_id=self.route.map_id,route_id=self.route.id)
+            visits.begin('restock',hunt_map_id=self.route.map_id,route_id=self.route.id,target=self.identity)
         self.phase = 'restocking'
         from conquest.savings import savings_plan,configure_route
         if savings_plan():
@@ -698,6 +703,8 @@ class OvernightLoop:
         from conquest.merchants.handoff import service_window
         service_window(self,town=True)
         if visits is not None:
+            from conquest.town_visit import checkpoint_verified_tail
+            checkpoint_verified_tail(self,'restock')
             visits.complete_town_work('restock')
         self.cycles += 1
         self.record('restock_complete',supplies=counts)
@@ -712,13 +719,13 @@ class OvernightLoop:
                          target=self.identity,urgent_items=items)
         self.phase='restocking'
         self.record('urgent_banking_started',uids=[i['uid'] for i in items],
-                    activity='Heading directly to the warehouse to protect a Dragonball or +2 item')
+                    activity='Heading directly to the warehouse to protect carried valuables')
         from conquest.return_scroll import return_to_town
         from conquest.world_travel import travel_to_map
         return_to_town(self)
         travel_to_map(self,self.route.restock_map_id)
         self.town('close',window='Shop');self.town('close',window='Inventory')
-        if not after_shopping(self):raise ValueError('Urgent valuable banking is disabled')
+        if not after_shopping(self,urgent=True):raise ValueError('Urgent valuable banking is disabled')
         if visits is not None:
             visits.record_urgent_tail('banking',target=self.identity)
         bag=self.town('supplies')
@@ -733,6 +740,8 @@ class OvernightLoop:
             service_window(self,town=True)
         if visits is not None:
             visits.record_urgent_tail('followup',target=self.identity)
+            from conquest.town_visit import checkpoint_verified_tail
+            checkpoint_verified_tail(self,'urgent_banking')
             visits.complete_town_work('urgent_banking')
 
     def hunt(self):
@@ -956,9 +965,11 @@ class OvernightLoop:
             after_shopping(self)
         from conquest import meteor_banking
         if meteor_banking.pending():
+            self.stop_farm()
+            from conquest.restock_town_recovery import capture_pre_admission_tail
+            capture_pre_admission_tail(self)
             from conquest.restock_town_recovery import require_claimed_identity_before_meteor
             require_claimed_identity_before_meteor(self)
-            self.stop_farm()
             meteor_banking.resume(self)
             from conquest.banking import close_warehouse
             close_warehouse(self)
@@ -970,10 +981,14 @@ class OvernightLoop:
             close_warehouse(self)
         from conquest.merchant_loop_acceptance import cycle_pending
         if cycle_pending():self.bank_acceptance_delivery()
+        from conquest.town_visit import resume_verified_tail
+        resume_verified_tail(self)
         from conquest.urgent_town_recovery import resume_claimed
         resume_claimed(self)
         from conquest.restock_town_recovery import resume_claimed as resume_restock_claimed
         resume_restock_claimed(self)
+        from conquest.restock_town_recovery import resume_pre_admission_tail
+        resume_pre_admission_tail(self)
         # Never leave town merely because a restarted worker sees stocked
         # supplies. The previous process may have stopped before banking or
         # may have submitted a transfer whose result needs reconciliation.

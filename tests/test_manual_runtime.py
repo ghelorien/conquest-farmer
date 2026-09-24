@@ -40,7 +40,7 @@ def rig(tmp_path,monkeypatch):
     monkeypatch.setattr(time,'time',lambda:x.now)
     x.journal=Journal(tmp_path/'journal.sqlite3')
     x.guard=InputCoordinator(lambda:True,path=tmp_path/'input.lock')
-    x.runtime=MerchantRuntime(object(),x.guard,journal=x.journal,market_path=tmp_path/'market.json')
+    x.runtime=MerchantRuntime(NS(identities=lambda:[]),x.guard,journal=x.journal,market_path=tmp_path/'market.json')
     for refill in x.runtime.refills.values():refill.clock=lambda:x.now
     x.read=lambda:{**deepcopy(x.state),'timestamp':x.now}
     x.driver=NS(read=x.read,require_qualified=lambda name:None,memory=NS(read=lambda **kw:x.read()))
@@ -50,7 +50,7 @@ def rig(tmp_path,monkeypatch):
     x.controller.apply_price=lambda *a:x.calls.append('list')
     x.runtime.controllers['Dutch']=x.controller
     x.runtime.observers['Dutch']=NS(lock=threading.RLock(),
-        adapter=NS(identity=x.state['identity'],assert_identity=lambda:None))
+        adapter=NS(identity=x.state['identity'],expected_sha256='legacy-test',assert_identity=lambda:None))
     x.runtime.disconnected=lambda character:False
     for character in ('Dutch','Spiritual'):
         x.journal.set(character,'enabled',True)

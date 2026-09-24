@@ -33,10 +33,12 @@ def wait_hover_validation(validate, check, *, clock=time.monotonic, sleep=time.s
 class MerchantDriver:
     def __init__(self, observer, qualification, coordinator):
         from conquest.memory_build_layout import CLIENT_SHA256_1078
-        if observer.adapter.expected_sha256 == CLIENT_SHA256_1078:
-            raise ValueError('1078 merchant input is not qualified; use its read-only observer')
         self.observer,self.qualification,self.coordinator = observer,Path(qualification),coordinator
-        self.memory = MerchantMemory(observer)
+        self.trade1078=observer.adapter.expected_sha256==CLIENT_SHA256_1078
+        if self.trade1078:
+            from conquest.merchants.trade_reader_1078 import TradeMemory1078
+            self.memory=TradeMemory1078(observer)
+        else:self.memory = MerchantMemory(observer)
         self.target = observer.operations.target
 
     def read(self):
@@ -55,6 +57,8 @@ class MerchantDriver:
             self._control_layout(snapshot,control,profile['controls'][control])
 
     def require_qualified(self, capability):
+        if getattr(self,'trade1078',False) and capability not in ('trade','trade_request','farmer_delivery'):
+            raise ValueError('1078 MerchantDriver supports separately qualified trade input only')
         try:
             data = json.loads(self.qualification.read_text())
         except (OSError,ValueError):
@@ -65,6 +69,9 @@ class MerchantDriver:
                 or data.get('capabilities',{}).get(capability) is not True
                 or not data.get('evidence')):
             raise ValueError(f'{capability}: live memory/input qualification is pending')
+        if getattr(self,'trade1078',False):
+            from conquest.merchants.trade_driver_1078 import validate_qualification
+            validate_qualification(data,capability,self.observer.character)
         return data
 
     def _control_layout(self,snapshot,control,spec):
@@ -104,12 +111,30 @@ class MerchantDriver:
         return window,table
 
     def point(self, snapshot, control, slot=None):
+        if getattr(self,'trade1078',False):
+            capabilities={'accept_request':'trade_request','accept_trade':'trade',
+                          'start_trade':'farmer_delivery','open_inventory':'farmer_delivery',
+                          'inventory_item':'farmer_delivery','trade_drop':'farmer_delivery',
+                          'confirm_trade':'farmer_delivery'}
+            if control not in capabilities:
+                raise ValueError('1078 control is outside the qualified trade capability')
+            self.require_qualified(capabilities[control])
         profile = json.loads(self.qualification.read_text())
         if profile.get('native_trade_layout_revision')==1:
             profile={**profile,'client_size':self.target.snapshot()['client_size'],
                      'gui_size':self.memory.gui.viewport_size()}
         spec = profile['controls'][control]
+        if getattr(self,'trade1078',False):
+            modes={'accept_request':'native_trade_request','accept_trade':'native_trade_confirm',
+                   'confirm_trade':'native_trade_confirm','trade_drop':'native_trade_drop',
+                   'start_trade':'native_items_trade','open_inventory':'native_items_trade'}
+            if control in modes and spec.get('mode')!=modes[control]:
+                raise ValueError('1078 trade control must use its native memory handler')
+            if control=='inventory_item' and spec.get('table')!='##ItemTable':
+                raise ValueError('1078 trade item source needs its native inventory table')
         from conquest.merchants.native_trade_input import MODES,point as native_point
+        if getattr(self,'trade1078',False):
+            from conquest.merchants.trade_driver_1078 import point as native_point
         if spec.get('mode') in MODES:
             if slot is not None:raise ValueError('Native trade control does not take a slot')
             return native_point(self,snapshot,spec['mode'])
@@ -122,7 +147,11 @@ class MerchantDriver:
             from conquest.memory_shop import MemoryGui
             from conquest.discard_loot import inventory_button
             from conquest.merchants.trade_controls import trade_button
-            gui=MemoryGui(self.observer.adapter)
+            if getattr(self,'trade1078',False):
+                from conquest.merchants.trade_driver_1078 import trade_button
+                from conquest.merchants.trade_hud_1078 import inventory_button
+                gui=MemoryGui.for_session(self.observer.adapter)
+            else:gui=MemoryGui(self.observer.adapter)
             px,py=(trade_button if spec['label']=='Trade' else inventory_button)(gui)
         elif control=='booth_drop':
             px,py=x+width/2,y+height/2
@@ -162,6 +191,8 @@ class MerchantDriver:
         self.point(snapshot,control,slot)  # Read-only schema/visibility preflight.
         profile = json.loads(self.qualification.read_text())
         from conquest.merchants.native_trade_input import MODES,hover as native_hover
+        if getattr(self,'trade1078',False):
+            from conquest.merchants.trade_driver_1078 import hover as native_hover
         native_mode=profile.get('controls',{}).get(control,{}).get('mode')
         from conquest.focus_recovery import activate_client
         if not activate_client(self.target.hwnd,snapshot['identity']):
@@ -212,7 +243,7 @@ class MerchantDriver:
         # The client can process pointer movement after the OS reports it.
         # Re-read the complete guards each time; never reuse a stale offer,
         # item order or control position while waiting for its hover ID.
-        return foreground_click(self.target,*point,size,require_foreground=False,
+        return foreground_click(self.target,*point,size,require_foreground=getattr(self,'trade1078',False),
             before_press=lambda:wait_hover_validation(before_press,self.coordinator.check),
             layout_guard=(lambda:layout.assert_current(revision)) if layout is not None else None,
             before_mouse_down=before_mouse_down)

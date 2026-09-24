@@ -32,6 +32,38 @@ def test_bridge_reuses_worker_protocol_and_reports_current_controls(bridge):
     assert calls==[('health',{})]
 
 
+def test_health_fences_cursor_observation_gap_without_changing_farming_intent(bridge):
+    service, info, _calls, control = bridge
+    control['enabled'] = True
+    service.operations.dispatch = lambda _operation, _body: {
+        'window': {'cursor': None, 'cursor_available': False}}
+    result = request(info, 'health')
+    assert result['embedded_controls']['manual_mouse'] is True
+    assert result['embedded_controls']['control']['enabled'] is True
+
+
+def test_health_cursor_api_gap_latches_physical_mouse_idle_fence(bridge,monkeypatch):
+    from conquest import mouse_priority
+    service, info, _calls, control = bridge
+    control['enabled'] = True
+    now=[10.]
+    guard=mouse_priority.MousePriority(lambda:((100,100),0),clock=lambda:now[0])
+    monkeypatch.setattr(mouse_priority,'_guard',guard)
+    cursor_available=[False]
+    service.operations.dispatch = lambda _operation, _body: {
+        'window': {'cursor_available':cursor_available[0]}}
+    assert request(info,'health')['embedded_controls']['manual_mouse'] is True
+    assert guard.observation_gap
+    cursor_available[0]=True
+    now[0]+=30
+    assert request(info,'health')['embedded_controls']['manual_mouse'] is True
+    now[0]+=1.99
+    assert request(info,'health')['embedded_controls']['manual_mouse'] is True
+    now[0]+=.02
+    assert request(info,'health')['embedded_controls']['manual_mouse'] is False
+    assert control['enabled'] is True
+
+
 def test_health_exposes_the_current_manual_session_fence_without_changing_intent(bridge,monkeypatch):
     from conquest.merchants import coordination
     service,info,calls,control=bridge

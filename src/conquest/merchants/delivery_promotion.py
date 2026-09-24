@@ -32,7 +32,7 @@ def validate_candidate(observer,candidate,farmer,merchant,state):
     """The mutable layout file must still describe the live pinned client."""
     from conquest.merchants.farmer_trade import _recipient_record
     from conquest.merchants.memory import GuiReader
-    from conquest.merchants.trade_controls import targeting_state
+    from conquest.merchants.farmer_trade import targeting_state
     intent=state.get('intent',{});saved=state.get('recipient',{});expected=intent.get('merchant',{})
     def point(value):
         return isinstance(value,list) and len(value)==2 and all(type(axis) is int for axis in value)
@@ -44,7 +44,7 @@ def validate_candidate(observer,candidate,farmer,merchant,state):
             or saved['name']!=expected.get('character')
             or saved['position']!=expected.get('position')):
         raise ValueError('Verified recipient receipt is incomplete or differs from the delivery merchant')
-    gui_size=GuiReader(observer.adapter).viewport_size()
+    gui_size=GuiReader.for_session(observer.adapter).viewport_size()
     if observer.operations.target.snapshot()['client_size']!=gui_size:
         raise ValueError('Trade layout requires matching native and memory GUI dimensions')
     # Promotion reads the layout only. An Inventory panel left open after the
@@ -352,10 +352,27 @@ def promote_current(ui):
                 or controller.driver.qualification.resolve()!=paths['merchant'].resolve()):
             raise ValueError('Delivery qualification paths differ from the selected profiles')
         candidate=read_json(paths['candidate'])
-        if candidate.get('client_sha256')!=CLIENT_SHA256:
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        build=candidate.get('client_sha256')
+        if build not in (CLIENT_SHA256,CLIENT_SHA256_1078):
             raise ValueError('Trade layout build differs from the verified delivery')
+        if build==CLIENT_SHA256_1078:
+            from conquest.merchants.trade_driver_1078 import validate_receipt
+            validate_receipt(state)
         candidate_digest=evidence_digest(candidate)
-        merchant_before=paths['merchant'].read_bytes()
+        def merchant_profile_bytes():
+            try:return paths['merchant'].read_bytes()
+            except FileNotFoundError:
+                if build==CLIENT_SHA256_1078:return None
+                raise
+        merchant_before=merchant_profile_bytes()
+        if merchant_before is not None:
+            try:peer=json.loads(merchant_before)
+            except (ValueError,UnicodeError) as error:
+                raise ValueError('Existing merchant qualification is unreadable; preserve it for reconciliation') from error
+            if (not isinstance(peer,dict) or peer.get('character')!=state['intent']['merchant']['character']
+                    or peer.get('client_sha256') not in (CLIENT_SHA256,build)):
+                raise ValueError('Existing merchant qualification belongs to another participant or build')
         control=ui.app.control.snapshot()
         intent=state['intent']
         chain_manifest=None
@@ -382,11 +399,11 @@ def promote_current(ui):
                 raise ValueError('Reconcile pending merchant transactions before promotion')
             if (evidence_digest(delivery_probe.read_probe(read_only=True))!=digest
                     or evidence_digest(read_json(paths['candidate']))!=candidate_digest
-                    or paths['merchant'].read_bytes()!=merchant_before):
+                    or merchant_profile_bytes()!=merchant_before):
                 raise ValueError('Delivery receipt or qualification evidence changed before promotion')
             for role,account in (('farmer',observer),('merchant',receiver)):
                 expected=intent[role]
-                if (account.adapter.expected_sha256!=CLIENT_SHA256
+                if (account.adapter.expected_sha256!=build
                         or account.adapter.identity!=expected['identity']
                         or account.character!=expected['character']):
                     raise ValueError('Delivery participant process or build changed')
@@ -424,7 +441,7 @@ def promote_current(ui):
             ui.coordinator.check()
             if (evidence_digest(delivery_probe.read_probe(read_only=True))!=digest
                     or evidence_digest(read_json(paths['candidate']))!=candidate_digest
-                    or paths['merchant'].read_bytes()!=merchant_before
+                    or merchant_profile_bytes()!=merchant_before
                     or ui.app.control.snapshot()!=control):
                 raise ValueError('Delivery authority changed during qualification validation')
 

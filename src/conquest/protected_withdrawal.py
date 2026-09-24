@@ -441,8 +441,8 @@ class ProtectedWithdrawal:
 
     def _observe(self):
         from conquest.memory_warehouse import MemoryWarehouseReader
-        from conquest.merchants.memory import MerchantMemory
-        memory=MerchantMemory(self.town.observer)
+        from conquest.merchants.delivery_bridge import source_memory
+        memory=source_memory(self.town.observer)
         reader=MemoryWarehouseReader(self.town.observer.adapter)
         def sample():
             source=memory.read(max_seconds=2,farmer_preflight=True)

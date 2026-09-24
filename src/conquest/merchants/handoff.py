@@ -8,6 +8,7 @@ INTERVAL = 900
 WORK_SECONDS = 15
 POLICY = Path('profiles/merchant-deliveries.json')
 STATE = Path(state_path('.runtime/merchant-handoff.json'))
+HOST_STATE = Path(state_path('.runtime/merchant-host-handoff.json'))
 
 
 class WorkWindows:
@@ -38,10 +39,11 @@ class WorkWindows:
         write_json(self.path,state)
         return True
 
-    def started(self):
+    def started(self, *, listing=False):
         state = self.state()
         now = self.clock()
-        state.update(phase='working',deadline=state.get('deadline',now+WORK_SECONDS))
+        state.update(phase='working',deadline=state.get('deadline',now+(45 if listing else WORK_SECONDS)))
+        if listing:state['scope']='listing_1078'
         write_json(self.path, state)
         return state['deadline']
 
@@ -69,6 +71,46 @@ def service_candidate(character):
              (character.get('recovery_safety') or {}).get('active'))))
 
 
+def qualified_listing_request(status):
+    """Only the exact requesting merchant's earned receipt admits 45 seconds."""
+    parts=str(status.get('handoff_requested') or '').split(':')
+    if len(parts)!=3 or parts[0]!='merchant-refill' or not parts[2].isdigit():
+        return None
+    state=status.get('characters',{}).get(parts[1],{})
+    if (state.get('connected') and state.get('refill',{}).get('enabled')
+            and state.get('qualification',{}).get('foreground_open_booth_listing_1078') is True):
+        return parts[1]
+    return None
+
+
+def native_host_request(status):
+    """App-owned display intent; never depends on trading/refill preferences."""
+    row=status.get('host_request') or {}
+    key=row.get('request_id');identities=row.get('identities')
+    if (not isinstance(key,str) or not key.startswith('merchant-host:')
+            or not isinstance(identities,dict) or not identities):return None
+    for name,identity in identities.items():
+        state=status.get('characters',{}).get(name) or {}
+        if not state.get('connected') or (state.get('snapshot') or {}).get('identity')!=identity:return None
+    return key
+
+
+def host_restored_before_grant(status, identities):
+    """Only fresh exact attached hosts and released input explain this race."""
+    if (not identities or status.get('handoff_active') is not False
+            or status.get('input_owner') is not None or status.get('host_request') is not None
+            or status.get('manual_handoff') is not None or status.get('manual_sessions') != []
+            or (status.get('manual_farmer') or {}).get('input_fenced') is not False):
+        return False
+    for name,identity in identities.items():
+        state=status.get('characters',{}).get(name) or {}
+        if (not state.get('connected') or (state.get('snapshot') or {}).get('identity')!=identity
+                or not 0<=time.time()-(state.get('snapshot') or {}).get('timestamp',0)<=2
+                or (status.get('layout',{}).get(name) or {}).get('attached') is not True):
+            return False
+    return True
+
+
 def service_window(loop, *, town=False):
     """Run on the existing route controller, retaining its exclusive ownership."""
     policy = read_json(POLICY)
@@ -78,9 +120,7 @@ def service_window(loop, *, town=False):
     # This window serves refill/recovery, not delivery admission. Preserve
     # its existing authority when the separate delivery preference is Off.
     permitted = policy.get('parity_verified') or (town and rollout_enabled(route_character(loop),policy=policy))
-    if (not permitted and not (town and trial_permitted(loop))) or (not town and not policy.get('hunting_handoffs_enabled')):
-        return False
-    from conquest.merchants.bridge import request as merchant
+    from conquest.merchants.bridge import request as merchant, MerchantRejected
     from conquest.worker import request
     from conquest.safe_reload import park, clear_observation
     from conquest.overnight import OvernightStopped
@@ -89,7 +129,28 @@ def service_window(loop, *, town=False):
         status = merchant({'action':'status'})
     except (OSError, ValueError):
         return False
-    urgent = urgent_recovery(status)
+    host_request=None if town or urgent_recovery(status) else native_host_request(status)
+    host_identities=(status.get('host_request') or {}).get('identities',{})
+    if host_request and not WorkWindows(HOST_STATE).due():host_request=None
+    if host_request:
+        # Independent bookkeeping must not advance, reset or discard a queued
+        # fifteen-minute capacity check just to restore native window hosts.
+        windows=WorkWindows(HOST_STATE)
+    # The 1078 listing engine earns its own narrow capability from a real
+    # listing receipt. An old build's farming-parity rollout flag must not
+    # permanently block its independent fifteen-minute refill. This only
+    # admits refill requests; the existing park/grant/revision checks still
+    # decide whether the farmer can actually yield input.
+    listing_character = qualified_listing_request(status)
+    native_refill = bool(listing_character) or town and any(
+        c.get('connected') and c.get('refill',{}).get('enabled')
+        and c.get('qualification',{}).get('foreground_open_booth_listing_1078') is True
+        for c in status.get('characters',{}).values())
+    if not host_request and not native_refill and ((not permitted and not (town and trial_permitted(loop)))
+            or (not town and not policy.get('hunting_handoffs_enabled'))):
+        return False
+    urgent = False if host_request else urgent_recovery(status)
+    if host_request:listing_character=None
     if not town and not urgent and not windows.due():
         return False
     before = loop.health()
@@ -97,19 +158,35 @@ def service_window(loop, *, town=False):
     if before['embedded_controls'].get('manual_mouse'):
         return False
     visit = None
-    if town and (before['embedded_controls'].get('life') or {}).get('map_id') == 1036:
+    if not host_request and town and (before['embedded_controls'].get('life') or {}).get('map_id') == 1036:
         from conquest.merchants.service_visit import MarketVisit, parent_visit
         visit = MarketVisit().begin(parent=parent_visit())
         if time.time() >= visit['deadline']:
             return False  # A refill-only entry cannot renew a used delivery visit.
-    if town and any(c.get('connected') for c in status.get('characters',{}).values()):
-        request_id='restock-refill:'+str(time.time_ns())
+    if town and (visit or urgent):
+        listing_character = None  # Preserve Market/recovery scope and its existing budget.
+    if host_request:
+        request_id=host_request
+    elif town and any(c.get('connected') for c in status.get('characters',{}).values()):
+        request_id = status.get('handoff_requested') if listing_character else None
+        if not visit and not urgent and not listing_character:
+            for name, character in status.get('characters',{}).items():
+                snapshot = character.get('snapshot') or {}
+                candidate = f'merchant-refill:{name}:{time.time_ns()}'
+                if (snapshot.get('inventory') and len(snapshot.get('booth', [])) < 32
+                        and qualified_listing_request({**status, 'handoff_requested': candidate}) == name):
+                    listing_character, request_id = name, candidate
+                    break
+        # Non-Market town grants must use the same exact-recipient native
+        # listing scope as hunting grants. A generic 15-second grant can
+        # never satisfy the listing engine's 20-second admission requirement.
+        request_id = request_id or 'restock-refill:'+str(time.time_ns())
         merchant({'action':'refill-check','request_id':request_id})
     else:
         request_id = status.get('handoff_requested')
     if not request_id or not any(service_candidate(c) for c in status.get('characters',{}).values()):
         return False
-    if not windows.reserve(request_id, town=town, urgent=urgent, visit=visit):
+    if not windows.reserve(request_id, town=town and not host_request, urgent=urgent, visit=visit):
         return False
     was_enabled, phase = control['enabled'], loop.phase
     loop.stop_farm()
@@ -143,37 +220,65 @@ def service_window(loop, *, town=False):
     try:
         loop.phase='merchant_handoff'
         loop.record('merchant_safe_spot', activity='Finding a safe spot for merchant refill')
+        parking_started=time.monotonic()
+        parking={'outcome':'interrupted'}
         try:
-            seconds=min(12,max(0,visit['deadline']-time.time())) if visit else 12
+            parking_budget=30 if listing_character or host_request else 12
+            seconds=min(parking_budget,max(0,visit['deadline']-time.time())) if visit else parking_budget
             if seconds<=0:
+                parking.update(outcome='deferred',reason='Market visit budget exhausted')
                 windows.finish('paused_budget')
                 return False
-            parked=park(loop,Cancellation(),lambda _:None,seconds=seconds,allow_town_retreat=False)
-        except ValueError:
+            parked=park(loop,Cancellation(),lambda _:None,seconds=seconds,allow_town_retreat=False,
+                        diagnostic=parking)
+            parking.update(outcome='safe',reason='Three quiet stable seconds verified')
+        except ValueError as error:
+            parking.update(outcome='deferred',reason=str(error)[:180])
             windows.finish('unsafe_deferred')
             return False
+        finally:
+            loop.record('merchant_parking_finished',parking={**parking,
+                        'elapsed_seconds':round(time.monotonic()-parking_started,3)})
         check()
         if not clear_observation(loop.health()):
             windows.finish('unsafe_deferred')
             return False
-        deadline=windows.started()
+        deadline=windows.started(listing=bool(listing_character))
         if deadline<=time.time():
             windows.finish('paused_budget')
             return False
         command={'action':'handoff-grant','request_id':request_id,'revision':revision,
                  'expires_at':deadline,'safe':True}
-        if visit:command.update(scope='market_visit',visit_id=visit['visit_id'])
+        if host_request:command.update(scope='merchant_host')
+        elif visit:command.update(scope='market_visit',visit_id=visit['visit_id'])
+        elif listing_character:command.update(scope='listing_1078',character=listing_character)
         # A lost acknowledgement may still have granted input. Revoke in finally.
         granted=True
-        merchant(command)
-        loop.record('merchant_work_started',activity=('Safe merchant refill within this Market visit'
-                    if visit else 'Safe merchant refill · up to 15 seconds'),deadline=deadline)
+        try:
+            merchant(command)
+        except MerchantRejected as error:
+            if not host_request or str(error)!='Handoff request changed':raise
+            # This exact rejection precedes fence activation. Safe-Off polling
+            # may already have attached both hosts while the route parked.
+            # Never release a different request or infer this from transport loss.
+            granted=False
+            manually_cancelled=True
+            fresh_status=merchant({'action':'status'})
+            check()
+            if not host_restored_before_grant(fresh_status,host_identities):raise
+            manually_cancelled=False
+            windows.finish('host_restored_before_grant')
+            return True
+        loop.record('merchant_work_started',activity=('Restoring merchant client tabs safely' if host_request else 'Safe merchant refill within this Market visit'
+                    if visit else 'Safe merchant listing · up to 45 seconds' if listing_character
+                    else 'Safe merchant refill · up to 15 seconds'),deadline=deadline)
         while time.time()<deadline:
             check()
             health=loop.health()
             if not clear_observation(health):
                 break
             status=merchant({'action':'status'})
+            if host_request and native_host_request(status)!=host_request:break
             if not status.get('handoff_requested'):
                 break
             time.sleep(.2)

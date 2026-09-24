@@ -297,7 +297,8 @@ class ManualRuntime:
                 observer.adapter.assert_identity()
                 if farmer:
                     from conquest.merchants.memory import MerchantMemory
-                    snapshot=MerchantMemory(observer).read(farmer_preflight=True)
+                    from conquest.merchants.delivery_bridge import source_memory
+                    snapshot=source_memory(observer).read(farmer_preflight=True)
                 else:snapshot = controller.driver.read()
             finally:observer.lock.release()
             if self.process_probe_owned(character, snapshot, now=now):
@@ -557,7 +558,8 @@ class ManualRuntime:
                             farmer = snapshot
                             merchant = self.controllers[merchant_character].driver.read()
                         else:
-                            farmer = MerchantMemory(observer).read(farmer_preflight=True)
+                            from conquest.merchants.delivery_bridge import source_memory
+                            farmer = source_memory(observer).read(farmer_preflight=True)
                             merchant = snapshot
                     except (OSError, CaptureUnavailable, ValueError, KeyError, TypeError, AttributeError):
                         # Only the peer acquisition/read path may use the
@@ -702,6 +704,9 @@ class ManualRuntime:
             request = snapshot.get('request')
             try:
                 if row:
+                    from conquest.merchants.empty_delivery_cancel_sessions import observe as observe_empty_cleanup
+                    cleanup=observe_empty_cleanup(self,character,snapshot)
+                    if cleanup is not None:return bool(cleanup['holds_automation'])
                     if request and row['phase'] != 'needs_attention':
                         try:
                             row = store.begin_request(target, snapshot, session_id=row['id'], now=now)

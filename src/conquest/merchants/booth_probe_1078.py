@@ -103,7 +103,12 @@ def _farmer_safe_market(ui, expected_target=None):
         raise CaptureUnavailable('Farmer route must exit before merchant focus')
     route = read_json(state_path('reports/overnight/status.json'))
     route_pid = route.get('pid')
-    if (route.get('phase') not in ('stopped', 'completed', 'failed')
+    # OvernightLoop records an exception as event=failed while retaining the
+    # user-facing needs_attention phase. That terminal record is admissible
+    # only after the OS confirms its worker exited, just like the other exits.
+    terminal = (route.get('phase') in ('stopped', 'completed', 'failed')
+                or route.get('phase') == 'needs_attention' and route.get('event') == 'failed')
+    if (not terminal
             or type(route_pid) is not int or process_alive(route_pid) is not False):
         raise CaptureUnavailable('Farmer route worker must exit before merchant focus')
     info = Path(state_path('.runtime')) / f'embedded-worker-{os.getpid()}.json'

@@ -1,5 +1,6 @@
 """Restore hidden merchant hosts without stealing the farmer's input."""
 from conquest.merchants.journal import CHARACTERS
+from conquest.capture import CaptureUnavailable
 
 
 def _farmer_health_cache(ui):
@@ -39,71 +40,185 @@ def _farmer_health_cache(ui):
 
 
 def _readonly_market_hosting_safe(ui):
-    """Require a fresh, stopped farmer baseline before hosting 1078 HWNDs."""
-    import time
-
-    from conquest.character_context import state_path
-    from conquest.discord_notify import process_alive, read_json
+    """A native safe parked baseline; neither Market nor route exit is required."""
     from conquest.merchants.background_probe import probe_busy
-
-    app, runtime, coordinator = ui.app, ui.runtime, ui.coordinator
-    control = app.control.snapshot()
-    fence = getattr(ui, 'grant_fence', None)
-    if (ui.closed or app.closing or app.thread and app.thread.is_alive()
-            or control.get('enabled') is not False or control.get('paused')
-            or not ui.safe_to_yield() or app.mouse_priority.active()
-            or coordinator.owner or coordinator.manual_active()
+    from conquest.merchants.listing_handoff_1078 import parked
+    app,runtime,coordinator=ui.app,ui.runtime,ui.coordinator
+    hosting_owner=coordinator.owner=='Farmer' and coordinator.purpose=='merchant_host'
+    if (ui.closed or app.closing or coordinator.stopped
+            or coordinator.owner and not hosting_owner or coordinator.manual_active()
             or runtime.manual_handoff_status() is not None
-            or ui.grant is not None or fence and (fence.active is not None
-                or fence.actions or fence.workers)
-            or any(coordinator.manual_session_blocked(c) for c in ('Farmer', *CHARACTERS))
-            or probe_busy(ui)
-            or runtime.connecting or runtime.refilling
-            or getattr(runtime, 'delivery_window', None)
-            or getattr(runtime, 'refill_window', None)
-            or ui.calibrating):
-        return False
-
-    farmer = getattr(app, 'observer', None)
-    if farmer is None:
+            or any(coordinator.manual_session_blocked(c) for c in ('Farmer',*CHARACTERS))
+            or probe_busy(ui) or runtime.connecting or runtime.refilling or ui.calibrating
+            or getattr(runtime,'delivery_window',None) or getattr(runtime,'refill_window',None)):
         return False
     try:
-        farmer.adapter.assert_identity()
-        route = read_json(state_path('reports/overnight/status.json'))
-        route_pid = route.get('pid')
-        if (route.get('phase') not in ('stopped', 'completed', 'failed')
-                or type(route_pid) is not int or process_alive(route_pid) is not False):
-            return False
-        health = _farmer_health_cache(ui)
-        if health is None:
-            return False
-        controls = health.get('embedded_controls') or {}
-        life = controls.get('life') or {}
-        if (health.get('profile_id') != runtime.manual_target('Farmer')
-                or health.get('target') != farmer.adapter.identity
-                or life.get('map_id') != 1036
-                or life.get('dead_candidate') is not False
-                or type(life.get('current_hp')) is not int or life['current_hp'] <= 0
-                or controls.get('control', {}).get('enabled') is not False
-                or controls.get('manual_mouse')
-                or controls.get('manual_input_fence')
-                or controls.get('external_execution') is not False
-                or type(controls.get('observed_at')) not in (int, float)
-                or not 0 <= time.time() - controls['observed_at'] <= 1):
-            return False
-
-        # Include farmer-side holds and unresolved durable merchant receipts.
+        fence=getattr(ui,'grant_fence',None)
+        grant=getattr(ui,'grant',None)
+        if grant:
+            token=fence.check()
+            if (token!=fence.active or token.request_id!=grant['request_id']
+                    or token.revision!=app.control.snapshot()['revision']):return False
+        parked(ui)
         from conquest.merchants.booth_probe_1078 import _farmer_journals_clear
         _farmer_journals_clear(runtime)
         with runtime.journal.db() as db:
-            pending = db.execute(
-                "SELECT 1 FROM transactions WHERE phase NOT IN "
-                "('verified','aborted','operator_overridden') LIMIT 1").fetchone()
-        if pending:
-            return False
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return False
+            if db.execute("SELECT 1 FROM transactions WHERE phase NOT IN "
+                          "('verified','aborted','operator_overridden') LIMIT 1").fetchone():return False
+    except (OSError,ValueError,KeyError,TypeError,AttributeError,CaptureUnavailable):return False
     return True
+
+
+def requested(ui):
+    """Separate host intent cannot replace a queued refill or enable operations."""
+    import time
+    import uuid
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    if (ui.closed or ui.app.closing or ui.coordinator.stopped or ui.coordinator.manual_active()
+            or ui.runtime.manual_handoff_status() is not None
+            or any(ui.coordinator.manual_session_blocked(c) for c in ('Farmer',*CHARACTERS))
+            or ui.runtime.connecting or ui.runtime.refilling or ui.calibrating
+            or getattr(ui.runtime,'delivery_window',None) or getattr(ui.runtime,'refill_window',None)):
+        return None
+    # A stranded transaction needs its exact reconciliation/cleanup grant.
+    # Keep the display intent for afterward; a host-only window cannot help it.
+    with ui.runtime.journal.db() as db:
+        if db.execute("SELECT 1 FROM transactions WHERE phase NOT IN "
+                      "('verified','aborted','operator_overridden') LIMIT 1").fetchone():return None
+    wanted={}
+    for character in CHARACTERS:
+        if character in ui.released_clients:continue
+        observer=ui.runtime.observers.get(character);host=ui.hosts.get(character)
+        if (observer is None or getattr(observer.adapter,'expected_sha256',None)!=CLIENT_SHA256_1078
+                or not getattr(observer,'merchant_observation_only',False)):continue
+        if host and host.saved:
+            if (not ui.client_panes[character].winfo_ismapped()
+                    or ui.layout_status.get(character,{}).get('native_visible')):continue
+        snapshot=ui.runtime.latest.get(character) or {}
+        if (snapshot.get('identity')!=observer.adapter.identity
+                or not 0<=time.time()-snapshot.get('timestamp',0)<=5):continue
+        wanted[str(character)]=dict(observer.adapter.identity)
+    if not wanted:
+        ui.native_host_request=None
+        return None
+    old=getattr(ui,'native_host_request',None)
+    if not old or old.get('identities')!=wanted:
+        old={'request_id':'merchant-host:'+uuid.uuid4().hex,'identities':wanted}
+        ui.native_host_request=old
+    return old
+
+
+def released(ui,character,value):
+    """Only explicit release/show changes this durable preference."""
+    ui.runtime.journal.set(character,'host_released',bool(value))
+    if value:ui.released_clients.add(character)
+    else:ui.released_clients.discard(character)
+
+
+def present_native(ui,character,expected):
+    """Tk presentation for an already admitted native lease, never attachment."""
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    from conquest.client_attachment import require_viewport
+    host,observer,hwnd,identity,purpose=expected
+
+    def binding():
+        if (ui.closed or ui.app.closing or ui.coordinator.stopped or ui.coordinator.manual_active()
+                or ui.coordinator.owner!=character or ui.coordinator.purpose!=purpose
+                or purpose not in ('booth_listing_1078_once','trade','delivery_accept_probe',
+                                   'delivery_confirm_probe','empty_delivery_cancel')
+                or not ui.safe_to_yield() or character in ui.released_clients
+                or ui.hosts.get(character) is not host or ui.runtime.observers.get(character) is not observer
+                or not host.saved or host.mode!='owned' or host.saved.hwnd!=hwnd
+                or host.saved.identity!=identity or observer.adapter.identity!=identity
+                or observer.adapter.expected_sha256!=CLIENT_SHA256_1078 or observer.hwnd!=hwnd):
+            raise ValueError('Exact native merchant host lease changed')
+        observer.adapter.assert_identity()
+        host.api.assert_owner(hwnd,identity)
+
+    binding()
+    foreground=host.api.gui.GetForegroundWindow()
+    bookmark={'tab':ui.notebook.select(),'hwnd':foreground,'identity':None}
+    if foreground:
+        try:
+            import ctypes
+            from ctypes import wintypes
+            pid=wintypes.DWORD()
+            host.api.backend.window_pid(foreground,ctypes.byref(pid))
+            bookmark['identity']=host.api.backend.identity(pid.value)
+        except (OSError,ValueError):pass
+    ui.input_bookmarks[character]=bookmark
+    ui.notebook.select(ui.frames[character]);ui.detail_tabs[character].select(0)
+    layout=getattr(ui,'apply_client_compact_layout',None)
+    if layout:layout()
+    ui.root.update_idletasks()
+    binding()
+    pane=ui.client_panes[character]
+    size=require_viewport(pane.winfo_width(),pane.winfo_height())
+    if not pane.winfo_ismapped():raise ValueError('Exact native merchant pane is not mapped')
+    for other in ui.hosts.values():
+        if other is not host and other.saved:
+            other.api.assert_owner(other.saved.hwnd,other.saved.identity)
+            other.api.show_async(other.saved.hwnd,0)
+    binding()
+    host.resize(*size)
+    binding()
+    ui.layout_status.setdefault(character,{}).update(selected=True,
+        native_visible=bool(host.api.gui.IsWindowVisible(hwnd)),pane_size=list(size))
+
+
+def restore_readonly(ui,character,*,host_factory=None):
+    """No activation, input qualification, saved control or tab selection."""
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    from conquest.merchants.coordination import input_scope
+    from conquest.client_attachment import require_viewport
+    observer=ui.runtime.observers.get(character)
+    host=ui.hosts.get(character);pane=ui.client_panes[character]
+    status=ui.layout_status.get(character,{})
+    if (host and host.saved and observer and host.saved.identity==observer.adapter.identity
+            and pane.winfo_ismapped() and status.get('native_visible')
+            and status.get('pane_size')==[pane.winfo_width(),pane.winfo_height()]):
+        return True  # Already displayed; no surface mutation or new permission.
+    if (character in ui.released_clients or observer is None
+            or observer.adapter.expected_sha256!=CLIENT_SHA256_1078
+            or not _readonly_market_hosting_safe(ui)):return False
+    with input_scope(purpose='merchant_host'):
+        if not _readonly_market_hosting_safe(ui):return False
+        observer.adapter.assert_identity()
+        host=ui.hosts.get(character)
+        if host is None:
+            if host_factory is None:
+                from conquest.window_host import EmbeddedWindow
+                host_factory=lambda:EmbeddedWindow(mode='owned')
+            host=host_factory();ui.hosts[character]=host
+        if host.mode!='owned':return False
+        if host.api.gui.IsIconic(observer.hwnd):
+            ui.calibration_results[character]={'verified':False,
+                'note':'Native host deferred: minimized client cannot use no-activation attachment'}
+            return False
+        if host.saved and host.saved.identity!=observer.adapter.identity:
+            raise ValueError('Merchant hosted process changed')
+        mapped=bool(pane.winfo_ismapped())
+        if mapped:size=require_viewport(pane.winfo_width(),pane.winfo_height())
+        else:
+            rect=host.api.gui.GetClientRect(observer.hwnd)
+            size=require_viewport(rect[2]-rect[0],rect[3]-rect[1])
+        if not host.saved:
+            host.attach(observer.hwnd,observer.adapter.identity,pane.winfo_id(),*size)
+        else:host.resize(*size)
+        observer.adapter.assert_identity()
+        host.api.assert_owner(observer.hwnd,observer.adapter.identity)
+        gui=host.api.gui
+        if (gui.GetAncestor(observer.hwnd,2)!=observer.hwnd
+                or gui.GetWindow(observer.hwnd,4)!=gui.GetAncestor(pane.winfo_id(),2)):
+            raise ValueError('Native merchant host ownership was not retained')
+        ui.coordinator.surface_blocks[character]=True
+        ui.layout_status[character]={'attached':True,'native_visible':bool(gui.IsWindowVisible(observer.hwnd)),
+            'selected':mapped,'auto_read_only_host':True,'pane_size':list(size)}
+        status=getattr(ui.runtime,'attachments',{}).get(character)
+        if status:
+            status.attached=True;status.enter('memory');status.observation_ready=True
+            ui.runtime.journal.set(character,'attachment',status.snapshot())
+        return True
 
 
 def restore(ui, *, host_factory=None):
@@ -122,34 +237,8 @@ def restore(ui, *, host_factory=None):
             observer=ui.runtime.observers.get(character)
             if observer is None: continue
             if getattr(observer,'merchant_observation_only',False):
-                # Read-only hosting is a no-activation geometry operation. It
-                # must not select a tab or create an input-capable surface.
-                if not _readonly_market_hosting_safe(ui): continue
-                try:
-                    observer.adapter.assert_identity()
-                    if host is None:
-                        host=host_factory()
-                        ui.hosts[character]=host
-                    if host.mode!='owned' or host.api.gui.IsIconic(observer.hwnd):
-                        continue
-                    if host.saved:
-                        continue
-                    size=(pane.winfo_width(),pane.winfo_height())
-                    from conquest.client_attachment import require_viewport
-                    require_viewport(*size)
-                    host.attach(observer.hwnd,observer.adapter.identity,pane.winfo_id(),*size)
-                    observer.adapter.assert_identity()
-                    ui.coordinator.surface_blocks[character]=True
-                    ui.layout_status[character]={'attached':True,'native_visible':False,
-                        'selected':False,'auto_read_only_host':True}
-                    status=getattr(ui.runtime,'attachments',{}).get(character)
-                    if status:
-                        status.attached=True
-                        status.enter('memory')
-                        status.observation_ready=True
-                        ui.runtime.journal.set(character,'attachment',status.snapshot())
-                except (ValueError,OSError):
-                    continue
+                try:restore_readonly(ui,character,host_factory=host_factory)
+                except (ValueError,OSError,CaptureUnavailable):pass
                 continue
             # Showing/selecting a tab remains the existing, guarded UI path.
             if pane.winfo_ismapped(): continue

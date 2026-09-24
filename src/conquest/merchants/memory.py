@@ -144,10 +144,13 @@ class GuiReader:
         hovered_window = unpack(s,context+0x3ec0,'<Q')[0];hovered_id = unpack(s,context+0x3ef0,'<I')[0]
         if hovered_window!=window['address'] or hovered_id not in expected:
             raise HoverNotReady('Pointer is not over the memory-identified merchant control')
-        if (unpack(s,self.base+self.context_rva,'<Q')[0]!=context
-                or unpack(s,context+0x3ec0,'<Q')[0]!=hovered_window
+        if unpack(s,self.base+self.context_rva,'<Q')[0]!=context:
+            raise GuiObservationChanged('Merchant GUI context changed during hover observation')
+        if (unpack(s,context+0x3ec0,'<Q')[0]!=hovered_window
                 or unpack(s,context+0x3ef0,'<I')[0]!=hovered_id):
-            raise GuiObservationChanged('Merchant hover changed')
+            # This sample proves no control. Let the caller's existing bounded
+            # hover wait reobserve all guards, exactly like an initial mismatch.
+            raise HoverNotReady('Merchant hover changed during observation')
         s.assert_identity()
 
     def model(self, key, vtable):
@@ -183,17 +186,30 @@ class GuiReader:
             except GuiObservationChanged:
                 if attempt==2:
                     raise
+                # Immediate rereads can all fall inside one render mutation.
+                # Yield before a complete fresh sample; callers still compare
+                # the resulting structural revision before any input.
+                time.sleep(.01)
 
     def _windows(self):
         s = self.session
         context = unpack(s,self.base+self.context_rva,'<Q')[0]
-        header = s.read_block(context+0x3e58,16)
-        count,capacity,array = struct.unpack('<IIQ',header)
-        if not 0 < count <= capacity <= 256:
-            raise ValueError('Invalid GUI registry')
-        entries = s.read_block(checked_address(array),count*8)
-        addresses=struct.unpack('<'+'Q'*count,entries)
-        if len(set(addresses))!=count:raise ValueError('Duplicate GUI registry entries')
+
+        def registry_members():
+            header = s.read_block(context+0x3e58,16)
+            count,capacity,array = struct.unpack('<IIQ',header)
+            if not 0 < count <= capacity <= 256:
+                raise ValueError('Invalid GUI registry')
+            entries = s.read_block(checked_address(array),count*8)
+            if (unpack(s,self.base+self.context_rva,'<Q')[0]!=context
+                    or s.read_block(context+0x3e58,16)!=header):
+                raise GuiObservationChanged('GUI registry changed during vector read')
+            addresses=struct.unpack('<'+'Q'*count,entries)
+            if len(set(addresses))!=count:
+                raise ValueError('Duplicate GUI registry entries')
+            return addresses
+
+        addresses = registry_members()
         result = []
         for ptr in addresses:
             # Rendering continues while a diagnostic RPC is in flight. A
@@ -212,18 +228,17 @@ class GuiReader:
             scroll = struct.unpack_from('<2f',raw,0x64)
             if not all(math.isfinite(v) and -8192 <= v <= 8192 for v in (*geometry,*scroll)) or min(geometry[2:]) <= 0:
                 raise ValueError('Invalid GUI geometry')
+            if s.read_block(ptr,12) != raw[:12]:
+                raise GuiObservationChanged('GUI window identity changed')
             if s.read_block(ptr+0x18,16) != raw[0x18:0x28] or s.read_block(ptr+0x64,8) != raw[0x64:0x6c]:
                 raise GuiObservationChanged('GUI geometry changed')
             result.append({'name':name,'address':ptr,'geometry':geometry,'scroll':scroll})
-        if (unpack(s,self.base+self.context_rva,'<Q')[0]!=context
-                or s.read_block(context+0x3e58,16) != header):
-            raise GuiObservationChanged('GUI registry changed')
-        latest=struct.unpack('<'+'Q'*count,s.read_block(array,count*8))
-        # ImGui changes draw order when panels receive focus. All callers use
-        # window identity/geometry, and input additionally verifies exact hover;
-        # array order is not an input qualification. Add/remove/duplicate entries
-        # still invalidate the entire sample.
-        if len(set(latest))!=count or set(latest)!=set(addresses):
+        latest = registry_members()
+        # Native 1078 swaps two differently sized backing buffers each frame.
+        # Each vector read must be coherent, but pointer/capacity/order between
+        # complete reads are storage details. Exact window membership, identity
+        # and live geometry remain required; callers also fence layout revisions.
+        if len(latest)!=len(addresses) or set(latest)!=set(addresses):
             raise GuiObservationChanged('GUI registry membership changed')
         s.assert_identity()
         return result

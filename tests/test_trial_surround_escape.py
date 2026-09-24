@@ -7,6 +7,11 @@ from conquest.memory_inventory import InventorySnapshot,Item
 from conquest.vision import Target
 
 
+def _open_terrain():
+    return SimpleNamespace(map_id=1002,width=1000,height=1000,
+                           walkable=lambda point:0<=point[0]<1000 and 0<=point[1]<1000)
+
+
 @pytest.mark.parametrize("urgent",[False,True])
 @pytest.mark.parametrize("attack_button",["left","right"])
 def test_surround_interrupts_unfinished_attack_without_waiting_for_damage_or_timeout(tmp_path,monkeypatch,attack_button,urgent):
@@ -42,7 +47,7 @@ def test_surround_interrupts_unfinished_attack_without_waiting_for_damage_or_tim
     monkeypatch.setattr(trial,'MemoryInventoryReader',Inventory)
     monkeypatch.setattr(trial,'resolve_player',lambda *a:dict.fromkeys(('name','position','max_hp','kill_counter','level','map'),1))
     camera=SimpleNamespace(geometry=lambda:(0,0),read=no_pixels,close=lambda:None)
-    supervisor=SimpleNamespace(last_target=None,recovery=SimpleNamespace(terrain=SimpleNamespace(width=1000,height=1000)),
+    supervisor=SimpleNamespace(last_target=None,recovery=SimpleNamespace(terrain=_open_terrain()),
         observe=lambda:{'health_ratio':1.,'waiting':False,'defending':False},
         memory_targets=lambda *a:[] if calls else [Target('Pheasant',600,400,1)],
         ranged_escape=lambda *a:(433,455) if calls and jumped[0] is None else None,
@@ -117,7 +122,7 @@ def test_scatter_keeps_casting_on_survivors_before_looting_or_patrolling(tmp_pat
         loot_calls.append(len(calls))
         return False
 
-    supervisor=SimpleNamespace(last_target=None,recovery=SimpleNamespace(terrain=SimpleNamespace(width=1000,height=1000)),
+    supervisor=SimpleNamespace(last_target=None,recovery=SimpleNamespace(terrain=_open_terrain()),
         observe=lambda:{'health_ratio':1.,'waiting':False,'defending':False},
         memory_targets=scan,ranged_escape=escape,attack_strategy=lambda:strategy,
         targets_observation_available=reuse_case!='unavailable',
@@ -163,7 +168,7 @@ def test_defense_without_attackable_target_keeps_patrol_movement(tmp_path,monkey
     monkeypatch.setattr(trial,'MemoryInventoryReader',Inventory)
     monkeypatch.setattr(trial,'resolve_player',lambda *a:dict.fromkeys(('name','position','max_hp','kill_counter','level','map'),1))
     camera=SimpleNamespace(geometry=lambda:(0,0),close=lambda:None)
-    supervisor=SimpleNamespace(last_target=None,recovery=SimpleNamespace(terrain=SimpleNamespace(width=1000,height=1000)),
+    supervisor=SimpleNamespace(last_target=None,recovery=SimpleNamespace(terrain=_open_terrain()),
         observe=lambda:{'health_ratio':1.,'waiting':False,'defending':True},
         memory_targets=lambda *a:[],patrol_step=lambda *a,**k:(435,455),
         dispatch=lambda callback,**kwargs:callback())
@@ -223,7 +228,7 @@ def test_jump_scatter_repositions_then_casts_again(tmp_path,monkeypatch,group_si
     monkeypatch.setattr(trial,'MemoryInventoryReader',Inventory)
     monkeypatch.setattr(trial,'resolve_player',lambda *a:dict.fromkeys(('name','position','max_hp','kill_counter','level','map'),1))
     camera=SimpleNamespace(geometry=lambda:(0,0),read=no_pixels,close=lambda:None)
-    supervisor=SimpleNamespace(last_target=None,recovery=SimpleNamespace(terrain=SimpleNamespace(width=1000,height=1000)),
+    supervisor=SimpleNamespace(last_target=None,recovery=SimpleNamespace(terrain=_open_terrain()),
         observe=lambda:{'health_ratio':1.,'waiting':False,'defending':False},
         memory_targets=lambda *a:[Target('Pheasant',600+i,400,1,1+i,1000+i,(435,455),100) for i in range(group_size)],
         ranged_escape=lambda *a:None,

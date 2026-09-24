@@ -5,14 +5,21 @@ from conquest.merchants.memory import MerchantMemory
 from conquest.merchants import delivery_reservation as reservations
 
 
+def source_memory(observer):
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    if observer.adapter.expected_sha256==CLIENT_SHA256_1078:
+        from conquest.merchants.trade_reader_1078 import TradeMemory1078
+        return TradeMemory1078(observer)
+    return MerchantMemory(observer)
+
+
 def pair(ui,character,*,farmer_preflight=False):
     farmer=ui.app.observer
     receiver=ui.runtime.observers.get(character)
     if farmer is None or farmer.character!=farmer_name() or receiver is None:
         raise ValueError('Delivery requires both verified connected characters')
     with farmer.lock:
-        source=(MerchantMemory(farmer).read(farmer_preflight=True) if farmer_preflight
-                else MerchantMemory(farmer).read())
+        source=source_memory(farmer).read(farmer_preflight=farmer_preflight)
     with receiver.lock:
         destination=ui.runtime.controllers[character].driver.read()
     return source,destination
@@ -35,7 +42,7 @@ def dispatch(ui,body):
         if farmer is None or farmer.character!=farmer_name():
             raise ValueError('Delivery source must be the verified farmer')
         with farmer.lock:
-            return {'farmer':MerchantMemory(farmer).read(farmer_preflight=True)}
+            return {'farmer':source_memory(farmer).read(farmer_preflight=True)}
     if body.get('action')=='delivery-reserve':
         if not ui.coordinator.lock.acquire(blocking=False):
             raise ValueError('Wait for the current input action before reserving a delivery')

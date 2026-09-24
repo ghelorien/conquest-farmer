@@ -35,7 +35,7 @@ def supervised(rig, monkeypatch, tmp_path):
     x.save()
     x.farmer_read = lambda: {**deepcopy(x.farmer), 'timestamp': x.now}
     x.source = NS(character='Parasite', lock=threading.RLock(),
-                  adapter=NS(identity=deepcopy(x.farmer['identity']),assert_identity=lambda: None))
+                  adapter=NS(identity=deepcopy(x.farmer['identity']),expected_sha256='legacy-test',assert_identity=lambda: None))
     x.runtime.manual_farmer_provider = lambda: x.source
     class Memory:
         def __init__(self, observer):assert observer is x.source

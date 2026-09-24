@@ -168,7 +168,7 @@ def test_start_persists_exact_authorized_item_before_worker_and_preserves_termin
     assert started[0]['selected_uids']==[11]
     assert [item['uid'] for item in started[0]['intent']['items']]==[11]
     assert probe.read_json(next((tmp_path/'delivery-request-probe-audit').glob('*.json')))==old
-    with pytest.raises(ValueError,match='Reconcile existing'):
+    with pytest.raises(ValueError,match='not an exact input-free preparation'):
         probe.start(ui,'Spiritual',uids=[10])
     assert len(started)==1
 
@@ -180,6 +180,8 @@ def test_scroll_start_persists_one_exact_uid_before_staged_worker(tmp_path,monke
     assert probe.start(ui,'Spiritual',uids=[10])['uids']==[10]
     assert started[0]['selected_uids']==[10]
     assert started[0]['intent']['items']==[farmer['inventory'][0]]
+    submitted=probe.read_probe();submitted['phase']='request_submitted'
+    probe.write_probe(probe.JOURNAL,submitted)
     with pytest.raises(ValueError,match='Reconcile existing'):
         probe.start(ui,'Spiritual',uids=[10])
     assert len(started)==1
@@ -192,8 +194,9 @@ def test_persistence_failure_never_starts_probe_worker(tmp_path,monkeypatch):
     with pytest.raises(OSError,match='disk flush failed'):
         probe.start(ui,'Spiritual',uids=[10])
     assert not started
-    with pytest.raises(ValueError,match='Reconcile existing'):
-        probe.start(ui,'Spiritual',uids=[10])
+    # A failed flush may leave a prepared record, but never a submitted marker.
+    assert probe.read_probe()['phase']=='prepared'
+    assert 'hud_point' not in probe.read_probe()
 
 
 def test_stopped_coordinator_denies_probe_without_new_journal(tmp_path,monkeypatch):

@@ -11,7 +11,8 @@ import sqlite3
 def data():
     items=[{'uid':1,'type_id':123,'plus':1,'gem1':0,'gem2':0,'quantity':1,'bound':False}]
     return dict(config={'started_at':100,'duration_seconds':7200},now=7300,
-        kill_events=[(200,4800)],visits=[{'town_visit_id':'v','phase':'complete','required_at':300,
+        kill_events=[(100+30*i,30) for i in range(1,241)],
+        visits=[{'town_visit_id':'v','phase':'complete','required_at':300,
             'farmer_profile_id':'farmer-a','return_started_at':490,
             'completed_at':500,'first_verified_resume_kill':{'rowid':99,'count':1,'time':499}}],
         deliveries=[{'request_id':'trade','town_visit_id':'v','phase':'verified','outcome':'transferred',
@@ -23,9 +24,25 @@ def data():
 
 
 def test_full_window_includes_all_downtime_and_rejects_missing_cycle():
-    values=data();assert evaluate(**values)['qualified']
+    values=data();result=evaluate(**values)
+    assert result['qualified'] and result['overall_kills_per_minute']==60
     values['visits']=[]
     assert not evaluate(**values)['qualified']
+
+
+def test_current_rate_threshold_includes_town_and_idle_downtime():
+    values=data()
+    policy=json.loads((Path(__file__).resolve().parents[1]/'profiles/route-optimization.json').read_text())
+    result=evaluate(**values)
+    assert result['minimum_kills_per_minute']==policy['target_kills_per_minute']==60
+    assert result['stretch_kills_per_minute']==policy['stretch_kills_per_minute']==75
+    # Even a fast early hunt cannot erase the later town and idle time from
+    # the two-hour denominator.
+    values['kill_events']=[(200+10*i,30) for i in range(239)]+[(2590,29)]
+    result=evaluate(**values)
+    assert result['overall_kills_per_minute']<60
+    assert 'Overall verified kill rate is below 60 per minute' in result['limitations']
+    assert not result['qualified']
 
 
 def test_burst_or_early_success_does_not_qualify():

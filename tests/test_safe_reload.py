@@ -44,6 +44,67 @@ def test_parking_requires_quiet_interval_and_keeps_care_running(monkeypatch):
     assert now[0]>=3 and len(checks)>=15 and proof['hp']==600
 
 
+@pytest.mark.parametrize('vendor_anchor',[False,True])
+def test_deployment_parking_reaches_verified_city_before_quiet_interval(monkeypatch,vendor_anchor):
+    now=[0.];moves=[];checks=[];h=health();life=h['embedded_controls']['life']
+    life['position']=[150,350]
+    city={'map_id':1002,'town_anchor':[100,350],'town_boundary':[80,330,120,370],
+          'terrain_sha256':'verified-terrain'}
+    monkeypatch.setattr(s.time,'monotonic',lambda:now[0])
+    monkeypatch.setattr(s.time,'sleep',lambda delay:now.__setitem__(0,now[0]+delay))
+    monkeypatch.setattr('conquest.city_travel.city_for',lambda map_id:city)
+    monkeypatch.setattr('conquest.city_travel.service_role',
+                        lambda map_id,point:3 if vendor_anchor and tuple(point)==(100,350) else None)
+    monkeypatch.setattr('conquest.navigation.read_terrain',
+                        lambda *a:NS(map_id=1002,walkable=lambda point:True))
+    def travel(destination,**kwargs):
+        moves.append((now[0],destination));life['position']=list(destination)
+    loop=NS(living=lambda:h,care=NS(check=lambda h:checks.append(now[0])),
+            terrain=NS(map_id=1002),route=NS(restock_map_id=1002,restock_anchor=(100,350)),
+            travel=travel)
+    proof=s.park(loop,threading.Event(),lambda note:None,require_city=True)
+    expected=(100,349) if vendor_anchor else (100,350)
+    assert moves==[(0.,expected)]
+    assert now[0]>=3 and len(checks)>=15
+    assert proof['position']==list(expected) and proof['city_required'] is True
+    assert proof['city_anchor']==list(expected) and proof['city_terrain_sha256']=='verified-terrain'
+
+
+def test_deployment_parking_rejects_unknown_or_other_map(monkeypatch):
+    h=health();loop=NS(living=lambda:h,care=NS(check=lambda _:None),terrain=NS(map_id=1002),
+                       route=NS(restock_map_id=1011,restock_anchor=(191,250)),
+                       travel=lambda *a,**k:pytest.fail('No cross-map travel'))
+    monkeypatch.setattr('conquest.city_travel.city_for',lambda map_id:(_ for _ in ()).throw(ValueError('unknown')))
+    with pytest.raises(ValueError,match='unknown'):
+        s.park(loop,threading.Event(),lambda _:None,require_city=True)
+    city={'map_id':1011,'town_anchor':[191,250],'town_boundary':[111,111,254,258],
+          'terrain_sha256':'verified-terrain'}
+    monkeypatch.setattr('conquest.city_travel.city_for',lambda map_id:city)
+    monkeypatch.setattr('conquest.navigation.read_terrain',
+                        lambda *a:NS(map_id=1011,walkable=lambda point:True))
+    with pytest.raises(ValueError,match='saved city map'):
+        s.park(loop,threading.Event(),lambda _:None,require_city=True)
+
+
+def test_city_handoff_rechecks_bound_map_anchor_and_terrain(monkeypatch):
+    h=health();life=h['embedded_controls']['life'];life['position']=[100,350]
+    city={'map_id':1002,'town_anchor':[100,350],'town_boundary':[80,330,120,370],
+          'terrain_sha256':'verified-terrain'}
+    proof={'target':h['target'],'map_id':1002,'position':[100,350],'hp':600,
+           'verified_at':s.time.time(),'city_required':True,'city_anchor':[100,350],
+           'city_terrain_sha256':'verified-terrain'}
+    monkeypatch.setattr('conquest.worker.request',lambda *a:h)
+    monkeypatch.setattr('conquest.city_travel.city_for',lambda map_id:city)
+    s.validate_handoff('worker',proof)
+    city['town_boundary']=[110,330,120,370]
+    with pytest.raises(ValueError,match='Safe city parking proof changed'):
+        s.validate_handoff('worker',proof)
+    city['town_boundary']=[80,330,120,370]
+    city['terrain_sha256']='changed'
+    with pytest.raises(ValueError,match='Safe city parking proof changed'):
+        s.validate_handoff('worker',proof)
+
+
 def test_preparation_deadline_also_bounds_nested_living_wait(monkeypatch,tmp_path):
     from contextlib import contextmanager
     monkeypatch.chdir(tmp_path);(tmp_path/'.runtime').mkdir()
@@ -156,10 +217,10 @@ def test_terminal_unqueryable_pid_still_requires_exclusive_controller_lock(monke
     monkeypatch.setattr('conquest.route_controller.controller_guard',guard)
     loop=NS(refresh=lambda:None,record=lambda *a,**k:None,check_stop=lambda:None)
     monkeypatch.setattr('conquest.overnight.OvernightLoop',lambda route:loop)
-    monkeypatch.setattr(s,'park',lambda *a:calls.append('park') or {'verified':True})
+    monkeypatch.setattr(s,'park',lambda *a,**kw:calls.append(('park',kw)) or {'verified':True})
     if lock_available:
         assert s.prepare('worker','bandit',threading.Event(),lambda text:None)=={'verified':True}
-        assert calls==['lock','park']
+        assert calls==['lock',('park',{'require_city':True})]
     else:
         with pytest.raises(ValueError,match='Another route owns input'):
             s.prepare('worker','bandit',threading.Event(),lambda text:None)

@@ -6,6 +6,7 @@ from ctypes import wintypes as w
 from datetime import datetime, timezone
 
 from conquest.win32 import WindowsBackend, bind
+from conquest.mouse_priority import desktop_access_denied
 
 
 class MessageTarget:
@@ -32,7 +33,7 @@ class MessageTarget:
     def mouse_busy(self):
         return any(self.key_state_api(key)&0x8000 for key in (1,2,4,5,6,0x7B))
 
-    def snapshot(self):
+    def snapshot(self, *, allow_cursor_unavailable=False):
         owner = w.DWORD()
         if not self.backend.window_pid(self.hwnd, c.byref(owner)) or owner.value != self.pid:
             raise ValueError("Target window closed or changed ownership")
@@ -40,13 +41,19 @@ class MessageTarget:
         if not self.backend.client_rect(self.hwnd, c.byref(rect)):
             raise self.backend.error("GetClientRect")
         point = w.POINT()
+        cursor_available = True
         if not self.cursor_api(c.byref(point)):
-            raise self.backend.error("GetCursorPos")
+            error = self.backend.error("GetCursorPos")
+            if not allow_cursor_unavailable or not desktop_access_denied(error):
+                raise error
+            cursor_available = False
         root = int(self.ancestor_api(self.hwnd,2) or self.hwnd)
         return {"pid": owner.value, "hwnd": self.hwnd, "root_hwnd":root,
                 "client_size": [rect.right - rect.left, rect.bottom - rect.top],
                 "foreground": int(self.backend.foreground() or 0),
-                "cursor": [point.x, point.y], "minimized": bool(self.backend.iconic(root))}
+                "cursor": [point.x, point.y] if cursor_available else None,
+                "cursor_available": cursor_available,
+                "minimized": bool(self.backend.iconic(root))}
 
     def post(self, message, wparam, lparam):
         owner = w.DWORD()

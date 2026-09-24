@@ -49,6 +49,71 @@ def test_physical_right_button_during_bot_left_drag_takes_priority():
     assert guard.active()
 
 
+def test_inaccessible_desktop_fences_input_until_cursor_is_idle_again():
+    now=[10.]
+    denied=[True]
+    def sample():
+        if denied[0]:raise OSError(5, 'Access is denied')
+        return (100,100),0
+    guard=MousePriority(sample,clock=lambda:now[0])
+    assert guard.active()
+    with pytest.raises(CaptureUnavailable):guard.require_idle()
+    denied[0]=False
+    assert guard.active()
+    now[0]+=2.01
+    assert not guard.active()
+
+
+def test_first_cursor_read_after_long_gap_starts_full_idle_interval():
+    now=[10.]
+    denied=[True]
+    def sample():
+        if denied[0]:raise OSError(5, 'Access is denied')
+        return (100,100),0
+    guard=MousePriority(sample,clock=lambda:now[0])
+    assert guard.active()
+    now[0]+=30
+    denied[0]=False
+    assert guard.active()
+    now[0]+=1.99
+    assert guard.active()
+    now[0]+=.02
+    assert not guard.active()
+
+
+def test_post_send_cursor_denial_keeps_submitted_movement_and_fences_next_input():
+    now=[10.]
+    reads=[0]
+    sent=[]
+    def sample():
+        reads[0]+=1
+        if reads[0]==2:raise OSError(5, 'Access is denied')
+        return (100,100),0
+    guard=MousePriority(sample,clock=lambda:now[0])
+    assert guard.send(lambda:sent.append('move') or 1,moving=True)==1
+    assert sent==['move'] and guard.observation_gap
+    with pytest.raises(CaptureUnavailable):
+        guard.send(lambda:sent.append('press') or 1)
+    assert sent==['move']
+
+
+def test_other_post_send_observation_error_cannot_relabel_sent_input():
+    reads=[0]
+    def sample():
+        reads[0]+=1
+        if reads[0]>=2:raise OSError(6, 'Invalid handle')
+        return (100,100),0
+    guard=MousePriority(sample)
+    assert guard.send(lambda:1,moving=True)==1
+    with pytest.raises(OSError,match='Invalid handle'):
+        guard.require_idle()
+
+
+def test_other_physical_cursor_errors_are_not_hidden():
+    guard=MousePriority(lambda: (_ for _ in ()).throw(OSError(6,'Invalid handle')))
+    with pytest.raises(OSError,match='Invalid handle'):guard.active()
+
+
 def test_guarded_send_never_releases_user_button_after_blocked_bot_press(monkeypatch):
     import ctypes
     from conquest import mouse_priority as module

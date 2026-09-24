@@ -238,12 +238,15 @@ def test_market_open_uses_one_lower_click_then_verifies(monkeypatch):
     assert not any(action.startswith('warehouse-money-') for action in calls)
 
 @pytest.mark.parametrize('kind,plus,slot,wanted',[
-    (500008,0,1,False),(500009,0,1,False),(500003,1,1,False),
+    (500008,0,1,True),(500009,0,1,True),(500003,1,1,True),
     (500003,2,1,True),(500008,2,1,True),(500003,12,1,True),
-    (500003,13,1,False),(500003,None,1,False),(500003,2,None,False),
-    (1088000,0,1,True),(1088001,0,1,False),(720027,0,1,False),
-    (1000020,2,1,False)])
-def test_urgent_banking_only_carried_dragonballs_and_plus_two(kind,plus,slot,wanted):
+    (500003,13,1,True),(500003,None,1,True),(500003,2,None,False),
+    (120007,0,1,True),(121007,0,1,True),(150009,0,1,True),
+    (152009,0,1,True),(160009,0,1,True),
+    (130003,2,1,False),(410003,2,1,False),
+    (1088000,0,1,True),(720028,0,1,True),
+    (1088001,0,1,False),(720027,0,1,False),(1000020,2,1,False)])
+def test_urgent_banking_only_carried_dragonballs_and_selected_gear(kind,plus,slot,wanted):
     item={'uid':123,'type_id':kind,'plus':plus,'slot':slot}
     assert bool(b.urgent_valuables([item])) is wanted
     assert bool(b.urgent_valuables([NS(**item)])) is wanted

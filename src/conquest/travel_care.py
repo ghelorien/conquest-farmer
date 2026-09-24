@@ -1,5 +1,5 @@
 """Memory-driven healing and revival while a standalone route is moving."""
-from conquest.character_context import farmer_name
+from conquest.character_context import farmer_name,state_path
 from pathlib import Path
 import time
 import yaml
@@ -41,9 +41,36 @@ class TravelCare:
         self.pending=None
         self.last_heal=-float('inf')
         self.last_revive=-float('inf')
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        from conquest.discord_notify import read_json
+        self.exact_1078=selected.expected_sha256==CLIENT_SHA256_1078
+        self.revive_journal=Path(state_path('.runtime/travel-revive.json'))
+        self.revive_state=read_json(self.revive_journal,{}) if self.exact_1078 else {}
+        self.revive_living_samples=0
+        self.revive_last_sample=None
+
+    def record_revive(self,phase,health,life,*,attempts=None):
+        from conquest.discord_notify import write_json
+        self.revive_state={'phase':phase,'target':health['target'],
+            'object_address':life['object_address'],'map_id':life['map_id'],
+            'death_position':list(life['position']),'updated_at':time.time(),
+            'attempts':attempts if attempts is not None else self.revive_state.get('attempts',0)}
+        write_json(self.revive_journal,self.revive_state)
+
+    @staticmethod
+    def revive_rejected_before_input(error):
+        from conquest.merchants.coordination import InputAcquisitionBusy
+        message=str(error)
+        return (isinstance(error,InputAcquisitionBusy)
+            or message.startswith(('Revive pre-input rejected:','Mouse control is yours',
+                'Recovery waiting for game focus','The inspected ghost state is not present',
+                'Revive client geometry changed','Revive native viewport changed',
+                'Embedded Revive calibration changed','Stop farming before an input diagnostic'))
+            or 'no button pressed' in message or 'no input sent' in message)
 
     def check(self,health):
-        if health['embedded_controls'].get('manual_mouse'):
+        if (health['embedded_controls'].get('manual_mouse')
+                or health['embedded_controls'].get('manual_input_fence')):
             raise TravelStateChanged('Mouse control is yours; waiting for idle')
         life=health['embedded_controls'].get('life')
         if life is None:
@@ -51,17 +78,47 @@ class TravelCare:
         if health['embedded_controls']['control']['enabled']:
             raise ValueError('Travel care cannot share input with farming')
         now=time.monotonic()
+        if self.exact_1078 and self.revive_state.get('phase') in ('submitting','uncertain','submitted'):
+            saved=self.revive_state
+            if (saved.get('target')!=health.get('target')
+                    or saved.get('object_address')!=life.get('object_address')):
+                raise TravelStateChanged('Revive request belongs to a changed process or player; inspect before retrying')
+            if not life['dead_candidate']:
+                living=(life.get('status',0)&0x420==0 and life.get('appearance')==0
+                        and life.get('current_hp',0)>0 and not life.get('ghost_candidate'))
+                if not living:
+                    raise TravelStateChanged('Waiting for native living state after Revive')
+                if life['timestamp']!=self.revive_last_sample:
+                    self.revive_last_sample=life['timestamp'];self.revive_living_samples+=1
+                if self.revive_living_samples<3:
+                    raise TravelStateChanged('Confirming Revive across fresh living observations')
+                self.record_revive('verified',health,life)
+            elif saved['phase'] in ('submitting','uncertain'):
+                raise TravelStateChanged('Revive input outcome is uncertain; no automatic repeat')
+            elif time.time()-saved.get('updated_at',time.time())<8:
+                raise TravelStateChanged('Waiting for the submitted Revive result')
+            elif saved.get('attempts',0)>=3:
+                raise TravelStateChanged('Revive did not complete after three submitted attempts')
         if life['dead_candidate']:
             self.pending=None
             if life['revive_ready_candidate'] and now-self.last_revive>=2:
+                previous_attempts=(self.revive_state.get('attempts',0)
+                    if self.revive_state.get('phase')=='submitted' else 0)
+                attempts=previous_attempts+1 if self.exact_1078 else None
+                if self.exact_1078:
+                    self.record_revive('submitting',health,life,attempts=attempts)
                 try:
                     request(self.info,'revive-click',{'health_profile':self.health_layout,'character':farmer_name(),
                         'expected_size':health.get('window',{}).get('client_size',[1036,793]),'expires_at':time.time()+4,'input_mode':'foreground'})
-                except ValueError as error:
-                    if (str(error)=='Recovery waiting for game focus; no input sent'
-                            or str(error).startswith('Mouse control is yours')):
+                except Exception as error:
+                    if self.exact_1078:
+                        self.record_revive('preinput_rejected' if self.revive_rejected_before_input(error)
+                            else 'uncertain',health,life,
+                            attempts=previous_attempts if self.revive_rejected_before_input(error) else attempts)
+                    if self.revive_rejected_before_input(error):
                         raise TravelStateChanged(str(error)) from error
-                    raise
+                    raise TravelStateChanged('Revive result is uncertain; no automatic repeat') from error
+                if self.exact_1078:self.record_revive('submitted',health,life,attempts=attempts)
                 self.last_revive=now
                 self.notify({'event':'travel_revive','death_position':life['position']})
             raise TravelStateChanged('Waiting for living route position')

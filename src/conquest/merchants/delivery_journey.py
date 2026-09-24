@@ -340,6 +340,76 @@ def warehouse_fallback(loop,state,*,send=request):
     close_warehouse(loop)
 
 
+def defer_unavailable_stored_scroll(loop,state,send):
+    """Leave an unwithdrawn scroll banked when verified receivers lose space."""
+    uid=state.get('stored_scroll_uid')
+    if (type(uid) is not int or uid<=0 or state.get('phase')!='market'
+            or state.get('acceptance_scope')
+            or any(state.get(key) for key in ('scroll_withdrawal','scroll_withdrawal_receipt',
+                'scroll_preparation_done','deposit_pending','loose_meteor_pending'))):return False
+    from conquest.merchants.delivery_operation import guard_reload
+    from conquest.merchants.farmer_preferences import enabled,rollout_enabled
+    from conquest.merchants.farmer_identity import route_character
+    from conquest.merchants.delivery import exact_items
+    from conquest.banking import open_warehouse,close_warehouse
+    from conquest.meteor_banking import approach_market_warehouse,defer_stored_scroll
+
+    def unavailable():
+        loop.check_stop();guard_reload()
+        if (not enabled(route_character(loop)) or not rollout_enabled(route_character(loop))
+                or not send({'action':'delivery-readiness'}).get('qualified')):return False
+        status=send({'action':'status'})
+        if (status.get('input_owner') or status.get('handoff_granted') or status.get('manual_handoff')
+                or any(row.get('pending') or row.get('manual_input_fence')
+                       for row in status.get('characters',{}).values())):return False
+        receivers=[]
+        for name,row in status.get('characters',{}).items():
+            qualification=row.get('qualification') or {}
+            if (name not in CHARACTERS or not row.get('enabled')
+                    or not all(qualification.get(k) is True for k in ('trade','trade_request'))):continue
+            snapshot=row.get('snapshot')
+            if not isinstance(snapshot,dict):return False
+            validate_snapshot(snapshot,name,time.time())
+            if snapshot.get('trade') or snapshot.get('request') or row.get('ready'):return False
+            # Unknown readiness failures are not capacity/booth evidence.
+            if available_slots(snapshot)>0 and snapshot.get('booth_open') is not False:return False
+            receivers.append(name)
+        return bool(receivers)
+
+    if not unavailable():return False
+    approach_market_warehouse(loop,'Verifying the delivery scroll remains safely banked')
+    open_warehouse(loop)
+    before=send({'action':'delivery-source'})['farmer']
+    stored=loop.town('warehouse-items',rich=True)
+    after=send({'action':'delivery-source'})['farmer']
+    for source in (before,after):
+        inventory=validate_snapshot(source,farmer_name(),time.time())
+        if (source['identity']!=loop.health()['target'] or source.get('trade') or source.get('request')
+                or uid in inventory):raise ValueError('Deferred scroll farmer ownership changed')
+    if (any(before[k]!=after[k] for k in ('identity','character_uid','silver','position'))
+            or exact_items(before['inventory'])!=exact_items(after['inventory'])
+            or exact_items(before['booth'])!=exact_items(after['booth'])):
+        raise ValueError('Farmer changed during stored-scroll deferral observation')
+    matches=[item for item in stored['items'] if item.get('uid')==uid]
+    if (len(matches)!=1 or matches[0].get('type_id')!=720027
+            or matches[0].get('quantity')!=1 or matches[0].get('bound') is not False
+            or any(matches[0].get(k)!=0 for k in ('plus','gem1','gem2'))):
+        raise ValueError('Requested scroll is not freshly verified in storage; no deferral claimed')
+    if not unavailable():
+        close_warehouse(loop)
+        return False
+    loop.check_stop()
+    defer_stored_scroll(uid)
+    # Persist the terminal non-transactional boundary only after the panel is
+    # closed. An interrupted close must reobserve storage on the next resume.
+    close_warehouse(loop)
+    save(state,scroll_preparation_done=True,scroll_disposition={
+        'outcome':'deferred_stored','item':matches[0],'warehouse':stored,'farmer':after,
+        'reason':'receiver_capacity_or_booth_unavailable','withdrawal_not_attempted':True,
+        'verified_at':time.time()})
+    return True
+
+
 def prepare_market_scroll(loop,state,*,send=request):
     """Retrieve at most one freshly observed stored scroll for this journey.
 
@@ -374,6 +444,7 @@ def prepare_market_scroll(loop,state,*,send=request):
                                       'verified_in_warehouse':True})
             save(state,loose_meteor_pending=None)
         if not state.get('loose_meteor_pending') and not preflight(loop,send,require_inventory=False):
+            defer_unavailable_stored_scroll(loop,state,send)
             return False
         approach_market_warehouse(loop,'Retrieving a stored MeteorScroll for merchant delivery')
         open_warehouse(loop)
@@ -407,7 +478,8 @@ def prepare_market_scroll(loop,state,*,send=request):
             close_warehouse(loop)
             return False
         if not preflight(loop,send,require_inventory=False):
-            close_warehouse(loop)
+            if not defer_unavailable_stored_scroll(loop,state,send):
+                close_warehouse(loop)
             return False
         # The town operation independently checks rich sockets, binding,
         # profile/process identity and fresh ownership before its durable click.

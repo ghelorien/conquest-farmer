@@ -482,10 +482,12 @@ def test_market_start_resumes_before_city_and_hunt(monkeypatch):
     loop=NS(check_stop=lambda:None,refresh=lambda:None,record=lambda *a,**kw:None,
         stop_farm=lambda:events.append('pause'),prepare_supplies=lambda:events.append('supplies'),
         select_level_route=lambda:None,hunt=hunt,info=None,route=NS(map_id=1011),
+            health=lambda:events.append('fresh health') or {'embedded_controls':{'life':{'map_id':1011}}},
+            town_visit=NS(state=lambda:{},require_town_work_complete=lambda:events.append('town work guard')),
         living=lambda:{'embedded_controls':{'life':{'map_id':1011}}})
     loop._run_route=lambda:overnight.OvernightLoop._run_route(loop)
     overnight.OvernightLoop.run(loop)
-    assert events==['pause','return Phoenix','close bank','town check','supplies','hunt']
+    assert events==['fresh health','pause','return Phoenix','close bank','town work guard','town check','supplies','hunt']
 
 
 def test_consolidation_runs_even_with_space_and_reloads_inventory(route):

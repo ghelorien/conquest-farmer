@@ -893,12 +893,13 @@ class DesktopApp:
             if session:
                 session.close()
 
-    def stop(self):
+    def stop(self, *, preserve_merchant_controls=False):
         self._recovery_epoch=getattr(self,'_recovery_epoch',0)+1
         self.update_kill_metrics('stop')
         if getattr(self,'unified',None):
             self.unified.grant = None
-            self.unified.runtime.global_stop()
+            if not preserve_merchant_controls:
+                self.unified.runtime.global_stop()
         if getattr(self,'reload_cancel',None):self.reload_cancel.set()
         from conquest.safe_reload import RESUME
         RESUME.unlink(missing_ok=True)
@@ -2029,7 +2030,7 @@ class DesktopApp:
             if self.unified.close() is False:
                 return False
         self.launch_watch.cancel()
-        self.stop()
+        self.stop(preserve_merchant_controls=True)
         self.closing = True
 
 

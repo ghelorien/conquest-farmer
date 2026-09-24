@@ -1,7 +1,52 @@
+import threading
+import time
+from types import SimpleNamespace
+
+import pytest
+
 from conquest.merchants.service_visit import MarketVisit
 from conquest.merchants.handoff import WorkWindows
 from conquest.merchants.refill import RefillSchedule
 from conquest.merchants.journal import Journal
+
+
+@pytest.mark.parametrize('map_id,hp,age,accepted', [
+    (1036, 100, 0, True), (1011, 100, 0, False),
+    (1036, 0, 0, False), (1036, 100, 3, False),
+])
+def test_1078_market_grant_uses_build_aware_farmer_memory(
+        tmp_path, monkeypatch, map_id, hp, age, accepted):
+    from conquest.merchants import delivery_bridge, service_visit, trade_reader_1078
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    from conquest.discord_notify import write_json
+
+    now=time.time()
+    path=tmp_path/'market-visit.json'
+    row={'phase':'active','visit_id':'same-visit','farmer_profile_id':'farmer-test',
+         'started_at':now-30,'deadline':now+30}
+    write_json(path,row)
+    monkeypatch.setattr(service_visit,'state_path',lambda _:path)
+    monkeypatch.setattr(service_visit,'farmer_id',lambda:'farmer-test')
+    monkeypatch.setattr(service_visit,'farmer_name',lambda:'Farmer')
+    calls=[]
+    class TradeReader:
+        def __init__(self, observer):
+            calls.append(observer)
+        def read(self):
+            return {'map_id':map_id,'hp':hp,'timestamp':now-age}
+    monkeypatch.setattr(trade_reader_1078,'TradeMemory1078',TradeReader)
+    monkeypatch.setattr(delivery_bridge,'MerchantMemory',
+                        lambda _:pytest.fail('1078 must not use the legacy reader'))
+    observer=SimpleNamespace(character='Farmer',lock=threading.RLock(),
+                             adapter=SimpleNamespace(expected_sha256=CLIENT_SHA256_1078))
+    ui=SimpleNamespace(app=SimpleNamespace(observer=observer))
+    body={'visit_id':'same-visit','expires_at':row['deadline']}
+    if accepted:
+        assert service_visit.validate_grant(ui,body)==row
+    else:
+        with pytest.raises(ValueError,match='fresh living farmer in Market'):
+            service_visit.validate_grant(ui,body)
+    assert calls==[observer]
 
 
 def test_visit_deadline_and_hunting_cadence_survive_batches_restart(tmp_path):

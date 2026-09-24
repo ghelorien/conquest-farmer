@@ -5,6 +5,7 @@ to restore a booth.  It deliberately does not use Journal.db(), which can
 change SQLite journal mode, or any observer/controller with an input API.
 """
 import json
+import math
 import sqlite3
 from pathlib import Path
 
@@ -37,6 +38,94 @@ def _items(rows, source):
     return result
 
 
+def _verified_listing_receipts(db, profile_id):
+    """Attribute new booth stock only to complete native listing evidence."""
+    from conquest.merchants.listing_capability_1078 import _proof
+    receipts = []
+    for request_id, before_json, result_json in db.execute(
+            "SELECT id,before_json,result_json FROM transactions WHERE character=? "
+            "AND kind='booth_listing_1078_once' AND phase='verified' ORDER BY created,id",
+            (profile_id,)):
+        before, result = json.loads(before_json), json.loads(result_json or '{}')
+        proof = result.get('listing_capability_evidence')
+        if not proof or result.get('exact_memory_listing_verified') is not True:
+            continue
+        steps = [dict(zip(('stage', 'status', 'payload'), row)) for row in db.execute(
+            'SELECT stage,status,payload FROM transaction_steps WHERE transaction_id=? ORDER BY id',
+            (request_id,))]
+        if before.get('profile_id') != profile_id or proof != _proof(before, steps, proof['first'], proof['second']):
+            raise ValueError('New booth stock listing evidence changed')
+        request = before['request']
+        item = next(item for item in proof['second']['booth'] if item['uid'] == request['item_uid'])
+        receipts.append({'request_id': request_id, 'profile_id': profile_id,
+                         'identity': proof['identity'], 'character_uid': proof['character_uid'],
+                         'own_booth_uid': proof['own_booth_uid'], 'item': item,
+                         'observed_at': proof['second']['timestamp']})
+    return receipts
+
+
+def listing_receipts(path, profile_id):
+    """Read-only input to the shared live listing planner."""
+    uri = Path(path).resolve().as_uri() + '?mode=ro'
+    with sqlite3.connect(uri, uri=True, timeout=2) as db:
+        db.execute('PRAGMA query_only=ON')
+        db.execute('BEGIN')
+        return _verified_listing_receipts(db, profile_id)
+
+
+def _verified_sale_receipts(db, profile_id, since):
+    """Read existing exact sales and their atomically recorded silver evidence."""
+    from conquest.merchants.sales import net_bounds
+    receipts = []
+    for sale_id, at, encoded, silver in db.execute(
+            "SELECT id,observed_at,items,silver FROM sales WHERE character=? "
+            "AND phase='verified' AND observed_at>=? ORDER BY observed_at,id",
+            (profile_id, since)):
+        try:
+            items = json.loads(encoded)
+            _items(items, 'Verified sale')
+            if (not items or any(type(i.get('price')) is not int or not 1 <= i['price'] <= 2_147_483_647
+                                 for i in items)
+                    or type(silver) is not int or not math.isfinite(at)):
+                continue
+            low, high = net_bounds(items)
+            if not low <= silver <= high:
+                continue
+            evidence = []
+            for event_id, payload in db.execute(
+                    "SELECT id,payload FROM events WHERE character=? "
+                    "AND event='sale_verified' AND timestamp=?", (profile_id, at)):
+                event = json.loads(payload)
+                started = event.get('from')
+                if (event.get('items') == items and event.get('silver') == silver
+                        and type(event.get('before_silver')) is int
+                        and type(event.get('after_silver')) is int
+                        and event['after_silver']-event['before_silver'] == silver
+                        and event.get('net_bounds') == [low, high]
+                        and event.get('gross') == sum(i['price'] for i in items)
+                        and event.get('deduction') == event['gross']-silver
+                        and type(started) in (int, float) and math.isfinite(started)
+                        and since <= started < at and at-started <= 15):
+                    evidence.append({'event_id': event_id, 'from': started,
+                                     'before_silver': event['before_silver'],
+                                     'after_silver': event['after_silver']})
+            if len(evidence) == 1:
+                receipts.append({'sale_id': sale_id, 'profile_id': profile_id,
+                                 'observed_at': at, 'items': items, 'silver': silver,
+                                 **evidence[0]})
+        except (ValueError, TypeError, KeyError):
+            continue  # An incomplete receipt never releases missing ownership.
+    return receipts
+
+
+def sale_receipts(path, profile_id, since):
+    uri = Path(path).resolve().as_uri() + '?mode=ro'
+    with sqlite3.connect(uri, uri=True, timeout=2) as db:
+        db.execute('PRAGMA query_only=ON')
+        db.execute('BEGIN')
+        return _verified_sale_receipts(db, profile_id, since)
+
+
 def _journal_image(path, profile_id):
     """One consistent, non-mutating SQLite image of recovery and bot work."""
     uri = Path(path).resolve().as_uri() + '?mode=ro'
@@ -48,6 +137,9 @@ def _journal_image(path, profile_id):
         values = {name: json.loads(value) for name, value in db.execute(
             'SELECT name,value FROM state WHERE character=? AND name IN ('
             + ','.join('?' for _ in names) + ')', (profile_id, *names))}
+        values['verified_listing_receipts_1078'] = _verified_listing_receipts(db, profile_id)
+        values['verified_sale_receipts'] = _verified_sale_receipts(
+            db, profile_id, (values.get('shop_return') or {}).get('started_at') or 0)
         transactions = list(db.execute(
             "SELECT id,kind,phase FROM transactions WHERE character=? "
             "AND phase NOT IN ('verified','aborted','operator_overridden')",
@@ -99,13 +191,51 @@ def _preview(snapshot, state):
     missing = set(historical) - set(current)
     changed = {uid for uid in set(historical) & set(current)
                if any(historical[uid][key] != current[uid][key] for key in _ITEM_FIELDS)}
-    if missing or changed:
+    sold = []
+    for uid in sorted(missing):
+        matches = []
+        for receipt in state.get('verified_sale_receipts', []):
+            if (receipt.get('profile_id') != snapshot['profile_id']
+                    or not max(before.get('timestamp') or 0, incident.get('started_at') or 0)
+                           <= receipt['from'] < receipt['observed_at'] <= snapshot['timestamp']):
+                continue
+            items = [item for item in receipt['items'] if item['uid'] == uid
+                     and all(item[key] == historical[uid][key] for key in _ITEM_FIELDS)]
+            if len(items) != 1:
+                continue
+            if uid in old_booth:
+                if items[0]['price'] == old_booth[uid].get('price'):
+                    matches.append({'sale': receipt})
+                continue
+            # Prior inventory has no historical listing price. It may leave
+            # ownership only through a proved native listing followed by this
+            # exact sale; an unexplained inventory loss remains a hard hold.
+            listings = [listing for listing in state.get('verified_listing_receipts_1078', [])
+                        if listing['profile_id'] == snapshot['profile_id']
+                        and listing['identity'] == snapshot['identity']
+                        and listing['character_uid'] == snapshot['character_uid']
+                        and listing['own_booth_uid'] == snapshot['own_booth_uid']
+                        and listing['item']['uid'] == uid
+                        and max(before.get('timestamp') or 0, incident.get('started_at') or 0)
+                            <= listing['observed_at'] <= receipt['from']
+                        and all(listing['item'][key] == items[0][key]
+                                for key in (*_ITEM_FIELDS, 'price'))]
+            if listings:
+                matches.append({'sale': receipt, 'listing': max(listings, key=lambda r:r['observed_at'])})
+        if len(matches) == 1:
+            sold.append({'uid': uid, 'item': historical[uid],
+                         'origin': 'prior_booth' if uid in old_booth else 'prior_inventory',
+                         'receipt': matches[0]['sale'],
+                         **({'listing_receipt': matches[0]['listing']} if 'listing' in matches[0] else {})})
+    if missing - {row['uid'] for row in sold} or changed:
         raise ValueError('Pre-disconnect merchant ownership differs from current stock; reconcile before restoring')
     capacity = snapshot['capacity']
     if type(capacity) is not int or len(current) > capacity or len(current_booth) > 32:
         raise ValueError('Current merchant ownership exceeds qualified capacity')
     wanted = []
     for uid, item in old_booth.items():
+        if uid not in current:
+            continue  # Exact durable sale evidence above already accounts for this UID.
         price = item.get('price')
         if type(price) is not int or not 1 <= price <= 2_147_483_647:
             raise ValueError('A prior booth item lacks a verified listing price')
@@ -124,8 +254,21 @@ def _preview(snapshot, state):
                       'price': None, 'origin': 'new_or_unattributed_inventory'}
                      for uid in sorted(new_uids & set(current_inventory))]
     new_booth = sorted(new_uids & set(current_booth))
-    if new_booth:
-        raise ValueError('Unattributed newly listed booth stock requires reconciliation')
+    attributed_booth = []
+    for uid in new_booth:
+        actual = current_booth[uid]
+        matches = [receipt for receipt in state.get('verified_listing_receipts_1078', [])
+                   if receipt['profile_id'] == snapshot['profile_id']
+                   and receipt['identity'] == snapshot['identity']
+                   and receipt['character_uid'] == snapshot['character_uid']
+                   and receipt['own_booth_uid'] == snapshot['own_booth_uid']
+                   and receipt['item']['uid'] == uid
+                   and receipt['observed_at'] >= (incident.get('started_at') or 0)
+                   and all(receipt['item'][key] == actual[key] for key in (*_ITEM_FIELDS, 'price'))]
+        if not matches:
+            raise ValueError('Unattributed newly listed booth stock requires reconciliation: UID '+str(uid))
+        attributed_booth.append({'uid': uid, 'price': actual['price'],
+                                 'listing_request_id': matches[-1]['request_id']})
     prior_inventory_now_listed = [
         {'uid': uid, 'name': old_inventory[uid]['name'],
          'current_price': current_booth[uid]['price']}
@@ -165,8 +308,11 @@ def _preview(snapshot, state):
             'incident_phase': incident['phase'], 'incident_started_at': incident.get('started_at'),
             'recovery_safety_phase': safety.get('phase'),
             'restore_prior_listings': wanted, 'new_inventory_without_prior_listing': new_inventory,
+            'prior_stock_sold_with_verified_receipts': sold,
+            'new_booth_attributed_to_verified_listings': attributed_booth,
             'prior_inventory_now_listed_separately': prior_inventory_now_listed,
-            'unchanged_prior_inventory_count': len(old_inventory) - len(prior_inventory_now_listed),
+            'unchanged_prior_inventory_count': (len(old_inventory) - len(prior_inventory_now_listed)
+                                               - sum(row['origin']=='prior_inventory' for row in sold)),
             'refill': {'pending': bool(refill.get('pending')), 'status': refill.get('status'),
                        'last_checked': refill.get('last_checked'), 'cursor': cursor_rows,
                        'source_delivery_operation_id': refill.get('source_delivery_operation_id')},

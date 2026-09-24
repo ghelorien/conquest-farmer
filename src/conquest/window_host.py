@@ -33,6 +33,10 @@ class HostApi:
         from conquest.caption_focus import activate_owner_caption
         return activate_owner_caption(hwnd,identity,self)
 
+    def activate_native_caption(self, hwnd, identity):
+        from conquest.caption_focus import activate_native_caption
+        return activate_native_caption(hwnd,identity,self)
+
     def __init__(self):
         import win32gui
         self.gui = win32gui

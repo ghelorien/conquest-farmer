@@ -22,7 +22,7 @@ def _table(self, window, label, seed):
     an unrelated or old table cannot supply merchant input coordinates.
     """
     s = self.session
-    context = unpack(s,self.base+0x6966f0,'<Q')[0]
+    context = unpack(s,self.base+getattr(self,'context_rva',0x6966f0),'<Q')[0]
     window_id = seed
     expected_id = zlib.crc32(label.encode('utf-8'),window_id)
     header = s.read_block(context+0x4338,16)
@@ -68,9 +68,14 @@ def _table(self, window, label, seed):
             'clip':clip,'row_height':row_height}
 
 def trade_grid(gui,snapshot):
-    for rva,code in ((0x10f44d,'488d0d34bd4b00'),(0x10f606,'488d0d93314b00'),(0x10f623,'e848fa0a00')):
-        if gui.session.read_block(gui.base+rva,len(bytes.fromhex(code)))!=bytes.fromhex(code):
-            raise ValueError('Native trade placement handler changed')
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    if gui.session.expected_sha256==CLIENT_SHA256_1078:
+        from conquest.merchants.trade_reader_1078 import assert_trade_code
+        assert_trade_code(gui.session)
+    else:
+        for rva,code in ((0x10f44d,'488d0d34bd4b00'),(0x10f606,'488d0d93314b00'),(0x10f623,'e848fa0a00')):
+            if gui.session.read_block(gui.base+rva,len(bytes.fromhex(code)))!=bytes.fromhex(code):
+                raise ValueError('Native trade placement handler changed')
     w=window(snapshot,'Trade##TradeWindow')
     outer=gui.table(w,'##TradeWindowGrid')
     table=nested_table(gui,w,'##TradeWindowGrid1',outer['id'])

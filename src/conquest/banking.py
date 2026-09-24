@@ -5,25 +5,16 @@ import math
 from pathlib import Path
 import time
 from conquest.discord_notify import read_json,write_json
-from conquest.valuables import DRAGONBALL_TYPES
+from conquest.valuables import DRAGONBALL_TYPES,URGENT_EQUIPMENT_FAMILIES,urgent_storage
 
 CONFIG=Path('profiles/banking.json')
 STATUS=Path(state_path('reports/banking/status.json'))
 LEDGER=Path(state_path('reports/banking/transfers.jsonl'))
-URGENT_EQUIPMENT_FAMILIES=frozenset((120,121,150,152,160,500))
 
 
 def urgent_valuables(items):
     """Carried Dragonballs and selected high-value gear require banking."""
-    result=[]
-    for item in items:
-        get=item.get if isinstance(item,dict) else lambda k,d=None:getattr(item,k,d)
-        kind=get('type_id')
-        family=kind//1000 if type(kind) is int else None
-        if (get('slot') is not None
-                and (kind in DRAGONBALL_TYPES or family in URGENT_EQUIPMENT_FAMILIES)):
-            result.append(item)
-    return result
+    return [item for item in items if urgent_storage(item)]
 
 
 def policy():return read_json(CONFIG)
@@ -200,11 +191,15 @@ def ensure_transport(loop,minimum=None):
     return True
 
 
-def after_shopping(loop):
+def after_shopping(loop,*,urgent=False):
     if not policy().get('enabled') or not policy().get('deposit_after_shopping',True):return
     bank=open_warehouse(loop)
     try:
-        stash_valuables(loop,deliver=True)
+        # A stocked urgent trip protects its carried valuables before optional
+        # packing/delivery travel. A full warehouse retains the qualified
+        # consolidation/overflow fallback; successful deposits are not replayed.
+        if not urgent or not stash_urgent_valuables(loop):
+            stash_valuables(loop,deliver=True)
         if getattr(loop,'overflow_bank_changed',False):
             bank=loop.town('warehouse-money')
             loop.overflow_bank_changed=False
@@ -226,6 +221,36 @@ def after_shopping(loop):
         from conquest.merchants.delivery_journey import pending as journey_pending
         from conquest.merchants.delivery_route import pending as trade_pending
         if not active() and not journey_pending() and not trade_pending():close_warehouse(loop)
+    return True
+
+
+def stash_urgent_valuables(loop):
+    """Store urgent items first, then loose Meteors, while local slots exist.
+
+    False means capacity requires the existing overflow/consolidation path.
+    Uncertain receipts raise immediately, before any fallback or further item.
+    Other carried loot can wait for its ordinary merchant/town visit.
+    """
+    items=loop.town('supplies')['items']
+    urgent=urgent_valuables(items)
+    meteors=[item for item in items if item.get('slot') is not None
+             and item['type_id']==1088001]
+    for item in urgent+meteors:
+        stored=loop.town('warehouse-items')
+        if (type(stored.get('capacity')) is not int or stored['capacity']<0
+                or not isinstance(stored.get('items'),list)):
+            raise ValueError('Warehouse capacity is unqualified; no urgent deposit issued')
+        if len(stored['items'])>=stored['capacity']:return False
+        receipt=loop.town('warehouse-deposit',uid=item['uid'])
+        if (receipt.get('verified_in_warehouse') is not True
+                or receipt.get('stored')!=item['uid']
+                or receipt.get('type_id')!=item['type_id']):
+            raise ValueError('Urgent valuable deposit is unverified; no repeat input issued')
+        loop.record('valuable_stored',**receipt,plus=item.get('plus'),
+                    activity='Stored an urgent valuable safely in the warehouse')
+    remaining=loop.town('supplies')['items']
+    if urgent_valuables(remaining) or any(item['type_id']==1088001 for item in remaining):
+        raise ValueError('Urgent banking ownership changed after verified deposits')
     return True
 
 

@@ -15,9 +15,26 @@ from conquest.memory_entities import sample_fields
 from conquest.merchants.delivery import exact_items,prepare,validate_offers
 from conquest.merchants.delivery_bridge import pair
 from conquest.merchants.driver import MerchantDriver,wait_hover_validation
-from conquest.merchants.trade_controls import targeting_state
 
 PROFILE=Path(state_path('.runtime/merchants/farmer-delivery-qualified.json'))
+
+
+def targeting_state(session):
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    if session.expected_sha256==CLIENT_SHA256_1078:
+        from conquest.merchants.trade_driver_1078 import targeting_state as read
+    else:
+        from conquest.merchants.trade_controls import targeting_state as read
+    return read(session)
+
+
+def trade_button(gui):
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    if gui.session.expected_sha256==CLIENT_SHA256_1078:
+        from conquest.merchants.trade_driver_1078 import trade_button as locate
+    else:
+        from conquest.merchants.trade_controls import trade_button as locate
+    return locate(gui)
 
 
 class RecipientAbsent(CaptureUnavailable):
@@ -50,6 +67,11 @@ def partial_offer(intent,farmer,merchant):
 def _recipient_record(observer,profile,merchant,*,targeting=False):
     """Resolve the receiver UID in a stable scene using a qualified layout."""
     started=time.monotonic();s=observer.adapter;e=observer.entities
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    scale=None
+    if s.expected_sha256==CLIENT_SHA256_1078:
+        from conquest.merchants.trade_driver_1078 import require_recipient_scale
+        scale=require_recipient_scale(s)
     spec=profile['recipient']
     if spec.get('name_format')!='inline_utf8':
         raise ValueError('Remote player name layout is not qualified')
@@ -107,6 +129,8 @@ def _recipient_record(observer,profile,merchant,*,targeting=False):
             or sample_fields(s,[(a,'u64') for a,_ in trace])!=[v for _,v in trace]):
         raise RecipientSceneChanged('Receiver scene changed')
     s.assert_identity()
+    if scale is not None and require_recipient_scale(s)!=scale:
+        raise RecipientSceneChanged('Receiver projection changed during observation')
     if time.monotonic()-started>.5:raise CaptureUnavailable('Receiver observation expired')
     if not matches:
         raise RecipientAbsent('Receiver UID is absent from the farmer scene',
@@ -257,6 +281,8 @@ class FarmerTradeDriver:
             if self.driver.point(f,control)!=point:raise ValueError('Trade control moved')
             if spec.get('mode')=='native_trade_confirm':
                 from conquest.merchants.native_trade_input import hover
+                if getattr(self.driver,'trade1078',False):
+                    from conquest.merchants.trade_driver_1078 import hover
                 hover(self.driver,f,spec['mode'])
             else:
                 window=next(w for w in f['windows'] if w['name']==spec['window'])
@@ -283,10 +309,10 @@ class FarmerTradeDriver:
             # carrying a possibly stale click point into an input phase.
             result=None;absent_occupied=[]
             deferred_reason='recipient_scene_changed'
-        from conquest.memory_life import read_life
+        from conquest.memory_life import MemoryLifeReader
         from conquest.scene_input import memory_player_anchor
-        life=read_life(self.driver.observer.adapter,self.driver.observer.health_layout,
-                       self.driver.observer.character)
+        life=MemoryLifeReader.for_session(self.driver.observer.adapter,
+                                         self.driver.observer.character).read()
         if list(life.position)!=farmer['position']:
             raise ValueError('Farmer moved during delivery target preflight')
         anchor=memory_player_anchor(self.driver.observer,life)
@@ -392,7 +418,7 @@ class FarmerTradeDriver:
                 from conquest.merchants.memory import unpack,HoverNotReady
                 window=next(w for w in fresh['windows'] if w['name']==spec['window'])
                 gui=self.driver.memory.gui
-                context=unpack(gui.session,gui.base+0x6966f0,'<Q')[0]
+                context=unpack(gui.session,gui.base+gui.context_rva,'<Q')[0]
                 if unpack(gui.session,context+0x3ec0,'<Q')[0]!=window['address']:
                     raise HoverNotReady('Inventory cell is covered by another window')
                 layout.assert_current(layout_revision)

@@ -28,6 +28,7 @@ class InputCoordinator:
         self.handoff_until = 0
         self.owner_allowed = lambda character:True
         self.on_acquire = lambda character:None
+        self.on_native_acquire = lambda character:None
         self.on_release = lambda character:None
         # Production enables this explicitly. Legacy callers retain their
         # existing idle/manual policy; fenced workers also pin its generation.
@@ -40,6 +41,16 @@ class InputCoordinator:
         self._probe_abort_capability = None
         self._booth_probe_capability = None
         self._booth_listing_once_capability = None
+        self.native_trade1078_policy = None
+
+    def native_trade1078_authorized(self, character):
+        """Exact-build trade policy supplied by the app; no broad surface grant."""
+        if self.purpose not in ('trade', 'delivery_accept_probe', 'delivery_confirm_probe', 'empty_delivery_cancel') or self.native_trade1078_policy is None:
+            return False
+        try:
+            return self.native_trade1078_policy(character) is True
+        except (ValueError, OSError, KeyError, TypeError, AttributeError, CaptureUnavailable):
+            return False
 
     @contextmanager
     def booth_probe_scope(self, character, validate):
@@ -92,8 +103,10 @@ class InputCoordinator:
         try:
             capability[2]()
             return True
-        except (ValueError, OSError, KeyError, TypeError, AttributeError, CaptureUnavailable):
-            return False
+        except (ValueError, OSError, KeyError, TypeError, AttributeError, CaptureUnavailable) as error:
+            # A matching active capability failed its fresh guard. Keep the
+            # precise cause instead of misreporting every failure as Pause.
+            raise CaptureUnavailable('1078 listing input qualification failed: '+str(error)) from error
 
     @contextmanager
     def probe_abort_scope(self, validate):
@@ -134,7 +147,7 @@ class InputCoordinator:
         row = rows.get(key)
         if not row or not row.get('holds_automation'):
             return False
-        if purpose == 'delivery_probe_abort' and self.probe_abort_authorized(key):
+        if purpose in ('delivery_probe_abort','empty_delivery_cancel') and self.probe_abort_authorized(key):
             return False
         # The only exception is the independently qualified native decline of
         # a still-unapproved request with a durable timeout/rejection intent.
@@ -155,7 +168,8 @@ class InputCoordinator:
             self.fence.check()
         if (self.owner and self.surface_blocks.get(self.owner)
                 and not self.booth_probe_authorized(self.owner)
-                and not self.booth_listing_once_authorized(self.owner)):
+                and not self.booth_listing_once_authorized(self.owner)
+                and not self.native_trade1078_authorized(self.owner)):
             raise CaptureUnavailable('Client surface needs reattachment and input qualification')
         if self.stopped or self.manual_active():
             raise CaptureUnavailable('Automation stopped or manual input active')
@@ -202,8 +216,11 @@ class InputCoordinator:
             self.check()  # Denied work must not focus or restore a merchant surface.
             # The separate probe requires an already foreground native HWND;
             # ordinary callbacks can invoke unqualified 1074 surface work.
-            if (not self.booth_probe_authorized(character)
-                    and not self.booth_listing_once_authorized(character)):
+            if (self.booth_listing_once_authorized(character)
+                    or self.native_trade1078_authorized(character)):
+                prepared = True
+                self.on_native_acquire(character)
+            elif not self.booth_probe_authorized(character):
                 prepared = True
                 self.on_acquire(character)
             self.check()
@@ -230,6 +247,8 @@ def install(coordinator):
 
 def check_input():
     if _coordinator:
+        if _coordinator.purpose == 'merchant_host':
+            raise CaptureUnavailable('Merchant hosting does not authorize game input')
         _coordinator.check()
         if _coordinator.owner:
             return
@@ -308,6 +327,8 @@ def _input_scope(*, purpose=None):
 def coordinated_input(function):
     @wraps(function)
     def wrapped(*args,**kwargs):
+        if _coordinator and _coordinator.purpose == 'merchant_host':
+            raise CaptureUnavailable('Merchant hosting does not authorize game input')
         with input_scope():
             return function(*args,**kwargs)
     return wrapped

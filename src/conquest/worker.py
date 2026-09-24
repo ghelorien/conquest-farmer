@@ -38,7 +38,8 @@ class Operations:
                     "memory_read_revision": 1,
                     "expected_sha256": self.session.expected_sha256,
                     "target": self.session.identity,
-                    "window": self.target.snapshot(), "modules": self.session.modules[:1]}
+                    "window": self.target.snapshot(allow_cursor_unavailable=True),
+                    "modules": self.session.modules[:1]}
         if operation == "shutdown":
             self.stopping = True
             return {"stopped": True}
@@ -133,28 +134,44 @@ class Operations:
         if operation == 'revive-click':
             if self.read_only:
                 raise ValueError('Game input is disabled in a read-only worker')
+            if set(body)-{'health_profile','character','expected_size','expires_at','input_mode'}:
+                raise ValueError('Revive does not accept arbitrary click coordinates')
             # Recovery is a separate action: a ghost may retain positive HP.
             # It must never reuse the healthy-character combat/movement guard.
-            from conquest.memory_life import read_life
+            from conquest.memory_life import MemoryLifeReader,read_life
+            from conquest.memory_build_layout import CLIENT_SHA256_1078
             from conquest.memory_health import HealthLayout
             from types import SimpleNamespace
             layout = HealthLayout.model_validate(body['health_profile'])
+            if layout.player.expected_sha256 != self.session.expected_sha256:
+                raise ValueError('Revive health profile differs from the client')
             adapter = SimpleNamespace(expected_sha256=self.session.expected_sha256,
                 modules=self.session.modules, assert_identity=self.session.assert_identity,
                 read=self.session.read, read_block=self.session.read)
-            life = read_life(adapter,layout,body['character'])
+            exact_1078=self.session.expected_sha256==CLIENT_SHA256_1078
+            if exact_1078:
+                # The legacy read_life entry point pins the 1074 map RVA.
+                # The exact build reader owns 1078's player and health layouts.
+                from conquest.merchants.memory import GuiReader
+                adapter.viewport_size=GuiReader.for_session(adapter).viewport_size
+                life=MemoryLifeReader.for_session(adapter,body['character']).read()
+            else:
+                life=read_life(adapter,layout,body['character'])
             if not life.revive_ready_candidate:
                 raise ValueError('The inspected ghost state is not present; no Revive click sent')
             from conquest.viewport import validate_size,revive_point
             viewport=validate_size(body.get('expected_size',[]))
             if tuple(self.target.snapshot()['client_size'])!=viewport:
                 raise ValueError('Revive client geometry changed')
-            adapter.viewport_size=lambda:viewport
+            if exact_1078:
+                if tuple(adapter.viewport_size())!=viewport:
+                    raise ValueError('Revive native viewport changed')
+            else:adapter.viewport_size=lambda:viewport
             logical_point=revive_point(adapter,viewport)
-            if set(body)-{'health_profile','character','expected_size','expires_at','input_mode'}:
-                raise ValueError('Revive does not accept arbitrary click coordinates')
             mode=body.get('input_mode','background')
             if mode=='background':
+                if exact_1078:
+                    raise ValueError('1078 Revive requires native foreground control qualification')
                 result = click_probe(self.target,*logical_point,list(viewport),move_settle_seconds=.2)
             elif mode=='foreground':
                 # The hosted child shares its wrapper's foreground root. Convert
@@ -165,7 +182,23 @@ class Operations:
                 with physical_coordinates():
                     size=self.target.snapshot()['client_size']
                     point=[round(logical_point[0]*size[0]/viewport[0]),round(logical_point[1]*size[1]/viewport[1])]
-                    result=foreground_click(self.target,*point,size)
+                    def before_press():
+                        if not exact_1078:return
+                        try:fresh=MemoryLifeReader.for_session(adapter,body['character']).read()
+                        except ValueError as error:
+                            raise CaptureUnavailable('Revive pre-input rejected: '+str(error)) from error
+                        if (fresh.object_address!=life.object_address or fresh.map_id!=life.map_id
+                                or fresh.position!=life.position or not fresh.revive_ready_candidate):
+                            raise CaptureUnavailable('Revive pre-input rejected: native life state changed')
+                        from conquest.native_revive import point as native_point
+                        try:
+                            current=native_point(adapter,viewport,require_hover=True)
+                        except ValueError as error:
+                            raise CaptureUnavailable('Revive pre-input rejected: '+str(error)) from error
+                        if current!=logical_point:
+                            raise CaptureUnavailable('Revive pre-input rejected: native popup moved')
+                    result=foreground_click(self.target,*point,size,require_foreground=exact_1078,
+                        before_press=before_press if exact_1078 else None)
             else:
                 raise ValueError('Unknown recovery input mode')
             result['action'] = 'revive'

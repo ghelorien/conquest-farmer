@@ -86,8 +86,8 @@ def observe(runtime,observer=None):
             return False
         from conquest.memory_build_layout import CLIENT_SHA256_1078
         if read_build_layout(observer.adapter).expected_sha256 == CLIENT_SHA256_1078:
-            from conquest.merchants.reader_1078 import open_read_only_1078
-            snapshot=open_read_only_1078(observer.adapter,observer.character).read_manual_ownership()
+            from conquest.merchants.trade_reader_1078 import manual_ownership
+            snapshot=manual_ownership(observer.adapter,observer.character)
         else:
             snapshot=MerchantMemory(observer).read(farmer_preflight=True)
     except (ValueError,OSError) as error:

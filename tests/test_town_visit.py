@@ -29,6 +29,7 @@ def returned(trip):
     visit,now,sample,health=trip
     visit.begin('restock',hunt_map_id=1000,route_id='bandit')
     now[0]=1020;sample.update(observed_at=1020,cursor=15,kills=22)
+    visit.complete_town_work('restock')
     visit.returning(1000,target=health['target'])
     now[0]=1021;sample.update(observed_at=1021,cursor=16,kills=23,
                             last_kill={'rowid':16,'time':1021,'count':1})
@@ -53,6 +54,17 @@ def test_no_visit_is_created_by_hunting_or_unnecessary_town_request(trip):
     assert visit.observe_hunting(health) is None and not visit.path.exists()
     with pytest.raises(ValueError):visit.begin('periodic_merchant_trip',hunt_map_id=1000)
     assert not visit.path.exists()
+
+
+def test_missing_town_work_completion_blocks_return_even_after_restart(trip):
+    visit,now,sample,health=trip
+    visit.begin('restock',hunt_map_id=1000)
+    now[0]=1020;sample.update(observed_at=1020,cursor=15,kills=22)
+    restart=TownVisit(visit.path,clock=visit.clock,probe=visit.probe,profile='farmer-1')
+    with pytest.raises(ValueError,match='Unfinished town work'):
+        restart.returning(1000,target=health['target'])
+    assert restart.state()['phase']=='town_work'
+    assert not restart.state().get('town_work_completed_at')
 
 
 def test_trip_completes_only_after_return_and_a_new_verified_kill(trip):
@@ -109,6 +121,7 @@ def test_unavailable_return_baseline_requires_a_later_kill_after_recovery(trip):
     visit,now,sample,health=trip
     visit.begin('restock',hunt_map_id=1000)
     sample['available']=False;now[0]=1020
+    visit.complete_town_work('restock')
     visit.returning(1000,target=health['target'])
     sample.update(available=True,observed_at=1021,cursor=16,kills=23,
                   last_kill={'rowid':16,'time':1021,'count':1});now[0]=1021
@@ -132,7 +145,8 @@ def test_stop_before_first_return_kill_rebases_new_session_then_requires_later_k
         health['embedded_controls']['observed_at']=now[0]
     visit.probe=lambda:kill_checkpoint(now=now[0],output=output)
     publish();visit.begin('restock',hunt_map_id=1000)
-    now[0]=1020;publish();visit.returning(1000,target=health['target'])
+    now[0]=1020;publish();visit.complete_town_work('restock')
+    visit.returning(1000,target=health['target'])
     original=visit.state()['return_baseline']
     now[0]=1021;stats.stop();publish();health['embedded_controls']['control']['enabled']=False
     assert visit.observe_hunting(health) is None

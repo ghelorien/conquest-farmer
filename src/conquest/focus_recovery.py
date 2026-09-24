@@ -45,27 +45,40 @@ def activate_client(hwnd, identity, *, api=None):
     attached = False
     try:
         if current != other:
-            win32process.AttachThreadInput(current, other, True)
-            attached = True
-        api.assert_owner(hwnd, identity)
-        try:
-            gui.SetForegroundWindow(root)
-        except pywintypes.error:
-            # A denied foreground request often carries Windows error 0.
-            # This is an ordinary focus denial, not a client or permission failure.
-            pass
+            try:
+                win32process.AttachThreadInput(current, other, True)
+            except pywintypes.error as error:
+                code = getattr(error, 'winerror', None)
+                if code is None and error.args:
+                    code = error.args[0]
+                if code != 5:  # Access denied: try only a qualified client caption.
+                    raise
+            else:
+                attached = True
+        if current == other or attached:
+            api.assert_owner(hwnd, identity)
+            try:
+                gui.SetForegroundWindow(root)
+            except pywintypes.error:
+                # A denied foreground request often carries Windows error 0.
+                # This is an ordinary focus denial, not a client or permission failure.
+                pass
     finally:
         if attached:
             win32process.AttachThreadInput(current, other, False)
     if gui.GetForegroundWindow() == root:
         return True
     fallback = getattr(api,'activate_owned_caption',None)
-    if fallback and fallback(hwnd,identity):
+    native_fallback = getattr(api,'activate_native_caption',None)
+    if ((fallback and fallback(hwnd,identity))
+            or (native_fallback and native_fallback(hwnd,identity))):
         api.assert_owner(hwnd,identity)
+        if gui.GetForegroundWindow() == root:
+            return True
         try:
             gui.SetForegroundWindow(root)
         except pywintypes.error:
-            return False
+            pass
     return settled_foreground(api,hwnd,identity,root)
 
 

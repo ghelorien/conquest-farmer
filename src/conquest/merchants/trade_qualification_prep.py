@@ -240,6 +240,9 @@ def _candidate_profile(observer):
     target = profile.get('target_mode')
     recipient = profile.get('recipient')
     from conquest.merchants.trade_controls import TRADE_MODE_RVA, TRADE_MODE_VALUE
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    if observer.adapter.expected_sha256==CLIENT_SHA256_1078:
+        from conquest.merchants.trade_driver_1078 import TRADE_MODE_RVA,TRADE_MODE_VALUE
     if (type(profile.get('at')) not in (int, float) or not math.isfinite(profile['at'])
             or profile['at'] <= 0 or profile['at'] > time.time()+300
             or type(profile.get('input_qualified')) is not bool
@@ -276,9 +279,9 @@ def _projection_observation(observer, profile, farmer, merchant):
     except RecipientAbsent as error:
         actionability = None
         occupied = error.occupied_tiles
-    from conquest.memory_life import read_life
+    from conquest.memory_life import MemoryLifeReader
     from conquest.scene_input import memory_player_anchor
-    life = read_life(observer.adapter, observer.health_layout, observer.character)
+    life = MemoryLifeReader.for_session(observer.adapter, observer.character).read()
     if list(life.position) != farmer['position'] or life.map_id != 1036:
         raise ValueError('Farmer moved during prep target projection')
     anchor = list(memory_player_anchor(observer, life))
@@ -312,7 +315,7 @@ def target_projection(ui, character):
     candidate_raw, profile = _candidate_profile(observer)
     size = list(observer.operations.target.snapshot()['client_size'])
     from conquest.merchants.memory import GuiReader
-    gui = list(GuiReader(observer.adapter).viewport_size())
+    gui = list(GuiReader.for_session(observer.adapter).viewport_size())
     if len(size) != 2 or len(gui) != 2 or any(type(value) is not int or value <= 0 for value in size+gui):
         raise ValueError('Trade projection dimensions are unavailable')
     profile = {**profile, 'client_size': size, 'gui_size': gui}

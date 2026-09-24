@@ -140,15 +140,10 @@ class EmbeddedBridge:
                             # Keep farming intent until that coordinator owns input.
                             bridge.on_reload()
                             result = {'reload_queued':True}
+                        elif operation=='health':
+                            result = bridge.health()
                         else:
                             result = bridge.operations.dispatch(operation,body)
-                        if operation=='health':
-                            if bridge.character_context:result['profile_id']=bridge.character_context.profile.id
-                            result['embedded_controls'] = bridge.snapshot()
-                            result['embedded_controls']['manual_mouse'] = active()
-                            from conquest.merchants.coordination import manual_session_blocked
-                            result['embedded_controls']['manual_input_fence'] = manual_session_blocked('Farmer')
-                            result['window_mode'] = getattr(bridge,'window_mode','unknown')
                     status = 200
                 except (ValueError,OSError,KeyError,TypeError) as error:
                     result,status = {'error':str(error)},400
@@ -193,6 +188,25 @@ class EmbeddedBridge:
         except Exception:
             self.server.server_close()
             raise
+
+    def health(self):
+        """The same fresh, locked observation for localhost and in-process callers."""
+        with self.lock:
+            if self.stop.is_set() or time.monotonic()>=self.deadline:
+                raise ValueError('Embedded connection has stopped')
+            result = self.operations.dispatch('health',{})
+            if self.character_context:
+                result['profile_id'] = self.character_context.profile.id
+            result['embedded_controls'] = self.snapshot()
+            from conquest.mouse_priority import active,mark_observation_gap
+            mouse_busy = active()
+            cursor_gap = result.get('window', {}).get('cursor_available') is False
+            if cursor_gap:mark_observation_gap()
+            result['embedded_controls']['manual_mouse'] = mouse_busy or cursor_gap
+            from conquest.merchants.coordination import manual_session_blocked
+            result['embedded_controls']['manual_input_fence'] = manual_session_blocked('Farmer')
+            result['window_mode'] = getattr(self,'window_mode','unknown')
+            return result
 
     def sync_window_mode(self,host):
         # Owned embedding is still a native top-level client. Update only after

@@ -19,14 +19,14 @@ from conquest.reconnect import login_screen
 # Explicitly identified low-value consumables, inferior to this route's Painkiller
 # or unnecessary mana supplies for the archer. Never blanket-sell special IDs.
 JUNK_CONSUMABLES = frozenset((1000000,1000010,1001000,1001010,1001020))
-from conquest.valuables import SPECIAL_LOOT_TYPES,storage_only
+from conquest.valuables import SPECIAL_LOOT_TYPES,storage_only,urgent_storage
 PROTECTED_VALUABLES = SPECIAL_LOOT_TYPES
 
 
 def stash_candidate(item):
     get=item.get if isinstance(item,dict) else lambda key,default=None:getattr(item,key,default)
     kind,plus=get('type_id'),get('plus')
-    return (get('slot') is not None and (kind in PROTECTED_VALUABLES or
+    return (get('slot') is not None and (urgent_storage(item) or kind in PROTECTED_VALUABLES or
         (type(kind) is int and 100000<=kind<600000 and
          (kind%10 in (8,9) or (type(plus) is int and 1<=plus<=12)))))
 
@@ -39,7 +39,7 @@ def junk_type(type_id):
 def sale_candidate(item):
     get=item.get if isinstance(item,dict) else lambda key,default=None:getattr(item,key,default)
     kind=get('type_id')
-    if kind in PROTECTED_VALUABLES or storage_only(item):return False
+    if kind in PROTECTED_VALUABLES or storage_only(item) or urgent_storage(item):return False
     if junk_type(kind):
         return True
     # User authorized sales after inspecting the client formatter's + field.
@@ -407,8 +407,8 @@ class TownTrade:
             self.warehouse_vendor_snapshot(grid_input=True)
             reader=MemoryWarehouseReader(self.observer.adapter)
             if body.get('rich'):
-                from conquest.merchants.memory import MerchantMemory
-                memory=MerchantMemory(self.observer)
+                from conquest.merchants.delivery_bridge import source_memory
+                memory=source_memory(self.observer)
                 return asdict(reader.read(rich_item=memory.item))
             return asdict(reader.read())
         if action=='return-scroll' and set(body)=={'action'}:

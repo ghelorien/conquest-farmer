@@ -6,6 +6,7 @@ import json
 import math
 import sqlite3
 import time
+from contextlib import nullcontext
 from typing import Literal
 from pathlib import Path
 
@@ -199,9 +200,12 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
     output.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(output / "trial.sqlite3")
     db.execute("CREATE TABLE IF NOT EXISTS events (time REAL, event TEXT, payload TEXT)")
+    from conquest.native_loop_timing import NativeLoopTiming
+    timing=NativeLoopTiming() if supervisor else None
     def event(name, **payload):
-        db.execute("INSERT INTO events VALUES (?,?,?)", (time.time(), name, json.dumps(payload)))
-        db.commit()
+        with timing.measure('event_commit') if timing else nullcontext():
+            db.execute("INSERT INTO events VALUES (?,?,?)", (time.time(), name, json.dumps(payload)))
+            db.commit()
         logger.info(name, extra={"fields": payload})
     camera = (camera_factory or DesktopFrames)(hwnd, config.client_size, config.capture_output, config.capture_origin)
     started, last_action = time.monotonic(), 0
@@ -244,6 +248,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
     try:
         while time.monotonic() - started < seconds:
             try:
+                if timing:timing.begin(moving)
                 if (output / "stop.request").exists():
                     reason = "requested_stop"
                     break
@@ -261,7 +266,9 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     pending_attack = None
                     time.sleep(.05)
                     continue
+                if timing:timing.stage('supervisor')
                 supervised = supervisor.observe() if supervisor else None
+                if timing:timing.stage('loop_guards')
                 for recovery_event in (supervised or {}).get('recovery_events',()):
                     payload=dict(recovery_event)
                     name=payload.pop('event')
@@ -304,6 +311,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     event("resumed", reason="game_observation_available")
                     focus_paused = False
                 try:
+                    if timing:timing.stage('inventory_player_projection')
                     inventory = inventory_reader.read()
                     inventory_failures = 0
                 except ValueError as error:
@@ -342,6 +350,9 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     config=config.model_copy(update={'player_anchor':anchor})
                 elif supervisor and hasattr(supervisor,"player_anchor"):
                     config=config.model_copy(update={"player_anchor":supervisor.player_anchor((x,y))})
+                if timing:
+                    timing.observe_arrival(moving,(x,y))
+                    timing.stage('care_skill_checks')
                 l, t, r, b = config.boundary
                 if approaching and l <= x <= r and t <= y <= b:
                     if supervisor and hasattr(supervisor,'finish_runback'):supervisor.finish_runback('arrived')
@@ -428,7 +439,9 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                                   "hp_address": hex(addresses["max_hp"]), "max_hp": fields["max_hp"][0]},
                         "point": list(point), "button": button, "control": control, "expected_size": list(config.client_size),
                         "require_foreground": True, "expected_origin": list(frame.origin)}
-                    return (supervisor.dispatch(lambda:session.request('foreground-click',body),target=target,drop=drop,
+                    with (timing.measure('movement_dispatch' if target is None and drop is None and not ui
+                                         else 'other_dispatch') if timing else nullcontext()):
+                        return (supervisor.dispatch(lambda:session.request('foreground-click',body),target=target,drop=drop,
                                                 expected_position=(x,y) if target is None and drop is None else None,
                                                 retarget=(lambda fresh:body.update(point=[fresh.x,fresh.y])) if target else None,
                                                 attack_range=config.attack_range_tiles if button=='right' else config.single_attack_range_tiles)
@@ -476,6 +489,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
 
                 escape_observation=None
                 escape_observed_at=None
+                if timing:timing.stage('escape_scene')
                 if (supervisor and config.kite_when_surrounded and not observe_only
                         and time.monotonic()>=escape_settle_until
                         and time.monotonic()>=getattr(supervisor,'escape_ready_at',0)):
@@ -500,6 +514,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                               interrupted_attack=attack_interrupted,**getattr(supervisor,'escape_context',{}))
                         continue
 
+                if timing:timing.stage('care_skill_checks')
                 if supervisor is None and hp <= 0 and (recovery is None or recovery.phase == RecoveryPhase.RETURNING):
                     deaths += 1
                     healing = reloading = picking_up = moving = pending_attack = None
@@ -703,6 +718,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                               expansion=search.expansions,patrol=config.route,
                               retained_regional_patrol=bool(config.patrol_search.regions))
                 if moving:
+                    if timing:timing.verifier(moving)
                     before_position, issued, expected_position = moving
                     arrived=supervisor and math.dist((x,y),expected_position)<.5
                     jumped = supervisor and max(abs(a-b) for a,b in zip(before_position,expected_position)) >= 8
@@ -718,6 +734,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     # Mid-jump casting must not suppress verification forever.
                     if not inflight_cast:
                         if time.monotonic() - issued < settle:
+                            if timing:timing.stage('movement_settle_wait')
                             time.sleep(.05)
                             continue
                         changed = math.dist((x,y), before_position) > .5
@@ -738,6 +755,7 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         if movement_failures >= 3 and not supervisor:
                             reason = "movement_failure_limit"
                             break
+                if timing:timing.stage('post_verification')
                 if time.monotonic()<escape_settle_until:
                     time.sleep(.05)
                     continue
@@ -769,9 +787,40 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         elif attack_failures>=3:
                             reason="attack_progress_failure_limit"
                             break
+                # Ground memory and ownership checks can consume most of an
+                # attack observation's lifetime. Finish valuable-loot work
+                # before acquiring the final scene used for combat/movement.
+                # Native combat_loot_step uses this same allowlist and distance.
+                loot_before_scene=(supervisor and speed.coherent_projection
+                    and hasattr(supervisor,'player_projection'))
+                if loot_before_scene and not observe_only and not approaching and not defending:
+                    supervisor.loot_boundary=(l,t,r,b)
+                    def loot_dispatch(point,*args,**kwargs):
+                        nonlocal frame
+                        if speed.coherent_projection and hasattr(supervisor,'player_projection'):
+                            observed_at=time.monotonic()
+                            position,anchor=supervisor.player_projection()
+                            if tuple(position)!=(x,y) or tuple(anchor)!=tuple(config.player_anchor):
+                                raise CaptureUnavailable('Player projection changed before loot input; reobserving')
+                            origin=camera.geometry()
+                            if origin!=frame.origin:
+                                raise CaptureUnavailable('Game origin changed before loot input')
+                            # This timestamps the real life/projection read above.
+                            # Dispatch still freshly verifies the exact drop,
+                            # life, supplies, manual control and foreground.
+                            frame=Frame(observed_at,None,origin)
+                        return dispatch(point,*args,**kwargs)
+                    if supervisor.loot_step(inventory,(x,y),loot_dispatch):
+                        time.sleep(.05)
+                        continue
                 strategy=None
                 if supervisor and config.adaptive_scatter:
                     strategy=supervisor.attack_strategy()
+                if supervisor and speed.coherent_projection and hasattr(supervisor,'player_projection'):
+                    position,anchor=supervisor.player_projection()
+                    if tuple(position)!=(x,y):
+                        raise CaptureUnavailable('Player moved before final target scan; reobserving')
+                    config=config.model_copy(update={'player_anchor':anchor})
                 # Reuse only a successful same-iteration scan with its original age.
                 reuse_scene=(supervisor and speed.scene_reuse_seconds>0
                     and escape_observation is not None and escape_observed_at is not None
@@ -831,10 +880,10 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         config=config.model_copy(update={'route':rotation.region.patrol})
                         waypoint=0;moving=None;supervisor.patrol_chase=None
                         event('region_rotated',**changed)
-                # Use the actual attack mode: an adaptive strategy may have switched
-                # to single attacks. Its mere presence must not suppress all loot.
+                # Profiles without the coherent native projection reader retain
+                # their previous loot scheduling and observation contract.
                 hold_for_scatter=attack_button=="right" and target is not None
-                if supervisor and not observe_only and not approaching and not defending:
+                if supervisor and not loot_before_scene and not observe_only and not approaching and not defending:
                     supervisor.loot_boundary=(l,t,r,b)
                     collecting=False
                     if not hold_for_scatter:
@@ -971,26 +1020,46 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                         if movement_failures == 1 and not supervisor: dx+=1; dy-=1
                         if movement_failures == 2 and not supervisor: dx-=1; dy+=1
                         if supervisor:
-                            from conquest.navigation import native_movement_delta
-                            dx,dy=native_movement_delta(dx,dy,viewport=config.client_size)
+                            # The native player draw anchor can differ from the
+                            # viewport centre. Do not shorten an already
+                            # camera-qualified Scatter landing against a
+                            # different, assumed origin.
+                            from conquest.scene_input import visible_route_delta
+                            from conquest.viewport import scene_bounds,clear_scene
+                            from conquest.navigation import clear_segment
+                            from conquest.scatter_movement import clear_jump
+                            terrain=supervisor.recovery.terrain
+                            source=(x,y)
+                            proposed=(x+dx,y+dy)
+                            clipped=visible_route_delta((dx,dy),config.player_anchor,
+                                                        scene_bounds(config.client_size))
+                            if clipped is None:
+                                supervisor.movement_failed(source,proposed)
+                                time.sleep(.08)
+                                continue
+                            dx,dy=clipped
+                            landing=(x+dx,y+dy)
+                            now=time.monotonic()
+                            avoided={point for (map_id,point),until in
+                                     getattr(supervisor,'movement_obstructions',{}).items()
+                                     if map_id==terrain.map_id and until>now}
+                            point=(round(config.player_anchor[0]+(dx-dy)*32),
+                                   round(config.player_anchor[1]+(dx+dy)*16))
+                            if (not clear_scene(point,config.client_size)
+                                    or not clear_segment(terrain,source,landing,avoid=avoided)
+                                    or max(abs(dx),abs(dy))>=8 and not clear_jump(terrain,source,landing)):
+                                supervisor.movement_failed(source,landing)
+                                time.sleep(.08)
+                                continue
                         else:
                             dx,dy=visible_movement_delta(dx,dy)
                         if not (l <= x+dx <= r and t <= y+dy <= b):
                             reason="reposition_outside_boundary"
                             break
-                        point=(round(config.player_anchor[0]+(dx-dy)*32), round(config.player_anchor[1]+(dx+dy)*16))
-                        from conquest.viewport import clear_scene,scene_bounds
-                        if not (clear_scene(point,config.client_size) if supervisor else (80<point[0]<1100 and 140<point[1]<550)):
-                            if supervisor:
-                                from conquest.scene_input import visible_route_delta
-                                shorter=visible_route_delta((dx,dy),config.player_anchor,scene_bounds(config.client_size))
-                                if shorter is None:
-                                    supervisor.movement_failed((x,y),(x+dx,y+dy))
-                                    time.sleep(.08)
-                                    continue
-                                dx,dy=shorter
-                                point=(round(config.player_anchor[0]+(dx-dy)*32),round(config.player_anchor[1]+(dx+dy)*16))
-                            else:
+                        if not supervisor:
+                            point=(round(config.player_anchor[0]+(dx-dy)*32),
+                                   round(config.player_anchor[1]+(dx+dy)*16))
+                            if not (80<point[0]<1100 and 140<point[1]<550):
                                 reason="movement_point_obscured"
                                 break
                         issued=time.monotonic()
@@ -1013,7 +1082,11 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                     last_action = time.monotonic()
                 time.sleep(.08)
             except CaptureUnavailable as error:
-                if supervisor and speed.moving_observation_retry_seconds<.1 and str(error) in ('Life state changed during observation','Player moved before projection'):
+                if timing:timing.stage('retry_wait')
+                if supervisor and speed.moving_observation_retry_seconds<.1 and str(error) in (
+                        'Life state changed during observation','Player moved before projection',
+                        'Player moved before final target scan; reobserving',
+                        'Player projection changed before loot input; reobserving'):
                     # No input was submitted. Re-read immediately instead of treating
                     # a normal moving-frame race as a focus loss with a 100ms pause.
                     time.sleep(speed.moving_observation_retry_seconds)
@@ -1030,6 +1103,9 @@ def run_trial(config_path, info_path, output, seconds, logger, observe_only=Fals
                 time.sleep(.1)
                 # Re-enter with a fresh observation; never reuse this action.
                 continue
+            finally:
+                if timing:
+                    timing.flush(lambda summary:event('native_loop_timing',**summary))
     except (ValueError, OSError, RuntimeError) as error:
         reason = "observation_or_input_failure"
         import traceback

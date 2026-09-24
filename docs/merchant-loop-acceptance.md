@@ -112,4 +112,5 @@ uncertain native work prevents a successful cycle and remains visible for review
 
 Forced visits are labeled `merchant_acceptance` and explicitly excluded from the
 natural two-hour cycle evaluator. This test does not promote global parity, select
-a route winner, or replace the 40 verified-kills/minute assessment.
+a route winner, or replace the 60 verified-kills/minute assessment, which includes
+normal travel, shopping, loot and recovery downtime.

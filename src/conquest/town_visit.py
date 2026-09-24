@@ -33,6 +33,113 @@ def _checkpoint_available(observed,now):
             and type(observed.get('kills')) is int and observed['kills']>=0)
 
 
+def _tail_ownership(bag):
+    """Exact native ownership, excluding observation timestamps only."""
+    if (not isinstance(bag,dict) or not isinstance(bag.get('items'),list)
+            or type(bag.get('silver')) is not int or bag['silver']<0
+            or type(bag.get('capacity')) is not int or bag['capacity']<=0
+            or 'equipped_ammo' not in bag):
+        raise ValueError('Town completion ownership is incomplete')
+    items=bag['items']
+    if (len(items)>bag['capacity']
+            or any(not isinstance(item,dict) or type(item.get('uid')) is not int
+                   or item['uid']<=0 or type(item.get('type_id')) is not int
+                   or item['type_id']<=0 or type(item.get('amount')) is not int
+                   or item['amount']<0 for item in items)
+            or len({item['uid'] for item in items})!=len(items)):
+        raise ValueError('Town completion item identities are incomplete')
+    return deepcopy({'items':sorted(items,key=lambda item:item['uid']),
+                     'equipped_ammo':bag['equipped_ammo'],
+                     'silver':bag['silver'],'capacity':bag['capacity']})
+
+
+def _tail_observation(loop):
+    from conquest.banking import urgent_valuables
+    from conquest.overnight import needs_town,supply_counts
+    from conquest.urgent_town_recovery import transaction_holds
+    health=loop.health()
+    controls=health.get('embedded_controls') or {}
+    life=controls.get('life') or {}
+    target=health.get('target')
+    now=time.time()
+    observed=controls.get('observed_at')
+    if (not _process_identity(target) or target!=loop.identity
+            or type(observed) not in (int,float) or not 0<=now-observed<=1
+            or life.get('map_id')!=loop.route.restock_map_id
+            or life.get('dead_candidate') is not False or life.get('current_hp',0)<=0
+            or controls.get('manual_input_fence') or controls.get('manual_mouse')
+            or transaction_holds()):
+        raise ValueError('Verified town tail needs fresh safe native ownership without holds')
+    bag=loop.town('supplies')
+    ownership=_tail_ownership(bag)
+    if (urgent_valuables(bag['items'])
+            or needs_town(supply_counts(bag,loop.route),loop.route)
+            or transaction_holds()):
+        raise ValueError('Verified town tail still has outstanding banking or supplies')
+    return {'target':deepcopy(target),'map_id':life['map_id'],
+            'route_id':loop.route.id,'hunt_map_id':loop.route.map_id,
+            'ownership':ownership}
+
+
+def checkpoint_verified_tail(loop,kind):
+    """Call only after every native transaction and final service has returned.
+
+    This preserves that successful call boundary, never infers it from a bag.
+    The remaining operation is solely the durable town completion write.
+    """
+    visit=loop.town_visit
+    row=visit.state()
+    if row.get('town_work_completed_at'):return False
+    if (row.get('phase')!='town_work' or kind not in ('restock','urgent_banking')
+            or kind not in row.get('reasons',[])):
+        raise ValueError('Verified tail does not belong to unfinished native town work')
+    if kind=='urgent_banking' and (not row.get('urgent_banking_tail_completed_at')
+                                    or not row.get('urgent_followup_completed_at')):
+        raise ValueError('Urgent native tail has not returned successfully')
+    # Native work already returned successfully. This extra read is optional
+    # recovery evidence, not another prerequisite for persisting completion:
+    # a transient read gap or the user moving the mouse here must not strand
+    # a completed visit as unfinished. Real transaction holds still win.
+    from conquest.urgent_town_recovery import transaction_holds
+    if transaction_holds():
+        raise ValueError('Town transactions still require reconciliation')
+    try:
+        proof=_tail_observation(loop)
+    except (ValueError,OSError,KeyError,TypeError):
+        if transaction_holds():
+            raise ValueError('Town transactions still require reconciliation') from None
+        return False
+    if row.get('verified_tail'):
+        raise ValueError('Verified town tail already exists; reconcile it before new work')
+    row['verified_tail']={**proof,'kind':kind,'verified_at':visit.clock(),
+                          'town_visit_id':row['town_visit_id']}
+    write_json(visit.path,row)
+    return True
+
+
+def resume_verified_tail(loop):
+    """Settle only a proved final completion write; never replay game input."""
+    visit=loop.town_visit
+    row=visit.state()
+    proof=row.get('verified_tail')
+    if not proof or row.get('town_work_completed_at'):return False
+    if (row.get('phase')!='town_work' or not isinstance(proof,dict)
+            or proof.get('town_visit_id')!=row.get('town_visit_id')
+            or proof.get('kind') not in ('restock','urgent_banking')
+            or proof['kind'] not in row.get('reasons',[])
+            or type(proof.get('verified_at')) not in (int,float)
+            or not row['required_at']<=proof['verified_at']<=visit.clock()):
+        raise ValueError('Verified town completion boundary is inconsistent')
+    # Tier selection reads native equipment/supplies only. The saved route can
+    # still name IronArrows after the completed visit adopted SpeedArrows.
+    loop.adopt_ammunition()
+    fresh=_tail_observation(loop)
+    if any(fresh[key]!=proof.get(key) for key in fresh):
+        raise ValueError('Verified town completion ownership or route changed; no work replayed')
+    visit.complete_town_work(proof['kind'])
+    return True
+
+
 def kill_checkpoint(*, now=None, output=None, after_cursor=None, after_time=None):
     """Read the existing counter and verified-event journal; never reset either."""
     now=time.time() if now is None else now
@@ -92,6 +199,8 @@ class TownVisit:
     def begin(self,reason,*,hunt_map_id,route_id=None,target=None,urgent_items=None):
         if reason not in ('restock','urgent_banking','merchant_acceptance'):
             raise ValueError('A town visit requires an existing restock or urgent-bank obligation')
+        if reason=='restock' and target is not None and not _process_identity(target):
+            raise ValueError('Restock intent needs an exact process identity')
         urgent_intent=None
         if reason=='urgent_banking' and target is not None and urgent_items is not None:
             if not _process_identity(target) or not isinstance(urgent_items,list) or not urgent_items:
@@ -107,6 +216,12 @@ class TownVisit:
                 raise ValueError('Urgent bank item identities are duplicated')
         old=self.state()
         if old.get('phase') in ('town_work','returning_to_hunt'):
+            if reason=='restock' and target is not None:
+                for field in ('restock_target','restock_recovery_target','urgent_target','return_target'):
+                    if old.get(field) is not None and old[field]!=target:
+                        raise ValueError('Restock process differs from the original town visit')
+                # A fresh target cannot supply missing historical identity.
+                # Only a newly created visit records its initial restock target.
             prior_intent=old.get('urgent_intent')
             terminal_urgent=(bool(old.get('town_work_completed_at'))
                              and old.get('town_work_completed_kind')=='urgent_banking')
@@ -128,6 +243,7 @@ class TownVisit:
                 completed={
                     'completed_at':old.pop('town_work_completed_at'),
                     'kind':old.pop('town_work_completed_kind',None)}
+                if 'verified_tail' in old:completed['verified_tail']=old.pop('verified_tail')
                 if completed['kind']=='urgent_banking':
                     for field in ('urgent_intent','urgent_target',
                                   'urgent_banking_tail_completed_at','urgent_followup_completed_at',
@@ -149,6 +265,8 @@ class TownVisit:
              'history':history}
         if urgent_intent is not None:
             row.update(urgent_intent=urgent_intent,urgent_target=deepcopy(target))
+        if reason=='restock' and target is not None:
+            row['restock_target']=deepcopy(target)
         write_json(self.path,row)
         return row
 

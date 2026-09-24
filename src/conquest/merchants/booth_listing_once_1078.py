@@ -1,6 +1,6 @@
-"""Operator-requested, exact-item 1078 booth listing; never scheduled refill.
+"""Exact-item 1078 listing engine, with receipt-gated foreground refill reuse.
 
-This path is independent of MerchantDriver and does not qualify routine 1078
+This path is independent of MerchantDriver and does not qualify general 1078
 merchant input. A request ID is consumed once, including on a crash or an
 uncertain mouse-down. Only fresh native memory may settle its receipt.
 """
@@ -24,11 +24,14 @@ from conquest.merchants.reader_1078 import open_read_only_1078
 from conquest.valuables import DRAGONBALL_TYPES, require_marketable
 
 from conquest.merchants.booth_probe_1078 import (
-    _farmer_journals_clear, _farmer_safe_market, _hovered_window, _row, _window,
+    _farmer_journals_clear, _hovered_window, _row, _window,
 )
+from conquest.merchants.listing_handoff_1078 import farmer_safe as _farmer_safe_market
 
 
 KIND = 'booth_listing_1078_once'
+WORKERS = {}
+WORKER_LOCK = threading.RLock()
 ITEM_FIELDS = ('uid', 'type_id', 'name', 'plus', 'gem1', 'gem2', 'bound', 'quantity')
 OWNERSHIP_FIELDS = ('identity', 'character', 'character_uid', 'server', 'map_id',
                     'position', 'hp', 'silver', 'capacity', 'inventory', 'booth',
@@ -93,8 +96,14 @@ def _merchant_intent(runtime, character):
 
 
 def _policy(ui, character, profile, control, *, request_id=None, deadline=None,
-            farmer_target=None, merchant_intent=None, phases=('prepared',)):
+            farmer_target=None, merchant_intent=None, phases=('prepared',),
+            scheduled_refill=False, explicit_cleanup=False):
     runtime, coordinator = ui.runtime, ui.coordinator
+    from conquest.merchants.listing_handoff_1078 import scope_allows
+    if not scope_allows(ui, character, request_id=request_id,
+                        scheduled=scheduled_refill, cleanup=explicit_cleanup):
+        raise CaptureUnavailable('Listing scope belongs to another exact request or operation')
+    operator_scope = (getattr(ui, 'grant', None) or {}).get('scope') == 'listing_1078'
     current = ui.app.control.snapshot()
     intent = _merchant_intent(runtime, character)
     if (ui.closed or ui.app.closing or runtime.stop_event.is_set() or coordinator.stopped
@@ -105,15 +114,20 @@ def _policy(ui, character, profile, control, *, request_id=None, deadline=None,
             or any(current.get(key) != control.get(key)
                    for key in ('enabled', 'paused', 'revision'))
             or control['enabled'] or control.get('paused')
-            or not any(intent.values())
-            or merchant_intent is not None and intent != merchant_intent
+            or not explicit_cleanup and not any(intent.values())
+            or scheduled_refill and not intent['refill']
+            or merchant_intent is not None and (
+                intent['refill'] != merchant_intent['refill'] if scheduled_refill
+                else intent != merchant_intent)
             or _profile(character) != profile
             or getattr(runtime, 'delivery_window', None)
-            or getattr(runtime, 'refill_window', None)
+            or getattr(runtime, 'refill_window', None) and not (
+                (scheduled_refill or explicit_cleanup or operator_scope) and getattr(ui, 'grant', None)
+                and runtime.refill_window == ui.grant.get('request_id') == runtime.handoff)
             or runtime.refilling or runtime.connecting or ui.calibrating
             or deadline is not None and time.monotonic() >= deadline):
         raise CaptureUnavailable('One-shot listing stopped or lacks a safe farmer handoff')
-    _farmer_safe_market(ui, farmer_target)
+    _farmer_safe_market(ui, farmer_target, deadline=deadline)
     from conquest.merchants.delivery_reservation import active
     from conquest.merchants.background_probe import probe_busy
     if active(runtime.journal, character) or probe_busy(ui):
@@ -184,25 +198,14 @@ def _modal(gui, model, snapshot, uid):
     # Loaded renderer draws 120px OK first, then Cancel, within the 264px row.
     # These are cursor destinations, never input qualification by themselves.
     return window, {'##Amount': (start_x+64, button_y-13),
-                    'OK': (x+68, button_y+9)}, candidate['candidate_price_buffer_text']
+                    'OK': (x+68, button_y+9),
+                    'Cancel': (end_x-60, button_y+9)}, candidate['candidate_price_buffer_text']
 
 
 def _price_plan(ui, character, snapshot, item):
-    """Reuse native refill's reliable historical/owned price policy."""
-    from conquest.merchants.controller import MerchantController
-    from conquest.merchants.price_history import PriceHistory
-    from conquest.merchants.refill import HistoricalComparisons
-    history = PriceHistory(ui.runtime.market_path.with_name('price-history.sqlite3'))
-    market = HistoricalComparisons(history.catalog())
-    market.history_catalog = history.catalog()
-    owned = [snapshot]
-    with ui.runtime.lock:
-        owned.extend(state for other, state in ui.runtime.latest.items()
-                     if other != character and state.get('identity')
-                     and 0 <= time.time()-state.get('timestamp', 0) <= 5)
-    controller = MerchantController(character, ui.runtime.journal, None, ui.coordinator)
-    plans = controller.plan(snapshot, market, inventory_only=True,
-                            owned_snapshots=owned, history=history.quotes())
+    """Reobserve every configured owned peer; never silently lose its floor."""
+    from conquest.merchants.listing_plan_1078 import plan
+    plans = plan(ui.runtime, character, snapshot)
     eligible = [plan for plan in plans if plan.get('price') is not None]
     if not eligible or eligible[0]['uid'] != item['uid']:
         raise ValueError('Only the highest-valued reliably priced inventory item may fill the booth')
@@ -239,18 +242,33 @@ def _listed(before, after, request):
             and booth_prices_after == booth_prices_before)
 
 
-def _status(journal, request_id, character):
+def _status(journal, request_id, character, *, runtime=None):
     row = _row(journal, request_id)
     if not row or row['kind'] != KIND or row['character'] != character:
         raise ValueError('No matching one-shot 1078 listing receipt')
     steps = journal.trace(request_id)
     result = json.loads(row['result_json'] or '{}')
+    cancel_failure = next((json.loads(step['payload']) for step in reversed(steps)
+                           if step['stage'] == 'cancel_failed'), None)
+    qualified, qualification_blocker = None, 'fresh_merchant_observation_required'
+    if runtime is not None:
+        from conquest.merchants.listing_capability_1078 import require
+        from conquest.merchants.observe_1078 import observe
+        try:
+            require(journal, character, observe(runtime, character))
+            qualified, qualification_blocker = True, None
+        except (ValueError, OSError, KeyError, TypeError, CaptureUnavailable) as error:
+            qualified, qualification_blocker = False, str(error)
     return {'request_id': request_id, 'phase': row['phase'],
             'last_stage': steps[-1]['stage'] if steps else None,
             'confirmation_marker': any(step['stage'] == 'confirm_press'
                                        for step in steps),
+            'cancellation_marker': any(step['stage'] == 'cancel_press' for step in steps),
+            'cancel_failure': cancel_failure,
             'result': result, 'needs_attention': row['phase'] not in ('verified', 'aborted'),
-            'replay_allowed': False, 'routine_refill_qualified': False}
+            'replay_allowed': False, 'routine_refill_qualified': qualified,
+            'routine_refill_qualification_scope': 'foreground_open_booth_listing_1078',
+            'routine_refill_qualification_blocker': qualification_blocker}
 
 
 def _unchanged_before_input(before, profile):
@@ -292,7 +310,13 @@ def reconcile(ui, request_id, character):
         return _status(journal, request_id, character)
     before = json.loads(row['before_json'])
     request = before['request']
-    marker = any(step['stage'] == 'confirm_press' for step in journal.trace(request_id))
+    steps = journal.trace(request_id)
+    marker = any(step['stage'] == 'confirm_press' for step in steps)
+    if any(step['stage'] == 'cancel_press' for step in steps):
+        if marker:
+            raise ValueError('Conflicting listing confirmation and cancellation markers need operator reconciliation')
+        from conquest.merchants.booth_listing_cancel_1078 import reconcile_cancel
+        return reconcile_cancel(ui, request_id, character)
     if not marker:
         return _status(journal, request_id, character)
     profile = _profile(character)
@@ -312,11 +336,18 @@ def reconcile(ui, request_id, character):
             return _status(journal, request_id, character)
         if _listed(before['snapshot'], second, request):
             session.assert_identity()
-            journal.transition(request_id, 'verified',
-                               {'uid': request['item_uid'], 'price': request['price'],
-                                'owned_booth_uid': request['expected_own_booth_uid'],
-                                'confirmation_attempted': True,
-                                'exact_memory_listing_verified': True})
+            from conquest.merchants.listing_capability_1078 import ENGINE_REVISION, settle
+            if before.get('listing_engine_revision') == ENGINE_REVISION:
+                settle(journal, request_id, first, second)
+            else:
+                # Positive ownership proof can close an older receipt, but
+                # cannot manufacture the new engine's missing input evidence.
+                journal.transition(request_id, 'verified',
+                                   {'uid': request['item_uid'], 'price': request['price'],
+                                    'owned_booth_uid': request['expected_own_booth_uid'],
+                                    'confirmation_attempted': True,
+                                    'exact_memory_listing_verified': True,
+                                    'foreground_listing_qualified': False})
             attention = journal.get(character, 'attention') or {}
             if (attention.get('kind') == KIND
                     and attention.get('transaction_id') == request_id):
@@ -324,11 +355,11 @@ def reconcile(ui, request_id, character):
     return _status(journal, request_id, character)
 
 
-def dispatch(ui, body):
+def dispatch(ui, body, *, scheduled_refill=False):
     """Called only by the existing authenticated MerchantBridge dispatcher."""
     action = body['action']
     allowed = ('merchant-booth-list-once-1078', 'merchant-booth-list-once-status-1078',
-               'merchant-booth-list-once-reconcile-1078')
+               'merchant-booth-list-once-reconcile-1078', 'merchant-booth-list-once-cancel-1078')
     if action not in allowed:
         raise ValueError('Unknown one-shot booth operation')
     common = {'action', 'character', 'request_id'}
@@ -344,9 +375,12 @@ def dispatch(ui, body):
     profile = _profile(character)
     journal = ui.runtime.journal
     if action == allowed[1]:
-        return _status(journal, request_id, character)
+        return _status(journal, request_id, character, runtime=ui.runtime)
     if action == allowed[2]:
         return reconcile(ui, request_id, character)
+    if action == allowed[3]:
+        from conquest.merchants.booth_listing_cancel_1078 import dispatch_cancel
+        return dispatch_cancel(ui, request_id, character)
     if (type(body['item_uid']) is not int or body['item_uid'] <= 0
             or not isinstance(body['expected_identity'], dict)
             or not isinstance(body['item_fingerprint'], dict)
@@ -356,6 +390,9 @@ def dispatch(ui, body):
                    for key in ('expected_character_uid', 'expected_own_booth_uid'))):
         raise ValueError('Invalid exact item or merchant identity')
     validate_booth_price(body['price'])
+    from conquest.merchants.listing_handoff_1078 import scope_allows
+    if not scope_allows(ui, character, request_id=request_id, scheduled=scheduled_refill, body=body):
+        raise CaptureUnavailable('Listing differs from the exact admitted operator request')
     existing = _row(journal, request_id)
     if existing:
         prior = json.loads(existing['before_json'])
@@ -366,7 +403,9 @@ def dispatch(ui, body):
     farmer_target = _farmer_safe_market(ui)
     merchant_intent = _merchant_intent(ui.runtime, character)
     _policy(ui, character, profile, control, farmer_target=farmer_target,
-            merchant_intent=merchant_intent)
+            merchant_intent=merchant_intent, scheduled_refill=scheduled_refill)
+    if scheduled_refill and not ui.runtime.can_start_work(20):
+        raise CaptureUnavailable('Scheduled listing needs twenty seconds remaining in the current safe grant')
     from conquest.merchants.observe_1078 import observe
     observed = observe(ui.runtime, character, listing_preflight=True)
     if (observed['identity'] != body['expected_identity']
@@ -377,6 +416,9 @@ def dispatch(ui, body):
             or observed['listing_preflight']['price_modal'].get('observed') is not False):
         raise ValueError('Refresh exact merchant ownership with the price dialog closed')
     item = _selected(observed, body)
+    if scheduled_refill:
+        from conquest.merchants.listing_capability_1078 import require
+        require(journal, character, observed)
     if len(observed['booth']) >= 32:
         raise ValueError('Owned booth has no free listing slot')
     plan = _price_plan(ui, character, observed, item)
@@ -389,24 +431,31 @@ def dispatch(ui, body):
     from conquest.input_probe import MessageTarget
     target = MessageTarget(observed['identity']['pid'], candidates[0].hwnd)
     native = target.snapshot()
-    if (native['root_hwnd'] != target.hwnd or native['foreground'] != target.hwnd
-            or native['minimized']):
-        raise ValueError('One-shot listing requires the merchant already foreground')
+    if native['root_hwnd'] != target.hwnd:
+        raise ValueError('Listing requires the exact native top-level merchant window')
     _policy(ui, character, profile, control, farmer_target=farmer_target,
-            merchant_intent=merchant_intent)
+            merchant_intent=merchant_intent, scheduled_refill=scheduled_refill)
+    if scheduled_refill and not ui.runtime.can_start_work(20):
+        raise CaptureUnavailable('Scheduled listing preflight consumed its safe work budget; no input started')
     fence = ui.coordinator.fence
     token = fence.capture() if fence else None
+    from conquest.merchants.listing_capability_1078 import ENGINE_REVISION
     before = {'request': dict(body), 'profile_id': profile.id, 'hwnd': target.hwnd,
               'control': control, 'client_sha256': CLIENT_SHA256_1078,
               'farmer_target': farmer_target, 'snapshot': observed,
               'merchant_intent': merchant_intent,
-              'price_plan': plan, 'routine_refill_permitted': False}
+              'price_plan': plan, 'routine_refill_permitted': False,
+              'listing_engine_revision': ENGINE_REVISION,
+              'scheduled_foreground_refill': scheduled_refill,
+              'farmer_grant': dict(ui.grant) if getattr(ui, 'grant', None) else None}
     if not journal.begin(request_id, character, KIND, before):
         return _status(journal, request_id, character)
     worker = threading.Thread(target=_run, args=(ui, character, profile, before, token),
                               daemon=True, name='booth-1078-list-once')
     try:
-        worker.start()
+        with WORKER_LOCK:
+            WORKERS[request_id] = worker
+            worker.start()
     except BaseException:
         journal.transition(request_id, 'aborted',
                            {'reason': 'Worker did not start', 'confirmation_attempted': False})
@@ -424,8 +473,11 @@ def _type_price(target, price, guard, stage):
                              [w.UINT, c.POINTER(Input), c.c_int], w.UINT))
     if guard() != '' or any(keys(key) & 0x8000 for key in (0x10, 0x11, 0x12, 0x7B)):
         raise CaptureUnavailable('Native amount field is not empty or a physical key is held')
-    for index, digit in enumerate(str(price)):
-        guard()
+    digits = str(price)
+    for index, digit in enumerate(digits):
+        entered = guard()
+        if entered.replace(',', '') != digits[:index]:
+            raise CaptureUnavailable('Native amount differs from the exact already-entered price prefix')
         if any(keys(key) & 0x8000 for key in (0x10, 0x11, 0x12, 0x7B)):
             raise CaptureUnavailable('Manual key or Stop interrupted the one-shot price')
         stage('price_digit_'+str(index+1), input_boundary=True)
@@ -453,7 +505,10 @@ def _run(ui, character, profile, before, token):
         from conquest.merchants.pricing import parse_booth_price, wait_booth_price
         target = MessageTarget(request['expected_identity']['pid'], before['hwnd'])
         coordinator = ui.coordinator
-        deadline = time.monotonic()+20
+        grant = before.get('farmer_grant') or {}
+        seconds = min(35, grant['expires_at']-time.time()-3) if grant.get('scope') == 'listing_1078' else 20
+        deadline = time.monotonic()+seconds
+        focus_verified = False
         with MemorySession(target.pid, CLIENT_SHA256_1078) as session, physical_coordinates():
             if session.identity != request['expected_identity']:
                 raise ValueError('Exact merchant process changed before one-shot listing')
@@ -466,14 +521,17 @@ def _run(ui, character, profile, before, token):
                 _policy(ui, character, profile, before['control'], request_id=request_id,
                         deadline=deadline, farmer_target=before['farmer_target'],
                         merchant_intent=before['merchant_intent'],
-                        phases=('prepared', 'submitted'))
+                        phases=('prepared', 'submitted'),
+                        scheduled_refill=before.get('scheduled_foreground_refill', False))
                 session.assert_identity()
                 state = target.snapshot()
-                if state['root_hwnd'] != target.hwnd or state['foreground'] != target.hwnd:
+                if state['root_hwnd'] != target.hwnd or (
+                        focus_verified and state['foreground'] != target.hwnd):
                     raise CaptureUnavailable('Merchant lost exact foreground ownership')
 
             def check():
-                policy()
+                # The active listing lease calls this capability's policy
+                # through coordinator.owner_allowed on every check.
                 coordinator.check()
 
             fence = coordinator.fence
@@ -483,6 +541,24 @@ def _run(ui, character, profile, before, token):
                     check()
                     baseline = reader.read_manual_ownership()
                     _validate_snapshot(baseline, profile, request)
+                    if before.get('scheduled_foreground_refill'):
+                        from conquest.merchants.listing_capability_1078 import require
+                        require(journal, character, baseline)
+                    from conquest.focus_recovery import activate_client
+                    # The explicit exact-item request also authorizes safe
+                    # native focus for its first supervised live proof. This
+                    # does not require a prior listing receipt, open a booth,
+                    # click guessed game controls or change farmer intent.
+                    journal.step(request_id, 'foreground', 'before_action',
+                                 {'identity': session.identity, 'hwnd': target.hwnd})
+                    if not activate_client(target.hwnd, session.identity):
+                        raise CaptureUnavailable('Exact merchant foreground activation was denied')
+                    focus_verified = True
+                    check()
+                    baseline = reader.read_manual_ownership()
+                    _validate_snapshot(baseline, profile, request)
+                    journal.step(request_id, 'foreground', 'verified',
+                                 {'identity': session.identity, 'hwnd': target.hwnd})
                     if not _same_quote(before['price_plan'],
                             _price_plan(ui, character, baseline, _selected(baseline, request))):
                         raise ValueError('Reliable item price or listing priority changed')
@@ -491,22 +567,39 @@ def _run(ui, character, profile, before, token):
                     if any(baseline[key] != before['snapshot'][key]
                            for key in OWNERSHIP_FIELDS if key in before['snapshot']):
                         raise ValueError('Stock changed after the operator request was recorded')
-                    grids = _grids(gui, baseline, request['item_uid'])
                     layout = SharedLayoutRevision(target, windows=gui.windows,
                                                   gui_size=gui.viewport_size)
                     revision = layout.stable()
+                    # Foreground activation may settle panel/table geometry on
+                    # a later frame. Bind grids to the stabilized revision,
+                    # never to an earlier transient focus frame.
+                    grids = _grids(gui, baseline, request['item_uid'])
+                    layout.assert_current(revision)
 
                     def fresh(*, modal=None):
                         check()
                         layout.assert_current(revision)
                         snapshot = reader.read_manual_ownership()
                         _validate_snapshot(snapshot, profile, request)
-                        if (any(snapshot[key] != baseline[key] for key in OWNERSHIP_FIELDS)
-                                or _grids(gui, snapshot, request['item_uid']) != grids
-                                or gui.model(25, booth_vtable) != model
-                                or unpack(gui.session, model+0x4c, '<I')[0]
-                                != baseline['own_booth_uid']):
-                            raise ValueError('Exact merchant stock, model, or grid changed')
+                        changed = [key for key in OWNERSHIP_FIELDS if snapshot[key] != baseline[key]]
+                        if changed:
+                            raise ValueError('Exact merchant ownership changed: '+', '.join(changed))
+                        current_grids = _grids(gui, snapshot, request['item_uid'])
+                        if current_grids != grids:
+                            changed = []
+                            for key in grids:
+                                if current_grids[key] == grids[key]:
+                                    continue
+                                if isinstance(grids[key], dict) and isinstance(current_grids[key], dict):
+                                    changed.extend(key+'.'+field for field in sorted(set(grids[key]) | set(current_grids[key]))
+                                                   if grids[key].get(field) != current_grids[key].get(field))
+                                else:
+                                    changed.append(key)
+                            raise ValueError('Exact merchant grid changed: '+', '.join(changed))
+                        if gui.model(25, booth_vtable) != model:
+                            raise ValueError('Exact merchant booth model pointer changed')
+                        if unpack(gui.session, model+0x4c, '<I')[0] != baseline['own_booth_uid']:
+                            raise ValueError('Exact merchant displayed booth owner changed')
                         present = any(win['name'] == 'Add Item to Booth' for win in gui.windows())
                         if modal is not None and present != modal:
                             raise ValueError('Native price dialog changed before input')
@@ -547,9 +640,17 @@ def _run(ui, character, profile, before, token):
                         drag_guard()
                         _hovered_window(gui, grids['booth_child'])
 
+                    def drag_layout_guard():
+                        # Every press/release above reobserves full ownership,
+                        # model, grid and farmer safety. Intermediate pointer
+                        # moves retain Stop/grant/identity and layout checks
+                        # without repeating the complete inventory traversal.
+                        check()
+                        layout.assert_current(revision)
+
                     foreground_drag(target, source, destination, revision.client_size,
                                     before_press=drag_press, before_release=drag_release,
-                                    layout_guard=drag_guard)
+                                    layout_guard=drag_layout_guard)
                     until = time.monotonic()+2
                     while not any(win['name'] == 'Add Item to Booth' for win in gui.windows()):
                         check()
@@ -559,32 +660,38 @@ def _run(ui, character, profile, before, token):
                     revision = layout.stable()
                     current = fresh(modal=True)
                     window, controls, text = _modal(gui, model, current, request['item_uid'])
+                    from conquest.merchants.listing_preflight_1078 import _MODAL_RENDER_SHA256
+                    journal.step(request_id, 'native_dialog', 'verified',
+                                 {'uid': request['item_uid'],
+                                  'renderer_sha256': _MODAL_RENDER_SHA256})
                     if text != '':
                         raise ValueError('New price buffer must be empty')
                     binding = (window, controls)
 
                     def dialog_guard(label, *, expected_text=None):
-                        now = fresh(modal=True)
-                        win, points, value = _modal(gui, model, now, request['item_uid'])
-                        if ((win, points) != binding
-                                or expected_text is not None and value != expected_text):
-                            raise ValueError('Exact item, price dialog, or amount changed')
-                        gui.assert_hovered(win, label)
-                        return value
-
-                    stage('amount_pointer')
-
-                    def amount_hover():
-                        until = time.monotonic()+.5
+                        until = time.monotonic()+1.5
                         while True:
+                            now = fresh(modal=True)
+                            win, points, value = _modal(gui, model, now, request['item_uid'])
+                            if ((win, points) != binding
+                                    or expected_text is not None and value != expected_text):
+                                raise ValueError('Exact item, price dialog, or amount changed')
                             try:
-                                dialog_guard('##Amount', expected_text='')
-                                return
+                                gui.assert_hovered(win, label)
+                                return value
                             except HoverNotReady:
+                                # Rendering can briefly clear HoveredId. Retry
+                                # only this read gap, under the original full
+                                # ownership/Stop/deadline guards on every pass.
                                 if time.monotonic() >= until:
                                     raise
                                 check()
                                 time.sleep(.02)
+
+                    stage('amount_pointer')
+
+                    def amount_hover():
+                        return dialog_guard('##Amount', expected_text='')
 
                     def amount_press():
                         dialog_guard('##Amount', expected_text='')
@@ -594,8 +701,12 @@ def _run(ui, character, profile, before, token):
                                      require_foreground=True, before_press=amount_hover,
                                      before_mouse_down=amount_press,
                                      layout_guard=lambda: layout.assert_current(revision))
+
+                    def typing_guard():
+                        return dialog_guard('##Amount')
+
                     _type_price(target, request['price'],
-                                lambda: dialog_guard('##Amount'), stage)
+                                typing_guard, stage)
                     raw_price = lambda: gui.session.read_block(model+0x54, 12).split(b'\0')[0]
                     wait_booth_price(raw_price, request['price'], check)
                     displayed = _modal(gui, model, fresh(modal=True), request['item_uid'])[2]
@@ -605,29 +716,22 @@ def _run(ui, character, profile, before, token):
                                  {'uid': request['item_uid'], 'price': request['price']})
                     stage('confirm_pointer')
 
-                    def confirm_hover():
-                        until = time.monotonic()+.5
-                        while True:
-                            try:
-                                value = dialog_guard('OK')
-                                if parse_booth_price(value.encode('ascii')) != request['price']:
-                                    raise ValueError('Native price changed before confirmation')
-                                return
-                            except HoverNotReady:
-                                if time.monotonic() >= until:
-                                    raise
-                                check()
-                                time.sleep(.02)
+                    def confirm_guard(*, expected_text=None):
+                        # Loaded OK hash/geometry are live-proven. A transient
+                        # render gap can also occur after the quote reread, so
+                        # retain the same bounded reobservation at mouse-down.
+                        value = dialog_guard('OK', expected_text=expected_text)
+                        if parse_booth_price(value.encode('ascii')) != request['price']:
+                            raise ValueError('Native price changed before confirmation')
+                        return value
 
                     def confirm_press():
                         nonlocal confirmation_marked, attempted
-                        value = dialog_guard('OK')
-                        if parse_booth_price(value.encode('ascii')) != request['price']:
-                            raise ValueError('Native price changed before mouse-down')
+                        quote_snapshot = fresh(modal=True)
                         if not _same_quote(before['price_plan'],
-                                _price_plan(ui, character, baseline, _selected(baseline, request))):
+                                _price_plan(ui, character, quote_snapshot, _selected(quote_snapshot, request))):
                             raise ValueError('Reliable item price or listing priority changed before submission')
-                        dialog_guard('OK', expected_text=value)
+                        confirm_guard()
                         # This FULL-synchronous SQLite step is the irreversible
                         # boundary. A crash after it never permits re-pressing OK.
                         journal.step(request_id, 'confirm_press', 'before_mouse_down',
@@ -637,7 +741,7 @@ def _run(ui, character, profile, before, token):
                         attempted = True
 
                     foreground_click(target, *point(controls['OK']), revision.client_size,
-                                     require_foreground=True, before_press=confirm_hover,
+                                     require_foreground=True, before_press=confirm_guard,
                                      before_mouse_down=confirm_press,
                                      layout_guard=lambda: layout.assert_current(revision))
                     journal.transition(request_id, 'submitted',
@@ -675,3 +779,7 @@ def _run(ui, character, profile, before, token):
                     'note': 'One-shot 1078 listing needs read-only reconciliation: '+str(error)})
         except (ValueError, OSError):
             pass  # Prepared or submitted journal still holds all future input.
+    finally:
+        with WORKER_LOCK:
+            if WORKERS.get(request_id) is threading.current_thread():
+                WORKERS.pop(request_id, None)

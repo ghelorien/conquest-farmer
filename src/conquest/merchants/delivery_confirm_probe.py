@@ -32,10 +32,44 @@ def _merchant_key(state):
     return name
 
 
+def lease_authorized(ui,character):
+    """Exact active receiver confirmation worker; never general trade authority."""
+    try:
+        coordinator=ui.coordinator;runtime=ui.runtime
+        worker=getattr(ui,'delivery_probe_thread',None)
+        control=ui.app.control.snapshot()
+        if (coordinator.purpose!='delivery_confirm_probe'
+                or worker is not threading.current_thread() or not worker.is_alive()
+                or character not in ui.calibrating or ui.calibration_cancel[character].is_set()
+                or ui.closed or ui.app.closing or control['enabled'] or control.get('paused')
+                or getattr(runtime,'delivery_window',None)
+                or getattr(runtime,'refill_window',None)
+                or getattr(runtime,'refilling',{})):
+            return False
+        state=read_probe(read_only=True)
+        if (not state or state.get('phase') not in ('farmer_confirm_verified','merchant_confirm_submitted')
+                or _merchant_key(state)!=character):return False
+        if any(coordinator.manual_session_blocked(owner) for owner in
+               (state.get('farmer_profile_id','Farmer'),state['target_profile_id'])):return False
+        observer=runtime.observers.get(character)
+        if observer is None or observer.adapter.identity!=state['intent']['merchant']['identity']:
+            return False
+        from conquest.merchants.delivery_reservation import active
+        if active(runtime.journal,character) or runtime.journal.pending(character):return False
+        observer.adapter.assert_identity()
+        from conquest.merchants.delivery_probe_ownership import ownership
+        f,m=pair(ui,character)
+        ownership(state,str(character),runtime.manual_target(character),runtime.manual_target('Farmer'),
+                  f,m,now=time.time())
+        return True
+    except (ValueError,OSError,KeyError,TypeError,AttributeError):
+        return False
+
+
 def run(ui,state,*,revision=None):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_click
-    from conquest.merchants.memory import MerchantMemory
+    from conquest.merchants.delivery_bridge import source_memory
     from conquest.merchants.driver import wait_hover_validation
     from conquest.merchants.farmer_preferences import permits_new_delivery
     # Imported here so this stage is independently qualified after placement.
@@ -91,28 +125,42 @@ def run(ui,state,*,revision=None):
         target=observer.operations.target;hwnd=target.hwnd
         controller=ui.runtime.controllers[character] if role=='merchant' else None
         driver=controller.driver if controller else None
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        native1078=role=='merchant' and adapter.expected_sha256==CLIENT_SHA256_1078
         host=ui.hosts.get(character) if controller else ui.app.host
         saved=host.saved if host else None
         def verify():
             check()
             if (observer.adapter is not adapter or adapter.identity!=identity
                     or observer.operations.target is not target or type(hwnd) is not int or hwnd<=0 or target.hwnd!=hwnd
-                    or host is None or host.mode!='owned' or host.saved is not saved or not saved
-                    or saved.hwnd!=hwnd or saved.identity!=identity):
+                    or not native1078 and (host is None or host.mode!='owned'
+                        or host.saved is not saved or not saved
+                        or saved.hwnd!=hwnd or saved.identity!=identity)):
                 raise CaptureUnavailable('Confirmation observer or owned target changed')
             if role=='merchant':
                 if (ui.runtime.controllers.get(character) is not controller or controller.driver is not driver
                         or ui.runtime.observers.get(character) is not observer or driver.observer is not observer
-                        or driver.target is not target or driver.memory is not memory or ui.hosts.get(character) is not host):
+                        or driver.target is not target or driver.memory is not memory
+                        or not native1078 and ui.hosts.get(character) is not host):
                     raise CaptureUnavailable('Merchant confirmation controller changed')
             elif (ui.app.observer is not observer or ui.app.host is not host
                     or ui.app.client!=(identity['pid'],hwnd,identity)):
                 raise CaptureUnavailable('Farmer confirmation controller changed')
-            adapter.assert_identity();host.api.assert_owner(hwnd,identity)
+            adapter.assert_identity()
+            if native1078:
+                from conquest.merchants.trade_driver_1078 import native_foreground
+                native_foreground(driver,identity)
+            else:host.api.assert_owner(hwnd,identity)
         verify()
         return target,verify
     def click(role,observer,memory):
         check();f,m=exact_pair(role)
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        native1078=role=='merchant' and observer.adapter.expected_sha256==CLIENT_SHA256_1078
+        if native1078:
+            from conquest.merchants.trade_driver_1078 import native_foreground
+            native_foreground(ui.runtime.controllers[character].driver,intent['merchant']['identity'],activate=True)
+            f,m=exact_pair(role)
         target,native=target_binding(role,observer,memory)
         snap=f if role=='farmer' else m
         if snap['trade']['accepted']:raise ValueError('This account already confirmed; reconcile without repeating')
@@ -128,7 +176,7 @@ def run(ui,state,*,revision=None):
         native()
         save(role+'_confirm_submitted',confirming_role=role,confirm_point=point,
              farmer_before_confirm=f,merchant_before_confirm=m)
-        foreground_click(target,*point,tuple(size),require_foreground=False,
+        foreground_click(target,*point,tuple(size),require_foreground=native1078,
             before_press=lambda:wait_hover_validation(before,check))
     @contextmanager
     def lease(owner):
@@ -156,7 +204,7 @@ def run(ui,state,*,revision=None):
             from conquest.focus_recovery import activate_client
             if not activate_client(observer.operations.target.hwnd,f['identity']):
                 raise ValueError('Farmer focus unavailable; no confirmation sent')
-            click('farmer',observer,MerchantMemory(observer))
+            click('farmer',observer,source_memory(observer))
             until=time.monotonic()+3
             while True:
                 f,m=pair(ui,character);validate_offers(intent,f,m)

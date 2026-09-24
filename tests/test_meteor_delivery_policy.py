@@ -40,7 +40,8 @@ def test_unverified_or_user_resolved_consolidation_does_not_authorize_stored_scr
     base={'phase':'completed','scroll_uid':99,'exchange_verified':True,'market_verified_at':123,
           'receipts':[{'stored':99,'type_id':720027,'verified_in_warehouse':True}]}
     for change in ({'phase':'storing_scroll'},{'exchange_verified':False},{'receipts':[]},
-                   {'user_confirmed_scroll_transfer':{'confirmed':True}},
-                   {'user_confirmed_scroll_consumption':{'confirmed':True}}):
+                   {'user_confirmed_scroll_transfer':{'uid':99,'type_id':720027,'confirmed':True,
+                     'source':'explicit user confirmation','destination':'another_character'}},
+                   {'user_confirmed_scroll_consumption':{'uid':99,'confirmed':True,'source':'explicit user confirmation'}}):
         write_json(meteor_banking.JOURNAL,{**base,**change})
         assert meteor_banking.completed_stored_scroll() is None

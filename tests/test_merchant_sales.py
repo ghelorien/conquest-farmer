@@ -25,6 +25,31 @@ def test_verified_sale_restart_and_duplicate_observation(tmp_path):
     assert len([e for e in j.events() if e['event']=='sale_verified'])==1
 
 
+@pytest.mark.parametrize('net_silver,verified',[(97,True),(0,False)])
+def test_spiritual_new_listing_is_not_a_sale_and_disappearance_needs_cash(
+        tmp_path,net_silver,verified):
+    j=Journal(tmp_path/'journal.sqlite3')
+    before=state(character='Spiritual')
+    new_item={**before['booth'][0],'uid':3}
+    before['inventory']=[new_item]
+    observe(j,before)
+    listed=copy.deepcopy(before)
+    listed.update(timestamp=101,inventory=[],booth=before['booth']+[new_item])
+    observe(j,listed)
+    assert not [e for e in j.events() if e['event'].startswith('sale_')]
+    sold=copy.deepcopy(listed)
+    sold.update(timestamp=102,booth=before['booth'],silver=1000+net_silver)
+    observe(j,sold)
+    if not verified:
+        later=copy.deepcopy(sold);later['timestamp']=108
+        observe(j,later)
+    result=summary(j,now=109)['characters']['Spiritual']
+    assert result['total']==({'items':1,'silver':97} if verified
+                             else {'items':0,'silver':0})
+    receipts=[e for e in j.events() if e['event']=='sale_verified']
+    assert len(receipts)==int(verified)
+
+
 def test_unrelated_incoming_request_does_not_hide_exact_sale_receipt(tmp_path):
     j=Journal(tmp_path/'journal.sqlite3');before=state()
     before['request']={'participant':'Proxyy-Starr','participant_uid':77}
@@ -69,7 +94,13 @@ def test_ambiguous_disappearance_is_not_a_sale(tmp_path,case):
             db.execute('INSERT INTO transactions VALUES(?,?,?,?,?,?,?,?)',('x','Dutch','listing','verified','{}','{}',100,101))
     observe(j,after)
     result=summary(j,now=201)['characters']['Dutch']
-    assert result['total']=={'items':0,'silver':0} and result['unconfirmed']==1
+    assert result['total']=={'items':0,'silver':0}
+    # A time gap or replaced process is an observation gap, with no claimed
+    # item departure. Other ambiguous same-process losses stay unconfirmed.
+    assert result['unconfirmed']==(0 if case in ('gap','pid_reused') else 1)
+    if case in ('gap','pid_reused'):
+        assert not [e for e in j.events() if e['event'].startswith('sale_')]
+        assert any(e['event']=='sales_observation_gap' for e in j.events())
 
 
 def test_manual_unlist_and_existing_stock_are_not_sales(tmp_path):

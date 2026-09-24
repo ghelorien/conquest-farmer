@@ -1,5 +1,8 @@
 """Evaluate uninterrupted cycles from durable native receipts, never UI counters."""
 
+MINIMUM_KILLS_PER_MINUTE=60
+STRETCH_KILLS_PER_MINUTE=75
+
 
 def exact_batch(items):
     fields=('uid','type_id','plus','gem1','gem2','quantity','bound')
@@ -71,7 +74,8 @@ def evaluate(config, *, now, kill_events, visits, deliveries, refill_events, int
     if incomplete:failures.append('A completed town visit lacks matching subsequent recipient refill evidence')
     if missing_farmers or missing_merchants:failures.append('Required farmer or merchant coverage is incomplete')
     if unresolved:failures.append('New transactions remain unresolved')
-    if rate<40:failures.append('Overall verified kill rate is below 40 per minute')
+    if rate<MINIMUM_KILLS_PER_MINUTE:
+        failures.append(f'Overall verified kill rate is below {MINIMUM_KILLS_PER_MINUTE} per minute')
     return {'qualified':not failures,'limitations':failures,'elapsed_seconds':elapsed,
             'total_kills':kills,'overall_kills_per_minute':round(rate,2),
             'covered_cycles':covered,'unresolved_operations':unresolved,
@@ -80,4 +84,5 @@ def evaluate(config, *, now, kill_events, visits, deliveries, refill_events, int
             'covered_merchant_record_ids':merchants,
             'missing_farmer_profile_ids':missing_farmers,'missing_merchant_record_ids':missing_merchants,
             'coverage_scope':'Only the identities in covered_cycles were validated live',
-            'minimum_kills_per_minute':40,'stretch_kills_per_minute':50}
+            'minimum_kills_per_minute':MINIMUM_KILLS_PER_MINUTE,
+            'stretch_kills_per_minute':STRETCH_KILLS_PER_MINUTE}

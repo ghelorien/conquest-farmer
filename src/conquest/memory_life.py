@@ -39,6 +39,7 @@ class LifeCandidate:
     started_at: float
     timestamp: float
     conservative_blocked: bool = False
+    revive_input_supported: bool = True
 
     @property
     def dead_candidate(self):
@@ -99,6 +100,12 @@ class MemoryLifeReader:
         status_offset=build.life_status_offset if build is not None else STATUS_OFFSET
         appearance_offset=build.life_appearance_offset if build is not None else APPEARANCE_OFFSET
         revive_offset=build.life_revive_gate_offset if build is not None else REVIVE_GATE_OFFSET
+        revive_supported=True
+        if build and build.conservative_life_block:
+            # Bracket the life sample after checking the actual loaded renderer.
+            from conquest.native_revive import require_semantics
+            try:require_semantics(session)
+            except ValueError:revive_supported=False
         fields=((actual['object']+status_offset,8),
                 (actual['object']+appearance_offset,4),
                 (actual['position'],8),(player['map'],4),
@@ -127,8 +134,8 @@ class MemoryLifeReader:
                           and (health.current_hp==0 or status&0x420 or appearance!=0))
         return LifeCandidate(self.character,actual['object'],status,appearance,map_id,position,
             health.current_hp,health.max_hp,ghost,revive_gate,
-            False if build and build.conservative_life_block else ghost and revive_gate==0,
-            started,finished,conservative)
+            revive_supported and ghost and revive_gate==0,
+            started,finished,conservative,revive_supported)
 
     def report(self):
         return {'qualified':False,'stage':'player_life_candidate','source':'read_only_memory',

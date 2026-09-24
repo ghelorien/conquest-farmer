@@ -67,6 +67,11 @@ def lease_authorized(ui, character):
 
 def control(driver,snapshot):
     s=driver.observer.adapter;g=driver.memory.gui
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    if s.expected_sha256==CLIENT_SHA256_1078:
+        from conquest.merchants.trade_driver_1078 import locate
+        w,point,_,_=locate(driver,snapshot,'native_trade_request')
+        return w,point
     model=g.model(15,0x5c4f30)
     # Window slot 15 is shared by native confirmations.  Do not infer the
     # requested action from whichever dialog happens to be visible: accepting
@@ -209,16 +214,24 @@ def run(ui,state):
         # merchant before the first live control read.  The subsequent
         # ``control`` checks remain the only authority for sending a click.
         with lease():
-            f,m=fresh();w,point=control(driver,m);binding=control_binding(w,point)
+            f,m=fresh()
+            from conquest.memory_build_layout import CLIENT_SHA256_1078
+            native1078=driver.observer.adapter.expected_sha256==CLIENT_SHA256_1078
+            if native1078:
+                from conquest.merchants.trade_driver_1078 import native_foreground
+                native_foreground(driver,m['identity'],activate=True)
+                f,m=fresh()
+            w,point=control(driver,m);binding=control_binding(w,point)
             size=driver.target.snapshot()['client_size']
             if size!=driver.memory.gui.viewport_size():raise ValueError('Native and GUI dimensions differ')
             def before():
                 f,m=fresh()
+                if native1078:native_foreground(driver,m['identity'])
                 current,now_point=control(driver,m)
                 if control_binding(current,now_point)!=binding:raise ValueError('Accept control moved')
                 driver.memory.gui.assert_hovered(current,'Accept')
             state.update(phase='accept_submitted',accept_point=point,error=None,updated_at=time.time());write_json(JOURNAL,state)
-            foreground_click(driver.target,*point,tuple(size),require_foreground=False,
+            foreground_click(driver.target,*point,tuple(size),require_foreground=native1078,
                 before_press=lambda:wait_hover_validation(before,check))
             while True:
                 check();f,m=pair(ui,character)

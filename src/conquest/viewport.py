@@ -47,6 +47,10 @@ def require_world_point(point,size):
 
 def revive_point(session,size):
     size=validate_size(size)
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    if getattr(session,'expected_sha256',None)==CLIENT_SHA256_1078:
+        from conquest.native_revive import point
+        return point(session,size)
     if size==DEFAULT_SIZE:return (518,640)
     # The previously qualified point is centered 51 px above the control bar.
     # Translate its anchor from the live GUI instead of stretching old pixels.

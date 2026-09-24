@@ -51,7 +51,8 @@ class MerchantRuntime(ManualRuntime):
             for character in CHARACTERS:
                 if not self.journal.get(character,'profile_initialized',False):
                     self.journal.set(character,'enabled',False)
-                    self.journal.set(character,'refill_enabled',False)
+                    if self.journal.get(character,'refill_enabled',None) is None:
+                        self.journal.set(character,'refill_enabled',True)
                     self.journal.set(character,'profile_initialized',True)
         self.observer_factory,self.market_path = observer_factory,Path(market_path)
         self.qualification_dir = Path(qualification_dir)
@@ -73,6 +74,10 @@ class MerchantRuntime(ManualRuntime):
         self.refills = {c:RefillSchedule(c,self.journal) for c in CHARACTERS}
         self.refilling,self.refill_revisions = {},{}
         self.refill_threads = {}
+        self.listing1078_lock = threading.Lock()
+        self.refill1078_step = None
+        self.refill1078_status = {}
+        self.native1078_farmer_check = None
         self.connecting,self.connect_checks,self.connect_cancel={},{},{}
         for refill in self.refills.values():refill.state()
         self.threads = []
@@ -130,7 +135,7 @@ class MerchantRuntime(ManualRuntime):
 
     def input_allowed(self, character):
         if self.read_only_1078(character):
-            return False
+            return self.trade1078_input_allowed(character)
         if self.coordinator.manual_session_blocked(character, purpose=getattr(self.coordinator,'purpose',None)):
             return False
         delivery_window=getattr(self,'delivery_window',None)
@@ -153,6 +158,33 @@ class MerchantRuntime(ManualRuntime):
                     and self.refill_threads.get(character)==threading.get_ident()
                     and self.refilling[character]==self.refill_revisions.get(character,0))
         return self.enabled(character)
+
+    def trade1078_input_allowed(self, character):
+        """Only a live-qualified exact reserved trade can use the native surface."""
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        from conquest.merchants.delivery_reservation import active
+        coordinator = self.coordinator
+        controller = self.controllers.get(character)
+        observer = self.observers.get(character)
+        if (coordinator.purpose != 'trade' or coordinator.thread != threading.get_ident()
+                or controller is None or observer is None
+                or observer.adapter.expected_sha256 != CLIENT_SHA256_1078
+                or not self.enabled(character) or coordinator.stopped
+                or self.manual_handoff_status() is not None
+                or coordinator.manual_session_blocked(character)
+                or coordinator.manual_session_blocked('Farmer')
+                or getattr(self, 'refill_window', None)
+                or self.journal.get(character, 'connect_hold', False)
+                or self.native1078_farmer_check is None):
+            return False
+        reservation = active(self.journal, character)
+        if not reservation or getattr(self, 'delivery_window', None) != reservation.get('request_id'):
+            return False
+        controller.driver.require_qualified('trade_request')
+        controller.driver.require_qualified('trade')
+        observer.adapter.assert_identity()
+        self.native1078_farmer_check()
+        return True
 
     def invalidate_refill(self, character):
         # Revoke input aimed at an old surface without pausing future checks.
@@ -309,10 +341,20 @@ class MerchantRuntime(ManualRuntime):
                 with self.lock:
                     self.observers[character]=observer
                     self.latest[character]=snapshot
+                # Construct an inert exact-build reader/target for explicit
+                # staged qualification. Normal input still requires matching
+                # live trade receipts and an exact reserved delivery window.
+                from types import SimpleNamespace
+                from conquest.input_probe import MessageTarget
+                from conquest.character_context import merchant_directory
+                observer.operations = SimpleNamespace(target=MessageTarget(client.identity['pid'], client.hwnd))
+                driver = MerchantDriver(observer, merchant_directory(character)/'qualification.json', self.coordinator)
+                with self.lock:
+                    self.controllers[character] = MerchantController(character, self.journal, driver, self.coordinator)
                 status.enter('memory',pid=client.identity['pid'])
                 status.observation_ready=True
-                # Do not set last_identity or create a controller/return driver:
-                # those are automation and recovery state, not observation.
+                # Do not set recovery's last_identity or create a return driver.
+                # The inert trade controller above cannot authorize recovery.
             except BaseException:
                 observer.close()
                 raise
@@ -329,6 +371,7 @@ class MerchantRuntime(ManualRuntime):
             except (OSError,ValueError):
                 with self.lock:
                     self.observers.pop(character,None)
+                    self.controllers.pop(character,None)
                     self.latest.pop(character,None)
                 self.attachments[character].observation_ready=False
                 observer.close()
@@ -336,7 +379,20 @@ class MerchantRuntime(ManualRuntime):
         if observer is None:
             self.attach_observation_1078(character)
             return
-        try:snapshot=observer.read_ownership()
+        try:
+            controller=self.controllers.get(character)
+            if controller is not None and getattr(controller.driver,'trade1078',False):
+                # Open trade ownership needs canonical numeric currency and
+                # both acceptance flags, not the manual reader's raw UI text.
+                with observer.lock:snapshot=controller.driver.read()
+                profile=getattr(observer.character_context,'profile',None)
+                if (snapshot['identity']!=observer.adapter.identity
+                        or profile is not None and (snapshot['character']!=profile.name
+                            or snapshot['server']!=profile.server
+                            or profile.character_uid is not None
+                            and snapshot['character_uid']!=profile.character_uid)):
+                    raise ValueError('1078 ownership differs from the configured profile')
+            else:snapshot=observer.read_ownership()
         except (ValueError,OSError) as error:
             with self.lock:self.latest.pop(character,None)
             self.attachments[character].observation_ready=False
@@ -357,6 +413,47 @@ class MerchantRuntime(ManualRuntime):
         if not self.journal.pending(character):
             from conquest.merchants.sales import observe
             observe(self.journal, snapshot)
+        self.step_trade_1078(character, snapshot)
+        # Listing uses its separate receipt-qualified engine, an already-open
+        # owned booth, the route's safe grant and fresh native foreground proof.
+        # Ordinary trade has separate live qualification; recovery stays fenced.
+        if getattr(self, 'refill1078_step', None) is not None:
+            self.refill1078_status[character] = self.refill1078_step(character, snapshot)
+
+    def step_trade_1078(self, character, snapshot):
+        """Run only reserved receiver work; listing and recovery stay separate."""
+        controller = self.controllers.get(character)
+        if controller is None or snapshot['map_id'] != 1036:
+            return
+        # Unqualified controllers exist for explicit live probe observations,
+        # but they are never a scheduler permission to interact with a trade.
+        try:
+            controller.driver.require_qualified('trade_request')
+            controller.driver.require_qualified('trade')
+        except (ValueError, OSError):
+            return
+        with self.observers[character].lock:
+            current = controller.driver.read()
+        with self.lock:
+            self.latest[character] = current
+        if self.observe_manual_handoff(character, current) or self.process_probe_owned(character, current):
+            return
+        if (not self.enabled(character) or self.coordinator.manual_session_blocked(character)
+                or self.coordinator.manual_session_blocked('Farmer')
+                or self.journal.get(character, 'connect_hold', False)
+                or getattr(self, 'refill_window', None) or not self.can_start_work()):
+            return
+        from conquest.merchants.delivery_reservation import active
+        reservation = active(self.journal, character)
+        if not reservation or getattr(self, 'delivery_window', None) != reservation.get('request_id'):
+            return
+        if any(row['kind'] != 'delivery' for row in self.journal.pending(character)):
+            return  # Listing/probe uncertainty cannot be reinterpreted as trade.
+        controller.reconcile(current)
+        if current.get('request'):
+            controller.accept_request(current)
+        elif current.get('trade'):
+            controller.accept_delivery()
 
     def bind(self, character, observer):
         if (getattr(observer,'merchant_observation_only',False)
@@ -445,8 +542,8 @@ class MerchantRuntime(ManualRuntime):
     def step(self, character, *, read_only_path=None):
         if read_only_path is None:read_only_path=self.read_only_1078(character)
         if read_only_path:
-            # Persistent observation has no driver or input capability. The
-            # separate manual-handoff registry still owns its own baseline.
+            # Exact1078 observation dispatches only independently gated native
+            # trade/listing paths. The manual registry retains its own baseline.
             return self.step_observation_1078(character)
         if character in self.connecting:return
         refill_only=bool(getattr(self,'refill_window',None))
@@ -774,19 +871,43 @@ class MerchantRuntime(ManualRuntime):
                     snapshot=self.latest.get(character)
                     fresh=bool(snapshot and 0<=time.time()-snapshot['timestamp']<=5
                                and character in self.observers)
-                    result[character]={'enabled':self.enabled(character),'connected':fresh,'input_active':False,
-                        'activity':'1078 read-only merchant observation; input qualification pending',
+                    from conquest.merchants.listing_capability_1078 import status as listing_status
+                    qualification = listing_status(self.journal, character, snapshot if fresh else None)
+                    limited_listing = qualification['foreground_open_booth_listing_1078']
+                    controller = self.controllers.get(character)
+                    for capability in ('trade', 'trade_request'):
+                        try:
+                            if controller is None:
+                                raise ValueError('Merchant trade reader is not attached')
+                            controller.driver.require_qualified(capability)
+                            qualification[capability] = True
+                        except (ValueError, OSError):
+                            qualification[capability] = False
+                    trade_ready = (fresh and self.enabled(character) and snapshot['map_id'] == 1036
+                                   and snapshot['hp'] > 0 and snapshot['booth_open']
+                                   and available_slots(snapshot) > 0
+                                   and qualification['trade'] and qualification['trade_request']
+                                   and not self.journal.pending(character)
+                                   and not self.coordinator.manual_session_blocked(character)
+                                   and not self.coordinator.manual_session_blocked('Farmer')
+                                   and not self.journal.get(character, 'connect_hold', False))
+                    result[character]={'enabled':self.enabled(character),'connected':fresh,
+                        'input_active':self.coordinator.owner==character,
+                        'activity':('1078 listing uses safe route grants and verified native focus; unsupported capabilities stay blocked'
+                                    if limited_listing else '1078 read-only merchant observation; input qualification pending'),
                         'snapshot':snapshot if fresh else None,'error':self.errors.get(character),
                         'scan':self.journal.get(character,'scan',{}),
                         'capacity':snapshot['capacity']-len(snapshot['inventory'])-len(snapshot['booth']) if fresh else None,
-                        'ready':False,'qualification':{},'credentials_saved':credential_path(character).exists(),
-                        'needs_attention':None,'pending':self.journal.pending(character),
+                        'ready':bool(trade_ready),'qualification':qualification,'credentials_saved':credential_path(character).exists(),
+                        'needs_attention':self.journal.get(character,'attention'),'pending':self.journal.pending(character),
                         'recovery':self.recoveries[character].state(),'recovery_safety':self.journal.get(character,'recovery_safety'),
                         'shop_return':self.returns[character].state(),'connect_market':self.journal.get(character,'connect_market'),
                         'profile_id':getattr(character,'profile_id',None),'attachment':self.attachments[character].snapshot(),
                         'refill':{**self.refills[character].state(),'enabled':self.refill_enabled(character)},
                         'manual_session':manual,'manual_input_fence':self.coordinator.manual_session_blocked(character),
-                        'manual_only_1078':True}
+                        'manual_only_1078':not (limited_listing or qualification['trade']),
+                        'recovery_input_available':False,
+                        'foreground_refill_1078':getattr(self, 'refill1078_status', {}).get(character)}
                     continue
                 snapshot = self.latest.get(character)
                 fresh = bool(snapshot and 0 <= time.time()-snapshot['timestamp'] <= 5)

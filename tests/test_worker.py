@@ -64,6 +64,18 @@ def test_sample_reads_typed_values(operations):
     assert not result["qualified"]
 
 
+def test_health_allows_only_cursor_unavailable_observation(operations):
+    calls=[]
+    class Target:
+        def snapshot(self, *, allow_cursor_unavailable=False):
+            calls.append(allow_cursor_unavailable)
+            return {'pid':1,'cursor':None,'cursor_available':False}
+    operations.target=Target()
+    result=operations.dispatch('health',{})
+    assert result['window']['cursor_available'] is False
+    assert calls==[True]
+
+
 @pytest.mark.parametrize("operation", ["foreground-click", "foreground-key", "background-key", "background-click", "foreground-drag"])
 def test_read_only_worker_rejects_input_before_guard_reads(operations, operation):
     operations.read_only = True

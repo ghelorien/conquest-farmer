@@ -64,10 +64,11 @@ def test_supervised_request_guard_ignores_other_players_but_rejects_target_drift
     monkeypatch.setattr(desktop_runtime,'physical_coordinates',nullcontext)
     monkeypatch.setattr(foreground,'foreground_click',click)
     monkeypatch.setattr(memory,'MerchantMemory',lambda _:NS(gui=gui))
-    monkeypatch.setattr(memory_shop,'MemoryGui',lambda _:object())
+    monkeypatch.setattr('conquest.merchants.delivery_bridge.source_memory',lambda _:NS(gui=gui))
+    monkeypatch.setattr(memory_shop.MemoryGui,'for_session',lambda _:object())
     monkeypatch.setattr(driver,'wait_hover_validation',lambda callback,check:callback())
-    monkeypatch.setattr(trade_controls,'trade_button',lambda _:(500,600))
-    monkeypatch.setattr(trade_controls,'targeting_state',lambda _:
+    monkeypatch.setattr(farmer_trade,'trade_button',lambda _:(500,600))
+    monkeypatch.setattr(farmer_trade,'targeting_state',lambda _:
         {'current':19 if targeting[0] else 16,'targeting_trade':targeting[0]})
     monkeypatch.setattr(farmer_trade,'recipient_record',read_recipient)
     monkeypatch.setattr(probe,'pair',lambda *args:(deepcopy(farmer),deepcopy(merchant)))

@@ -73,7 +73,8 @@ def test_native_window_releases_before_resume_and_honors_f11(tmp_path,monkeypatc
         raise AssertionError(action)
     monkeypatch.setattr(bridge,'request',merchant)
     def park(loop,cancelled,notify,**kwargs):
-        assert kwargs=={'seconds':12,'allow_town_retreat':False}
+        assert kwargs['seconds']==12 and kwargs['allow_town_retreat'] is False
+        assert kwargs['diagnostic']['outcome']=='interrupted'
         cancelled.is_set()
         return {'target':health['target']}
     monkeypatch.setattr(safe_reload,'park',park)

@@ -3,6 +3,36 @@ import time
 import pytest
 from conquest.merchants.empty_delivery_cancel import unchanged
 
+
+@pytest.mark.parametrize('phase,marker',[
+    ('cancel_submitted',True),('prepared',True),('cancel_verified',True)])
+def test_durable_cancel_marker_blocks_new_input_after_restart(tmp_path,monkeypatch,phase,marker):
+    from types import SimpleNamespace as NS
+    import threading
+    from conquest.merchants import empty_delivery_cancel as cancel,delivery_probe as probe
+    state={'phase':'trade_open_verified','character':'Spiritual'}
+    monkeypatch.setattr(probe,'JOURNAL',tmp_path/'probe.json')
+    probe.write_probe(probe.JOURNAL,state)
+    monkeypatch.setattr(cancel,'state_path',lambda _:tmp_path/'cancel.json')
+    cancel.save({'phase':phase,'character':'Spiritual','probe_digest':cancel.digest(state),
+                 'submitted_at':time.time(),'point':[10,10]})
+    monkeypatch.setattr(cancel,'pair',lambda *a:pytest.fail('Submitted cleanup cannot enter input preparation'))
+    ui=NS(coordinator=NS(lock=threading.RLock(),check=lambda:None),
+          runtime=NS(enabled=lambda _:False,manual_handoff_status=lambda:None),
+          safe_to_yield=lambda:True,app=NS(control=NS(snapshot=lambda:{'enabled':False,'paused':False})))
+    with pytest.raises(ValueError,match='one-shot|terminal receipt'):
+        cancel.start(ui,'Spiritual')
+    assert cancel.read()['submitted_at']>0
+
+
+def test_prepared_cancel_cannot_reconcile_as_submitted(monkeypatch):
+    from types import SimpleNamespace as NS
+    import threading
+    from conquest.merchants import empty_delivery_cancel as cancel
+    monkeypatch.setattr(cancel,'pair',lambda *a:pytest.fail('No ownership publication before submission'))
+    with pytest.raises(ValueError,match='No submitted'):
+        cancel._reconcile(NS(coordinator=NS(lock=threading.RLock())),{'phase':'prepared'})
+
 def pair():
     def snapshot(name,uid):
         return dict(character=name,character_uid=uid,identity={'pid':uid},server='America',

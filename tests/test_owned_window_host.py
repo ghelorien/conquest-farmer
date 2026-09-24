@@ -237,10 +237,16 @@ def test_merchant_manual_focus_preserves_pause_and_automation_owner():
     from conquest.merchants.ui import UnifiedUI
     from unittest.mock import Mock
     host=SimpleNamespace(saved=object(),mode='owned',parent=PANE,api=SimpleNamespace(activate_owned_click=Mock(return_value=True)))
-    ui=SimpleNamespace(closed=False,coordinator=SimpleNamespace(owner='Dutch'),hosts={'Spiritual':host},layout_status={})
+    safe_to_yield=Mock(return_value=False)
+    ui=SimpleNamespace(closed=False,coordinator=SimpleNamespace(owner='Dutch'),hosts={'Spiritual':host},
+                       layout_status={},safe_to_yield=safe_to_yield)
     assert not UnifiedUI.focus_clicked_merchant(ui)
     host.api.activate_owned_click.assert_not_called()
+    safe_to_yield.assert_not_called()
     ui.coordinator.owner=None
+    assert not UnifiedUI.focus_clicked_merchant(ui)
+    host.api.activate_owned_click.assert_not_called()
+    safe_to_yield.return_value=True
     assert UnifiedUI.focus_clicked_merchant(ui)
     assert 'click_focus_ms' in ui.layout_status['Spiritual']
     assert ui.coordinator.owner is None

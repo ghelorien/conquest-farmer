@@ -8,10 +8,16 @@ from conquest.merchants.delivery import reconcile,exact_items
 def promote(receipt_path,candidate_path,farmer_path,merchant_path,*,chain_evidence=None,check=None):
     state=read_json(receipt_path);candidate=read_json(candidate_path)
     intent=state.get('intent',{});farmer=state.get('farmer_after',{});merchant=state.get('merchant_after',{})
-    if (state.get('phase')!='delivery_verified' or candidate.get('client_sha256')!=CLIENT_SHA256
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    build=candidate.get('client_sha256')
+    if (state.get('phase')!='delivery_verified' or build not in (CLIENT_SHA256,CLIENT_SHA256_1078)
             or not state.get('verified_at') or not intent.get('items')
             or not reconcile(intent,farmer,merchant,now=max(farmer.get('timestamp',0),merchant.get('timestamp',0)))):
         raise ValueError('Qualification requires an exact completed two-account receipt')
+    if build==CLIENT_SHA256_1078 and any(
+            snapshot.get('client_sha256')!=build or snapshot.get('reader_build')!='1078-canonical-trade'
+            for snapshot in (farmer,merchant,intent.get('farmer',{}),intent.get('merchant',{}))):
+        raise ValueError('1078 qualification requires exact-build canonical observations throughout the exchange')
     if farmer['identity']!=intent['farmer']['identity'] or merchant['identity']!=intent['merchant']['identity']:
         raise ValueError('Input qualification requires the same client processes throughout the exchange')
     if (state.get('recipient',{}).get('uid')!=intent['merchant']['character_uid']
@@ -28,7 +34,7 @@ def promote(receipt_path,candidate_path,farmer_path,merchant_path,*,chain_eviden
             table='##ItemTable',columns=10,stride=[40,40],cell_offset=[20,20]),
         'trade_drop':dict(window='Trade##TradeWindow',mode='native_trade_drop'),
         'confirm_trade':dict(window='Trade##TradeWindow',mode='native_trade_confirm',label='Accept Trade')}
-    profile=dict(character=farmer['character'],server='America',client_sha256=CLIENT_SHA256,
+    profile=dict(character=farmer['character'],server='America',client_sha256=build,
         native_trade_layout_revision=1,controls=controls,recipient=candidate['recipient'],target_mode=candidate['target_mode'],
         gui_size=[int(hud['geometry'][0]*2+hud['geometry'][2]),int(hud['geometry'][1]+hud['geometry'][3])],
         evidence=str(Path(receipt_path)),capabilities={'farmer_delivery':True})
@@ -39,8 +45,23 @@ def promote(receipt_path,candidate_path,farmer_path,merchant_path,*,chain_eviden
             raise ValueError('Listing-chain audit evidence is unavailable')
         profile['listing_chain_evidence']=chain_evidence
     peer=read_json(merchant_path)
-    if peer.get('character')!=merchant['character'] or peer.get('client_sha256')!=CLIENT_SHA256:
+    if build==CLIENT_SHA256_1078 and (not peer or
+            peer.get('character')==merchant['character'] and peer.get('client_sha256')==CLIENT_SHA256):
+        previous=peer
+        peer={'character':merchant['character'],'character_uid':merchant['character_uid'],
+              'server':'America','client_sha256':build,'controls':{},'capabilities':{},
+              'evidence':str(Path(receipt_path)),'native_trade_layout_revision':1}
+        if previous:peer['previous_build_qualification']=previous
+    if peer.get('character')!=merchant['character'] or peer.get('client_sha256')!=build:
         raise ValueError('Merchant profile does not match the verified recipient')
+    if build==CLIENT_SHA256_1078:
+        from copy import deepcopy
+        from conquest.merchants.trade_driver_1078 import validate_receipt,receipt_digest
+        validate_receipt(state)
+        for document in (profile,peer):
+            document['trade_receipt_1078']=deepcopy(state)
+            document['trade_receipt_1078_sha256']=receipt_digest(state)
+            document['native_trade_layout_revision']=1
     peer.setdefault('controls',{}).update(
         accept_request=dict(window='###Confirm',mode='native_trade_request',label='Accept'),
         accept_trade=dict(window='Trade##TradeWindow',mode='native_trade_confirm',label='Accept Trade'))

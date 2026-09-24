@@ -17,35 +17,91 @@ SCROLL=720027
 DELIVERY_RETRY_SECONDS=900
 
 
+def _promoted_scroll_delivery(consolidation,uid,*,evidence=False):
+    """Recognize actual staged transfer evidence without inventing route receipts."""
+    from types import SimpleNamespace
+    import math
+    from conquest.character_context import current
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    from conquest.merchants.farmer_qualification import qualification_path
+    from conquest.merchants.trade_driver_1078 import validate_qualification,receipt_digest
+    context=current()
+    if context is None or context.profile.role!='Farmer':return False
+    try:
+        observer=SimpleNamespace(character=context.profile.name,
+            adapter=SimpleNamespace(expected_sha256=CLIENT_SHA256_1078))
+        profile=read_json(qualification_path(observer,migrate=False))
+        if (profile.get('profile_id')!=context.profile.id
+                or profile.get('character_uid')!=context.profile.character_uid
+                or profile.get('client_sha256')!=CLIENT_SHA256_1078
+                or profile.get('capabilities',{}).get('farmer_delivery') is not True):
+            return False
+        validate_qualification(profile,'farmer_delivery',context.profile.name)
+        receipt=profile['trade_receipt_1078']
+        intent=receipt['intent'];items=intent['items']
+        if (receipt.get('farmer_profile_id')!=context.profile.id or len(items)!=1
+                or items[0].get('uid')!=uid or items[0].get('type_id')!=SCROLL
+                or items[0].get('quantity')!=1 or items[0].get('bound') is not False
+                or any(items[0].get(key)!=0 for key in ('plus','gem1','gem2'))):
+            return False
+        for snapshot in (intent['farmer'],receipt['farmer_after']):
+            if (snapshot.get('character')!=context.profile.name
+                    or snapshot.get('character_uid')!=context.profile.character_uid
+                    or snapshot.get('server')!=context.profile.server):return False
+        stored_at=consolidation.get('market_verified_at');verified_at=receipt.get('verified_at')
+        stamps=[stored_at,verified_at,intent['farmer'].get('timestamp'),
+                intent['merchant'].get('timestamp'),receipt['farmer_after'].get('timestamp'),
+                receipt['merchant_after'].get('timestamp')]
+        if (any(type(t) not in (int,float) or not math.isfinite(t) or t<=0 for t in stamps)
+                or not stored_at<=verified_at<=time.time()
+                or any(not stored_at<=t<=verified_at for t in stamps[2:])):return False
+        # Promotion archives the exact canonical receipt before writing the
+        # qualification. Read our profile's archive, never an arbitrary path
+        # named by the document (packaged and physical roots may be aliases).
+        digest=receipt_digest(receipt)
+        if Path(profile.get('evidence','')).name!=digest+'.json':return False
+        archive=Path(state_path('reports/merchants/delivery-request-probe-audit'))/(digest+'.json')
+        raw=archive.read_bytes()
+        valid=hashlib.sha256(raw).hexdigest()==digest and json.loads(raw)==receipt
+        return receipt if valid and evidence else valid
+    except (OSError,ValueError,KeyError,TypeError,AttributeError):
+        return False
+
+
 def completed_stored_scroll():
     """Return delivery intent only; fresh Market memory remains withdrawal authority."""
-    state=read_json(JOURNAL);uid=state.get('scroll_uid')
-    if (state.get('phase')!='completed' or state.get('exchange_verified') is not True
-            or not state.get('market_verified_at') or type(uid) is not int or uid<=0
-            or state.get('user_confirmed_scroll_consumption')
-            or state.get('user_confirmed_scroll_transfer')):
-        return None
-    deferred=state.get('delivery_deferred') or {}
-    if (deferred.get('uid')==uid and type(deferred.get('at')) in (int,float)
-            and 0<=time.time()-deferred['at']<DELIVERY_RETRY_SECONDS):
-        return None
-    stored=any(row.get('type_id')==SCROLL and row.get('verified_in_warehouse') is True
-               and row.get('stored',row.get('uid'))==uid for row in state.get('receipts',[]))
-    if not stored:return None
-    from conquest.merchants.delivery_route import receipt_for
-    delivered=receipt_for(uid,SCROLL)
-    if delivered and delivered.get('outcome')=='transferred' and delivered.get('proof_digest'):return None
-    return uid
+    from conquest import stored_scroll_queue as queue
+    current=read_json(JOURNAL)
+    if current.get('phase') not in TERMINAL:return None
+    queue.capture(JOURNAL,current)
+    from conquest.merchants.delivery_route import STATE as delivery_state
+    receipts=read_json(delivery_state).get('receipts',[])
+    for row in queue.pending(JOURNAL):
+        uid=row['uid'];state=row['evidence']
+        delivered=next((r for r in reversed(receipts) if r.get('outcome')=='transferred'
+            and r.get('proof_digest') and any(i.get('uid')==uid and i.get('type_id')==SCROLL
+                for i in r.get('items',[]))),None)
+        if delivered:
+            queue.complete(JOURNAL,uid,delivered);continue
+        promoted=_promoted_scroll_delivery(state,uid,evidence=True)
+        if promoted:
+            queue.complete(JOURNAL,uid,promoted);continue
+        if row['deferred_at'] is not None and time.time()-row['deferred_at']<DELIVERY_RETRY_SECONDS:
+            continue
+        return uid
+    return None
 
 
 def defer_stored_scroll(uid):
     """Back off one exact, freshly re-banked scroll without losing intent."""
     state=read_json(JOURNAL)
-    if (type(uid) is not int or uid<=0 or state.get('phase')!='completed'
-            or state.get('exchange_verified') is not True or state.get('scroll_uid')!=uid):
-        raise ValueError('Deferred scroll does not match the completed consolidation journal')
-    state['delivery_deferred']={'uid':uid,'at':time.time()}
-    write_json(JOURNAL,state)
+    from conquest import stored_scroll_queue as queue
+    if type(uid) is not int or uid<=0:raise ValueError('Deferred scroll UID is invalid')
+    queue.capture(JOURNAL,state)
+    now=time.time();queue.defer(JOURNAL,uid,now)
+    if state.get('scroll_uid')==uid:
+        state['delivery_deferred']={'uid':uid,'at':now}
+        write_json(JOURNAL,state)
 
 
 def batch(items):
@@ -612,6 +668,10 @@ def consolidate(loop,stored=None):
     previous=_recover_archive_boundary()
     if previous and previous.get('phase') not in TERMINAL:
         raise ValueError('An unfinished Meteor transfer needs reconciliation; no new batch withdrawn')
+    # Commit old exact storage intent before any operation can replace its
+    # journal. A crash on either side is safe and UID-idempotent.
+    from conquest.stored_scroll_queue import capture
+    capture(JOURNAL,previous)
     # `stored` used to be a caller-provided snapshot.  It could be stale by
     # the time an override was confirmed, so every new operation obtains its
     # own read-only bag and warehouse observations here.

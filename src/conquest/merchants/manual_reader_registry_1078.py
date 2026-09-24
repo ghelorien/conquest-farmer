@@ -136,7 +136,8 @@ class ManualReaderRegistry1078:
         with self.session_factory(binding.identity["pid"], CLIENT_SHA256_1078) as session:
             if session.identity != binding.identity:
                 raise ManualReaderIdentityChanged1078(target)
-            snapshot = open_read_only_1078(session, binding.character).read_manual_ownership()
+            from conquest.merchants.trade_reader_1078 import manual_ownership
+            snapshot = manual_ownership(session, binding.character)
         if snapshot["character"] != binding.character or snapshot["identity"] != binding.identity:
             raise ManualReaderIdentityChanged1078(target)
         # An open modal is valid observation evidence. The durable handoff

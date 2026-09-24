@@ -174,6 +174,12 @@ class UnifiedUI:
         app.pane.lift()
         self.coordinator = InputCoordinator(self.safe_to_yield,app.mouse_priority.active)
         self.runtime = MerchantRuntime(app.catalog,self.coordinator)
+        self.released_clients={c for c in CHARACTERS if self.runtime.journal.get(c,'host_released',False)}
+        from conquest.merchants.refill_1078 import step as refill1078_step
+        self.runtime.refill1078_step = lambda character, snapshot: refill1078_step(self, character, snapshot)
+        from conquest.merchants.listing_handoff_1078 import farmer_safe as native_farmer_safe
+        self.runtime.native1078_farmer_check = lambda: native_farmer_safe(self)
+        self.coordinator.native_trade1078_policy = self.native1078_surface_allowed
         self.runtime.configure_manual_farmer(lambda:getattr(app,'observer',None),app.control.snapshot)
         from conquest.merchants.delivery_status import enrich
         self.runtime.status_projection=lambda states:enrich(self,states)
@@ -181,6 +187,12 @@ class UnifiedUI:
         from conquest.merchants.presentation import MerchantPresentation
         self.presentation = MerchantPresentation(self.runtime)
         def owner_allowed(character):
+            if (self.grant or {}).get('scope')=='merchant_host':
+                return is_farmer_owner(character) and self.coordinator.purpose=='merchant_host'
+            if (self.grant or {}).get('scope') == 'listing_1078':
+                if (character != self.grant.get('character')
+                        or self.coordinator.purpose != 'booth_listing_1078_once'):
+                    return False
             if is_farmer_owner(character):
                 return True
             # A disabled merchant may perform only the single receipt-bound
@@ -192,15 +204,21 @@ class UnifiedUI:
             if self.coordinator.purpose=='delivery_probe_abort':
                 from conquest.merchants.delivery_abort_probe import lease_authorized
                 return lease_authorized(self,character)
+            if self.coordinator.purpose=='empty_delivery_cancel':
+                from conquest.merchants.empty_delivery_cancel import lease_authorized
+                return lease_authorized(self,character)
             if self.coordinator.purpose=='booth_probe_1078_no_submit':
                 return self.coordinator.booth_probe_authorized(character)
             if self.coordinator.purpose=='booth_listing_1078_once':
                 return self.coordinator.booth_listing_once_authorized(character)
+            if self.coordinator.purpose=='delivery_confirm_probe' and self.runtime.read_only_1078(character):
+                return self.coordinator.native_trade1078_authorized(character)
             return self.runtime.input_allowed(character) or (
                 not getattr(self.runtime,'delivery_window',None) and not getattr(self.runtime,'refill_window',None)
                 and character in self.calibrating and not self.calibration_cancel[character].is_set())
         self.coordinator.owner_allowed = owner_allowed
         self.coordinator.on_acquire = self.prepare_input
+        self.coordinator.on_native_acquire = self.prepare_native_host_input
         self.coordinator.on_release = self.release_input
         self.coordinator.fence=self.grant_fence
         # Get the process lock before installing any input hook or starting
@@ -237,9 +255,38 @@ class UnifiedUI:
         self.root.after(500,self.poll)
         self.root.after(50,self.poll_ui_requests)
 
+    def native1078_surface_allowed(self, character):
+        """Bypass legacy hosting only for an exact qualified trade/probe lease."""
+        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        observer = self.runtime.observers.get(character)
+        if (observer is None or observer.adapter.expected_sha256 != CLIENT_SHA256_1078
+                or self.closed or self.app.closing or not self.safe_to_yield()
+                or self.runtime.manual_handoff_status() is not None):
+            return False
+        observer.adapter.assert_identity()
+        native = observer.operations.target.snapshot()
+        if native['root_hwnd'] != observer.operations.target.hwnd:
+            return False
+        purpose = self.coordinator.purpose
+        if purpose == 'trade':
+            return self.runtime.trade1078_input_allowed(character)
+        if purpose == 'delivery_accept_probe':
+            from conquest.merchants.delivery_accept_probe import lease_authorized
+            return lease_authorized(self, character)
+        if purpose == 'delivery_confirm_probe':
+            from conquest.merchants import delivery_confirm_probe
+            validate = getattr(delivery_confirm_probe, 'lease_authorized', None)
+            return bool(validate and validate(self, character))
+        if purpose == 'empty_delivery_cancel':
+            from conquest.merchants.empty_delivery_cancel import lease_authorized
+            return lease_authorized(self,character)
+        return False
+
     def safe_to_yield(self):
         if self.app.closing:
             return False
+        if (self.grant or {}).get('scope')=='merchant_host':
+            return False  # Host geometry is not permission for any game worker.
         control = self.app.control.snapshot()
         if self.grant:
             fence=getattr(self,'grant_fence',None)
@@ -270,8 +317,11 @@ class UnifiedUI:
         if action in ('merchant-booth-probe-1078', 'merchant-booth-probe-status-1078'):
             from conquest.merchants.booth_probe_1078 import dispatch
             return dispatch(self, body)
+        if action == 'merchant-booth-list-handoff-1078':
+            from conquest.merchants.listing_handoff_1078 import request_operator
+            return request_operator(self, body)
         if action in ('merchant-booth-list-once-1078', 'merchant-booth-list-once-status-1078',
-                      'merchant-booth-list-once-reconcile-1078'):
+                      'merchant-booth-list-once-reconcile-1078', 'merchant-booth-list-once-cancel-1078'):
             from conquest.merchants.booth_listing_once_1078 import dispatch
             return dispatch(self, body)
         if action=='merchant-booth-confirm-diagnostic-1078':
@@ -374,6 +424,9 @@ class UnifiedUI:
         if action=='cancel-empty-delivery' and set(body)=={'action','character'}:
             from conquest.merchants.empty_delivery_cancel import start
             return start(self,body['character'])
+        if action=='cancel-empty-delivery-reconcile' and set(body)=={'action','character'}:
+            from conquest.merchants.empty_delivery_cancel import reconcile
+            return reconcile(self,body['character'])
         if action=='probe-delivery-request' and set(body)=={'action','character','uids'}:
             from conquest.merchants.delivery_probe import start
             return start(self,body['character'],uids=body['uids'])
@@ -536,7 +589,8 @@ class UnifiedUI:
                     if self.runtime.refill_enabled(character) and (
                             self.runtime.refills[character].due()
                             or self.runtime.journal.get(character,'new_stock',False)):
-                        self.runtime.refills[character].start(visit_id=self.grant.get('visit_id'),
+                        from conquest.merchants.refill_1078 import start as start_refill
+                        start_refill(self.runtime, character, visit_id=self.grant.get('visit_id'),
                             town_visit_id=self.grant.get('town_visit_id'),operation_id=key,
                             source_delivery_operation_id=refill_source(key,character))
             finally:self.coordinator.lock.release()
@@ -587,8 +641,11 @@ class UnifiedUI:
             return self.runtime.override_manual(body['session_id'],
                 confirmation_reference=body['confirmation_reference'],operator=body['operator'],reason=body['reason'])
         if action=='status' and set(body)=={'action'}:
+            from conquest.merchants.restore_hosts import requested as host_requested
             return {'characters':self.runtime.status(),'input_owner':self.coordinator.owner,
+                'host_request':host_requested(self),
                 'handoff_requested':self.runtime.handoff,'handoff_granted':bool(self.grant and self.safe_to_yield()),
+                'handoff_active':bool(self.grant or self.grant_fence.active),
                 'calibration':dict(self.calibration_results),'layout':dict(self.layout_status),
                 'ui_health':{**self.ui_health,'tick_age_ms':round((time.monotonic()-self.last_ui_tick)*1000)},
                 'sales_reporting':self.runtime.sales_worker.status(),
@@ -701,7 +758,8 @@ class UnifiedUI:
                 raise ValueError('Invalid request ID')
             for character in CHARACTERS:
                 if self.runtime.refill_enabled(character):
-                    self.runtime.refills[character].start()
+                    from conquest.merchants.refill_1078 import start as start_refill
+                    start_refill(self.runtime, character)
             self.runtime.handoff=body['request_id']
             return {'requested':body['request_id']}
         if action=='handoff-request' and set(body)=={'action','request_id'}:
@@ -710,25 +768,54 @@ class UnifiedUI:
             self.runtime.handoff = body['request_id']
             return {'requested':body['request_id'],'ready':self.safe_to_yield()}
         if action=='handoff-grant' and set(body) in ({'action','request_id','revision','expires_at','safe'},
-                {'action','request_id','revision','expires_at','safe','scope','visit_id'}):
+                {'action','request_id','revision','expires_at','safe','scope'},
+                {'action','request_id','revision','expires_at','safe','scope','visit_id'},
+                {'action','request_id','revision','expires_at','safe','scope','character'}):
             market=body.get('scope')=='market_visit'
+            listing=body.get('scope')=='listing_1078'
+            hosting=body.get('scope')=='merchant_host'
+            from conquest.merchants.restore_hosts import requested as host_requested
+            host_request=host_requested(self) if hosting else None
             control=self.app.control.snapshot()
-            if 'scope' in body and not market:raise ValueError('Unknown handoff scope')
-            if (body['request_id'] != self.runtime.handoff or body['safe'] is not True
+            if ('scope' in body and not (market or listing or hosting)
+                    or market and 'visit_id' not in body or listing and 'character' not in body):
+                raise ValueError('Unknown handoff scope or binding')
+            if (body['request_id'] != (host_request or {}).get('request_id') if hosting else body['request_id'] != self.runtime.handoff):
+                raise ValueError('Handoff request changed')
+            if (body['safe'] is not True
                     or body['revision'] != control['revision'] or control['enabled'] or control.get('paused')
                     or type(body['expires_at']) not in (int,float)
-                    or not 0 < body['expires_at']-time.time() <= (60 if market else 15)):
+                    or not 0 < body['expires_at']-time.time() <= (60 if market else 45 if listing else 15)):
                 raise ValueError('Farmer must explicitly grant a current bounded safe handoff')
             visit=None
             if market:
                 from conquest.merchants.service_visit import validate_grant
                 visit=validate_grant(self,body)
+            authority=None
+            if hosting:
+                if (self.grant or self.coordinator.owner or getattr(self.runtime,'delivery_window',None)
+                        or getattr(self.runtime,'refill_window',None)):
+                    raise ValueError('Release current merchant work before host attachment')
+                from conquest.merchants.listing_handoff_1078 import parked
+                parked(self)
+            if listing:
+                from conquest.merchants.listing_handoff_1078 import validate_grant
+                authority=validate_grant(self,body)
             fence=getattr(self,'grant_fence',None)
             if fence:
                 from conquest.merchants.service_visit import farmer_id
                 fence.activate(body['request_id'],body['revision'],body['expires_at'],
-                    scope='market_visit' if market else 'hunting',farmer_profile_id=farmer_id())
+                    scope='merchant_host' if hosting else 'market_visit' if market else 'listing_1078' if listing else 'hunting',
+                    farmer_profile_id=farmer_id())
             self.grant = dict(body)
+            if hosting:
+                self.grant['previous_handoff']=self.runtime.handoff
+                self.runtime.handoff=body['request_id']
+                # The Tk poll attaches exact clients under the shared input
+                # lock; host scope cannot start listing, trade or recovery.
+            if listing:
+                self.grant['listing_authority']=authority
+                self.runtime.refill_window=body['request_id']
             if visit:
                 self.grant['town_visit_id']=visit.get('town_visit_id')
                 self.grant['farmer_profile_id']=visit['farmer_profile_id']
@@ -739,6 +826,12 @@ class UnifiedUI:
             self.runtime.work_deadline = body['expires_at']
             return {'granted':True}
         if action=='handoff-release' and set(body)=={'action','request_id'}:
+            hosting=(self.grant or {}).get('scope')=='merchant_host'
+            previous_handoff=(self.grant or {}).get('previous_handoff') if hosting else None
+            if hosting:self.host_release_pending=(body['request_id'],previous_handoff)
+            saved_host_release=getattr(self,'host_release_pending',None)
+            if saved_host_release and saved_host_release[0]==body['request_id']:
+                hosting=True;previous_handoff=saved_host_release[1]
             fence=getattr(self,'grant_fence',None)
             if fence and body['request_id'] in fence.requests:
                 released=fence.revoke(body['request_id'])
@@ -751,10 +844,13 @@ class UnifiedUI:
             # Revocation prevents the next input, but release events still run.
             if self.coordinator.owner:
                 return {'released':False,'waiting_for_input_release':True}
-            self.runtime.handoff = None
+            self.runtime.handoff = previous_handoff
             self.runtime.delivery_window = None
             self.runtime.refill_window = None
-            self.runtime.finish_handoff()
+            if hosting:
+                self.runtime.work_deadline=None
+                self.host_release_pending=None
+            else:self.runtime.finish_handoff()
             return {'released':True}
         raise ValueError('Unsupported merchant command or arguments')
 
@@ -1409,11 +1505,16 @@ class UnifiedUI:
                 self.calibration_results[character]={'verified':False,
                     'note':'Manual view unavailable; keep this Client tab selected and do not use automation controls'}
             return
-        if host and host.saved:return
+        if host and host.saved and not getattr(self.runtime.observers.get(character),'merchant_observation_only',False):return
         # Attachment is independent of booth/trade read availability. A foreign
         # shop panel must not make the actual game window inaccessible.
         observer=self.runtime.observers.get(character)
-        if observer is None or getattr(observer,'merchant_observation_only',False):return
+        if observer is None:return
+        if getattr(observer,'merchant_observation_only',False):
+            from conquest.merchants.restore_hosts import restore_readonly
+            try:restore_readonly(self,character)
+            except (OSError,ValueError,CaptureUnavailable):pass
+            return
         self.auto_embedding=True
         try:
             self.embed_client(character,automatic=True)
@@ -1488,14 +1589,19 @@ class UnifiedUI:
                     and pane.winfo_ismapped()):
                 try:
                     observer.adapter.assert_identity()
-                    size=(pane.winfo_width(),pane.winfo_height())
-                    if min(size)>1:
-                        host.resize(*size)
-                        status.update(native_visible=bool(host.api.gui.IsWindowVisible(host.saved.hwnd)),
-                                      selected=True)
-                except (OSError,ValueError):
+                    from conquest.merchants.restore_hosts import restore_readonly
+                    restore_readonly(self,character)
+                except (OSError,ValueError,CaptureUnavailable):
                     self.calibration_results[character]={'verified':False,
                         'note':'Read-only client layout is unavailable; input remains fenced'}
+            elif (host and host.saved and observer and not pane.winfo_ismapped()
+                    and not self.coordinator.owner and self.coordinator.lock.acquire(blocking=False)):
+                try:
+                    if not self.coordinator.owner and host.saved.identity==observer.adapter.identity:
+                        host.api.assert_owner(host.saved.hwnd,host.saved.identity)
+                        host.api.show_async(host.saved.hwnd,0)
+                        status.update(native_visible=False,selected=False)
+                finally:self.coordinator.lock.release()
             return
         # A delayed Tk layout event is not allowed to alter merchant permission
         # while a delivery or another native input handoff owns the surface.
@@ -1581,12 +1687,14 @@ class UnifiedUI:
             if not automatic:
                 self.defer_background_action(lambda:self.embed_client(character))
             return
-        self.released_clients.discard(character)
+        if not automatic:
+            from conquest.merchants.restore_hosts import released
+            released(self,character,False)
         started = time.monotonic()
         try:
             self.embed_merchant(character,automatic=automatic)
-            self.layout_status[character] = {'embed_ms':round((time.monotonic()-started)*1000),
-                'queue_ms':round((started-queued_at)*1000) if queued_at is not None else 0}
+            self.layout_status.setdefault(character,{}).update(embed_ms=round((time.monotonic()-started)*1000),
+                queue_ms=round((started-queued_at)*1000) if queued_at is not None else 0)
         except (OSError,ValueError) as error:
             self.calibration_results[character] = {'verified':False,'note':str(error)}
 
@@ -1598,6 +1706,15 @@ class UnifiedUI:
     def embed_merchant(self, character, *, automatic=False):
         if probe_busy(self):
             raise ValueError('Background diagnostic owns the client; wait for restoration')
+        observer=self.runtime.observers.get(character)
+        if observer and getattr(observer,'merchant_observation_only',False):
+            from conquest.merchants.restore_hosts import restore_readonly
+            if not automatic:
+                self.notebook.select(self.frames[character]);self.detail_tabs[character].select(0)
+                self.apply_client_compact_layout();self.root.update_idletasks()
+            if not restore_readonly(self,character):
+                raise ValueError('Waiting for a fresh safe farmer handoff before showing this merchant')
+            return observer
         if (not self.safe_to_yield() or self.runtime.enabled(character) and not automatic
                 or self.calibrating and character not in self.calibrating):
             raise ValueError('Pause the merchant and wait for a safe farmer handoff before embedding')
@@ -1674,6 +1791,24 @@ class UnifiedUI:
                 other_host.api.assert_owner(other_host.saved.hwnd,other_host.saved.identity)
                 other_host.api.show_async(other_host.saved.hwnd,0)
         self.resize_merchant(character,automatic=True)
+
+    def prepare_native_host_input(self, character):
+        """Present an existing exact host only after its native lease qualified."""
+        from conquest.merchants.restore_hosts import present_native
+        host=self.hosts.get(character)
+        if not host or not host.saved:return
+        observer=self.runtime.observers.get(character)
+        expected=(host,observer,host.saved.hwnd,dict(host.saved.identity),self.coordinator.purpose)
+        done,result=threading.Event(),{}
+        callback=lambda:present_native(self,character,expected)
+        fence=getattr(self,'grant_fence',None)
+        if fence:callback=fence.guard_callback(fence.capture(),callback)
+        self.ui_requests.put((callback,done,result))
+        if not done.wait(5):
+            result['expired']=True
+            raise ValueError('Exact native merchant pane did not become available')
+        if result.get('error'):raise ValueError(result['error'])
+        wait_for_merchant_surface(host,[h for h in self.hosts.values() if h is not host],self.coordinator.check)
 
     def prepare_input(self, character):
         if is_farmer_owner(character) or self.coordinator.purpose=='connect_launch':
@@ -2020,7 +2155,8 @@ class UnifiedUI:
             self.calibration_results[character] = {'verified':False,'note':'Waiting for input release; press Release client again'}
             return
         host = self.hosts.get(character)
-        self.released_clients.add(character)
+        from conquest.merchants.restore_hosts import released
+        released(self,character,True)
         if host:
             host.detach()
 

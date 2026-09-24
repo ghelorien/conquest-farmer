@@ -1,6 +1,34 @@
+import ctypes
+from ctypes import wintypes
+from types import SimpleNamespace
 import pytest
 
-from conquest.input_probe import click_probe, key_probe, positioned_click_probe
+from conquest.input_probe import MessageTarget, click_probe, key_probe, positioned_click_probe
+
+
+def test_health_snapshot_fences_only_access_denied_cursor_observation():
+    target = MessageTarget.__new__(MessageTarget)
+    target.pid, target.hwnd = 41, 500
+    def pid(_hwnd, pointer):
+        ctypes.cast(pointer, ctypes.POINTER(wintypes.DWORD)).contents.value = 41
+        return True
+    def rect(_hwnd, pointer):
+        value = ctypes.cast(pointer, ctypes.POINTER(wintypes.RECT)).contents
+        value.right, value.bottom = 800, 600
+        return True
+    target.backend = SimpleNamespace(window_pid=pid, client_rect=rect,
+        foreground=lambda: 7, iconic=lambda _root: False,
+        error=lambda _name: OSError(5, 'Access is denied'))
+    target.ancestor_api = lambda _hwnd, _mode: 500
+    target.cursor_api = lambda _pointer: False
+    with pytest.raises(OSError):
+        target.snapshot()  # Every input path remains strict.
+    state = target.snapshot(allow_cursor_unavailable=True)
+    assert state['pid'] == 41 and state['client_size'] == [800, 600]
+    assert state['cursor'] is None and state['cursor_available'] is False
+    target.backend.error = lambda _name: OSError(6, 'Invalid handle')
+    with pytest.raises(OSError, match='Invalid handle'):
+        target.snapshot(allow_cursor_unavailable=True)
 
 
 class FakeTarget:

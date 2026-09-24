@@ -7,6 +7,12 @@ from conquest.capture import CaptureUnavailable
 
 MESSAGE = 'Mouse control is yours; farming resumes after 2 seconds idle'
 
+def desktop_access_denied(error):
+    """Recognize the desktop's transient Win32 access-denied observation."""
+    return (getattr(error, 'winerror', None) == 5
+            or (getattr(error, 'winerror', None) is None
+                and error.args and error.args[0] == 5))
+
 class MousePriority:
     def __init__(self, sample, *, clock=time.monotonic, idle_seconds=2):
         self.sample, self.clock, self.idle_seconds = sample, clock, idle_seconds
@@ -15,14 +21,33 @@ class MousePriority:
         self.owned_buttons=0
         self.owned_keys=set()
         self.until=0
+        self.observation_gap=False
+
+    def _cursor_unavailable(self):
+        self.until=self.clock()+self.idle_seconds
+        self.position=None
+        self.observation_gap=True
+
+    def mark_observation_gap(self):
+        with self.lock:
+            self._cursor_unavailable()
 
     def active(self):
         with self.lock:
-            position,buttons=self.sample()
+            try:
+                position,buttons=self.sample()
+            except OSError as error:
+                if not desktop_access_denied(error):raise
+                # The physical pointer cannot be observed on this desktop.
+                # Fence input now and require a full idle interval after it returns.
+                self._cursor_unavailable()
+                return True
             now=self.clock()
-            if ((self.position is not None and position!=self.position)
+            if (self.observation_gap
+                    or (self.position is not None and position!=self.position)
                     or buttons & ~self.owned_buttons):
                 self.until=now+self.idle_seconds
+            self.observation_gap=False
             self.position=position
             return now<self.until
 
@@ -35,7 +60,13 @@ class MousePriority:
             result=callback()
             if result:
                 self.owned_buttons=(self.owned_buttons|down)&~up
-                if moving:self.position=self.sample()[0]
+                if moving:
+                    try:self.position=self.sample()[0]
+                    except OSError:
+                        # The callback already sent input; retain its result and
+                        # hold subsequent input. The next pre-input observation
+                        # still raises any unexpected desktop error.
+                        self._cursor_unavailable()
             return result
 
 _guard=None
@@ -66,6 +97,9 @@ def install():
 
 def active():
     return bool(_guard and _guard.active())
+
+def mark_observation_gap():
+    if _guard:_guard.mark_observation_gap()
 
 def require_idle():
     from conquest.merchants.coordination import check_input

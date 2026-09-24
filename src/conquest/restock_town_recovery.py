@@ -20,6 +20,187 @@ MONEY = Path(state_path('reports/banking/transfers.jsonl'))
 FIELDS = ('uid', 'type_id', 'amount', 'plus', 'gem1', 'gem2', 'bound', 'quantity')
 
 
+def _save_tail(visit, row):
+    from conquest.meteor_banking import _durable_json
+    _durable_json(visit.path, row)
+
+
+def _native_tail_safe(loop, target, map_id):
+    loop.check_stop()
+    health=loop.health();data=health.get('embedded_controls') or {}
+    life=data.get('life') or {};control=data.get('control') or {}
+    if (not _process_identity(target) or health.get('target')!=target or loop.identity!=target
+            or health.get('profile_id')!=loop.town_visit.profile
+            or life.get('map_id')!=map_id or life.get('dead_candidate') is not False
+            or life.get('current_hp',0)<=0 or control.get('enabled') is not False
+            or control.get('paused') or data.get('manual_input_fence') or data.get('manual_mouse')
+            or not 0<=time.time()-data.get('observed_at',0)<=1 or _other_holds()):
+        raise ValueError('Interrupted restock continuation lacks fresh safe original ownership')
+
+
+def capture_pre_admission_tail(loop):
+    """Bind the exact historical grant rejection before native Meteor recovery."""
+    import sqlite3
+    from conquest.meteor_banking import JOURNAL
+    from conquest.merchants.delivery_operation import JOURNAL as deliveries
+    from conquest.merchants.service_visit import MarketVisit
+    from conquest.merchants.bridge import request
+    visit=loop.town_visit;row=visit.state()
+    if row.get('town_work_completed_at'):return False
+    prior=row.get('pre_admission_restock_tail')
+    if prior:
+        resumed=read_json(JOURNAL);market=read_json(MarketVisit().path)
+        if (prior.get('phase')!='captured' or row.get('phase')!='town_work'
+                or row.get('reasons')!=['restock']
+                or any(resumed.get(k)!=prior['meteor'].get(k) for k in
+                       ('started_at','scroll_uid','meteor_uids','origin','after'))
+                or any(market.get(k)!=prior['market'].get(k) for k in
+                       ('visit_id','town_visit_id','farmer_profile_id','started_at','deadline'))):
+            raise ValueError('Captured restock continuation changed before Meteor recovery')
+        _native_tail_safe(loop,prior['target'],1036)
+        return True
+    meteor=read_json(JOURNAL)
+    if (row.get('phase')!='town_work' or row.get('reasons')!=['restock']
+            or meteor.get('phase')!='storing_scroll'):return False
+    history=row.get('history') or [];previous=history[-1] if history else {}
+    target=previous.get('return_target');session=(row.get('baseline') or {}).get('session_id')
+    historical=previous.get('resumed_hunting') or {}
+    kills=read_json(state_path('reports/desktop-farming/kill-session.json'))
+    if (previous.get('phase')!='complete' or not _process_identity(target)
+            or not previous.get('completed_at',float('inf'))<row['required_at']
+            or not session or historical.get('session_id')!=session
+            or kills.get('started_at')!=session
+            or row.get('route_id')!=loop.route.id or row.get('hunt_map_id')!=loop.route.map_id
+            or historical.get('cursor',float('inf'))>=row['baseline'].get('cursor',0)
+            or meteor.get('origin')!=loop.route.restock_map_id
+            or meteor.get('exchange_verified') is not True
+            or not row['required_at']<=meteor.get('started_at',0)
+            or meteor.get('return_submitted_at') or meteor.get('receipts')
+            or meteor.get('user_confirmed_scroll_consumption') or meteor.get('user_confirmed_scroll_transfer')):
+        raise ValueError('Interrupted restock lacks its original process and exchange chain')
+    _native_tail_safe(loop,target,1036)
+    events=[e for e in _rows(EVENTS) if e.get('town_visit_id')==row['town_visit_id']]
+    failure=next((e for e in reversed(events) if e.get('event')=='failed'
+                  and e.get('detail')=='Unqualified merchant client fingerprint'
+                  and e.get('error_type')=='conquest.merchants.bridge.MerchantRejected'),{})
+    frames={(Path(f.get('file','')).name,f.get('function'),f.get('line'))
+            for f in failure.get('failure_trace',[])}
+    if (failure.get('event')!='failed' or failure.get('detail')!='Unqualified merchant client fingerprint'
+            or failure.get('error_type')!='conquest.merchants.bridge.MerchantRejected'
+            or ('delivery_route.py','_market_storage',396) not in frames
+            or not {('banking.py','after_shopping'),('meteor_banking.py','resume'),
+                    ('meteor_banking.py','market_bank')} <= {(a,b) for a,b,c in frames}
+            or failure.get('time',0)<meteor['started_at']):
+        raise ValueError('Restock continuation is not the exact pre-admission grant rejection')
+    # Restart bookkeeping and this exact read-only capture rejection cannot
+    # hide the original grant failure. Every later gameplay event remains held.
+    for event in events:
+        if event.get('time',0)<=failure['time']:continue
+        if event.get('event') in ('started','stopped'):continue
+        trace=event.get('failure_trace') or []
+        last=trace[-1] if trace else {}
+        if (event.get('event')=='failed' and event.get('error_type')=='builtins.ValueError'
+                and event.get('detail')=='Merchant input or manual ownership still holds the interrupted trip'
+                and Path(last.get('file','')).name=='restock_town_recovery.py'
+                and last.get('function')=='capture_pre_admission_tail'):
+            continue
+        raise ValueError('Gameplay or an unrecognized failure followed the interrupted restock')
+    market=read_json(MarketVisit().path)
+    if (market.get('phase')!='active' or market.get('town_visit_id')!=row['town_visit_id']
+            or market.get('parent_visit_id')!=row['town_visit_id']
+            or market.get('farmer_profile_id')!=visit.profile or market.get('attempts')
+            or not market.get('started_at',0)<=failure['time']<=market.get('deadline',0)<time.time()):
+        raise ValueError('Original exhausted Market visit is unavailable')
+    if deliveries.exists():
+        with sqlite3.connect(deliveries.resolve().as_uri()+'?mode=ro',uri=True) as db:
+            if (db.execute('SELECT 1 FROM delivery_admissions WHERE created>=? LIMIT 1',(row['required_at'],)).fetchone()
+                    or db.execute('SELECT 1 FROM transactions WHERE created>=? LIMIT 1',(row['required_at'],)).fetchone()):
+                raise ValueError('A delivery was admitted during this interrupted restock')
+    status=request({'action':'status'})
+    manual=request({'action':'manual-status'}).get('farmer') or {}
+    from conquest.merchants.handoff import qualified_listing_request
+    pending=status.get('handoff_requested')
+    if (status.get('input_owner') is not None
+            or pending is not None and qualified_listing_request(status) is None
+            or status.get('handoff_granted') is not False or manual.get('session')
+            or manual.get('input_fenced')):
+        raise ValueError('Merchant input or manual ownership still holds the interrupted trip')
+    bag=loop.town('supplies')
+    if _ownership(bag)!=_ownership(meteor['after']):
+        raise ValueError('Post-exchange ownership changed before recovery')
+    row['pre_admission_restock_tail']={'target':target,'failure':failure,'market':market,
+        'meteor':meteor,'bag':bag,'captured_at':time.time(),'phase':'captured'}
+    _save_tail(visit,row)
+    return True
+
+
+def resume_pre_admission_tail(loop):
+    """Finish only the unreturned cash/panel tail, never replay purchases."""
+    from conquest import banking,meteor_banking
+    from conquest.merchants.service_visit import MarketVisit
+    from conquest.merchants.handoff import service_window
+    from conquest.town_trade import stash_candidate
+    from conquest.overnight import needs_town,supply_counts
+    from conquest.town_visit import checkpoint_verified_tail
+    visit=loop.town_visit;row=visit.state();claim=row.get('pre_admission_restock_tail')
+    if not claim or row.get('town_work_completed_at'):return False
+    if claim.get('phase')!='captured':
+        raise ValueError('Interrupted restock cash tail was attempted; reconcile before any replay')
+    if row.get('phase')!='town_work' or row.get('reasons')!=['restock']:
+        raise ValueError('Interrupted restock visit changed')
+    _native_tail_safe(loop,claim['target'],loop.route.restock_map_id)
+    meteor=read_json(meteor_banking.JOURNAL);original=claim['meteor']
+    market=read_json(MarketVisit().path)
+    if (meteor.get('phase')!='completed' or meteor.get('exchange_verified') is not True
+            or any(meteor.get(k)!=original.get(k) for k in ('started_at','scroll_uid','meteor_uids','origin','after'))
+            or not original['started_at']<=meteor.get('market_verified_at',0)<=meteor.get('completed_at',0)
+            or any(market.get(k)!=claim['market'].get(k) for k in
+                   ('visit_id','town_visit_id','farmer_profile_id','started_at','deadline'))
+            or market.get('phase')!='departed'):
+        raise ValueError('Existing Meteor return or original Market budget is unverified')
+    receipts=meteor.get('receipts') or [];stored={r.get('stored') for r in receipts}
+    original_items={i['uid']:i for i in claim['bag']['items']}
+    if (len(stored)!=len(receipts) or original['scroll_uid'] not in stored
+            or any(r.get('verified_in_warehouse') is not True
+                   or r.get('stored') not in original_items
+                   or r.get('type_id')!=original_items[r['stored']]['type_id'] for r in receipts)):
+        raise ValueError('Meteor storage receipts are incomplete')
+    expected=dict(claim['bag']);expected['items']=[i for i in expected['items'] if i['uid'] not in stored]
+    fare=read_json(meteor_banking.POLICY)['origins'][str(meteor['origin'])]['return']['fare']
+    expected['silver']-=fare
+    loop.adopt_ammunition();bag=loop.town('supplies')
+    if (_ownership(bag)!=_ownership(expected) or any(stash_candidate(i) for i in bag['items'])
+            or needs_town(supply_counts(bag,loop.route),loop.route)):
+        raise ValueError('Returned restock ownership or supplies changed')
+    bank=banking.open_warehouse(loop)
+    _native_tail_safe(loop,claim['target'],loop.route.restock_map_id)
+    if _ownership(loop.town('supplies'))!=_ownership(expected) or bank['silver']!=expected['silver']:
+        raise ValueError('Cash tail ownership changed before input')
+    claim.update(phase='cash_attempted',cash_before=bank,attempted_at=time.time())
+    _save_tail(visit,row)  # Durable before any possible money submission.
+    excess=bank['silver']-banking.transport_reserve();receipt=None
+    if excess>0:receipt=banking.transfer(loop,'deposit',excess)
+    elif excess<0 and bank['stored_silver']:
+        receipt=banking.transfer(loop,'withdraw',min(-excess,bank['stored_silver']))
+    if (excess>0 or excess<0 and bank['stored_silver']) and (
+            not isinstance(receipt,dict) or receipt.get('verified') is not True):
+        raise ValueError('Interrupted restock cash transfer lacks a verified receipt')
+    claim.update(phase='cash_verified',cash_receipt=receipt,verified_at=time.time())
+    _save_tail(visit,row)
+    banking.close_warehouse(loop)
+    loop.town('close',window='Shop')
+    service_window(loop,town=True)
+    _native_tail_safe(loop,claim['target'],loop.route.restock_map_id)
+    bag=loop.town('supplies')
+    if any(stash_candidate(i) for i in bag['items']) or needs_town(supply_counts(bag,loop.route),loop.route):
+        raise ValueError('Restock continuation still needs storage or supplies')
+    checkpoint_verified_tail(loop,'restock');visit.complete_town_work('restock')
+    loop.cycles+=1
+    loop.record('restock_complete',supplies=supply_counts(bag,loop.route),
+                activity='Finished verified interrupted restock tail; returning to hunt')
+    return True
+
+
 def _rows(path, *, allow_missing=False):
     if allow_missing and not path.exists():
         return

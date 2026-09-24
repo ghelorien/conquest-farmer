@@ -6,6 +6,7 @@ import time
 import pytest
 
 from conquest.capture import CaptureUnavailable
+from conquest.memory_build_layout import CLIENT_SHA256_1074
 from conquest.merchants import manual_farmer
 from conquest.merchants.coordination import check_input,input_scope
 from test_manual_runtime import rig,snapshot
@@ -14,7 +15,8 @@ from test_manual_runtime import rig,snapshot
 def farmer(rig,monkeypatch):
     x=rig
     x.state=snapshot(character='Parasite',character_uid=91,own_booth_uid=0,booth_open=False,booth=[])
-    x.observer=NS(character='Parasite',lock=threading.RLock(),adapter=NS(assert_identity=lambda:None))
+    x.observer=NS(character='Parasite',lock=threading.RLock(),adapter=NS(
+        expected_sha256=CLIENT_SHA256_1074,assert_identity=lambda:None))
     x.runtime.configure_manual_farmer(lambda:x.observer,lambda:{'enabled':True})
     x.runtime.farmer_bot_owned=lambda:False
     x.reads=[]
@@ -27,6 +29,7 @@ def farmer(rig,monkeypatch):
     monkeypatch.setattr(manual_farmer,'presence',lambda observer:bool(x.state['request'] or x.state['trade']))
     monkeypatch.setattr(manual_farmer,'MerchantMemory',Memory)
     monkeypatch.setattr('conquest.merchants.memory.MerchantMemory',Memory)
+    monkeypatch.setattr('conquest.merchants.delivery_bridge.source_memory',Memory)
     monkeypatch.setattr(manual_farmer,'controller',lambda runtime,observer:NS(driver=NS(observer=observer)))
     return x
 
@@ -114,6 +117,7 @@ def test_native_farmer_boundary_detects_request_before_recovery_or_panels(rig,mo
     from test_native_farm import setup
     x=farmer(rig,monkeypatch)
     supervisor,control,life,_=setup(monkeypatch)
+    supervisor.observer.adapter=x.observer.adapter
     x.observer=supervisor.observer
     supervisor.recovery.step=lambda *a:pytest.fail('Manual request must precede gameplay recovery')
     before=control.snapshot()
@@ -151,6 +155,8 @@ def test_farmer_loop_consumes_current_valuables_without_false_pickup_or_resume(r
     assert supervisor.pending_loot is None and supervisor.patrol_chase is None
     assert control.snapshot()==before and supervisor.pickups==0
     event,payload=notifications[-1]
-    assert event=='manual_session_replan' and payload['map_id']==1002 and payload['urgent_banking']
-    assert supervisor.urgent_banking(inventory)
+    assert event=='manual_session_replan' and payload['map_id']==1002
+    # Ordinary +2 swords remain eligible stock but are outside urgent bank categories.
+    assert payload['urgent_banking'] is False
+    assert supervisor.urgent_banking(inventory) is False
     with x.journal.db() as db:assert db.execute('SELECT farmer_pending FROM manual_replans').fetchone()[0]==0

@@ -14,11 +14,12 @@ def run(ui,state):
     from conquest.desktop_runtime import physical_coordinates
     from conquest.foreground import foreground_drag
     from conquest.focus_recovery import activate_client
-    from conquest.merchants.memory import MerchantMemory,unpack,HoverNotReady
+    from conquest.merchants.memory import unpack,HoverNotReady
+    from conquest.merchants.delivery_bridge import source_memory
     from conquest.merchants.driver import wait_hover_validation
     from conquest.merchants.farmer_preferences import permits_new_delivery
     character=state['character'];intent=state['intent'];revision=ui.app.control.snapshot()['revision']
-    observer=ui.app.observer;memory=MerchantMemory(observer);target=observer.operations.target
+    observer=ui.app.observer;memory=source_memory(observer);target=observer.operations.target
     deadline=time.monotonic()+15
     def manual_fence():
         if any(ui.coordinator.manual_session_blocked(owner) for owner in
@@ -71,7 +72,7 @@ def run(ui,state):
                 if (not current or exact_items([current])!=exact_items([item]) or current['slot']!=item['slot']
                         or endpoints(memory.gui,a,current,offered)!=(inventory,trade,source,destination)):
                     raise ValueError('Item or grid changed before drag')
-                context=unpack(observer.adapter,memory.gui.base+0x6966f0,'<Q')[0]
+                context=unpack(observer.adapter,memory.gui.base+memory.gui.context_rva,'<Q')[0]
                 if unpack(observer.adapter,context+0x3ec0,'<Q')[0]!=inventory['address']:
                     raise HoverNotReady('Inventory cell is covered')
             save('placement_submitted',placing_uid=item['uid'],source=source,destination=destination)

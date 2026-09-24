@@ -9,6 +9,15 @@ DRAGONBALL_NAMES = {1088000: 'DragonBall', 720028: 'DBScroll', 2000031: '1-StarD
 DRAGONBALL_TYPES = frozenset(DRAGONBALL_NAMES)
 STORAGE_ONLY_TYPES = frozenset((2000031, 2000032, 2000033, 2000034, 2000035, 2000036, 2000037, 2000038))
 SPECIAL_LOOT_TYPES = DRAGONBALL_TYPES | {1088001,720027}
+URGENT_EQUIPMENT_FAMILIES = frozenset((120,121,150,152,160,500))
+
+
+def urgent_storage(item):
+    """Carried designated gear and Dragonballs go directly to storage."""
+    get=item.get if isinstance(item,dict) else lambda key,default=None:getattr(item,key,default)
+    kind=get('type_id')
+    return (get('slot') is not None and type(kind) is int
+            and (kind in DRAGONBALL_TYPES or kind//1000 in URGENT_EQUIPMENT_FAMILIES))
 
 
 def storage_only(item):

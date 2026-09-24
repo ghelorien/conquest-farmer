@@ -25,7 +25,9 @@ class RouteRecovery:
                 self.avoided=set(map(tuple,saved.get('avoided_tiles',[])))
                 if saved.get('phase')=='returning_after_revive' and saved.get('next_waypoint'):
                     self.pending=(tuple(saved['next_waypoint']),self.clock(),tuple(saved['last_verified_position']))
-                self.episode['phase']='checking_recovery'
+                if saved.get('phase') in ('recovery_uncertain','revive_submitting','verifying_revive'):
+                    self.episode['phase']='recovery_uncertain'
+                else:self.episode['phase']='checking_recovery'
 
     def save(self):
         self.path.parent.mkdir(parents=True,exist_ok=True)
@@ -63,7 +65,19 @@ class RouteRecovery:
         if life is None or not 0<=self.clock()-life['timestamp']<=.5:
             return self.status('waiting_for_observation','Waiting for current recovery observations') if self.episode else None
         if self.episode and self.episode['phase']=='recovery_uncertain':
-            return self.status('recovery_blocked','Recovery input was uncertain; inspect the client before retrying')
+            # Restart cannot turn an uncertain click into permission to replay.
+            # Three fresh living samples can prove revival without any input.
+            living=(not life.get('dead_candidate',bool(life['status']&0x20))
+                    and not life['ghost_candidate'] and not life['status']&0x420
+                    and life['appearance']==0 and life['current_hp']>0)
+            if not living:
+                self.healthy_samples=0
+                return self.status('recovery_blocked','Recovery input was uncertain; waiting for verified living memory without retrying')
+            if life['timestamp']!=self.last_sample:
+                self.healthy_samples+=1;self.last_sample=life['timestamp']
+            if self.healthy_samples<3:
+                return self.status('verifying_revive','Reconciling recovery from fresh living observations')
+            self.episode['phase']='checking_recovery';self.save()
         if life.get('dead_candidate',bool(life['status']&0x20)) or life['ghost_candidate']:
             if self.episode and self.episode['phase'] in ('returning_after_revive','returning_with_farmer'):
                 self.episode=None  # A new death during return starts a new location.
@@ -74,6 +88,8 @@ class RouteRecovery:
                 self.avoided=set()
                 self.save()
             self.healthy_samples=0
+            if life.get('revive_input_supported') is False:
+                return self.status('recovery_blocked','Automatic Revive is unavailable for this client build; native control qualification failed')
             if self.episode['phase']=='verifying_revive':
                 if self.clock()-self.episode.get('revive_issued',self.clock())<8:
                     return self.status('verifying_revive','Waiting for the Revive result; no duplicate click')
@@ -83,11 +99,15 @@ class RouteRecovery:
                 return self.status('waiting_for_revive','Waiting for the game to enable Revive')
             if not focused:
                 return self.status('waiting_for_recovery_focus','Show / focus Conquer to revive; farming stays On')
+            self.episode['phase']='revive_submitting';self.save()
             if self.issue('revive',None,life,intent['revision']):
                 self.episode['phase']='verifying_revive'
                 self.episode['revive_issued']=self.clock()
                 self.episode['revive_attempts']=self.episode.get('revive_attempts',0)+1
                 self.save()
+            else:
+                self.episode['phase']='waiting_for_revive';self.save()
+                return self.status('waiting_for_revive','Revive input was held before submission; observing again')
             return self.status('verifying_revive','Revive pressed; checking health and ghost state')
         if self.episode is None or self.episode['phase']=='completed':
             return None
@@ -194,9 +214,10 @@ class EmbeddedRecoveryInput:
         target=observer.bridge.operations.target
         before=target.snapshot()
         from conquest.viewport import size_for,clear_scene,revive_point
-        viewport=size_for(observer)
+        try:viewport=size_for(observer)
+        except ValueError as error:raise CaptureUnavailable(str(error)) from error
         if tuple(before['client_size'])!=viewport:
-            raise ValueError('Recovery client geometry changed')
+            raise CaptureUnavailable('Recovery client geometry changed before input')
         if before['foreground']!=before['root_hwnd'] or before['minimized']:
             raise CaptureUnavailable('Recovery waiting for game focus; no input sent')
         from conquest.mouse_priority import require_idle
@@ -213,8 +234,9 @@ class EmbeddedRecoveryInput:
                 raise
         if kind=='revive':
             if not life.revive_ready_candidate:
-                raise ValueError('Revive is not ready')
-            point=revive_point(observer.adapter,viewport)
+                raise CaptureUnavailable('Revive is not ready; reobserve before input')
+            try:point=revive_point(observer.adapter,viewport)
+            except ValueError as error:raise CaptureUnavailable(str(error)) from error
         elif kind in ('jump','run'):
             # Low health must not prevent escaping toward healing supplies.
             # A new death is transient: reobserve and let the owner revive.
@@ -247,7 +269,8 @@ class EmbeddedRecoveryInput:
             if kind=='revive':
                 if not fresh.revive_ready_candidate:
                     raise CaptureUnavailable('Revive state changed before recovery input')
-                return revive_point(observer.adapter,fresh_viewport)
+                try:return revive_point(observer.adapter,fresh_viewport)
+                except ValueError as error:raise CaptureUnavailable(str(error)) from error
             if fresh.ghost_candidate or fresh.status&0x420 or fresh.current_hp<=0:
                 raise CaptureUnavailable('Life state changed before route movement')
             fresh_anchor=player_anchor(fresh)
@@ -258,8 +281,11 @@ class EmbeddedRecoveryInput:
             return fresh_point
 
         with physical_coordinates():
-            layout=self.layout_revision(target)
-            revision=layout.qualified()
+            try:
+                layout=self.layout_revision(target)
+                revision=layout.qualified()
+            except ValueError as error:
+                raise CaptureUnavailable(str(error)) from error
             if revision.gui_size!=viewport:
                 raise CaptureUnavailable('Recovery viewport changed while qualifying layout')
             size=list(revision.client_size)
@@ -276,6 +302,13 @@ class EmbeddedRecoveryInput:
                 fresh_point=current_point()
                 if fresh_point!=point:
                     raise CaptureUnavailable('Recovery projection changed before button press')
+                from conquest.memory_build_layout import CLIENT_SHA256_1078
+                if kind=='revive' and observer.adapter.expected_sha256==CLIENT_SHA256_1078:
+                    from conquest.native_revive import point as native_revive_point
+                    from conquest.merchants.memory import HoverNotReady
+                    try:native_revive_point(observer.adapter,viewport,require_hover=True)
+                    except (ValueError,HoverNotReady) as error:
+                        raise CaptureUnavailable(str(error)) from error
                 if kind!='revive':route_actionability(fresh_point,layout.assert_current(revision))
             try:
                 diagnostics['input']=foreground_click(target,*physical,size,control=kind=='jump',

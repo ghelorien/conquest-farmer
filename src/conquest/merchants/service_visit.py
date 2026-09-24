@@ -33,11 +33,11 @@ def validate_grant(ui,body):
             or body.get('expires_at')!=row.get('deadline')
             or not time.time()<row['deadline']<=row['started_at']+MARKET_SECONDS):
         raise ValueError('Market grant must use the original current visit deadline')
-    from conquest.merchants.memory import MerchantMemory
+    from conquest.merchants.delivery_bridge import source_memory
     observer=ui.app.observer
     if observer is None or observer.character!=farmer_name():
         raise ValueError('Market visit farmer is not attached')
-    with observer.lock:source=MerchantMemory(observer).read()
+    with observer.lock:source=source_memory(observer).read()
     if (source.get('map_id')!=1036 or source.get('hp',0)<=0
             or not 0<=time.time()-source.get('timestamp',0)<=2):
         raise ValueError('Market grant needs a fresh living farmer in Market')
