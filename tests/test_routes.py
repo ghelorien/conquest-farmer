@@ -130,6 +130,41 @@ def test_apparition_route_targets_level_18_and_exact_monster_group():
         route_monster_name(route.model_copy(update={'monster_type_ids':(2,4)}))
 
 
+def test_macaque_family_is_available_for_saved_route_selection():
+    from conquest.routes import MONSTER_NAMES,route_monster_names,monster_family
+    assert MONSTER_NAMES[10]=='Macaque'
+    assert tuple(m['type_id'] for m in monster_family(10))==(10,69)
+    route=RouteLibrary().load('macaque')
+    assert route.map_id==route.restock_map_id==1020
+    assert route.qualification=='planned'
+    assert route.recommended_levels==(47,51)
+    assert route_monster_names(route)==('Macaque','MacaqueL48')
+
+
+def test_macaque_town_services_use_surveyed_npc_identities():
+    from conquest.city_travel import city_for
+    from conquest.memory_npcs import vendor_identity,TOWN_VENDORS
+    city=city_for(1020)
+    assert city['services']['pharmacist']==[550,547]
+    assert city['services']['blacksmith']==[560,513]
+    assert city['services']['equipment']==[]
+    assert vendor_identity(1020,3).position==(550,542)
+    assert vendor_identity(1020,5).position==(560,508)
+    assert any(v.map_id==1020 and v.name=='Warehouseman' and v.position==(576,542)
+               for v in TOWN_VENDORS)
+
+
+def test_ape_city_is_an_allowed_town_trade_map(monkeypatch):
+    from conquest import town_trade
+    monkeypatch.setattr(town_trade,'login_screen',lambda hwnd:False)
+    life=SimpleNamespace(dead_candidate=False,map_id=1020,current_hp=100,max_hp=100)
+    observer=SimpleNamespace(operations=SimpleNamespace(target=SimpleNamespace(hwnd=1)),
+                             read_life=lambda:life)
+    trade=town_trade.TownTrade.__new__(town_trade.TownTrade)
+    trade.observer=observer
+    assert trade.life() is life
+
+
 def test_apparition_expansion_stays_clear_of_failed_western_edge():
     route=RouteLibrary().load('apparition')
     reach=route.patrol_search.expansion_tiles*route.patrol_search.maximum_expansions

@@ -1,0 +1,76 @@
+schema_version: 1
+id: macaque
+name: Macaque east of ApeCity
+map_id: 1020
+restock_map_id: 1020
+monster_type_ids: [10, 69]
+recommended_levels: [47, 51]
+town_anchor: [554, 545]
+restock_anchor: [550, 547]
+hunting_anchor: [610, 573]
+kite_when_surrounded: true
+jump_scatter: true
+attack_range_tiles: 16
+hunting_boundary: [599, 548, 622, 620]
+patrol_search:
+  idle_seconds: 7.5
+  expansion_tiles: 8
+  maximum_expansions: 1
+  sweep_spacing_tiles: 20
+patrol:
+  - [610, 573]
+  - [605, 555]
+  - [615, 556]
+  - [615, 575]
+  - [608, 594]
+  - [611, 611]
+  - [602, 606]
+  - [602, 584]
+  - [602, 562]
+outbound_waypoints:
+  - [554, 545]
+  - [559, 546]
+  - [565, 558]
+  - [570, 570]
+  - [571, 580]
+  - [583, 583]
+  - [592, 586]
+  - [600, 586]
+  - [609, 574]
+  - [610, 573]
+return_waypoints:
+  - [610, 573]
+  - [609, 574]
+  - [600, 586]
+  - [592, 586]
+  - [583, 583]
+  - [571, 580]
+  - [570, 570]
+  - [565, 558]
+  - [559, 546]
+  - [554, 545]
+terrain_sha256: 2feb3cdcf2a5cfe8a3358f15103c9994b83094e319f7d780908da5e85658ca80
+supplies:
+  arrow_type: 1050001
+  arrows_return_below: 3
+  arrows_restock_to: 4000
+  healing_type: 1000020
+  healing_return_below: 1
+  healing_restock_to: 5
+  minimum_free_slots: 4
+tasks:
+  - travel_to_hunt
+  - hunt_and_loot
+  - return_to_town
+  - restock
+  - check_equipment
+  - resume_hunt
+qualification: planned
+recover_after_death: true
+movement: jump
+notes: >-
+  Memory-observed Macaques east of ApeCity; terrain-checked candidate patrol and
+  town connection. Pharmacist, Blacksmith and Warehouseman identities were
+  observed twice in live memory. Shop interactions, travel, combat, recovery and
+  throughput remain unverified. Do not enable unattended farming until those
+  checks and the area comparison are complete.

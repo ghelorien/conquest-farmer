@@ -30,6 +30,9 @@ TOWN_VENDORS = (
     VendorIdentity(1011, 10013, 'Blacksmith', 220, (197, 226)),
     VendorIdentity(1011, 11, 'Armorer', 116, (202, 242)),
     VendorIdentity(1011, 0, 'Warehouseman', 210, (227, 246)),
+    VendorIdentity(1020, 10030, 'Pharmacist', 30, (550, 542)),
+    VendorIdentity(1020, 10029, 'Blacksmith', 50, (560, 508)),
+    VendorIdentity(1020, 0, 'Warehouseman', 80, (576, 542)),
 )
 
 
@@ -187,7 +190,8 @@ class MemoryNpcReader:
 
 
 def vendor_identity(map_id,role):
-    kind={1011:{3:10014,5:10013,4:11}}.get(map_id,{}).get(role,role)
+    kind={1011:{3:10014,5:10013,4:11},
+          1020:{3:10030,5:10029}}.get(map_id,{}).get(role,role)
     matches=[v for v in TOWN_VENDORS if v.map_id==map_id and v.type_id==kind]
     if len(matches)!=1:raise ValueError('Vendor role has not been verified in this city')
     return matches[0]

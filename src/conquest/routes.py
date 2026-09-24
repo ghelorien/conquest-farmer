@@ -12,7 +12,7 @@ import yaml
 from conquest.navigation import straight_waypoints
 
 MONSTER_NAMES={1:'Pheasant',2:'Turtledove',3:'Robin',4:'Apparition',5:'Poltergeist',
-               6:'WingedSnake',7:'Bandit',8:'Ratling',9:'FireSpirit'}
+               6:'WingedSnake',7:'Bandit',8:'Ratling',9:'FireSpirit',10:'Macaque'}
 
 
 def monster_family(base_type):

@@ -92,7 +92,7 @@ class TownTrade:
         if login_screen(o.operations.target.hwnd):
             raise CaptureUnavailable('Reconnect before town actions')
         life = o.read_life() if hasattr(o,'read_life') else read_life(o.adapter,o.health_layout,o.character)
-        if life.dead_candidate or (life.map_id not in (1002,1011) and not any_map) or life.current_hp <= 0 or life.current_hp < life.max_hp*minimum_health:
+        if life.dead_candidate or (life.map_id not in (1002,1011,1020) and not any_map) or life.current_hp <= 0 or life.current_hp < life.max_hp*minimum_health:
             raise ValueError('Town action requires a living character on the town map')
         return life
 
