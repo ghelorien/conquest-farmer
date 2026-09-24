@@ -11,10 +11,10 @@ hunting_anchor: [620, 645]
 kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
-hunting_boundary: [600, 580, 688, 670]
+hunting_boundary: [600, 612, 688, 670]
 patrol_search:
   idle_seconds: 7.5
-  expansion_tiles: 8
+  expansion_tiles: 4
   maximum_expansions: 1
   sweep_spacing_tiles: 20
 patrol:
@@ -23,10 +23,10 @@ patrol:
   - [650, 645]
   - [662, 640]
   - [670, 639]
-  - [650, 615]
-  - [630, 610]
-  - [622, 612]
-  - [616, 621]
+  - [650, 620]
+  - [630, 620]
+  - [622, 624]
+  - [616, 628]
 outbound_waypoints:
   - [554, 545]
   - [559, 546]
@@ -67,6 +67,7 @@ supplies:
   healing_type: 1000020
   healing_return_below: 1
   healing_restock_to: 5
+  healing_threshold: 0.85
   minimum_free_slots: 4
 tasks:
   - travel_to_hunt
@@ -84,5 +85,7 @@ notes: >-
   Terrain-checked patrol and town connection; Pharmacist, Blacksmith and
   Warehouseman identities were observed in live memory. The no-combat survey
   ended on its 80-percent-HP safety guard and the farmer returned to town.
-  Shop interactions, combat, healing, recovery and sustained throughput remain
-  unverified. Keep this route planned until a safe farming cycle is qualified.
+  The first run verified combat and one 25-second death revival, then stopped
+  on an arrow-budget bug during a potion restock. The south boundary and
+  earlier healing threshold now avoid the death location near (653,604).
+  Keep this route planned until a safe full farming cycle is qualified.

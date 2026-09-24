@@ -220,6 +220,30 @@ def test_two_speed_packs_require_no_refill_funds_when_equipped_is_partial(monkey
          'equipped_ammo':{'uid':3,'type_id':1050002,'amount':4,'limit':5000},'capacity':40,'silver':200}
     assert b.shopping_budget(route,bag,level=73)==200
 
+
+def test_macaque_potion_restock_does_not_require_unavailable_arrow_quote(monkeypatch):
+    from conquest.routes import RouteLibrary
+    route=RouteLibrary().load('macaque')
+    monkeypatch.setattr(b,'transport_reserve',lambda:200)
+    monkeypatch.setattr('conquest.archer_shop_catalog.catalog',lambda:{'cities':{}})
+    bag={'items':[{'uid':1,'type_id':1050002,'amount':5,'limit':5000}],
+         'equipped_ammo':{'uid':2,'type_id':1050002,'amount':2031,'limit':5000},
+         'capacity':40,'silver':1332}
+    assert b.shopping_budget(route,bag,level=114)==500
+    bag['items'].clear()
+    with pytest.raises(ValueError,match='Arrow refill budget is not qualified'):
+        b.shopping_budget(route,bag,level=114)
+
+
+def test_apecity_speed_arrow_quote_funds_a_real_one_pack_gap(monkeypatch):
+    from conquest.routes import RouteLibrary
+    route=RouteLibrary().load('macaque')
+    monkeypatch.setattr(b,'transport_reserve',lambda:200)
+    bag={'items':[{'uid':1,'type_id':1000020,'amount':1,'limit':1} for _ in range(5)],
+         'equipped_ammo':{'uid':2,'type_id':1050002,'amount':2031,'limit':5000},
+         'capacity':40,'silver':1032}
+    assert b.shopping_budget(route,bag,level=114)==37200
+
 def test_market_open_uses_one_lower_click_then_verifies(monkeypatch):
     monkeypatch.setattr(b.time,'sleep',lambda _:None)
     calls=[]

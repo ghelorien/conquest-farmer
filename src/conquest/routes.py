@@ -51,6 +51,7 @@ class Supplies(BaseModel):
     healing_type: int = 1000000
     healing_return_below: int = Field(default=1,ge=1)
     healing_restock_to: int = Field(default=5,ge=1)
+    healing_threshold: float = Field(default=.4,gt=0,lt=1)
     minimum_free_slots: int = Field(default=4,ge=1,le=20)
 
     @model_validator(mode='after')

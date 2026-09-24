@@ -5960,6 +5960,31 @@
           }
         ]
       }
+    },
+    "1020": {
+      "5": {
+        "observed_at": 1790248697.9663987,
+        "products": [
+          {
+            "type_id": 1050000,
+            "name": "LuckyArrow",
+            "price": 200,
+            "level": 1
+          },
+          {
+            "type_id": 1050001,
+            "name": "IronArrow",
+            "price": 4800,
+            "level": 32
+          },
+          {
+            "type_id": 1050002,
+            "name": "SpeedArrow",
+            "price": 34000,
+            "level": 73
+          }
+        ]
+      }
     }
   }
 }
