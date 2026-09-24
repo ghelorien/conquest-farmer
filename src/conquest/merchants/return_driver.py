@@ -68,6 +68,11 @@ class ReturnDriver:
                     time.sleep(0.025)
         return self.driver.memory.read(recovery=True)
 
+    def life(self):
+        return read_life(
+            self.observer.adapter, self.observer.health_layout, self.observer.character
+        )
+
     def qualify_movement(self):
         profile = self.driver.require_qualified("market_return")
         # Movement projection/GUI must have been verified for this viewport.
@@ -140,7 +145,7 @@ class ReturnDriver:
         path = terrain.travel_path(tuple(fresh["position"]), destination)
         from conquest.scene_input import memory_player_anchor
 
-        life = read_life(o.adapter, o.health_layout, o.character)
+        life = self.life()
         if life.map_id != fresh["map_id"] or list(life.position) != fresh["position"]:
             raise CaptureUnavailable("Merchant moved before waypoint selection")
         target = transit_waypoint(
@@ -151,7 +156,7 @@ class ReturnDriver:
         )
 
         def point_now():
-            life = read_life(o.adapter, o.health_layout, o.character)
+            life = self.life()
             if (
                 life.map_id != snapshot["map_id"]
                 or list(life.position) != snapshot["position"]
