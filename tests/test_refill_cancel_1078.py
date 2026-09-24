@@ -126,12 +126,29 @@ def test_changed_or_uncertain_admission_fails_closed(pending, mutation, monkeypa
     assert x.ui.runtime.refills['Dutch'].state() == x.state
 
 
-def test_farmer_off_without_grant_only_requests_handoff(pending, monkeypatch):
+def test_farmer_off_and_safe_without_grant_dispatches_exact_cancel(pending, monkeypatch):
     x = pending
+    calls = []
+    monkeypatch.setattr(handoff, 'request_handoff', lambda *args:
+                        pytest.fail('Already-safe Farmer Off must not request a handoff'))
+    monkeypatch.setattr(cancel, 'dispatch_cancel', lambda ui, key, character:
+                        calls.append((ui, key, character)) or {'phase': 'uncertain'})
+    result = refill._recover_pending(x.ui, 'Dutch', x.snapshot)
+    assert result == {'state': 'listing_cancel_pending', 'request_id': x.key,
+                      'phase': 'uncertain'}
+    assert calls == [(x.ui, x.key, 'Dutch')]
+    assert x.ui.runtime.refills['Dutch'].state() == x.state
+
+
+def test_farmer_off_without_safe_yield_requests_handoff(pending, monkeypatch):
+    x = pending
+    x.ui.safe_to_yield = lambda: False
     monkeypatch.setattr(handoff, 'request_handoff', lambda *args: 'merchant-refill:Dutch:1')
-    monkeypatch.setattr(cancel, 'dispatch_cancel', lambda *args: pytest.fail('No safe grant'))
+    monkeypatch.setattr(cancel, 'dispatch_cancel', lambda *args:
+                        pytest.fail('Unsafe Farmer surface cannot dispatch Cancel'))
     result = refill._recover_pending(x.ui, 'Dutch', x.snapshot)
     assert result['blocker'] == 'waiting_farmer_handoff'
+    assert result['handoff_request_id'] == 'merchant-refill:Dutch:1'
     assert x.ui.runtime.refills['Dutch'].state() == x.state
 
 
