@@ -511,7 +511,8 @@ def market_bank(loop,state):
     from conquest.banking import open_warehouse,close_warehouse
     from conquest.storage_halt import request_stop
     from conquest.merchants.delivery_route import market_storage,receipt_for,warehouse_exhausted
-    market_storage(loop)
+    from conquest.no_transfer_town_recovery import warehouse_fallback_only
+    if not warehouse_fallback_only(loop,state):market_storage(loop)
     approach_market_warehouse(loop,'Storing valuables in Market before returning to Phoenix')
     open_warehouse(loop)
     while True:

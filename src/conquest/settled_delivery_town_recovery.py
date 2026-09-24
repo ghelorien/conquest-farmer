@@ -122,7 +122,7 @@ def _delivery_proof(row, meteor, market, failure, target):
     return expected,proofs
 
 
-def capture(loop,row,meteor):
+def capture(loop,row,meteor,*,no_transfer=False):
     from conquest import restock_town_recovery as recovery
     from conquest.merchants.service_visit import MarketVisit
     from conquest.merchants.bridge import request
@@ -137,27 +137,33 @@ def capture(loop,row,meteor):
             or meteor.get('return_submitted_at') or meteor.get('receipts')
             or meteor.get('user_confirmed_scroll_consumption') or meteor.get('user_confirmed_scroll_transfer')):
         raise ValueError('Settled-delivery restock has no original native identity and exchange chain')
-    recovery._native_tail_safe(loop,target,1036)
     events=[e for e in recovery._rows(recovery.EVENTS) if e.get('town_visit_id')==row['town_visit_id']]
-    failure=next((e for e in reversed(events) if e.get('event')=='failed' and e.get('detail')==FAILURE),{})
+    from conquest.no_transfer_town_recovery import FAILURE as NO_TRANSFER_FAILURE,proof as no_transfer_proof
+    expected_failure=NO_TRANSFER_FAILURE if no_transfer else FAILURE
+    failure=next((e for e in reversed(events) if e.get('event')=='failed' and e.get('detail')==expected_failure),{})
     trace={(Path(f.get('file','')).name,f.get('function')) for f in failure.get('failure_trace',[])}
     if (failure.get('error_type')!='builtins.ValueError'
             or not {('banking.py','after_shopping'),('meteor_banking.py','resume'),
-                    ('meteor_banking.py','market_bank'),('delivery_route.py','_market_storage')}<=trace):
+                    ('meteor_banking.py','market_bank'),('delivery_route.py','_market_storage')}<=trace
+            or no_transfer and ('delivery_route.py','settle') not in trace):
         raise ValueError('Restock failure is not the pre-admission safety boundary')
     for event in events:
         if event.get('time',0)<=failure['time'] or event.get('event') in ('started','stopped'):continue
         last=(event.get('failure_trace') or [{}])[-1]
         if (event.get('event')=='failed' and Path(last.get('file','')).name in
-                ('restock_town_recovery.py','settled_delivery_town_recovery.py')
-                and last.get('function') in ('capture_pre_admission_tail','capture','_delivery_proof')):continue
+                ('restock_town_recovery.py','settled_delivery_town_recovery.py','no_transfer_town_recovery.py')
+                and last.get('function') in ('capture_pre_admission_tail','capture','_delivery_proof','proof')):continue
         raise ValueError('Gameplay followed the pre-admission delivery interruption')
     market=read_json(MarketVisit().path)
     if (market.get('phase')!='active' or market.get('town_visit_id')!=row['town_visit_id']
             or market.get('parent_visit_id')!=row['town_visit_id'] or market.get('farmer_profile_id')!=visit.profile
             or not meteor['started_at']<=market.get('started_at',0)<=failure['time']<=market.get('deadline',0)<time.time()):
         raise ValueError('Original expired Market visit is unavailable')
-    expected,proofs=_delivery_proof(row,meteor,market,failure,target)
+    if no_transfer:
+        from conquest.no_transfer_town_recovery import settle_before_capture
+        settle_before_capture(loop,row,meteor,market,failure,target)
+    recovery._native_tail_safe(loop,target,1036)
+    expected,proofs=(no_transfer_proof if no_transfer else _delivery_proof)(row,meteor,market,failure,target)
     status=request({'action':'status'});manual=request({'action':'manual-status'}).get('farmer') or {}
     observation=manual.get('observation') or {}
     pending=status.get('handoff_requested')
@@ -171,7 +177,7 @@ def capture(loop,row,meteor):
     if recovery._ownership(bag)!=recovery._ownership(expected) or needs_town(supply_counts(bag,loop.route),loop.route):
         raise ValueError('Fresh post-delivery ownership or restock supplies changed')
     recovery._native_tail_safe(loop,target,1036)
-    row['pre_admission_restock_tail']={'capture_kind':'settled_delivery','target':target,
+    row['pre_admission_restock_tail']={'capture_kind':'no_transfer' if no_transfer else 'settled_delivery','target':target,
         'failure':failure,'market':market,'meteor':meteor,'bag':bag,'delivery_proofs':proofs,
         'captured_at':time.time(),'phase':'captured'}
     recovery._save_tail(visit,row)

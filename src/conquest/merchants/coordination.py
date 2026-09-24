@@ -46,7 +46,7 @@ class InputCoordinator:
 
     def native_trade1078_authorized(self, character):
         """Exact-build trade policy supplied by the app; no broad surface grant."""
-        if self.purpose not in ('trade', 'delivery_accept_probe', 'delivery_confirm_probe', 'empty_delivery_cancel') or self.native_trade1078_policy is None:
+        if self.purpose not in ('trade', 'delivery_accept_probe', 'delivery_confirm_probe', 'empty_delivery_cancel', 'delivery_empty_recovery') or self.native_trade1078_policy is None:
             return False
         try:
             return self.native_trade1078_policy(character) is True
@@ -188,18 +188,21 @@ class InputCoordinator:
     def check(self):
         if self.fence is not None:
             self.fence.check()
+        if self.stopped or self.manual_active():
+            raise CaptureUnavailable('Automation stopped or manual input active')
+        if self.manual_session_blocked(self.owner, purpose=self.purpose):
+            raise CaptureUnavailable('Manual visitor session holds automation input')
+        # Native surface capabilities belong to their owner thread. A peer
+        # waiting for that lease to release cannot validate the capability;
+        # classify contention before evaluating its thread-bound surface.
+        if self.owner and self.thread != threading.get_ident():
+            raise CaptureUnavailable('Another character owns game input')
         if (self.owner and self.surface_blocks.get(self.owner)
                 and not self.booth_probe_authorized(self.owner)
                 and not self.booth_listing_once_authorized(self.owner)
                 and not self.owned_panel_authorized(self.owner)
                 and not self.native_trade1078_authorized(self.owner)):
             raise CaptureUnavailable('Client surface needs reattachment and input qualification')
-        if self.stopped or self.manual_active():
-            raise CaptureUnavailable('Automation stopped or manual input active')
-        if self.manual_session_blocked(self.owner, purpose=self.purpose):
-            raise CaptureUnavailable('Manual visitor session holds automation input')
-        if self.owner and self.thread != threading.get_ident():
-            raise CaptureUnavailable('Another character owns game input')
         if self.owner and not self.owner_allowed(self.owner):
             raise CaptureUnavailable('Character was paused during input')
         if self.owner and not is_farmer_owner(self.owner) and not self.safe_to_yield():

@@ -189,6 +189,10 @@ class UnifiedUI:
         def owner_allowed(character):
             if (self.grant or {}).get('scope')=='merchant_host':
                 return is_farmer_owner(character) and self.coordinator.purpose=='merchant_host'
+            if (self.grant or {}).get('scope')=='delivery_empty_recovery':
+                from conquest.merchants.delivery_empty_recovery import lease_authorized
+                return (self.coordinator.purpose=='delivery_empty_recovery'
+                        and lease_authorized(self,character))
             if (self.grant or {}).get('scope') == 'listing_1078':
                 if (character != self.grant.get('character')
                         or self.coordinator.purpose not in ('booth_listing_1078_once','owned_booth_panel_1078')):
@@ -207,6 +211,8 @@ class UnifiedUI:
             if self.coordinator.purpose=='empty_delivery_cancel':
                 from conquest.merchants.empty_delivery_cancel import lease_authorized
                 return lease_authorized(self,character)
+            if self.coordinator.purpose=='delivery_empty_recovery':
+                return self.coordinator.native_trade1078_authorized(character)
             if self.coordinator.purpose=='booth_probe_1078_no_submit':
                 return self.coordinator.booth_probe_authorized(character)
             if self.coordinator.purpose=='booth_listing_1078_once':
@@ -281,6 +287,9 @@ class UnifiedUI:
             return bool(validate and validate(self, character))
         if purpose == 'empty_delivery_cancel':
             from conquest.merchants.empty_delivery_cancel import lease_authorized
+            return lease_authorized(self,character)
+        if purpose == 'delivery_empty_recovery':
+            from conquest.merchants.delivery_empty_recovery import lease_authorized
             return lease_authorized(self,character)
         return False
 
@@ -622,6 +631,14 @@ class UnifiedUI:
         if action=='delivery-service-retry':
             from conquest.merchants.service_retry import dispatch
             return dispatch(self,body)
+        if action in ('delivery-empty-recovery', 'delivery-empty-recovery-status'):
+            from conquest.merchants.delivery_empty_recovery import dispatch
+            return dispatch(self,body)
+        if action=='empty-delivery-sales-promote':
+            if set(body)!={'action','request_id','sale_ids','confirmation'}:
+                raise ValueError('Exact incident, sale IDs and operator statement are required')
+            from conquest.merchants.empty_delivery_sales import promote
+            return {'audit':promote(self,body['request_id'],body['sale_ids'],confirmation=body['confirmation'])}
         if action in ('delivery-start','delivery-test','delivery-status','delivery-readiness','delivery-reconcile','delivery-cleanup','delivery-recheck','delivery-override'):
             from conquest.merchants.delivery_operation import dispatch
             return dispatch(self,body)
