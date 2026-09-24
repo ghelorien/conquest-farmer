@@ -257,7 +257,22 @@ def service_window(loop, *, town=False):
         try:
             merchant(command)
         except MerchantRejected as error:
-            if not host_request or str(error)!='Handoff request changed':raise
+            if not host_request or str(error)!='Handoff request changed':
+                # A fresh pre-input admission rejection (for example a booth
+                # changed while parking) is deferred work, not a farmer route
+                # failure. Only an acknowledged empty owner/grant permits
+                # skipping revoke; transport loss retains the uncertain grant.
+                fresh_status=merchant({'action':'status'})
+                check()
+                if (fresh_status.get('input_owner') is None
+                        and fresh_status.get('handoff_active') is False
+                        and fresh_status.get('handoff_granted') is False):
+                    granted=False
+                    windows.finish('admission_deferred')
+                    loop.record('merchant_admission_deferred',reason=str(error)[:180],
+                                activity='Merchant state changed; refill deferred safely')
+                    return False
+                raise
             # This exact rejection precedes fence activation. Safe-Off polling
             # may already have attached both hosts while the route parked.
             # Never release a different request or infer this from transport loss.

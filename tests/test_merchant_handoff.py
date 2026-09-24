@@ -220,3 +220,30 @@ def test_lost_grant_acknowledgement_still_revokes_possible_input(town_service):
     actions=[c['action'] for c in r.calls]
     assert actions.index('handoff-grant')<actions.index('handoff-release')
     assert r.loop.market_service_deadline==123
+
+
+@pytest.mark.parametrize('was_enabled',[False,True])
+def test_rejected_admission_defers_and_only_restores_prior_on(town_service,monkeypatch,was_enabled):
+    from conquest.merchants import bridge
+    from conquest import worker
+    r=town_service;r.health['embedded_controls']['control']['enabled']=was_enabled
+    original=bridge.request;submitted=[False];controls=[]
+    def merchant(body):
+        if body['action']=='handoff-grant':
+            r.calls.append(copy.deepcopy(body));submitted[0]=True
+            raise bridge.MerchantRejected('Owned booth changed during fresh qualification')
+        result=original(body)
+        if body['action']=='status' and submitted[0]:
+            result.update(input_owner=None,handoff_active=False,handoff_granted=False)
+        return result
+    def stop():r.health['embedded_controls']['control'].update(enabled=False,revision=2)
+    def farm(info,action,body=None):
+        if action=='controls':controls.append(body);r.health['embedded_controls']['control'].update(body)
+        return copy.deepcopy(r.health)
+    monkeypatch.setattr(bridge,'request',merchant);monkeypatch.setattr(worker,'request',farm)
+    r.loop.stop_farm=stop
+    assert r.run() is False
+    assert r.windows.state()['phase']=='admission_deferred'
+    assert not any(c['action']=='handoff-release' for c in r.calls)
+    assert controls==([{'enabled':True}] if was_enabled else [])
+    assert r.loop.phase=='restocking'

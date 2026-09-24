@@ -234,9 +234,22 @@ def scope_allows(ui, character, *, request_id=None, scheduled=False, cleanup=Fal
 
 
 def farmer_safe(ui, expected_target=None, *, deadline=None):
-    """Observe an existing grant; never stop/start farming or move the farmer."""
+    """Observe safe stopped input ownership; never change farming intent."""
     grant = getattr(ui, 'grant', None)
     if not grant:
+        if ui.coordinator.purpose in (None,'booth_listing_1078_once','owned_booth_panel_1078'):
+            # An already stopped route needs no artificial Market visit. The
+            # same native parking proof used for grant admission still requires
+            # fresh life/threats, exact worker identity, released execution,
+            # unchanged Off revision, and no manual ownership at every boundary.
+            if not ui.safe_to_yield():
+                raise CaptureUnavailable('Farmer route has not released input for merchant refill')
+            def idle_current():
+                if (getattr(ui,'grant',None) is not None or not ui.safe_to_yield()
+                        or deadline is not None and time.monotonic()>=deadline):
+                    raise CaptureUnavailable('Stopped Farmer input ownership changed during refill')
+            health=_safe_health(ui,ui.app.control.snapshot(),expected_target,grant_check=idle_current)
+            return health['target']
         from conquest.merchants.booth_probe_1078 import _farmer_safe_market
         return _farmer_safe_market(ui, expected_target)
     fence = getattr(ui.coordinator, 'fence', None)
