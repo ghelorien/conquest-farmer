@@ -24,3 +24,15 @@ def test_refill_only_is_active_and_global_stop_is_clear():
 def test_uncertain_transaction_is_not_presented_as_active():
     s={'connected':True,'enabled':True,'pending':[{'phase':'uncertain'}]}
     assert summary(s,now=100).startswith('NEEDS ATTENTION')
+
+
+def test_current_owned_peer_blocker_overrides_stale_completed_refill_summary():
+    s={'connected':True,'enabled':True,'snapshot':{'inventory':[{'uid':1}],
+       'booth':[],'capacity':40},'refill':{'enabled':True,'status':'booth_full',
+       'pending':False,'next_check':80},'foreground_refill_1078':{
+       'state':'waiting','blocker':'owned_peer_observation_unavailable',
+       'unavailable_peer':'Spiritual'}}
+    text=summary(s,now=100)
+    assert text.startswith('WAITING') and 'Spiritual owned booth memory' in text
+    s['foreground_refill_1078']=None
+    assert summary(s,now=100).startswith('ACTIVE')

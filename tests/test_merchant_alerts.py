@@ -5,6 +5,14 @@ from conquest.discord_notify import DeliveryError
 from conquest.merchants.alerts import Alerts, condition
 
 
+@pytest.fixture(autouse=True)
+def isolate_bank_stock_outbox(monkeypatch):
+    # These tests exercise merchant incidents, never the separately persisted
+    # verified bank-stock notifier or a user's managed runtime directory.
+    monkeypatch.setattr('conquest.merchants.bank_stock_alerts.pending',lambda:[])
+    monkeypatch.setattr('conquest.merchants.bank_stock_alerts.issue',lambda:None)
+
+
 def healthy():
     return dict(connected=True,enabled=False,pending=[],error=None)
 
@@ -108,3 +116,44 @@ def test_ui_and_reporting_worker_stalls_trigger_alerts():
                           'sales_reporting':{'status':'waiting','last_checked_at':0}}
     alerts.poll(status,100);alerts.poll(status,160)
     assert {r['subject'] for r in alerts.state['queue']}=={'Conquest app','Shop sales reporting'}
+
+
+def test_unavailable_owned_peer_alerts_after_sixty_seconds_and_requires_fresh_price_check():
+    alerts=Alerts()
+    dutch={**healthy(),'enabled':True,'snapshot':{'timestamp':0},
+        'refill':{'enabled':True,'status':'booth_full'},
+        'foreground_refill_1078':{'state':'waiting',
+            'blocker':'owned_peer_observation_unavailable','unavailable_peer':'Spiritual'}}
+    spiritual={**healthy(),'connected':False,'refill':{'enabled':True}}
+    status={'characters':{'Dutch':dutch,'Spiritual':spiritual}}
+    for now in (0,59,60):alerts.poll(status,now)
+    assert [(row['subject'],row['kind']) for row in alerts.state['queue']]==[('Dutch','failure')]
+    assert 'Spiritual owned booth memory' in alerts.state['queue'][0]['content']
+    alerts.dispatch(60,load=lambda:'shops',send=lambda *_:'confirmed')
+    assert not alerts.state['queue']
+    # A restarted app's missing refill result, and a healthy Dutch alone,
+    # cannot confirm that the missing owned price floor was observed.
+    dutch['foreground_refill_1078']=None
+    dutch['snapshot']={'timestamp':61}
+    alerts.poll(status,61)
+    assert alerts.state['incidents']['Dutch']['healthy_since'] is None
+    spiritual.update(connected=True,snapshot={'timestamp':62})
+    dutch.update(snapshot={'timestamp':62},foreground_refill_1078={
+        'state':'waiting','blocker':'waiting_farmer_handoff'})
+    dutch['enabled']=False
+    alerts.poll(status,62)
+    assert alerts.state['incidents']['Dutch']['healthy_since'] is None
+    dutch['enabled']=True
+    alerts.poll(status,62)
+    assert alerts.state['incidents']['Dutch']['healthy_since']==62
+    spiritual['snapshot']['timestamp']=67;dutch['snapshot']['timestamp']=67
+    alerts.poll(status,67)
+    assert [(row['subject'],row['kind']) for row in alerts.state['queue']]==[('Dutch','recovery')]
+
+
+def test_operations_off_login_wait_is_quiet_even_with_refill_enabled():
+    alerts=Alerts()
+    status={'characters':{'Spiritual':{**healthy(),'connected':False,
+        'refill':{'enabled':True},'error':{'note':'Invalid 1078 health candidate'}}}}
+    alerts.poll(status,0);alerts.poll(status,120)
+    assert not alerts.state['queue'] and not alerts.state['incidents']

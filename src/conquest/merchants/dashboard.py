@@ -5,6 +5,7 @@ from conquest.merchants.journal import CHARACTERS
 
 
 def merchant_text(state, *, now, waiting_items=None, global_stopped=False):
+    from conquest.merchants.simple_controls import current_refill_blocker
     snapshot=state.get('snapshot') or {}
     scan=state.get('scan',{});market=state.get('market_refresh',{})
     progress=state.get('batch_progress',{});refill=state.get('refill',{})
@@ -56,7 +57,10 @@ def merchant_text(state, *, now, waiting_items=None, global_stopped=False):
         batch=state['delivery']['state'].capitalize()
         action=state['delivery']['reason']
     if refill.get('enabled'):
-        if refill.get('status')=='paused_budget' and refill.get('pending'):
+        peer_blocker=current_refill_blocker(state) if not global_stopped else None
+        if peer_blocker:
+            refill_note=peer_blocker
+        elif refill.get('status')=='paused_budget' and refill.get('pending'):
             refill_note=f"safely deferred · {len(refill.get('cursor',[]))} queued · {refill.get('listed',0)} listed this check"
         else:
             refill_note='waiting for safe input' if refill.get('pending') else 'next check in '+countdown(refill.get('next_check',now),now)

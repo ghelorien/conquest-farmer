@@ -73,3 +73,15 @@ def test_active_listing_intent_is_progress_not_an_attention_error():
     assert '2 done' in text and '3 remaining' in text and 'Needs attention' not in text
     state['pending'][0]['phase']='uncertain'
     assert 'Needs attention' in merchant_text(state,now=100)
+
+
+def test_current_peer_blocker_replaces_stale_refill_completion_countdown():
+    from conquest.merchants.dashboard import merchant_text
+    state={'connected':True,'enabled':True,'snapshot':{'inventory':[{'uid':1}],
+           'booth':[],'capacity':40},'refill':{'enabled':True,'status':'no_stock',
+           'pending':False,'next_check':80},'foreground_refill_1078':{
+           'state':'waiting','blocker':'owned_peer_observation_unavailable',
+           'unavailable_peer':'Spiritual'}}
+    text=merchant_text(state,now=100)
+    assert 'Spiritual owned booth memory is unavailable' in text
+    assert 'next check in' not in text

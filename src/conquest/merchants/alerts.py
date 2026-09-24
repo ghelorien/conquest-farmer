@@ -29,6 +29,19 @@ def safe_note(value):
     return text[:500]
 
 
+def unavailable_owned_peer(state):
+    """Only an active merchant's current native refill failure needs notice."""
+    refill = state.get('refill') or {}
+    current = state.get('foreground_refill_1078') or {}
+    peer = current.get('unavailable_peer')
+    if (state.get('enabled') is True and refill.get('enabled') is True
+            and state.get('connected') is True and current.get('state') == 'waiting'
+            and current.get('blocker') == 'owned_peer_observation_unavailable'
+            and peer in ('Spiritual', 'Dutch')):
+        return peer
+    return None
+
+
 def condition(state):
     manual = state.get('manual_session') or {}
     if manual.get('phase') == 'needs_attention':
@@ -45,6 +58,9 @@ def condition(state):
         return 'A trade or listing has not completed. Check the transaction and game connection.',60
     if not state.get('connected'):
         return 'Client disconnected or memory observation unavailable. Check the client/reconnect status.',60
+    peer = unavailable_owned_peer(state)
+    if peer:
+        return f'Auto-refill is waiting: {peer} owned booth memory is unavailable, so owned-price safety prevents listing.',60
     error = state.get('error')
     if error and not str(error.get('note','')).startswith(QUIET_WAITS):
         return safe_note(error['note']),60
@@ -136,7 +152,33 @@ class Alerts:
             if (returning and returning['phase'] not in ('complete','operator_overridden') and not state.get('enabled')
                     and not state.get('needs_attention')):
                 continue  # Manual pause neither alerts nor confirms unfinished recovery.
-            self.observe(character,condition(state),now)
+            if (not state.get('enabled') and not state.get('connected')
+                    and not state.get('needs_attention')
+                    and not any(p.get('phase') in ('submitted','uncertain')
+                                for p in state.get('pending',[]))
+                    and manual.get('phase') != 'needs_attention'):
+                continue  # An operations-Off login/disconnect is a manual wait.
+            problem = condition(state)
+            prior = self.state['incidents'].get(character) or {}
+            if prior.get('owned_peer') and problem is None:
+                # A restarted app has no current refill result yet. Neither
+                # that gap nor a stale last-completed refill proves recovery.
+                peer = status['characters'].get(prior['owned_peer']) or {}
+                current = state.get('foreground_refill_1078') or {}
+                own_snapshot = state.get('snapshot') or {}
+                peer_snapshot = peer.get('snapshot') or {}
+                priced_after_peer = (current.get('state') in ('listing_pending','unknown_prices_deferred')
+                                     or current.get('blocker') == 'waiting_farmer_handoff')
+                if (not priced_after_peer or state.get('enabled') is not True
+                        or (state.get('refill') or {}).get('enabled') is not True
+                        or not state.get('connected') or not peer.get('connected')
+                        or not 0 <= now-own_snapshot.get('timestamp',0) <= 5
+                        or not 0 <= now-peer_snapshot.get('timestamp',0) <= 5):
+                    continue
+            self.observe(character,problem,now)
+            peer = unavailable_owned_peer(state)
+            if peer and character in self.state['incidents']:
+                self.state['incidents'][character]['owned_peer'] = peer
         report = status.get('sales_reporting',{})
         failed = report.get('status') in ('worker_error','needs_attention','needs_configuration','retry_later')
         stale_report = report.get('last_checked_at') is not None and now-report['last_checked_at']>60
