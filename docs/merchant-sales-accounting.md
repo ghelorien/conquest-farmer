@@ -34,7 +34,8 @@ corrected totals. Earlier sales before tracking remain unavailable.
 
 Local audit files are `reports/merchants/sales-repair-evidence.json` and
 `sales-repair-result.json`, with a SQLite backup identified in the result file.
-`sales_recovery.reconcile` defaults to a dry run and rejects overlapping repairs,
+The one-time repair tool `sales_recovery.reconcile` (removed after
+`r38-baseline`; recover it from that tag if needed) defaulted to a dry run and rejected overlapping repairs,
 balance mismatches, changed identities, unresolved operations, unknown listings,
 and items still present. The repair does not use missing inventory as sale
 evidence and does not resolve the separate experimental input incident.

@@ -58,7 +58,8 @@ manufacture a full-cycle result.
   dialogue is retryable observation rather than a corrupt-deque failure.
 - All ten Dragonball-related definitions were read twice from the live pinned
   client's definition table. Exact IDs and provenance are in
-  `profiles/valuable-items.json`; the bounded reader is `item_definitions.py`.
+  `profiles/valuable-items.json`; the bounded reader was `item_definitions.py`
+  (1074-pinned; removed after `r38-baseline`).
   Shared classification covers pickup, protection, urgent storage, labels and
   notifications. Seven star variants and EpicDragonBall are storage-only and
   excluded from merchant listing, repricing, restoration and incoming refill.
