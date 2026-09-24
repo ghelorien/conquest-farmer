@@ -231,6 +231,8 @@ def approach_merchant(loop,plan,send,*,deadline=None):
     # attempts.  Keep their count finite while limiting actual repositioning.
     for observation in range(48):
         check_stop(loop)
+        from conquest.merchants.open_booth_cancel_1078 import cleanup
+        cleanup(loop)
         if time.time()>=correction_deadline:return False
         probe=send({'action':'delivery-target','character':plan['merchant']})
         if time.time()>=correction_deadline:return False
@@ -255,7 +257,8 @@ def approach_merchant(loop,plan,send,*,deadline=None):
             time.sleep(min(.1,max(0,correction_deadline-time.time())))
             continue
         if probe.get('reason')=='recipient_absent':
-            ingress=ingress_position(loop.terrain,probe,used=used,deadline=correction_deadline)
+            ingress=ingress_position(loop.terrain,probe,used=used,failed_legs=failed_legs,
+                                     deadline=correction_deadline)
             candidates=[ingress] if ingress is not None else []
         else:
             candidates=positions(loop.terrain,probe,used=used,deadline=correction_deadline)
@@ -324,6 +327,9 @@ def _market_storage(loop,*,send=request,items=None,on_admitted=None):
     # Reconcile an earlier submission even after the rollout is disabled.
     # Disabling policy never authorizes abandoning an in-flight transaction.
     if state.get('active'):remaining(settle(loop,send,state))
+    else:
+        from conquest.merchants.open_booth_cancel_1078 import cleanup
+        cleanup(loop)
     policy=read_json(POLICY)
     from conquest.merchant_loop_acceptance import trial_permitted
     if (not rollout_enabled(route_character(loop),policy=policy) and not trial_permitted(loop)

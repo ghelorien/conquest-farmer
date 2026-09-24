@@ -101,6 +101,107 @@ def recovered(tmp_path, monkeypatch):
     return x
 
 
+@pytest.fixture
+def mixed(recovered,monkeypatch):
+    from conquest import memory_health
+    from conquest.merchants import open_booth_cancel_1078
+    x=recovered
+    x.row.update(reasons=['urgent_banking','restock'],urgent_target=deepcopy(x.target),
+                 urgent_intent=[{'uid':9,'type_id':121005}],
+                 urgent_banking_tail_completed_at=805.)
+    write_json(x.visit.path,x.row)
+    x.failure.update(detail='1078 incoming trade request disagrees with confirmation',
+        failure_trace=[{'file':file,'function':fn,'line':0} for file,fn in [
+            ('banking.py','stash_valuables'),('meteor_banking.py','resume'),
+            ('meteor_banking.py','market_bank'),('delivery_route.py','_market_storage'),
+            ('delivery_route.py','approach_merchant'),('bridge.py','request')]])
+    x.events=[{'event':'valuable_stored','time':803.,'town_visit_id':'original-town',
+               'stored':9,'type_id':121005,'verified_in_warehouse':True}]
+    for number in range(5):
+        x.events.append({'event':'purchase','time':810.+number,
+                         'town_visit_id':'original-town','receipt':{
+                             'bought':1000020,'amount':1,'price':60,
+                             'silver':440-60*number}})
+    x.events.append(x.failure);x.write_events()
+    x.loop.info='isolated-worker-info'
+    x.loop.route.supplies.healing_restock_to=5
+    monkeypatch.setattr(memory_health,'HealthWorkerSession',lambda *_:NS())
+    x.observed={'identity':deepcopy(x.target),'map_id':1036,'position':[228,193],
+                'hp':100,'timestamp':1000.,'silver':x.bag['silver'],
+                'booth':[],'trade':None,'request':None,
+                'canonical_manual_ownership':False,
+                'inventory':[{'uid':i['uid'],'type_id':i['type_id'],'plus':i['plus'],
+                              'quantity':i['amount']} for i in x.bag['items']],
+                'confirmation':{'title':'Open Booth###Confirm','message':'Start Vending',
+                                'model_address':123,'callback_address':456}}
+    monkeypatch.setattr(open_booth_cancel_1078,'observe',lambda _observer:deepcopy(x.observed))
+    return x
+
+
+def test_mixed_trip_capture_preserves_original_expired_budget_and_purchase_proof(mixed):
+    x=mixed;before=deepcopy(x.market)
+    assert recovery.capture_pre_admission_tail(x.loop)
+    claim=x.visit.state()['pre_admission_restock_tail']
+    assert claim['capture_kind']=='booth_confirmation' and len(claim['purchase_receipts'])==5
+    assert claim['market']==before and read_json(x.market_path)==before
+    assert recovery.capture_pre_admission_tail(x.loop) and not x.calls
+
+
+def test_mixed_trip_closed_modal_requires_fresh_closed_ownership_without_fake_receipt(mixed):
+    x=mixed
+    x.observed['confirmation']=None
+    x.observed['canonical_manual_ownership']=True
+    assert recovery.capture_pre_admission_tail(x.loop)
+    claim=x.visit.state()['pre_admission_restock_tail']
+    assert claim['confirmation_observation']=={'state':'closed','confirmation':None}
+    assert 'cancellation_receipt' not in claim and not x.calls
+
+
+def test_mixed_trip_retries_only_its_own_read_only_capture_failure(mixed):
+    x=mixed
+    x.events.extend([{'event':'started','time':940.,'town_visit_id':'original-town'},
+                     {'event':'failed','time':950.,'town_visit_id':'original-town',
+                      'detail':'1078 health candidate changed',
+                      'error_type':'conquest.merchants.reader_1078.ObservationUnavailable1078',
+                      'failure_trace':[{'file':'restock_town_recovery.py',
+                                        'function':'_capture_booth_confirmation_tail'}]}])
+    x.write_events()
+    assert recovery.capture_pre_admission_tail(x.loop)
+    assert x.visit.state()['pre_admission_restock_tail']['failure']==x.failure
+    assert not x.calls
+
+
+@pytest.mark.parametrize('changed',['real_trade','confirmation','inventory','manual_stop',
+                                     'manual_mouse','admission','budget','urgent_receipt','purchase'])
+def test_mixed_trip_rejects_changed_native_or_durable_proof_before_capture(mixed,changed):
+    x=mixed
+    if changed=='real_trade':x.observed['trade']={'participant':'visitor'}
+    if changed=='confirmation':x.observed['confirmation']['message']='Trade with visitor'
+    if changed=='inventory':x.observed['inventory'][0]['quantity']=4
+    if changed=='manual_stop':
+        x.loop.check_stop=lambda:(_ for _ in ()).throw(ValueError('Manual Stop'))
+    if changed=='manual_mouse':x.health['embedded_controls']['manual_mouse']=True
+    if changed=='admission':
+        with sqlite3.connect(delivery_operation.JOURNAL) as db:
+            db.execute('INSERT INTO delivery_admissions VALUES(840)')
+    if changed=='budget':x.market['deadline']=1001.;write_json(x.market_path,x.market)
+    if changed=='urgent_receipt':x.events.pop(0);x.write_events()
+    if changed=='purchase':x.events[1]['receipt']['price']=0;x.write_events()
+    with pytest.raises(ValueError):recovery.capture_pre_admission_tail(x.loop)
+    assert 'pre_admission_restock_tail' not in x.visit.state() and not x.calls
+
+
+def test_mixed_trip_finishes_only_original_cash_tail_without_repeat_shopping(mixed):
+    x=mixed;x.returned()
+    assert recovery.resume_pre_admission_tail(x.loop)
+    row=x.visit.state()
+    assert row['reasons']==['urgent_banking','restock']
+    assert row['town_work_completed_kind']=='restock'
+    assert read_json(x.market_path)['deadline']==900.
+    assert [call for call in x.calls if call[0]=='transfer']==[('transfer','deposit',300)]
+    assert recovery.resume_pre_admission_tail(x.loop) is False
+
+
 def test_capture_retains_original_trip_budget_and_accepts_only_pending_qualified_refill(recovered):
     x=recovered;x.status['handoff_requested']='merchant-refill:Spiritual:123'
     before=deepcopy(x.market)

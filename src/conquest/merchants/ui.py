@@ -314,6 +314,21 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action=='show-merchant-view' and set(body)=={'action','character'}:
+            from conquest.merchants.restore_hosts import present_user_view
+            character=character_name(body['character'])
+            host=self.hosts.get(character);observer=self.runtime.observers.get(character)
+            if observer is None:
+                raise ValueError('Merchant view requires an already identified exact client')
+            expected=(host,observer,observer.hwnd,dict(observer.adapter.identity))
+            done,result=threading.Event(),{}
+            def show():result.update(present_user_view(self,character,expected=expected))
+            self.ui_requests.put((show,done,result))
+            if not done.wait(5):
+                result['expired']=True
+                raise ValueError('Merchant display request expired without a confirmed view')
+            if result.get('error'):raise ValueError(result['error'])
+            return result
         if action in ('merchant-booth-probe-1078', 'merchant-booth-probe-status-1078'):
             from conquest.merchants.booth_probe_1078 import dispatch
             return dispatch(self, body)
@@ -1499,6 +1514,12 @@ class UnifiedUI:
                 or time.monotonic()<self.auto_embed_retry.get(character,0)):
             return
         host=self.hosts.get(character)
+        if (host and host.saved
+                and getattr(self.runtime.observers.get(character),'merchant_observation_only',False)):
+            from conquest.merchants.restore_hosts import present_existing
+            try:present_existing(self,character)
+            except (OSError,ValueError,CaptureUnavailable):pass
+            return
         if self.runtime.manual_handoff_status() is not None:
             try:self.show_manual_handoff_surface(character,selected=True)
             except (OSError,ValueError):
@@ -1523,13 +1544,18 @@ class UnifiedUI:
             self.auto_embedding=False
 
     def show_manual_handoff_surface(self, character, *, selected=False):
-        """User-requested hosted view during a global manual handoff.
+        """User-requested existing view; new hosting requires manual readiness.
 
-        This is deliberately limited to verified window ownership, notebook
+        The existing native-host path is limited to verified ownership, notebook
         selection and asynchronous show/hide/resize. It neither acquires an
         input lease nor focuses/clicks/types into Conquer, changes a saved
         control, reconciles a trade, or attaches a replacement process.
         """
+        host=self.hosts.get(character)
+        if getattr(self.runtime.observers.get(character),'merchant_observation_only',False):
+            from conquest.merchants.restore_hosts import present_existing,present_user_view
+            if selected:return present_existing(self,character)
+            return present_user_view(self,character)
         handoff=self.runtime.manual_handoff_status()
         if handoff is None:raise ValueError('Start Manual handoff before using manual game view')
         if handoff.get('phase') not in ('ready','ending'):
@@ -1576,21 +1602,20 @@ class UnifiedUI:
         self.resize_jobs.pop(character,None)
         if self.closed or probe_busy(self):
             return
-        if (getattr(self.runtime.observers.get(character),'merchant_observation_only',False)
-                and self.runtime.manual_handoff_status() is None):
+        if getattr(self.runtime.observers.get(character),'merchant_observation_only',False):
             # Safe automatic 1078 hosting may follow the pane's geometry, but
             # it never activates the client or changes the selected notebook tab.
             status=self.layout_status.get(character,{})
             host=self.hosts.get(character)
             observer=self.runtime.observers.get(character)
             pane=self.client_panes[character]
-            if (status.get('auto_read_only_host') and host and host.saved
+            if (host and host.saved
                     and observer and host.saved.identity==observer.adapter.identity
                     and pane.winfo_ismapped()):
                 try:
                     observer.adapter.assert_identity()
-                    from conquest.merchants.restore_hosts import restore_readonly
-                    restore_readonly(self,character)
+                    from conquest.merchants.restore_hosts import present_existing
+                    present_existing(self,character)
                 except (OSError,ValueError,CaptureUnavailable):
                     self.calibration_results[character]={'verified':False,
                         'note':'Read-only client layout is unavailable; input remains fenced'}

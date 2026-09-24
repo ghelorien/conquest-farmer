@@ -51,7 +51,8 @@ def capture_pre_admission_tail(loop):
     if prior:
         resumed=read_json(JOURNAL);market=read_json(MarketVisit().path)
         if (prior.get('phase')!='captured' or row.get('phase')!='town_work'
-                or row.get('reasons')!=['restock']
+                or row.get('reasons')!=(['urgent_banking','restock']
+                    if prior.get('capture_kind')=='booth_confirmation' else ['restock'])
                 or any(resumed.get(k)!=prior['meteor'].get(k) for k in
                        ('started_at','scroll_uid','meteor_uids','origin','after'))
                 or any(market.get(k)!=prior['market'].get(k) for k in
@@ -60,6 +61,8 @@ def capture_pre_admission_tail(loop):
         _native_tail_safe(loop,prior['target'],1036)
         return True
     meteor=read_json(JOURNAL)
+    if row.get('reasons')==['urgent_banking','restock'] and meteor.get('phase')=='storing_scroll':
+        return _capture_booth_confirmation_tail(loop,row,meteor)
     if (row.get('phase')!='town_work' or row.get('reasons')!=['restock']
             or meteor.get('phase')!='storing_scroll'):return False
     history=row.get('history') or [];previous=history[-1] if history else {}
@@ -134,6 +137,141 @@ def capture_pre_admission_tail(loop):
     return True
 
 
+def _capture_booth_confirmation_tail(loop,row,meteor):
+    """Bind a mixed urgent/restock trip blocked before any delivery admission."""
+    import sqlite3
+    from types import SimpleNamespace
+    from conquest.merchants.delivery_operation import JOURNAL as deliveries
+    from conquest.merchants.service_visit import MarketVisit
+    from conquest.merchants.bridge import request
+    from conquest.merchants.handoff import qualified_listing_request
+    from conquest.overnight import supply_counts
+    from conquest.character_context import farmer_name
+    from conquest.memory_health import HealthWorkerSession
+    from conquest.merchants.reader_1078 import CLIENT_SHA256_1078
+    from conquest.merchants.open_booth_cancel_1078 import observe
+
+    visit=loop.town_visit;target=row.get('urgent_target')
+    urgent=row.get('urgent_intent') or [];tail=row.get('urgent_banking_tail_completed_at')
+    session=(row.get('baseline') or {}).get('session_id')
+    kills=read_json(state_path('reports/desktop-farming/kill-session.json'))
+    if (row.get('phase')!='town_work' or row.get('town_work_completed_at')
+            or not _process_identity(target) or not urgent or not tail
+            or not row['required_at']<=tail<meteor.get('started_at',0)
+            or not session or kills.get('started_at')!=session
+            or row.get('route_id')!=loop.route.id or row.get('hunt_map_id')!=loop.route.map_id
+            or meteor.get('origin')!=loop.route.restock_map_id
+            or meteor.get('exchange_verified') is not True
+            or not row['required_at']<=meteor.get('started_at',0)
+            or meteor.get('return_submitted_at') or meteor.get('receipts')
+            or meteor.get('user_confirmed_scroll_consumption')
+            or meteor.get('user_confirmed_scroll_transfer')):
+        raise ValueError('Mixed restock continuation lacks its original native transaction chain')
+    _native_tail_safe(loop,target,1036)
+    events=[e for e in _rows(EVENTS) if e.get('town_visit_id')==row['town_visit_id']]
+    stored={(e.get('stored'),e.get('type_id')) for e in events
+            if e.get('event')=='valuable_stored' and e.get('verified_in_warehouse') is True
+            and row['required_at']<=e.get('time',0)<=tail}
+    if (len(urgent)!=len({i.get('uid') for i in urgent})
+            or any((i.get('uid'),i.get('type_id')) not in stored for i in urgent)):
+        raise ValueError('Urgent valuables lack their original verified deposits')
+    purchases=[e for e in events if e.get('event')=='purchase'
+               and tail<e.get('time',0)<meteor['started_at']]
+    if (len(purchases)!=loop.route.supplies.healing_restock_to
+            or any(p.get('receipt',{}).get('bought')!=loop.route.supplies.healing_type
+                   or p['receipt'].get('amount')!=1
+                   or type(p['receipt'].get('price')) is not int or p['receipt']['price']<=0
+                   or type(p['receipt'].get('silver')) is not int or p['receipt']['silver']<0
+                   for p in purchases)
+            or any(b['receipt']['silver']!=a['receipt']['silver']-b['receipt']['price']
+                   for a,b in zip(purchases,purchases[1:]))):
+        raise ValueError('Mixed restock lacks its verified selected-supply purchases')
+    failure=next((e for e in reversed(events) if e.get('event')=='failed'
+                  and e.get('detail')=='1078 incoming trade request disagrees with confirmation'
+                  and e.get('error_type')=='conquest.merchants.bridge.MerchantRejected'),{})
+    trace={(Path(f.get('file','')).name,f.get('function'))
+           for f in failure.get('failure_trace',[])}
+    if (failure.get('detail')!='1078 incoming trade request disagrees with confirmation'
+            or failure.get('error_type')!='conquest.merchants.bridge.MerchantRejected'
+            or not {('meteor_banking.py','market_bank'),('delivery_route.py','_market_storage'),
+                    ('delivery_route.py','approach_merchant'),('bridge.py','request')}<=trace
+            or not meteor['started_at']<=failure.get('time',0)):
+        raise ValueError('Mixed restock failure is not the exact pre-admission booth interception')
+    for event in events:
+        if event.get('time',0)<=failure['time'] or event.get('event') in ('started','stopped'):
+            continue
+        frames={(Path(f.get('file','')).name,f.get('function'))
+                for f in event.get('failure_trace',[])}
+        if (event.get('event')=='failed'
+                and ('restock_town_recovery.py','_capture_booth_confirmation_tail') in frames):
+            # This function only observes memory and journals the claim; a
+            # failed read on an earlier startup cannot hide an input action.
+            continue
+        raise ValueError('Gameplay followed the interrupted mixed restock')
+    market=read_json(MarketVisit().path)
+    if (market.get('phase')!='active' or market.get('town_visit_id')!=row['town_visit_id']
+            or market.get('parent_visit_id')!=row['town_visit_id']
+            or market.get('farmer_profile_id')!=visit.profile or market.get('attempts')
+            or not market.get('started_at',0)<=failure['time']<=market.get('deadline',0)<time.time()):
+        raise ValueError('Original exhausted Market visit is unavailable')
+    if deliveries.exists():
+        with sqlite3.connect(deliveries.resolve().as_uri()+'?mode=ro',uri=True) as db:
+            if (db.execute('SELECT 1 FROM delivery_admissions WHERE created>=? LIMIT 1',(row['required_at'],)).fetchone()
+                    or db.execute('SELECT 1 FROM transactions WHERE created>=? LIMIT 1',(row['required_at'],)).fetchone()):
+                raise ValueError('A delivery was admitted during this mixed restock')
+    status=request({'action':'status'});manual=request({'action':'manual-status'}).get('farmer') or {}
+    pending=status.get('handoff_requested')
+    if (status.get('input_owner') is not None
+            or pending is not None and qualified_listing_request(status) is None
+            or status.get('handoff_granted') is not False or manual.get('session')
+            or manual.get('input_fenced') or _other_holds()):
+        raise ValueError('Merchant or manual ownership holds the mixed restock')
+    bag=loop.town('supplies')
+    counts=supply_counts(bag,loop.route)
+    if (_ownership(bag)!=_ownership(meteor['after'])
+            or counts['potions']<loop.route.supplies.healing_restock_to
+            or counts['arrows']<3 or counts['free_slots']<=0
+            or any(item['uid'] in {i['uid'] for i in urgent} for item in bag['items'])):
+        raise ValueError('Post-exchange ownership or purchased supplies changed')
+    session=HealthWorkerSession(loop.info,CLIENT_SHA256_1078)
+    observer=SimpleNamespace(adapter=session,character=farmer_name())
+    first=observe(observer);second=observe(observer)
+    def owned(snapshot):
+        items=sorted((i['uid'],i['type_id'],i['plus'],i['quantity'])
+                     for i in snapshot['inventory'])
+        return (snapshot['identity'],snapshot['map_id'],snapshot['position'],
+                snapshot['silver'],items,snapshot['booth'],snapshot['trade'],snapshot['request'])
+    bag_items=sorted((i['uid'],i['type_id'],i['plus'],i['amount']) for i in bag['items'])
+    confirmation=first.get('confirmation')
+    exact_open=(isinstance(confirmation,dict)
+                and confirmation.get('title')=='Open Booth###Confirm'
+                and confirmation.get('message')=='Start Vending'
+                and first.get('canonical_manual_ownership') is False)
+    exact_closed=(confirmation is None
+                  and first.get('canonical_manual_ownership') is True)
+    if (owned(first)!=owned(second) or first.get('identity')!=target
+            or first.get('map_id')!=1036 or first.get('hp',0)<=0
+            or second.get('hp',0)<=0
+            or not 0<=time.time()-second.get('timestamp',0)<=3
+            or first.get('trade') is not None or first.get('request') is not None
+            or confirmation!=second.get('confirmation')
+            or first.get('canonical_manual_ownership')!=second.get('canonical_manual_ownership')
+            or not (exact_open or exact_closed)
+            or bag_items!=sorted((i['uid'],i['type_id'],i['plus'],i['quantity'])
+                                  for i in first['inventory'])
+            or first['silver']!=bag['silver']):
+        raise ValueError('Native booth confirmation or farmer ownership changed')
+    _native_tail_safe(loop,target,1036)
+    row['pre_admission_restock_tail']={'capture_kind':'booth_confirmation','target':target,
+        'failure':failure,'market':market,'meteor':meteor,'bag':bag,
+        'purchase_receipts':[p['receipt'] for p in purchases],
+        'confirmation_observation':{'state':'open' if exact_open else 'closed',
+                                    'confirmation':confirmation},
+        'captured_at':time.time(),'phase':'captured'}
+    _save_tail(visit,row)
+    return True
+
+
 def resume_pre_admission_tail(loop):
     """Finish only the unreturned cash/panel tail, never replay purchases."""
     from conquest import banking,meteor_banking
@@ -146,7 +284,9 @@ def resume_pre_admission_tail(loop):
     if not claim or row.get('town_work_completed_at'):return False
     if claim.get('phase')!='captured':
         raise ValueError('Interrupted restock cash tail was attempted; reconcile before any replay')
-    if row.get('phase')!='town_work' or row.get('reasons')!=['restock']:
+    if (row.get('phase')!='town_work' or row.get('reasons')!=
+            (['urgent_banking','restock'] if claim.get('capture_kind')=='booth_confirmation'
+             else ['restock'])):
         raise ValueError('Interrupted restock visit changed')
     _native_tail_safe(loop,claim['target'],loop.route.restock_map_id)
     meteor=read_json(meteor_banking.JOURNAL);original=claim['meteor']

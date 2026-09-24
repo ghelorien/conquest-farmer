@@ -12,7 +12,7 @@ def rig(monkeypatch):
     state={'windows':[]};events=[]
     gui=NS(windows=lambda:deepcopy(state['windows']),
            assert_hovered=lambda w,label:events.append(('hover',label)))
-    monkeypatch.setattr(panels,'GuiReader',lambda adapter:gui)
+    monkeypatch.setattr(panels,'GuiReader',NS(for_session=lambda adapter:gui))
     def close_point(driver,snapshot,*,display_only=False):
         assert display_only
         return (20,20),next(w for w in snapshot['windows'] if w['name']=='Booth')
@@ -50,7 +50,7 @@ def test_seller_panels_are_never_closed(rig,character):
     assert events==[]
 
 
-@pytest.mark.parametrize('name',sorted(panels.TRANSACTIONS))
+@pytest.mark.parametrize('name',sorted(panels.TRANSACTIONS)+['Trade###Confirm','Unknown###Confirm'])
 def test_transaction_blocks_cleanup(rig,name):
     trade,state,events=rig;state['windows']=[{'name':'Shop'},{'name':name}]
     with pytest.raises(CaptureUnavailable,match='reconciliation'):panels.close_one(trade)
@@ -88,6 +88,7 @@ def test_booth_guard_rejects_changed_state_before_press(rig,change):
 def test_travel_cleanup_is_throttled_and_reobserves_after_closing(monkeypatch,closed):
     from conquest import travel_care as module
     care=module.TravelCare.__new__(module.TravelCare)
+    care.exact_1078=False
     care.info='worker';care.pending=None;care.notify=lambda event:None;care.xp_step=lambda health:None
     now=[10.0];calls=[]
     monkeypatch.setattr(module.time,'monotonic',lambda:now[0])
@@ -112,7 +113,7 @@ def test_travel_cleanup_is_throttled_and_reobserves_after_closing(monkeypatch,cl
 def test_changing_gui_registry_defers_cleanup_without_stopping_farmer(rig,monkeypatch):
  trade,state,events=rig
  def changed():raise panels.GuiObservationChanged('GUI registry changed')
- monkeypatch.setattr(panels,'GuiReader',lambda adapter:NS(windows=changed))
+ monkeypatch.setattr(panels,'GuiReader',NS(for_session=lambda adapter:NS(windows=changed)))
  with pytest.raises(CaptureUnavailable,match='GUI observation changed'):
   panels.close_one(trade)
  assert events==[]
@@ -121,6 +122,7 @@ def test_changing_gui_registry_defers_cleanup_without_stopping_farmer(rig,monkey
 def test_unconfirmed_panel_close_rechecks_but_is_bounded(monkeypatch):
     from conquest.travel_care import TravelCare,TravelStateChanged
     care=object.__new__(TravelCare);care.info='worker';care.notify=lambda e:None
+    care.exact_1078=False
     health={'embedded_controls':{'control':{'enabled':False},'life':{'dead_candidate':False}}}
     calls=[]
     def fail(*a,**k):

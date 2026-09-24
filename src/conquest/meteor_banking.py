@@ -562,6 +562,12 @@ def resume(loop):
     loop.phase='restocking'
     world=loop.living()['embedded_controls']['life']['map_id']
     loop.terrain=read_terrain(installation_path(r'C:\Program Files\Classic Conquer 2.0'),world)
+    if world==1036:
+        # An interrupted approach may leave the shared confirmation model on
+        # Open Booth. Reconcile its exact negative action before any ordinary
+        # delivery read, even when the original Market budget has expired.
+        from conquest.merchants.open_booth_cancel_1078 import cleanup
+        cleanup(loop)
     if world==state['origin'] and state['phase']=='returning':
         if carried(loop):raise ValueError('Protected valuables unexpectedly carried after Market return')
         if state.get('return_submitted_at'):

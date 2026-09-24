@@ -38,7 +38,7 @@ def test_selected_client_shows_without_reading_shop_state_or_verifying(released,
         released_clients={'Dutch'} if released else set(),
         client_panes={'Dutch':SimpleNamespace(winfo_ismapped=lambda:True)},auto_embed_retry={},
         hosts={'Dutch':SimpleNamespace(saved=object())} if attached else {},
-        runtime=SimpleNamespace(observers={'Dutch':object()}),embed_client=Mock())
+        runtime=SimpleNamespace(observers={'Dutch':object()},manual_handoff_status=lambda:None),embed_client=Mock())
     UnifiedUI.auto_show_selected(ui)
     assert ui.embed_client.call_count==int(expected)
 

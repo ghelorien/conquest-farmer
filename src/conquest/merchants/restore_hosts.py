@@ -115,6 +115,123 @@ def released(ui,character,value):
     else:ui.released_clients.discard(character)
 
 
+def present_existing(ui,character,*,select=False,expected=None):
+    """Show an already owned native client without granting gameplay authority.
+
+    A login shell and an interrupted town journal must not make the user's
+    attached window inaccessible. Only Win32 identity/ownership and the exact
+    existing host are used here; no memory snapshot, focus or input is needed.
+    """
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    from conquest.merchants.background_probe import probe_busy
+    coordinator=ui.coordinator
+    if not coordinator.lock.acquire(blocking=False):
+        raise ValueError('An active input action owns the client surface')
+    try:
+        host=ui.hosts.get(character);observer=ui.runtime.observers.get(character)
+        pane=ui.client_panes[character]
+        def binding():
+            if (ui.closed or ui.app.closing or coordinator.owner is not None or probe_busy(ui)
+                    or character in ui.released_clients or not host or not host.saved
+                    or host.mode!='owned' or observer is None
+                    or getattr(observer.adapter,'expected_sha256',None)!=CLIENT_SHA256_1078
+                    or ui.hosts.get(character) is not host or ui.runtime.observers.get(character) is not observer
+                    or host.saved.identity!=observer.adapter.identity or host.saved.hwnd!=observer.hwnd
+                    or host.parent!=pane.winfo_id()):
+                raise ValueError('Exact existing merchant host is unavailable for display')
+            if expected is not None and (host is not expected[0] or observer is not expected[1]
+                    or (host.saved.hwnd,host.saved.identity)!=expected[2:]):
+                raise ValueError('Requested merchant view binding changed')
+            observer.adapter.assert_identity()
+            host.api.assert_owner(host.saved.hwnd,host.saved.identity)
+            gui=host.api.gui
+            if (gui.GetAncestor(host.saved.hwnd,2)!=host.saved.hwnd
+                    or gui.GetWindow(host.saved.hwnd,4)!=gui.GetAncestor(pane.winfo_id(),2)):
+                raise ValueError('Existing merchant native owner changed')
+        binding()
+        if select:
+            ui.notebook.select(ui.frames[character]);ui.detail_tabs[character].select(0)
+            layout=getattr(ui,'apply_client_compact_layout',None)
+            if layout:layout()
+            ui.root.update_idletasks()
+        binding()
+        if not pane.winfo_ismapped() or min(pane.winfo_width(),pane.winfo_height())<=1:
+            raise ValueError('Select the merchant Client tab before showing its existing view')
+        for other,other_host in ui.hosts.items():
+            if other!=character and other_host.saved:
+                other_host.api.assert_owner(other_host.saved.hwnd,other_host.saved.identity)
+                other_host.api.show_async(other_host.saved.hwnd,0)
+                ui.layout_status.setdefault(other,{}).update(native_visible=False,selected=False)
+        binding()
+        size=(pane.winfo_width(),pane.winfo_height())
+        host.resize(*size)
+        binding()
+        visible=bool(host.api.gui.IsWindowVisible(host.saved.hwnd))
+        ui.layout_status.setdefault(character,{}).update(native_visible=visible,selected=True,
+            pane_size=list(size),existing_host_view=True)
+        return {'character':str(character),'selected':True,'native_visible':visible,
+                'hwnd':host.saved.hwnd,'identity':dict(host.saved.identity),'display_only':True}
+    finally:coordinator.lock.release()
+
+
+def present_user_view(ui,character,*,expected=None,host_factory=None):
+    """Explicit display request may host an already identified observer only.
+
+    No login discovery, activation or gameplay memory read occurs. Automatic
+    tab polling uses present_existing and never enters this attachment path.
+    """
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
+    from conquest.merchants.background_probe import probe_busy
+    coordinator=ui.coordinator
+    if not coordinator.lock.acquire(blocking=False):
+        raise ValueError('An active input action owns the client surface')
+    try:
+        host=ui.hosts.get(character);observer=ui.runtime.observers.get(character)
+        if (ui.closed or ui.app.closing or coordinator.owner is not None or probe_busy(ui)
+                or character in ui.released_clients or observer is None
+                or not getattr(observer,'merchant_observation_only',False)
+                or observer.adapter.expected_sha256!=CLIENT_SHA256_1078):
+            raise ValueError('Manual display requires an already identified native merchant')
+        if expected is not None and (host is not expected[0] or observer is not expected[1]
+                or (observer.hwnd,observer.adapter.identity)!=expected[2:]):
+            raise ValueError('Requested merchant view binding changed')
+        if host and host.saved:
+            return present_existing(ui,character,select=True,expected=expected)
+        identity=dict(observer.adapter.identity);hwnd=observer.hwnd
+        observer.adapter.assert_identity()
+        if host_factory is None:
+            from conquest.window_host import EmbeddedWindow
+            host_factory=lambda:EmbeddedWindow(mode='owned')
+        candidate=host_factory()
+        if candidate.mode!='owned' or candidate.saved is not None:
+            raise ValueError('Manual display requires a new owned-window host')
+        gui=candidate.api.gui
+        candidate.api.assert_owner(observer.hwnd,observer.adapter.identity)
+        if (gui.GetAncestor(observer.hwnd,2)!=observer.hwnd
+                or gui.GetWindow(observer.hwnd,4) or gui.IsIconic(observer.hwnd)):
+            raise ValueError('Manual display needs the exact unowned, restored native window')
+        ui.notebook.select(ui.frames[character]);ui.detail_tabs[character].select(0)
+        layout=getattr(ui,'apply_client_compact_layout',None)
+        if layout:layout()
+        ui.root.update_idletasks()
+        pane=ui.client_panes[character]
+        if (not pane.winfo_ismapped() or min(pane.winfo_width(),pane.winfo_height())<=1
+                or ui.closed or ui.app.closing or coordinator.owner is not None or probe_busy(ui)
+                or character in ui.released_clients or ui.runtime.observers.get(character) is not observer
+                or ui.hosts.get(character) is not host or observer.hwnd!=hwnd
+                or observer.adapter.identity!=identity):
+            raise ValueError('Manual merchant pane or identity changed before display')
+        observer.adapter.assert_identity()
+        candidate.api.assert_owner(observer.hwnd,observer.adapter.identity)
+        if gui.GetWindow(observer.hwnd,4) or gui.IsIconic(observer.hwnd):
+            raise ValueError('Native window ownership changed before manual display')
+        candidate.attach(hwnd,identity,pane.winfo_id(),
+                         pane.winfo_width(),pane.winfo_height())
+        ui.hosts[character]=candidate
+        return present_existing(ui,character)
+    finally:coordinator.lock.release()
+
+
 def present_native(ui,character,expected):
     """Tk presentation for an already admitted native lease, never attachment."""
     from conquest.memory_build_layout import CLIENT_SHA256_1078

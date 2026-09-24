@@ -64,6 +64,28 @@ def test_full_round_trip_packs_banks_returns_and_does_not_repeat(route):
     assert not m.consolidate(loop,{'items':list(local)})
 
 
+def test_interrupted_market_cleans_prompt_before_banking_without_new_deadline(route):
+    from conquest.merchants.open_booth_cancel_1078 import CLIENT_SHA256_1078
+    loop,state,bag,local,market,events=route
+    state['map']=1036;bag.append(item(99,m.SCROLL))
+    loop.market_service_deadline=1
+    loop.health=lambda:{'expected_sha256':CLIENT_SHA256_1078}
+    original=loop.town
+    def town(action,**fields):
+        if action=='cancel-open-booth-confirm':
+            events.append(('cancel-prompt',state['map']))
+            return {'closed_panel':'Open Booth###Confirm','cancel_verified':True}
+        return original(action,**fields)
+    loop.town=town
+    write_json(m.JOURNAL,{'phase':'storing_scroll','origin':1011,'scroll_uid':99,
+                         'exchange_verified':True})
+    assert m.resume(loop)
+    assert events[0]==('cancel-prompt',1036)
+    assert events.index(('cancel-prompt',1036))<events.index(('warehouse-deposit',99))
+    assert loop.market_service_deadline==1
+    assert not any(e[0]=='choice' for e in events)
+
+
 def test_override_archives_full_record_then_replans_from_fresh_bag_and_warehouse(route,monkeypatch,tmp_path):
     """A terminal override is evidence, never a source of the next batch."""
     loop,state,bag,local,market,events=route

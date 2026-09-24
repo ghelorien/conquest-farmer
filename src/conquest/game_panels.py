@@ -10,6 +10,9 @@ from conquest.character_context import farmer_name
 PANELS=('Booth','Shop','Warehouse','Dialog','Inventory')
 TRANSACTIONS={'Trade##TradeWindow','Add Item to Booth','###Confirm'}
 
+def transaction(window):
+    return window['name'] in TRANSACTIONS or window['name'].endswith('###Confirm')
+
 def close_one(trade,check=lambda:None):
     try:return _close_one(trade,check)
     except GuiObservationChanged as error:
@@ -19,8 +22,11 @@ def close_one(trade,check=lambda:None):
 def _close_one(trade,check):
     # This helper is called only by farmer travel/combat, never by sellers.
     if trade.observer.character!=farmer_name():raise ValueError('Panel cleanup requires the farmer')
-    check();gui=GuiReader.for_session(trade.observer.adapter);windows=gui.windows()
-    if any(w['name'] in TRANSACTIONS for w in windows):
+    check()
+    from conquest.merchants.open_booth_cancel_1078 import cancel
+    if cancel(trade,check):return 'Open Booth###Confirm'
+    gui=GuiReader.for_session(trade.observer.adapter);windows=gui.windows()
+    if any(transaction(w) for w in windows):
         raise CaptureUnavailable('A transaction dialog needs reconciliation before movement')
     chosen=next((name for name in PANELS if any(w['name']==name for w in windows)),None)
     if chosen is None:return None
@@ -33,7 +39,7 @@ def _close_one(trade,check):
     point,window=close_point(driver,snapshot,display_only=True)
     def guard():
         check();fresh={'windows':gui.windows()}
-        if any(w['name'] in TRANSACTIONS for w in fresh['windows']):
+        if any(transaction(w) for w in fresh['windows']):
             raise CaptureUnavailable('Transaction appeared before closing booth view')
         if close_point(driver,fresh,display_only=True)!=(point,window):
             raise CaptureUnavailable('Booth view moved before close')

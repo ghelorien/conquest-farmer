@@ -42,7 +42,7 @@ def positions(terrain,probe,*,used=(),deadline=None):
     return [p for _,p in sorted(ranked)]
 
 
-def ingress_position(terrain,probe,*,used=(),deadline=None):
+def ingress_position(terrain,probe,*,used=(),failed_legs=(),deadline=None):
     """Choose one checked visible step toward an off-scene receiver.
 
     The destination comes from the fresh bilateral world positions.  The
@@ -61,11 +61,20 @@ def ingress_position(terrain,probe,*,used=(),deadline=None):
     except ValueError:return None
     if not path or tuple(path[0])!=source or tuple(path[-1])!=target:return None
     from conquest.navigation import travel_waypoint
-    try:
-        return travel_waypoint(terrain,path,DELIVERY_PROBE_MAX_AXIS_DELTA,
-                               avoid=avoid,viewport=tuple(probe['viewport']))
-    except ValueError:
-        return None
+    # A visible click can hit a live stall control despite valid ground.
+    # Retain the failed edge, not a fictitious solid tile, and try a different
+    # checked landing on the same path. The original 8--12 tile jump policy
+    # and caller's visit deadline remain unchanged.
+    failed=set(failed_legs)
+    for maximum in range(DELIVERY_PROBE_MAX_AXIS_DELTA,7,-1):
+        if deadline is not None and time.time()>=deadline:return None
+        try:
+            point=travel_waypoint(terrain,path,maximum,
+                                 avoid=avoid,viewport=tuple(probe['viewport']))
+        except ValueError:
+            continue
+        if (source,tuple(point)) not in failed:return point
+    return None
 
 
 def bounded_position(terrain,probe,destination,*,used=(),deadline=None):

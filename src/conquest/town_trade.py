@@ -364,6 +364,9 @@ class TownTrade:
         raise ValueError(failure)
 
     def execute(self, body):
+        if body=={'action':'cancel-open-booth-confirm'}:
+            from conquest.merchants.open_booth_cancel_1078 import cancel
+            return cancel(self) or {'closed_panel':None}
         if body=={'action':'clear-travel-panels'}:
             from conquest.game_panels import close_one
             return {'closed_panel':close_one(self)}
