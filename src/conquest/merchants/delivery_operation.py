@@ -144,6 +144,7 @@ def status(journal,key):
             'outcome':outcome,'evidence_outcome':evidence_outcome or 'unknown',
             'reason':reason,
             'next_action':next_action,'proof_digest':result.get('proof_digest'),
+            'operator_override':result.get('operator_override') if row['phase']=='operator_overridden' else None,
             'cleanup_pending':cleanup_pending if not cleanup_verified else [],
             'sale_receipts':result.get('sale_receipts',[]),
             'delivered':result.get('delivered'),

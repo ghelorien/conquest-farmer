@@ -122,7 +122,7 @@ def _delivery_proof(row, meteor, market, failure, target):
     return expected,proofs
 
 
-def capture(loop,row,meteor,*,no_transfer=False):
+def capture(loop,row,meteor,*,no_transfer=False,operator_warehouse=False):
     from conquest import restock_town_recovery as recovery
     from conquest.merchants.service_visit import MarketVisit
     from conquest.merchants.bridge import request
@@ -161,9 +161,10 @@ def capture(loop,row,meteor,*,no_transfer=False):
         raise ValueError('Original expired Market visit is unavailable')
     if no_transfer:
         from conquest.no_transfer_town_recovery import settle_before_capture
-        settle_before_capture(loop,row,meteor,market,failure,target)
+        settle_before_capture(loop,row,meteor,market,failure,target,operator_warehouse=operator_warehouse)
     recovery._native_tail_safe(loop,target,1036)
-    expected,proofs=(no_transfer_proof if no_transfer else _delivery_proof)(row,meteor,market,failure,target)
+    expected,proofs=(no_transfer_proof(row,meteor,market,failure,target,operator_warehouse=operator_warehouse)
+                     if no_transfer else _delivery_proof(row,meteor,market,failure,target))
     status=request({'action':'status'});manual=request({'action':'manual-status'}).get('farmer') or {}
     observation=manual.get('observation') or {}
     pending=status.get('handoff_requested')
@@ -177,7 +178,8 @@ def capture(loop,row,meteor,*,no_transfer=False):
     if recovery._ownership(bag)!=recovery._ownership(expected) or needs_town(supply_counts(bag,loop.route),loop.route):
         raise ValueError('Fresh post-delivery ownership or restock supplies changed')
     recovery._native_tail_safe(loop,target,1036)
-    row['pre_admission_restock_tail']={'capture_kind':'no_transfer' if no_transfer else 'settled_delivery','target':target,
+    row['pre_admission_restock_tail']={'capture_kind':('operator_warehouse' if operator_warehouse else
+        'no_transfer' if no_transfer else 'settled_delivery'),'target':target,
         'failure':failure,'market':market,'meteor':meteor,'bag':bag,'delivery_proofs':proofs,
         'captured_at':time.time(),'phase':'captured'}
     recovery._save_tail(visit,row)

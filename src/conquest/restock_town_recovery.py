@@ -59,11 +59,12 @@ def capture_pre_admission_tail(loop):
                        ('visit_id','town_visit_id','farmer_profile_id','started_at','deadline'))):
             raise ValueError('Captured restock continuation changed before Meteor recovery')
         _native_tail_safe(loop,prior['target'],1036)
-        if prior.get('capture_kind') in ('settled_delivery','no_transfer'):
+        if prior.get('capture_kind') in ('settled_delivery','no_transfer','operator_warehouse'):
             from conquest.settled_delivery_town_recovery import _delivery_proof
             from conquest.no_transfer_town_recovery import proof as no_transfer_proof
-            reader=no_transfer_proof if prior['capture_kind']=='no_transfer' else _delivery_proof
-            expected,proofs=reader(row,prior['meteor'],prior['market'],prior['failure'],prior['target'])
+            args=(row,prior['meteor'],prior['market'],prior['failure'],prior['target'])
+            expected,proofs=(no_transfer_proof(*args,operator_warehouse=prior['capture_kind']=='operator_warehouse')
+                             if prior['capture_kind'] in ('no_transfer','operator_warehouse') else _delivery_proof(*args))
             if proofs!=prior['delivery_proofs'] or _ownership(loop.town('supplies'))!=_ownership(expected):
                 raise ValueError('Captured post-delivery restock ownership changed')
         return True
@@ -76,7 +77,8 @@ def capture_pre_admission_tail(loop):
     from conquest.no_transfer_town_recovery import FAILURE as NO_TRANSFER_FAILURE
     if any(e.get('town_visit_id')==row['town_visit_id'] and e.get('event')=='failed'
            and e.get('detail')==NO_TRANSFER_FAILURE for e in _rows(EVENTS)):
-        return capture(loop,row,meteor,no_transfer=True)
+        from conquest.no_transfer_town_recovery import operator_warehouse_requested
+        return capture(loop,row,meteor,no_transfer=True,operator_warehouse=operator_warehouse_requested(row))
     if any(e.get('town_visit_id')==row['town_visit_id'] and e.get('event')=='failed'
            and e.get('detail')==FAILURE for e in _rows(EVENTS)):
         return capture(loop,row,meteor)
@@ -358,7 +360,8 @@ def resume_pre_admission_tail(loop):
     _save_tail(visit,row)
     banking.close_warehouse(loop)
     loop.town('close',window='Shop')
-    service_window(loop,town=True)
+    if claim.get('capture_kind')!='operator_warehouse':
+        service_window(loop,town=True)
     _native_tail_safe(loop,claim['target'],loop.route.restock_map_id)
     bag=loop.town('supplies')
     if any(stash_candidate(i) for i in bag['items']) or needs_town(supply_counts(bag,loop.route),loop.route):

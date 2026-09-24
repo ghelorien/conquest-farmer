@@ -225,8 +225,15 @@ class Journal:
                         'fresh_evidence': fresh_evidence}
             prior_result=json.loads(row['result_json'] or '{}')
             cleanup_pending=prior_result.get('cleanup_pending') or []
-            if not cleanup_pending and any(step['stage'] in ('cleanup','cleanup_trade')
-                                           and step['status']=='before_action' for step in steps):
+            # A once-only close boundary remains uncertain until an observed
+            # closed-window receipt follows it.  A completed close must not
+            # create a fresh cleanup hold during an operator warehouse exit.
+            unobserved_cleanup=any(
+                step['stage'] in ('cleanup','cleanup_trade') and step['status']=='before_action'
+                and not any(later['stage']==step['stage'] and later['status']=='observed'
+                            and later['timestamp']>=step['timestamp'] for later in steps)
+                for step in steps)
+            if not cleanup_pending and unobserved_cleanup:
                 cleanup_pending=['operator_reconciliation']
             result = {'outcome': 'operator_overridden', 'next_action': 'release_route',
                       'operator_override': override, 'proof_digest': original_digest,

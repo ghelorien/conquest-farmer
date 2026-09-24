@@ -11,9 +11,9 @@ from conquest.discord_notify import read_json
 FAILURE = 'Merchant delivery needs reconciliation; valuables remain protected'
 
 
-def proof(row, meteor, market, failure, target, *, allow_terminal_active=False):
+def proof(row, meteor, market, failure, target, *, allow_terminal_active=False, operator_warehouse=False):
     from conquest.merchants import delivery_operation, delivery_route
-    from conquest.merchants.delivery import reconciliation_outcome, exact_items
+    from conquest.merchants.delivery import reconciliation_outcome, exact_items, validate_snapshot
     from conquest.merchants.journal import profile_row
     from conquest.merchants.sales import qualified_delivery_receipts
     from conquest.settled_delivery_town_recovery import _bag_matches_snapshot, _same_intent
@@ -43,25 +43,29 @@ def proof(row, meteor, market, failure, target, *, allow_terminal_active=False):
         tx, admission = transactions[0], admissions[0]
         key = tx['id']; before = json.loads(tx['before_json'])
         result = json.loads(tx['result_json'] or '{}')
+        override=result.get('operator_override') or {}
+        observed=(override.get('fresh_evidence') or {}) if operator_warehouse else result
+        outcome='operator_overridden' if operator_warehouse else 'no_transfer'
         admitted = json.loads(admission['origin_json'])
-        if (tx['kind'] != 'farmer_delivery' or tx['phase'] != 'aborted'
+        if (tx['kind'] != 'farmer_delivery' or tx['phase'] != ('operator_overridden' if operator_warehouse else 'aborted')
                 or not meteor['started_at'] <= tx['created'] <= failure['time'] <= tx['updated']
                 or admission['request_id'] != key or admission['phase'] != 'transaction_started'
                 or admission['character'] != tx['character']
                 or before.get('operation_id') != key or admitted.get('operation_id') != key
                 or any(before.get(k) != v or admitted.get(k) != v for k, v in origin.items())
                 or before['farmer']['identity'] != target
-                or result.get('outcome') != 'no_transfer' or result.get('delivered')
+                or result.get('outcome') != outcome or result.get('delivered')
                 or result.get('cleanup_pending') or result.get('operator_additions')
                 or not _bag_matches_snapshot(meteor['after'], before['farmer'])
-                or not _bag_matches_snapshot(meteor['after'], result['farmer'])):
+                or not _bag_matches_snapshot(meteor['after'], observed.get('farmer') or {})):
             raise ValueError('No-transfer recovery lacks unchanged original native ownership')
         selected = exact_items(before['items'])
         if (list(selected) != [meteor['scroll_uid']]
                 or before['items'][0]['type_id'] != 720027
                 or sorted(selected) != sorted(json.loads(admission['uids_json']))
                 or selected != exact_items(json.loads(admission['items_json']))
-                or selected != exact_items(result.get('remaining', []))):
+                or (result.get('remaining') != [] if operator_warehouse else
+                    selected != exact_items(result.get('remaining', [])))):
             raise ValueError('No-transfer admission is not the exact original MeteorScroll')
         trace = [{**dict(step), 'payload': json.loads(step['payload'])} for step in db.execute(
             'SELECT stage,status,payload,timestamp FROM transaction_steps WHERE transaction_id=? ORDER BY id', (key,))]
@@ -86,24 +90,51 @@ def proof(row, meteor, market, failure, target, *, allow_terminal_active=False):
                         or exact_items(snapshot['inventory'])!=exact_items(before[role]['inventory'])):
                     raise ValueError('Rich cleanup observation changed exact unoffered ownership')
         for role in ('farmer', 'merchant'):
-            if result[role].get('trade') is not None or result[role].get('request') is not None:
+            if observed[role].get('trade') is not None or observed[role].get('request') is not None:
                 raise ValueError('No-transfer participants still have open trade windows')
-        sales = qualified_delivery_receipts(ReadOnlyJournal(), before, result['merchant'])
-        proved = reconciliation_outcome(before, result['farmer'], result['merchant'],
-            trace=trace, sale_receipts=sales, now=result['reconciled_at'])
-        if (proved['outcome'] != 'no_transfer' or proved['cleanup_pending']
-                or proved['proof_digest'] != result.get('proof_digest')
-                or proved['sale_receipts'] != result.get('sale_receipts', [])):
-            raise ValueError('No-transfer bilateral ownership proof differs from its receipt')
+        if operator_warehouse:
+            import hashlib
+            from conquest.merchants.manual_sessions import canonical_ownership
+            original=override.get('original_evidence') or {}
+            digest=hashlib.sha256(json.dumps(original,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            if (any(role not in closed[0]['payload'] for role in ('farmer','merchant'))
+                    or override.get('operator_confirmed') is not True or not override.get('confirmation_reference')
+                    or original.get('id')!=key or original.get('before_json')!=tx['before_json']
+                    or original.get('phase')!='uncertain' or override.get('original_phase')!='uncertain'
+                    or digest!=override.get('original_evidence_digest') or digest!=result.get('proof_digest')
+                    or not closed[0]['timestamp']<=observed.get('observed_at',0)<=override.get('confirmed_at',0)
+                    or result.get('sale_receipts')):
+                raise ValueError('Warehouse-only recovery lacks an exact explicit unknown-outcome override')
+            for role in ('farmer','merchant'):
+                canonical_ownership(observed[role])
+                validate_snapshot(observed[role],before[role]['character'],observed['observed_at'])
+                if (observed[role]['identity']!=before[role]['identity']
+                        or exact_items(observed[role]['inventory'])!=exact_items(before[role]['inventory'])):
+                    raise ValueError('Override participants or untouched inventory changed')
+            proved={'proof_digest':digest};sales=[]
+        else:
+            sales = qualified_delivery_receipts(ReadOnlyJournal(), before, result['merchant'])
+            proved = reconciliation_outcome(before, result['farmer'], result['merchant'],
+                trace=trace, sale_receipts=sales, now=result['reconciled_at'])
+            if (proved['outcome'] != 'no_transfer' or proved['cleanup_pending']
+                    or proved['proof_digest'] != result.get('proof_digest')
+                    or proved['sale_receipts'] != result.get('sale_receipts', [])):
+                raise ValueError('No-transfer bilateral ownership proof differs from its receipt')
         with ReadOnlyJournal().db() as peer_db:
             peers = list(peer_db.execute('SELECT state FROM delivery_reservations WHERE request_id=?', (key,)))
         peer = json.loads(peers[0]['state']) if len(peers) == 1 else {}
         disposition = peer.get('disposition') or {}
-        if (peer.get('phase') != 'no_transfer_reconciled'
+        if (peer.get('phase') != ('operator_overridden' if operator_warehouse else 'no_transfer_reconciled')
                 or not _same_intent(peer.get('intent') or {}, before)
-                or disposition.get('outcome') != 'no_transfer'
-                or disposition.get('proof_digest') != proved['proof_digest']):
+                or disposition.get('outcome') != outcome or disposition.get('cleanup_pending')
+                or (not operator_warehouse and disposition.get('proof_digest') != proved['proof_digest'])):
             raise ValueError('Receiver no-transfer disposition is missing or changed')
+        if operator_warehouse:
+            peer_override=peer.get('operator_override') or {}
+            if (peer_override.get('operator_confirmed') is not True
+                    or peer_override.get('confirmation_reference')!=override['confirmation_reference']
+                    or peer_override.get('fresh_evidence')!=observed):
+                raise ValueError('Source and receiver operator dispositions are not linked')
         operations = [r for r in route.get('operations', []) if r.get('started_at', 0) >= row['required_at']]
         if active:
             if (operations or active.get('request_id')!=key
@@ -117,31 +148,31 @@ def proof(row, meteor, market, failure, target, *, allow_terminal_active=False):
         if len(operations) != 1:
             raise ValueError('Route no-transfer operation history is not exact')
         record = operations[0]
-        if (record.get('request_id') != key or record.get('outcome') != 'no_transfer'
+        if (record.get('request_id') != key or record.get('outcome') != outcome
                 or record.get('items') or record.get('proof_digest') != proved['proof_digest']
-                or exact_items(record.get('remaining', [])) != selected
+                or exact_items(record.get('remaining', [])) != ({} if operator_warehouse else selected)
                 or any(record.get(k) != v for k, v in origin.items())
                 or record.get('verified_at', 0) < tx['updated']
                 or any(r.get('request_id') == key for r in route.get('receipts', []))):
             raise ValueError('Original route has not consumed its linked no-transfer disposition')
         attempts = market.get('attempts') or []
-        if attempts and (len(attempts) != 1 or attempts[0].get('outcome') != 'no_transfer'
+        if attempts and (len(attempts) != 1 or attempts[0].get('outcome') != outcome
                          or attempts[0].get('at', 0) < tx['updated']):
             raise ValueError('Other Market attempts followed the cancelled delivery')
-        return deepcopy(meteor['after']), [{'request_id': key, 'outcome': 'no_transfer',
+        return deepcopy(meteor['after']), [{'request_id': key, 'outcome': outcome,
             'proof_digest': proved['proof_digest'], 'uids': sorted(selected),
             'cleanup_verified_at': closed[0]['timestamp'], 'verified_at': record['verified_at'],
             'sale_receipt_ids': [r['id'] for r in sales]}]
 
 
-def settle_before_capture(loop,row,meteor,market,failure,target):
+def settle_before_capture(loop,row,meteor,market,failure,target,*,operator_warehouse=False):
     """Consume only an already proved no-transfer route; never start/cleanup."""
     from conquest.merchants import delivery_route
     from conquest.merchants.bridge import request
     from conquest.restock_town_recovery import _ownership
     state=read_json(delivery_route.STATE)
     if not state.get('active'):return
-    expected,_=proof(row,meteor,market,failure,target,allow_terminal_active=True)
+    expected,_=proof(row,meteor,market,failure,target,allow_terminal_active=True,operator_warehouse=operator_warehouse)
     loop.check_stop();health=loop.health()
     data=health.get('embedded_controls') or {};control=data.get('control') or {}
     if (health.get('target')!=target or loop.identity!=target
@@ -166,7 +197,7 @@ def warehouse_fallback_only(loop,meteor):
     visit=getattr(loop,'town_visit',None)
     if visit is None:return False
     row=visit.state();claim=row.get('pre_admission_restock_tail') or {}
-    if claim.get('capture_kind')!='no_transfer':return False
+    if claim.get('capture_kind') not in ('no_transfer','operator_warehouse'):return False
     market=read_json(MarketVisit().path)
     if (claim.get('phase')!='captured' or row.get('phase')!='town_work'
             or row.get('town_work_completed_at') or meteor.get('phase')!='storing_scroll'
@@ -176,9 +207,18 @@ def warehouse_fallback_only(loop,meteor):
                    ('visit_id','town_visit_id','farmer_profile_id','started_at','deadline'))
             or market.get('phase')!='active'):
         raise ValueError('Captured no-transfer warehouse fallback changed')
-    expected,records=proof(row,meteor,market,claim['failure'],claim['target'])
+    expected,records=proof(row,meteor,market,claim['failure'],claim['target'],
+                          operator_warehouse=claim['capture_kind']=='operator_warehouse')
     _native_tail_safe(loop,claim['target'],1036)
     if (records!=claim.get('delivery_proofs') or _ownership(expected)!=_ownership(claim['bag'])
             or _ownership(loop.town('supplies'))!=_ownership(expected)):
         raise ValueError('No-transfer ownership changed before warehouse fallback')
     return True
+
+
+def operator_warehouse_requested(row):
+    """Only select the stronger proof path; this read grants no authority."""
+    from conquest.merchants.delivery_operation import JOURNAL
+    with closing(sqlite3.connect(JOURNAL.resolve().as_uri()+'?mode=ro',uri=True)) as db:
+        rows=list(db.execute('SELECT phase FROM transactions WHERE created>=?',(row['required_at'],)))
+    return len(rows)==1 and rows[0][0]=='operator_overridden'
