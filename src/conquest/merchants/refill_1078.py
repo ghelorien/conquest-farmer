@@ -292,9 +292,9 @@ def step(ui, character, snapshot):
         if native['root_hwnd'] != observer.hwnd:
             return _blocked('native_owner_surface_unavailable',
                             'Listing requires the identity-verified native top-level client surface')
-        if not runtime.can_start_work(20):
+        if not runtime.can_start_work(38):
             return _blocked('listing_work_budget_insufficient',
-                            'Wait for a fresh safe listing grant with twenty seconds remaining')
+                            'Wait for a fresh safe listing grant with thirty-eight seconds remaining')
         selected = eligible[0]
         item = next(item for item in snapshot['inventory'] if item['uid'] == selected['uid'])
         request = {'action': 'merchant-booth-list-once-1078', 'character': character,

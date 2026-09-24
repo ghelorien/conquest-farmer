@@ -404,8 +404,8 @@ def dispatch(ui, body, *, scheduled_refill=False):
     merchant_intent = _merchant_intent(ui.runtime, character)
     _policy(ui, character, profile, control, farmer_target=farmer_target,
             merchant_intent=merchant_intent, scheduled_refill=scheduled_refill)
-    if scheduled_refill and not ui.runtime.can_start_work(20):
-        raise CaptureUnavailable('Scheduled listing needs twenty seconds remaining in the current safe grant')
+    if scheduled_refill and not ui.runtime.can_start_work(38):
+        raise CaptureUnavailable('Scheduled listing needs thirty-eight seconds remaining in the current safe grant')
     from conquest.merchants.observe_1078 import observe
     observed = observe(ui.runtime, character, listing_preflight=True)
     if (observed['identity'] != body['expected_identity']
@@ -436,7 +436,7 @@ def dispatch(ui, body, *, scheduled_refill=False):
         raise ValueError('Listing requires the exact native top-level merchant window')
     _policy(ui, character, profile, control, farmer_target=farmer_target,
             merchant_intent=merchant_intent, scheduled_refill=scheduled_refill)
-    if scheduled_refill and not ui.runtime.can_start_work(20):
+    if scheduled_refill and not ui.runtime.can_start_work(38):
         raise CaptureUnavailable('Scheduled listing preflight consumed its safe work budget; no input started')
     fence = ui.coordinator.fence
     token = fence.capture() if fence else None

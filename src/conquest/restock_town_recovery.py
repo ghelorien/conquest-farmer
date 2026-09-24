@@ -59,12 +59,21 @@ def capture_pre_admission_tail(loop):
                        ('visit_id','town_visit_id','farmer_profile_id','started_at','deadline'))):
             raise ValueError('Captured restock continuation changed before Meteor recovery')
         _native_tail_safe(loop,prior['target'],1036)
+        if prior.get('capture_kind')=='settled_delivery':
+            from conquest.settled_delivery_town_recovery import _delivery_proof
+            expected,proofs=_delivery_proof(row,prior['meteor'],prior['market'],prior['failure'],prior['target'])
+            if proofs!=prior['delivery_proofs'] or _ownership(loop.town('supplies'))!=_ownership(expected):
+                raise ValueError('Captured post-delivery restock ownership changed')
         return True
     meteor=read_json(JOURNAL)
     if row.get('reasons')==['urgent_banking','restock'] and meteor.get('phase')=='storing_scroll':
         return _capture_booth_confirmation_tail(loop,row,meteor)
     if (row.get('phase')!='town_work' or row.get('reasons')!=['restock']
             or meteor.get('phase')!='storing_scroll'):return False
+    from conquest.settled_delivery_town_recovery import FAILURE,capture
+    if any(e.get('town_visit_id')==row['town_visit_id'] and e.get('event')=='failed'
+           and e.get('detail')==FAILURE for e in _rows(EVENTS)):
+        return capture(loop,row,meteor)
     history=row.get('history') or [];previous=history[-1] if history else {}
     target=previous.get('return_target');session=(row.get('baseline') or {}).get('session_id')
     historical=previous.get('resumed_hunting') or {}
