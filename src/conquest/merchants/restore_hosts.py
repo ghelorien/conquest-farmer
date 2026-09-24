@@ -244,7 +244,7 @@ def present_native(ui,character,expected):
     def binding():
         if (ui.closed or ui.app.closing or ui.coordinator.stopped or ui.coordinator.manual_active()
                 or ui.coordinator.owner!=character or ui.coordinator.purpose!=purpose
-                or purpose not in ('booth_listing_1078_once','trade','delivery_accept_probe',
+                or purpose not in ('booth_listing_1078_once','owned_booth_panel_1078','trade','delivery_accept_probe',
                                    'delivery_confirm_probe','empty_delivery_cancel')
                 or not ui.safe_to_yield() or character in ui.released_clients
                 or ui.hosts.get(character) is not host or ui.runtime.observers.get(character) is not observer

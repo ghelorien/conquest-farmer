@@ -168,6 +168,14 @@ def validate_grant(ui, body):
     if key.startswith(f'merchant-refill:{character}:'):
         if not ui.runtime.refill_enabled(character):
             raise ValueError('Refill is paused')
+        from conquest.merchants.owned_booth_panel_1078 import pending, validate_grant as panel_grant
+        panel = pending(ui.runtime.journal,character)
+        if panel and panel['phase'] == 'prepared':
+            authority = panel_grant(ui,character)
+            health = parked(ui)
+            if body['revision'] != ui.app.control.snapshot()['revision']:
+                raise ValueError('Farmer revision changed during panel admission')
+            return {**authority,'farmer_target':health['target']}
         from conquest.merchants.listing_capability_1078 import require
         snapshot = observe(ui.runtime, character, listing_preflight=True)
         require(ui.runtime.journal, character, snapshot)
@@ -207,6 +215,8 @@ def scope_allows(ui, character, *, request_id=None, scheduled=False, cleanup=Fal
     if grant.get('scope') != SCOPE:
         return True
     authority = grant.get('listing_authority') or {}
+    if authority.get('mode') == 'open_panel':
+        return False  # Panel admission never authorizes listing or cancellation.
     from conquest.merchants.booth_listing_once_1078 import _profile
     if (grant.get('character') != character
             or authority.get('profile_id') != _profile(character).id):
@@ -259,7 +269,7 @@ def farmer_safe(ui, expected_target=None, *, deadline=None):
         raise CaptureUnavailable('Farmer left the granted Market service visit')
     if token.scope == SCOPE:
         authority = grant.get('listing_authority') or {}
-        if (ui.coordinator.purpose not in (None, 'booth_listing_1078_once')
+        if (ui.coordinator.purpose not in (None, 'booth_listing_1078_once','owned_booth_panel_1078')
                 or ui.coordinator.owner is not None and ui.coordinator.owner != grant.get('character')
                 or authority.get('farmer_target') != target
                 or token.expires_at-time.time() > 45):

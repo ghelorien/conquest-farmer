@@ -223,6 +223,11 @@ def step(ui, character, snapshot):
                 journal.set(character, 'refill', state)
         if not runtime.refill_enabled(character):
             return _blocked('refill_paused_or_global_stop')
+        from conquest.merchants.owned_booth_panel_1078 import pending as panel_pending, step as panel_step
+        if panel_pending(journal,character):
+            panel_result = panel_step(ui,character,snapshot)
+            if panel_result is not None:
+                return {'state':'owned_panel_probe', **panel_result}
         if not schedule.due() and journal.get(character, 'new_stock', False):
             start(runtime, character)
             state = schedule.state()

@@ -41,6 +41,7 @@ class InputCoordinator:
         self._probe_abort_capability = None
         self._booth_probe_capability = None
         self._booth_listing_once_capability = None
+        self._owned_panel_capability = None
         self.native_trade1078_policy = None
 
     def native_trade1078_authorized(self, character):
@@ -109,6 +110,27 @@ class InputCoordinator:
             raise CaptureUnavailable('1078 listing input qualification failed: '+str(error)) from error
 
     @contextmanager
+    def owned_panel_scope(self, character, validate):
+        """One exact empirical panel-open request, never listing or trading."""
+        with self.lock:
+            if self.owner is not None or self._owned_panel_capability is not None:
+                raise CaptureUnavailable('Another input owner or panel probe is active')
+            self._owned_panel_capability = (threading.get_ident(), character, validate)
+            try:
+                validate()
+                yield
+            finally:
+                self._owned_panel_capability = None
+
+    def owned_panel_authorized(self, character):
+        capability = self._owned_panel_capability
+        if (self.purpose != 'owned_booth_panel_1078' or capability is None
+                or capability[:2] != (threading.get_ident(), character)):
+            return False
+        capability[2]()
+        return True
+
+    @contextmanager
     def probe_abort_scope(self, validate):
         """Ephemeral close-only worker scope; a purpose string grants nothing.
 
@@ -169,6 +191,7 @@ class InputCoordinator:
         if (self.owner and self.surface_blocks.get(self.owner)
                 and not self.booth_probe_authorized(self.owner)
                 and not self.booth_listing_once_authorized(self.owner)
+                and not self.owned_panel_authorized(self.owner)
                 and not self.native_trade1078_authorized(self.owner)):
             raise CaptureUnavailable('Client surface needs reattachment and input qualification')
         if self.stopped or self.manual_active():
@@ -217,6 +240,7 @@ class InputCoordinator:
             # The separate probe requires an already foreground native HWND;
             # ordinary callbacks can invoke unqualified 1074 surface work.
             if (self.booth_listing_once_authorized(character)
+                    or self.owned_panel_authorized(character)
                     or self.native_trade1078_authorized(character)):
                 prepared = True
                 self.on_native_acquire(character)

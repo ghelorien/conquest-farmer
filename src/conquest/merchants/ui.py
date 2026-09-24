@@ -191,7 +191,7 @@ class UnifiedUI:
                 return is_farmer_owner(character) and self.coordinator.purpose=='merchant_host'
             if (self.grant or {}).get('scope') == 'listing_1078':
                 if (character != self.grant.get('character')
-                        or self.coordinator.purpose != 'booth_listing_1078_once'):
+                        or self.coordinator.purpose not in ('booth_listing_1078_once','owned_booth_panel_1078')):
                     return False
             if is_farmer_owner(character):
                 return True
@@ -211,6 +211,8 @@ class UnifiedUI:
                 return self.coordinator.booth_probe_authorized(character)
             if self.coordinator.purpose=='booth_listing_1078_once':
                 return self.coordinator.booth_listing_once_authorized(character)
+            if self.coordinator.purpose=='owned_booth_panel_1078':
+                return self.coordinator.owned_panel_authorized(character)
             if self.coordinator.purpose=='delivery_confirm_probe' and self.runtime.read_only_1078(character):
                 return self.coordinator.native_trade1078_authorized(character)
             return self.runtime.input_allowed(character) or (
@@ -332,6 +334,10 @@ class UnifiedUI:
                 raise ValueError('Merchant display request expired without a confirmed view')
             if result.get('error'):raise ValueError(result['error'])
             return result
+        if action in ('merchant-owned-panel-prepare-1078','merchant-owned-panel-status-1078',
+                      'merchant-owned-panel-reconcile-1078'):
+            from conquest.merchants.owned_booth_panel_1078 import dispatch
+            return dispatch(self,body)
         if action in ('merchant-booth-probe-1078', 'merchant-booth-probe-status-1078'):
             from conquest.merchants.booth_probe_1078 import dispatch
             return dispatch(self, body)
