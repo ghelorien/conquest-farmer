@@ -47,7 +47,7 @@ class TrialConfig(BaseModel):
     jump_scatter: bool = False
     single_isolated_targets: bool = False
     single_attack_range_tiles: int = Field(default=12,ge=1,le=20)
-    monster: Literal["Pheasant", "Turtledove", "Robin", "Apparition", "Poltergeist", "WingedSnake", "Bandit", "Ratling", "FireSpirit"] = "Pheasant"
+    monster: Literal["Pheasant", "Turtledove", "Robin", "Apparition", "Poltergeist", "WingedSnake", "Bandit", "Ratling", "FireSpirit", "Macaque"] = "Pheasant"
     monster_variants: tuple[str,...] = ()
     client_size: tuple[int, int]
     boundary: tuple[int, int, int, int]

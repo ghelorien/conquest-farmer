@@ -132,6 +132,7 @@ def test_apparition_route_targets_level_18_and_exact_monster_group():
 
 def test_macaque_family_is_available_for_saved_route_selection():
     from conquest.routes import MONSTER_NAMES,route_monster_names,monster_family
+    from conquest.trial import TrialConfig
     assert MONSTER_NAMES[10]=='Macaque'
     assert tuple(m['type_id'] for m in monster_family(10))==(10,69)
     route=RouteLibrary().load('macaque')
@@ -139,6 +140,10 @@ def test_macaque_family_is_available_for_saved_route_selection():
     assert route.qualification=='planned'
     assert route.recommended_levels==(47,51)
     assert route_monster_names(route)==('Macaque','MacaqueL48')
+    config=TrialConfig(character='Kilhiam',player_profile='player.yaml',
+                       inventory_profile='inventory.yaml',template='template.png',
+                       client_size=(1036,793),boundary=(600,580,688,670),monster='Macaque')
+    assert config.monster=='Macaque'
 
 
 def test_macaque_town_services_use_surveyed_npc_identities():
