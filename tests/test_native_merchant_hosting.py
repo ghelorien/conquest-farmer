@@ -51,6 +51,42 @@ def test_hidden_hosts_attach_under_fresh_nonmarket_park_without_changing_control
     assert ui.runtime.journal.get('Dutch','refill_enabled') is None
 
 
+def test_selected_identified_client_automatically_hosts_with_untouched_pending_meteor(tmp_path,monkeypatch):
+    from conquest.merchants.ui import UnifiedUI
+    from conquest import meteor_banking
+    from conquest.discord_notify import write_json
+    ui,Host,calls=fixture(tmp_path,monkeypatch)
+    write_json(meteor_banking.JOURNAL,{'phase':'storing_scroll','scroll_uid':296447900,
+                                     'exchange_verified':True,'origin':1011})
+    before=meteor_banking.JOURNAL.read_bytes()
+    monkeypatch.setattr('conquest.merchants.booth_probe_1078._farmer_journals_clear',
+                        lambda runtime:pytest.fail('Display must not interpret Farmer transaction journals'))
+    monkeypatch.setattr('conquest.window_host.EmbeddedWindow',lambda **kwargs:Host())
+    monkeypatch.setattr('conquest.merchants.ui.probe_busy',lambda ui:False)
+    ui.notebook=NS(select=lambda:'Dutch');ui.frames={'Dutch':'Dutch','Spiritual':'Spiritual'}
+    ui.auto_embedding=False;ui.auto_embed_retry={}
+    ui.client_panes['Dutch']=NS(winfo_ismapped=lambda:True,winfo_id=lambda:9,
+        winfo_width=lambda:1420,winfo_height=lambda:1009)
+    with ui.runtime.journal.db() as db:
+        saved=list(db.execute('SELECT character,name,value FROM state ORDER BY character,name'))
+    UnifiedUI.auto_show_selected(ui)
+    assert ui.hosts['Dutch'].saved and ui.layout_status['Dutch']['attached']
+    assert ('attach',2,9,1420,1009) in calls and 'fresh_park' in calls
+    assert {'purpose':'merchant_host'} in calls
+    assert meteor_banking.JOURNAL.read_bytes()==before
+    with ui.runtime.journal.db() as db:
+        assert list(db.execute('SELECT character,name,value FROM state ORDER BY character,name'))==saved
+    assert ui.runtime.handoff=='merchant-refill:Spiritual:123'
+    assert ui.app.control.snapshot()=={'enabled':False,'paused':False,'revision':1}
+
+
+def test_pending_merchant_transaction_still_protects_layout(tmp_path,monkeypatch):
+    ui,Host,calls=fixture(tmp_path,monkeypatch)
+    ui.runtime.journal.begin('unresolved-listing','Dutch','booth_listing_1078_once',{})
+    assert hosts.restore_readonly(ui,'Dutch',host_factory=Host) is False
+    assert not any(isinstance(c,tuple) and c[0]=='attach' for c in calls)
+
+
 @pytest.mark.parametrize('hold',['stop','manual','owner','visitor','handoff','refilling'])
 def test_hosting_holds_send_no_window_mutation(tmp_path,monkeypatch,hold):
     ui,Host,calls=fixture(tmp_path,monkeypatch)

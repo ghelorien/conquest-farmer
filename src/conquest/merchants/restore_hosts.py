@@ -60,8 +60,11 @@ def _readonly_market_hosting_safe(ui):
             if (token!=fence.active or token.request_id!=grant['request_id']
                     or token.revision!=app.control.snapshot()['revision']):return False
         parked(ui)
-        from conquest.merchants.booth_probe_1078 import _farmer_journals_clear
-        _farmer_journals_clear(runtime)
+        # A dormant Farmer banking journal does not own this display surface.
+        # Keep its assets and recovery intent untouched: fresh parked memory,
+        # exclusive ownership and the active-operation guards above suffice
+        # for no-activation hosting. Merchant transactions still protect their
+        # own exact layout until reconciled below.
         with runtime.journal.db() as db:
             if db.execute("SELECT 1 FROM transactions WHERE phase NOT IN "
                           "('verified','aborted','operator_overridden') LIMIT 1").fetchone():return False
