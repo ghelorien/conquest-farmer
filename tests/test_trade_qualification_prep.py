@@ -1088,7 +1088,11 @@ def projection_rig(tmp_path, monkeypatch, *, phase="market", scroll=False):
     ui = SimpleNamespace(app=SimpleNamespace(observer=observer))
     monkeypatch.setattr(
         "conquest.merchants.memory.GuiReader",
-        lambda adapter: SimpleNamespace(viewport_size=lambda: [1024, 768]),
+        SimpleNamespace(
+            for_session=lambda adapter: SimpleNamespace(
+                viewport_size=lambda: [1024, 768]
+            )
+        ),
     )
     monkeypatch.setattr(
         prep,

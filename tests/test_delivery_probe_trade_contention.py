@@ -4,6 +4,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
+from conquest.memory_life import CLIENT_SHA256
 from conquest.merchants import delivery_probe as probe
 from conquest.merchants.delivery_probe_ownership import local_ownership
 from conquest.merchants.manual_sessions import BindingMismatch
@@ -295,6 +296,11 @@ def test_trade_stage_reconciles_pair_before_first_lease_or_input(
 
     monkeypatch.setattr(module, "pair", lambda *_a: (x.farmer_read(), x.read()))
     monkeypatch.setattr("conquest.merchants.memory.MerchantMemory", lambda *_a: NS())
+    # The offer stage now builds source memory through delivery_bridge, which
+    # binds MerchantMemory at import time.
+    monkeypatch.setattr(
+        "conquest.merchants.delivery_bridge.MerchantMemory", lambda *_a: NS()
+    )
     monkeypatch.setattr(
         "conquest.foreground.foreground_drag",
         lambda *_a, **_kw: pytest.fail("Unexpected input"),
@@ -311,7 +317,11 @@ def test_trade_stage_reconciles_pair_before_first_lease_or_input(
         app=NS(
             control=NS(snapshot=lambda: {"revision": 1, "enabled": False}),
             closing=False,
-            observer=NS(operations=NS(target=NS())),
+            # A pre-1078 client keeps source_memory on the MerchantMemory path.
+            observer=NS(
+                operations=NS(target=NS()),
+                adapter=NS(expected_sha256=CLIENT_SHA256),
+            ),
         ),
         closed=False,
         safe_to_yield=lambda: True,

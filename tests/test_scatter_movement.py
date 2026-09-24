@@ -218,7 +218,9 @@ def test_fast_planning_avoids_checking_lower_ranked_terrain(monkeypatch):
 
     monkeypatch.setattr(sm, "clear_jump", counted)
     terrain = TerrainMap(1011, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ())
-    targets = [target(60 + i % 5, 50 + i // 5) for i in range(25)]
+    # Spaced 4 tiles apart: since e7e665a landings inside a dense contact
+    # group are excluded before terrain checks, which would thin the ranking.
+    targets = [target(60 + 4 * (i % 5), 50 + 4 * (i // 5)) for i in range(25)]
     old = SimpleNamespace(recovery=SimpleNamespace(terrain=terrain))
     expected = scatter_landing(old, targets, (50, 50), (20, 20, 80, 80), 12)
     original_count = len(calls)

@@ -278,7 +278,12 @@ def test_last_booth_slot_goes_to_highest_total_value_and_queue_stays_ranked(
     path.write_text("{}")
     journal = Journal(tmp_path / "journal.sqlite3")
     guard = InputCoordinator(lambda: True, path=tmp_path / "input.lock")
-    runtime = MerchantRuntime(object(), guard, journal=journal, market_path=path)
+    runtime = MerchantRuntime(
+        SimpleNamespace(identities=lambda: []),
+        guard,
+        journal=journal,
+        market_path=path,
+    )
     if one_time:
         runtime.list_once("Spiritual", "once:priority")
         journal.set(
@@ -344,7 +349,12 @@ def test_runtime_passes_only_current_process_owned_prices(
     path.write_text(json.dumps(data))
     journal = Journal(tmp_path / "journal.sqlite3")
     guard = InputCoordinator(lambda: True, path=tmp_path / "input.lock")
-    runtime = MerchantRuntime(object(), guard, journal=journal, market_path=path)
+    runtime = MerchantRuntime(
+        SimpleNamespace(identities=lambda: []),
+        guard,
+        journal=journal,
+        market_path=path,
+    )
     runtime.list_once("Spiritual", "once:owned")
     submitted = []
 

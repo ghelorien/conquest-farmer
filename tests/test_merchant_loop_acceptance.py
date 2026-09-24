@@ -511,6 +511,8 @@ def test_control_schema_and_profile_are_exact(rig, fields):
         (1000020, 0, False),
         (410008, 0, False),
         (410008, 1, True),
+        # Urgent banking owns +2 gear before an optional acceptance return.
+        (410008, 2, False),
     ],
 )
 def test_existing_stock_consumables_loose_meteors_storage_only_never_trigger(
@@ -521,9 +523,7 @@ def test_existing_stock_consumables_loose_meteors_storage_only_never_trigger(
     assert not rig.observe() and acceptance.state()["active"] is None
 
 
-@pytest.mark.parametrize(
-    "kind,plus", [(410008, 1), (410008, 2), (410009, 0), (720027, 0)]
-)
+@pytest.mark.parametrize("kind,plus", [(410008, 1), (410009, 0), (720027, 0)])
 def test_new_native_deliverable_triggers_exact_one_return(rig, kind, plus):
     enable(rig)
     selected = rig.trigger(kind=kind, plus=plus)

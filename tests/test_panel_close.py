@@ -18,11 +18,15 @@ def test_registry_race_before_close_is_retryable_without_press(monkeypatch, race
         return [{"name": "Warehouse", "address": 1, "geometry": [50, 50, 200, 300]}]
 
     monkeypatch.setattr(
-        p, "GuiReader", lambda a: NS(windows=windows, assert_hovered=lambda *args: None)
+        p,
+        "GuiReader",
+        NS(
+            for_session=lambda a: NS(windows=windows, assert_hovered=lambda *args: None)
+        ),
     )
     monkeypatch.setattr(p, "wait_hover_validation", lambda guard, check: guard())
 
-    def click(point, *, before_press):
+    def click(point, *, before_press, before_mouse_down=None):
         before_press()
         pressed.append(point)
 
@@ -38,17 +42,19 @@ def test_post_press_failure_is_not_reclassified(monkeypatch):
     monkeypatch.setattr(
         p,
         "GuiReader",
-        lambda a: NS(
-            windows=lambda: [
-                {"name": "Warehouse", "address": 1, "geometry": [50, 50, 200, 300]}
-            ],
-            assert_hovered=lambda *args: None,
+        NS(
+            for_session=lambda a: NS(
+                windows=lambda: [
+                    {"name": "Warehouse", "address": 1, "geometry": [50, 50, 200, 300]}
+                ],
+                assert_hovered=lambda *args: None,
+            )
         ),
     )
     monkeypatch.setattr(p, "wait_hover_validation", lambda guard, check: guard())
     pressed = []
 
-    def click(point, *, before_press):
+    def click(point, *, before_press, before_mouse_down=None):
         before_press()
         pressed.append(point)
         raise GuiObservationChanged("After button press")
@@ -74,11 +80,13 @@ def test_exact_close_widget_must_be_verified_before_press(monkeypatch, case):
             raise ValueError("Wrong hover")
 
     monkeypatch.setattr(
-        p, "GuiReader", lambda a: NS(windows=windows, assert_hovered=hover)
+        p,
+        "GuiReader",
+        NS(for_session=lambda a: NS(windows=windows, assert_hovered=hover)),
     )
     monkeypatch.setattr(p, "wait_hover_validation", lambda guard, check: guard())
 
-    def click(point, *, before_press):
+    def click(point, *, before_press, before_mouse_down=None):
         before_press()
         pressed.append(point)
 

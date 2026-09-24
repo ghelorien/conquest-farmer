@@ -212,7 +212,8 @@ def test_ground_registry_bound_is_checked_before_reading_entries(monkeypatch):
 def test_unqualified_client_is_rejected(monkeypatch):
     reader, _ = fixture(monkeypatch)
     reader.entities.session.expected_sha256 = "other-client"
-    with pytest.raises(ValueError, match="Unqualified"):
+    # Build qualification moved to read_build_layout in 24d67f4.
+    with pytest.raises(ValueError, match="No qualified read layout"):
         memory_ground.MemoryGroundReader(reader.entities)
 
 

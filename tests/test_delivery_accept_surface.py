@@ -6,6 +6,9 @@ from unittest.mock import Mock
 
 import pytest
 
+# The raw slot-15 accept control below is the pre-1078 client path; the 1078
+# build dispatches to trade_driver_1078 by exact hash instead.
+from conquest.memory_life import CLIENT_SHA256
 from conquest.merchants.delivery_accept_probe import control, lease_authorized, run
 from conquest.merchants.ui import UnifiedUI, callback_failure
 
@@ -40,7 +43,7 @@ def test_accept_control_binds_distinct_rendered_confirm_to_raw_trade_model(monke
         lambda _session, address: labels[(address - model - 0x48) // 0x20],
     )
     driver = NS(
-        observer=NS(adapter=NS(read_block=read)),
+        observer=NS(adapter=NS(read_block=read, expected_sha256=CLIENT_SHA256)),
         memory=NS(gui=NS(base=base, model=lambda *_args: model)),
     )
     snapshot = {
@@ -85,7 +88,7 @@ def test_accept_control_rejects_invalid_rendered_confirmation_address(
         lambda _session, pointer: labels[(pointer - model - 0x48) // 0x20],
     )
     driver = NS(
-        observer=NS(adapter=NS(read_block=read)),
+        observer=NS(adapter=NS(read_block=read, expected_sha256=CLIENT_SHA256)),
         memory=NS(gui=NS(base=base, model=lambda *_args: model)),
     )
     snapshot = {
@@ -133,7 +136,7 @@ def test_accept_control_rejects_trade_when_open_booth_confirmation_also_exists(
         lambda _session, address: labels[(address - model - 0x48) // 0x20],
     )
     driver = NS(
-        observer=NS(adapter=NS(read_block=read)),
+        observer=NS(adapter=NS(read_block=read, expected_sha256=CLIENT_SHA256)),
         memory=NS(gui=NS(base=base, model=lambda *_args: model)),
     )
     snapshot = {
@@ -194,7 +197,7 @@ def test_accept_control_rejects_layout_signature_or_raw_button_drift(
         lambda _session, pointer: labels[(pointer - model - 0x48) // 0x20],
     )
     driver = NS(
-        observer=NS(adapter=NS(read_block=read)),
+        observer=NS(adapter=NS(read_block=read, expected_sha256=CLIENT_SHA256)),
         memory=NS(gui=NS(base=base, model=lambda *_args: model)),
     )
     geometry = value if kind == "geometry" else [844, 282, 200, 100]
@@ -270,6 +273,7 @@ def accept_run_fixture(monkeypatch):
     game_driver = NS(
         target=target,
         memory=NS(gui=NS(viewport_size=lambda: [1000, 800], assert_hovered=Mock())),
+        observer=NS(adapter=NS(expected_sha256=CLIENT_SHA256)),
     )
     ui = NS(
         app=NS(control=NS(snapshot=lambda: {"revision": 1, "enabled": False})),
@@ -410,7 +414,7 @@ def live_accept_control(ui, monkeypatch, *, stage, model=0x100000, window=0x2000
     driver = NS(
         target=NS(snapshot=lambda: {"client_size": [1000, 800]}),
         memory=NS(gui=gui),
-        observer=NS(adapter=NS(read_block=read)),
+        observer=NS(adapter=NS(read_block=read, expected_sha256=CLIENT_SHA256)),
     )
     ui.runtime.controllers["Spiritual"] = NS(driver=driver)
     monkeypatch.setattr("conquest.merchants.delivery_accept_probe.string", strings)

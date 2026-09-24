@@ -2,6 +2,7 @@ import struct
 from types import SimpleNamespace as NS
 import pytest
 from conquest.merchants import identity_evidence, farmer_trade
+from conquest.memory_life import CLIENT_SHA256
 
 
 @pytest.fixture
@@ -46,7 +47,12 @@ def scene(monkeypatch):
 
     for module in (identity_evidence, farmer_trade):
         monkeypatch.setattr(module, "sample_fields", sample)
-    s = NS(read_block=read, assert_identity=lambda: None, identity={"pid": 1})
+    s = NS(
+        read_block=read,
+        assert_identity=lambda: None,
+        identity={"pid": 1},
+        expected_sha256=CLIENT_SHA256,
+    )
     observer = NS(
         adapter=s,
         character="Spiritual",

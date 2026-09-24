@@ -50,13 +50,13 @@ def test_withdrawal_requires_exact_meteor_uid_and_no_other_loss():
     meteor = Item(42, 1088001, 1, 1, 0, 0)
     other = Item(43, 1088001, 1, 1, 1, 0)
     before = NS(items=(), silver=100)
-    stash = WarehouseSnapshot((meteor, other), 20)
+    stash = WarehouseSnapshot((meteor, other), 20, 1000)
     after = NS(items=(meteor,), silver=100)
-    remaining = WarehouseSnapshot((other,), 20)
+    remaining = WarehouseSnapshot((other,), 20, 1000)
     assert withdrawal_received(meteor, before, stash, after, remaining)
     assert not withdrawal_received(meteor, before, stash, before, stash)
     assert not withdrawal_received(
-        meteor, before, stash, after, WarehouseSnapshot((), 20)
+        meteor, before, stash, after, WarehouseSnapshot((), 20, 1000)
     )
     assert not withdrawal_received(
         meteor, before, stash, NS(items=(other,), silver=100), remaining

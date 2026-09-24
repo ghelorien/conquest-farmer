@@ -25,6 +25,9 @@ class Memory:
     def put(self, address, fmt, *values):
         struct.pack_into(fmt, self.data, address, *values)
 
+    def assert_identity(self):
+        pass
+
 
 def test_deque_ring_wrap_duplicate_and_header_bounds():
     memory = Memory()
@@ -131,7 +134,7 @@ def test_native_tabs_bridge_authentication_handoff_and_global_stop(
         pane=tk.Frame(root),
         closing=False,
         mouse_priority=SimpleNamespace(active=lambda: False),
-        catalog=object(),
+        catalog=SimpleNamespace(identities=lambda: []),
         thread=None,
         control=SimpleNamespace(snapshot=lambda: dict(control)),
         state_text=tk.StringVar(value="Off"),
@@ -277,7 +280,9 @@ def test_merchant_reads_run_concurrently_without_sharing_observers(tmp_path):
     barrier = threading.Barrier(2)
     guard = InputCoordinator(lambda: True, path=tmp_path / "input.lock")
     runtime = MerchantRuntime(
-        object(), guard, journal=Journal(tmp_path / "journal.sqlite3")
+        SimpleNamespace(identities=lambda: []),
+        guard,
+        journal=Journal(tmp_path / "journal.sqlite3"),
     )
 
     def read(character):
@@ -300,6 +305,7 @@ def test_merchant_reads_run_concurrently_without_sharing_observers(tmp_path):
         )
         runtime.controllers[character] = SimpleNamespace(
             driver=SimpleNamespace(read=lambda c=character: read(c)),
+            recover_unsubmitted_listing=lambda s: False,
             reconcile=lambda s: None,
         )
     runtime.disconnected = lambda character: False
@@ -325,7 +331,9 @@ def test_pid_reuse_discards_stale_merchant_and_recovers_only_that_character(tmp_
     from conquest.merchants.runtime import MerchantRuntime
 
     journal = Journal(tmp_path / "journal.sqlite3")
-    runtime = MerchantRuntime(object(), InputCoordinator(), journal=journal)
+    runtime = MerchantRuntime(
+        SimpleNamespace(identities=lambda: []), InputCoordinator(), journal=journal
+    )
 
     def invalid():
         raise ValueError("PID reused")
@@ -398,7 +406,7 @@ def test_gui_reader_accepts_live_frames_that_advance_between_rpcs():
         if address == context + 0x3E38
         else original(address, size)
     )
-    gui = SimpleNamespace(session=memory, base=0x10000 - 0x6966F0)
+    gui = SimpleNamespace(session=memory, base=0x10000 - 0x6966F0, context_rva=0x6966F0)
     result = GuiReader.windows(gui)
     assert len(result) == 1 and result[0]["name"] == "Booth"
     memory.put(window + 0x248, "<I", 90)
@@ -443,9 +451,13 @@ def test_gui_registry_distinguishes_draw_order_from_membership(change):
         return original(address, size)
 
     memory.read_block = read
-    gui = SimpleNamespace(session=memory, base=0x10000 - 0x6966F0)
+    gui = SimpleNamespace(session=memory, base=0x10000 - 0x6966F0, context_rva=0x6966F0)
     if change == "reorder":
         assert GuiReader._windows(gui) == []
+    elif change == "duplicate":
+        # Every complete registry read rejects duplicate members outright.
+        with pytest.raises(ValueError, match="Duplicate GUI registry entries"):
+            GuiReader._windows(gui)
     else:
         with pytest.raises(GuiObservationChanged):
             GuiReader._windows(gui)
@@ -456,7 +468,9 @@ def test_one_time_batch_never_accepts_incoming_trades(tmp_path):
 
     journal = Journal(tmp_path / "journal.sqlite3")
     guard = InputCoordinator(lambda: True, path=tmp_path / "input.lock")
-    runtime = MerchantRuntime(object(), guard, journal=journal)
+    runtime = MerchantRuntime(
+        SimpleNamespace(identities=lambda: []), guard, journal=journal
+    )
     runtime.list_once("Dutch", "once:incoming")
     snapshot = {
         "character": "Dutch",
@@ -470,6 +484,7 @@ def test_one_time_batch_never_accepts_incoming_trades(tmp_path):
     calls = []
     runtime.controllers["Dutch"] = SimpleNamespace(
         driver=SimpleNamespace(read=lambda: snapshot),
+        recover_unsubmitted_listing=lambda s: False,
         reconcile=lambda s: None,
         accept_request=lambda s: calls.append("accepted"),
     )
@@ -486,7 +501,11 @@ def test_runtime_reconciles_submitted_request_decline_after_modal_disappears(
     from conquest.merchants.runtime import MerchantRuntime
 
     journal = Journal(tmp_path / "journal.sqlite3")
-    runtime = MerchantRuntime(object(), InputCoordinator(lambda: True), journal=journal)
+    runtime = MerchantRuntime(
+        SimpleNamespace(identities=lambda: []),
+        InputCoordinator(lambda: True),
+        journal=journal,
+    )
     journal.set("Dutch", "enabled", True)
     journal.set("Dutch", "unrelated_request_decline", {"phase": "submitted"})
     snapshot = {
@@ -505,7 +524,9 @@ def test_runtime_reconciles_submitted_request_decline_after_modal_disappears(
         adapter=SimpleNamespace(assert_identity=lambda: None), lock=threading.RLock()
     )
     controller = SimpleNamespace(
-        driver=SimpleNamespace(read=lambda: snapshot), reconcile=lambda state: None
+        driver=SimpleNamespace(read=lambda: snapshot),
+        recover_unsubmitted_listing=lambda state: False,
+        reconcile=lambda state: None,
     )
     runtime.controllers["Dutch"] = controller
     runtime.disconnected = lambda character: False
@@ -532,7 +553,7 @@ def test_delivery_window_holds_unreserved_stock_but_allows_reserved_request(
     from conquest.merchants import delivery_reservation
 
     runtime = MerchantRuntime(
-        object(),
+        SimpleNamespace(identities=lambda: []),
         InputCoordinator(lambda: True),
         journal=Journal(tmp_path / "journal.sqlite3"),
     )
@@ -550,6 +571,7 @@ def test_delivery_window_holds_unreserved_stock_but_allows_reserved_request(
     calls = []
     runtime.controllers["Dutch"] = SimpleNamespace(
         driver=SimpleNamespace(read=lambda: snapshot),
+        recover_unsubmitted_listing=lambda s: False,
         reconcile=lambda s: calls.append("reconcile"),
         accept_request=lambda s: calls.append("accept"),
     )

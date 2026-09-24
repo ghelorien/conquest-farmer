@@ -13,7 +13,7 @@ from conquest.merchants.runtime import MerchantRuntime
 def setup(tmp_path, monkeypatch):
     guard = InputCoordinator(lambda: True, path=tmp_path / "input.lock")
     runtime = MerchantRuntime(
-        object(), guard, journal=Journal(tmp_path / "state.sqlite3")
+        NS(identities=lambda: []), guard, journal=Journal(tmp_path / "state.sqlite3")
     )
     guard.owner_allowed = runtime.input_allowed
     path = tmp_path / "account.dpapi"

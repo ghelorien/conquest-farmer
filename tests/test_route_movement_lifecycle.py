@@ -38,6 +38,8 @@ def test_movement_failure_keeps_care_running_but_does_not_retry_transactions(
     loop.check_stop = loop.refresh = lambda: None
     loop.record = lambda e, **kw: events.append(e)
     loop.living = lambda: {"embedded_controls": {"control": {"enabled": False}}}
+    # run() establishes the controller identity from one fresh health read.
+    loop.health = lambda: {"embedded_controls": {"control": {"enabled": False}}}
 
     def care_check(health):
         care.append(health)

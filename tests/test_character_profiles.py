@@ -280,20 +280,32 @@ def test_ui_and_input_roles_do_not_collide_with_character_name(tmp_path):
     assert is_farmer_owner("Farmer") and not is_farmer_owner(name)
 
 
-def test_profile_runtime_starts_all_operations_paused(tmp_path, monkeypatch):
+def test_profile_runtime_starts_trading_paused_with_refill_default_on(
+    tmp_path, monkeypatch
+):
+    # docs/merchant-1078-listing-integration.md: "Trading and refill retain
+    # separate preferences. New merchant profiles default refill on; existing
+    # explicit pause values are preserved."
     r = ProfileRegistry(tmp_path)
     p = r.add("Seller", role="Merchant")
+    paused = r.add("Paused", role="Merchant")
     activate(monkeypatch, r, p)
     from conquest.merchants.journal import Journal
     from conquest.merchants.runtime import MerchantRuntime
     from conquest.merchants.coordination import InputCoordinator
 
     journal = Journal(tmp_path / "journal.sqlite3")
+    journal.set(paused.id, "refill_enabled", False)
+    # No client executables: the separate 1078 manual reader stays unfenced.
     runtime = MerchantRuntime(
-        None, InputCoordinator(path=tmp_path / "input.lock"), journal=journal
+        SimpleNamespace(identities=lambda: []),
+        InputCoordinator(path=tmp_path / "input.lock"),
+        journal=journal,
     )
-    assert not runtime.enabled(p.id) and not runtime.refill_enabled(p.id)
+    assert not runtime.enabled(p.id) and runtime.refill_enabled(p.id)
     assert journal.get(p.id, "profile_initialized") is True
+    assert not runtime.enabled(paused.id) and not runtime.refill_enabled(paused.id)
+    assert journal.get(paused.id, "profile_initialized") is True
 
 
 def test_offline_migration_preserves_receipts_and_pause_intent(tmp_path, monkeypatch):

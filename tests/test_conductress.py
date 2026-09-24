@@ -92,7 +92,14 @@ def test_dialog_reader_copies_and_rechecks_deque_and_strings(monkeypatch):
     struct.pack_into("<f", dc, 16, 398)
     struct.pack_into("<f", dc, 52, 88)
     memory[window + 0xE0] = bytes(dc)
-    adapter = SimpleNamespace(read_block=lambda a, n: memory[a][:n])
+    from conquest.memory_life import CLIENT_SHA256
+
+    # The observer wrapper selects its read layout from the 1074 client build.
+    adapter = SimpleNamespace(
+        read_block=lambda a, n: memory[a][:n],
+        expected_sha256=CLIENT_SHA256,
+        assert_identity=lambda: None,
+    )
     observer = SimpleNamespace(
         adapter=adapter, health_layout=None, character="Parasite"
     )
@@ -104,7 +111,9 @@ def test_dialog_reader_copies_and_rechecks_deque_and_strings(monkeypatch):
     monkeypatch.setattr(
         c,
         "MemoryGui",
-        lambda s: SimpleNamespace(read=lambda name: SimpleNamespace(address=window)),
+        lambda s, layout=None: SimpleNamespace(
+            read=lambda name: SimpleNamespace(address=window)
+        ),
     )
     result = c.read_dialog(observer)
     assert result["records"] == [{"kind": 1, "option": 0, "text": "Market"}]

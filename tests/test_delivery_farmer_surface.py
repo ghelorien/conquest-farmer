@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from conquest.memory_life import CLIENT_SHA256
 from conquest.merchants.coordination import InputCoordinator, install
 from conquest.merchants import delivery_farmer_surface as surface
 
@@ -40,7 +41,12 @@ def farmer_surface(tmp_path, monkeypatch):
     observer = NS(
         character="Parasite",
         operations=NS(target=target),
-        adapter=NS(identity=deepcopy(identity), assert_identity=Mock()),
+        # Pre-1078 client: source_memory keeps the MerchantMemory path.
+        adapter=NS(
+            identity=deepcopy(identity),
+            assert_identity=Mock(),
+            expected_sha256=CLIENT_SHA256,
+        ),
     )
     pane = NS(
         winfo_width=lambda: 1200,
@@ -393,9 +399,14 @@ def test_offer_stage_presents_hidden_farmer_before_activation_and_durable_drag(
     x.ui.runtime.reconcile_probe_pair = lambda *a: True
     target = x.ui.app.observer.operations.target
     target.snapshot = lambda: {"client_size": [1200, 900]}
-    memory = NS(gui=NS(base=1, viewport_size=lambda: [1200, 900]))
+    # The GUI reader now carries its build's context RVA (1074 value here).
+    memory = NS(gui=NS(base=1, context_rva=0x6966F0, viewport_size=lambda: [1200, 900]))
     monkeypatch.setattr(
         "conquest.merchants.memory.MerchantMemory", lambda observer: memory
+    )
+    # delivery_bridge.source_memory binds MerchantMemory at import.
+    monkeypatch.setattr(
+        "conquest.merchants.delivery_bridge.MerchantMemory", lambda observer: memory
     )
     monkeypatch.setattr("conquest.merchants.memory.unpack", lambda *a: [10])
     monkeypatch.setattr(
@@ -878,6 +889,9 @@ def test_initial_request_stage_uses_worker_activation_only_after_surface_and_pai
     monkeypatch.setattr("conquest.desktop_runtime.physical_coordinates", nullcontext)
     monkeypatch.setattr("conquest.merchants.memory.MerchantMemory", lambda *a: NS())
     monkeypatch.setattr(
+        "conquest.merchants.delivery_bridge.MerchantMemory", lambda *a: NS()
+    )
+    monkeypatch.setattr(
         probe,
         "pair",
         lambda *a: (x.state["intent"]["farmer"], x.state["intent"]["merchant"]),
@@ -934,6 +948,9 @@ def test_confirm_stage_prepares_visible_farmer_before_first_confirmation(
     x.ui.app.observer.operations.target.snapshot = lambda: {"client_size": [1200, 900]}
     monkeypatch.setattr("conquest.desktop_runtime.physical_coordinates", nullcontext)
     monkeypatch.setattr("conquest.merchants.memory.MerchantMemory", lambda *a: memory)
+    monkeypatch.setattr(
+        "conquest.merchants.delivery_bridge.MerchantMemory", lambda *a: memory
+    )
     monkeypatch.setattr(
         "conquest.merchants.delivery_confirm_controls.confirm_control",
         lambda *a: ({}, (50, 50), 10),

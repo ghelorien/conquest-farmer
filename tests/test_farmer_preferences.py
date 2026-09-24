@@ -22,9 +22,14 @@ def test_selected_profile_keeps_delivery_preferences_in_its_state_directory(
         / ".runtime/farmer-transfer-preferences.json"
     ).exists()
     monkeypatch.setenv("CONQUEST_PROFILE_ID", second.id)
-    assert p.enabled() and ui_character(NS()) == "FreshArcher"
-    p.set_enabled("FreshArcher", False)
-    assert not p.enabled()
+    # New profiles default Off until an explicit operator enable (3fe0f7f).
+    assert not p.enabled() and ui_character(NS()) == "FreshArcher"
+    p.set_enabled("FreshArcher", True)
+    assert p.enabled()
+    assert (
+        context_for(second.id, tmp_path).state_dir
+        / ".runtime/farmer-transfer-preferences.json"
+    ).exists()
     monkeypatch.setenv("CONQUEST_PROFILE_ID", first.id)
     assert not p.enabled()
 

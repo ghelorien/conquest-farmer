@@ -45,8 +45,19 @@ def test_level_32_selects_iron_arrows_without_spending_supply_reserve():
     )
 
 
+def observed_ammo(kind, amount=900):
+    # Since d8d1fa6 the equipped stack only counts with a matching live
+    # inventory observation; equipment metadata alone carries no count.
+    return {"type_id": kind, "amount": amount}
+
+
 def test_equipped_or_reserved_iron_is_not_treated_as_missing_lucky_arrows():
-    assert current_arrow(state(kind=1050001, attack=50)) == 1050001
+    assert (
+        current_arrow(
+            state(kind=1050001, attack=50), equipped_ammo=observed_ammo(1050001)
+        )
+        == 1050001
+    )
     assert (
         current_arrow({"level": 32, "equipment": {}}, reserves=[1050000, 1050001])
         == 1050001
@@ -227,9 +238,19 @@ def test_level_73_prefers_owned_speed_over_equipped_iron_without_downgrading():
 
     assert preferred_arrow(72) == 1050001
     assert preferred_arrow(73) == 1050002
-    assert current_arrow(state(73, 1050001, 50), reserves=[1050002]) == 1050002
-    assert current_arrow(state(72, 1050001, 50), reserves=[1050002]) == 1050001
-    assert current_arrow(state(73, 1050002, 100), reserves=[1050001]) == 1050002
+    iron, speed = observed_ammo(1050001), observed_ammo(1050002)
+    assert (
+        current_arrow(state(73, 1050001, 50), reserves=[1050002], equipped_ammo=iron)
+        == 1050002
+    )
+    assert (
+        current_arrow(state(72, 1050001, 50), reserves=[1050002], equipped_ammo=iron)
+        == 1050001
+    )
+    assert (
+        current_arrow(state(73, 1050002, 100), reserves=[1050001], equipped_ammo=speed)
+        == 1050002
+    )
 
 
 def test_owned_speed_upgrade_does_not_require_purchase_money():

@@ -6,7 +6,7 @@ from conquest import scatter_selection as s
 
 def reader_fixture(monkeypatch):
     monkeypatch.setattr(
-        s, "MemoryGui", lambda session: NS(base=0, read=lambda name: None)
+        s, "MemoryGui", lambda session, layout=None: NS(base=0, read=lambda name: None)
     )
     blocks = {
         0x6986C0: struct.pack("<QQ", 0x10000, 1),
@@ -20,9 +20,17 @@ def reader_fixture(monkeypatch):
     struct.pack_into("<Q", control, 0, 0x5C5A38)
     blocks[0x20000] = node
     blocks[0x30000] = control
-    reader = s.SelectionReader(
-        NS(read_block=lambda a, n: bytes(blocks[a][:n]), assert_identity=lambda: None)
-    )
+
+    def read_block(address, size):
+        if address in blocks:
+            return bytes(blocks[address][:size])
+        # Field rereads (e.g. selected ID at +0xF8) address inside a block.
+        for base, data in blocks.items():
+            if base < address and address + size <= base + len(data):
+                return bytes(data[address - base : address - base + size])
+        raise KeyError(address)
+
+    reader = s.SelectionReader(NS(read_block=read_block, assert_identity=lambda: None))
     reader.qualified = True
     return reader, blocks, control
 
@@ -63,7 +71,7 @@ def test_selection_waits_for_memory_confirmation(monkeypatch):
         menu_point=lambda: (1148, 979),
         scatter_point=lambda actor: (1296, 857),
     )
-    monkeypatch.setattr(s, "SelectionReader", lambda adapter: reader)
+    monkeypatch.setattr(s, "SelectionReader", NS(for_session=lambda adapter: reader))
     monkeypatch.setattr(s.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(
         "conquest.memory_life.read_life",

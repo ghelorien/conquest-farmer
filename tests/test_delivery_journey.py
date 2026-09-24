@@ -12,7 +12,15 @@ def item(uid, kind=130009):
 
 
 @pytest.fixture
-def trip(monkeypatch):
+def trip(monkeypatch, tmp_path):
+    from conquest.character_context import farmer_name
+    from conquest.merchants import farmer_preferences
+
+    # Transfers default Off until an explicit operator enable (3fe0f7f).
+    monkeypatch.setattr(
+        farmer_preferences, "PATH", tmp_path / "farmer-preferences.json"
+    )
+    write_json(farmer_preferences.PATH, {"farmers": {farmer_name(): True}})
     world = {"map": 1011, "silver": 50, "stored_silver": 1000}
     bag = [item(1), item(2, 2000031), item(3, 1050002)]
     bank = []
@@ -66,6 +74,7 @@ def trip(monkeypatch):
         town=town,
         living=lambda: {"embedded_controls": {"life": {"map_id": world["map"]}}},
         record=lambda event, **fields: events.append((event, fields)),
+        check_stop=lambda: None,
     )
 
     def travel(loop, plan, *, before_submit=None):
@@ -305,6 +314,20 @@ def scroll_trip(trip, monkeypatch, *, lost=False):
     """Memory-only stand-in for the new journaled native withdrawal boundary."""
     trip.bag[:] = [item(3, 1050002)]
     trip.bank[:] = [item(99, 720027)]
+    # Stored scroll 99 comes from a completed consolidation, as production's
+    # completed_stored_scroll() requires; deferral needs this receipt (6c007c0).
+    write_json(
+        meteor_banking.JOURNAL,
+        {
+            "phase": "completed",
+            "scroll_uid": 99,
+            "exchange_verified": True,
+            "market_verified_at": 123,
+            "receipts": [
+                {"stored": 99, "type_id": 720027, "verified_in_warehouse": True}
+            ],
+        },
+    )
     original = trip.loop.town
 
     def town(action, **fields):

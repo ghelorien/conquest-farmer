@@ -430,6 +430,13 @@ def test_quarter_hour_summary_is_immediate_then_persistent_and_coalesced(
         "conquest.discord_notify.recent_kills",
         lambda path, now, seconds=900: {900: 42, 60: 20, 3600: 1400}[seconds],
     )
+    # Pin the kill-rate targets; the packaged policy is tuned independently
+    # (b5b25d3 raised it to 60/75 per minute).
+    policy = tmp_path / "route-optimization.json"
+    policy.write_text(
+        json.dumps({"target_kills_per_minute": 40, "stretch_kills_per_minute": 50})
+    )
+    monkeypatch.setattr("conquest.discord_notify.KILL_RATE_POLICY", policy)
     n = Notifications()
     path = tmp_path / "events.jsonl"
     path.write_text("")

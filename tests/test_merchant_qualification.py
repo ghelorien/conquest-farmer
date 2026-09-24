@@ -123,6 +123,9 @@ class Memory:
     def put(self, address, fmt, *values):
         struct.pack_into(fmt, self.data, address, *values)
 
+    def assert_identity(self):
+        pass
+
 
 def test_live_table_is_bound_to_window_frame_and_column_geometry():
     memory = Memory()
@@ -141,7 +144,7 @@ def test_live_table_is_bound_to_window_frame_and_column_geometry():
     for i in range(2):
         memory.put(columns + i * 104 + 8, "<2f", 100 + i * 40, 140 + i * 40)
         memory.put(columns + i * 104 + 52, "<f", 100 + i * 40)
-    gui = SimpleNamespace(session=memory, base=0x10000 - 0x6966F0)
+    gui = SimpleNamespace(session=memory, base=0x10000 - 0x6966F0, context_rva=0x6966F0)
     table = GuiReader.table(gui, {"address": window}, "##ItemTable")
     assert table["row_height"] == 40 and table["clip"] == (100, 80, 180, 200)
     memory.put(array + 0x188, "<Q", window + 100)
@@ -174,7 +177,7 @@ def test_hover_guard_rejects_overlapping_windows_and_other_buttons():
     memory.put(window + 8, "<I", 123)
     memory.put(context + 0x3EC0, "<Q", window)
     memory.put(context + 0x3EF0, "<I", zlib.crc32(b"Cancel", 123))
-    gui = SimpleNamespace(session=memory, base=0x10000 - 0x6966F0)
+    gui = SimpleNamespace(session=memory, base=0x10000 - 0x6966F0, context_rva=0x6966F0)
     GuiReader.assert_hovered(gui, {"address": window}, "Cancel")
     with pytest.raises(ValueError, match="not over"):
         GuiReader.assert_hovered(gui, {"address": window}, "OK")

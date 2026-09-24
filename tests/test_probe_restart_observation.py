@@ -1,4 +1,5 @@
 from copy import deepcopy
+from types import SimpleNamespace as NS
 
 import pytest
 
@@ -16,7 +17,8 @@ def test_verified_receipt_suppresses_restart_admission_until_farmer_attaches(
     supervised, monkeypatch
 ):
     x = supervised
-    restarted = MerchantRuntime(object(), x.guard, journal=x.journal)
+    # No client executables: the separate 1078 manual reader stays unfenced.
+    restarted = MerchantRuntime(NS(identities=lambda: []), x.guard, journal=x.journal)
     x.runtime = restarted
     x.now = 10_000  # Old verified receipt; exact merchant memory remains fresh.
     retractions = []

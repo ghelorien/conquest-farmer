@@ -36,6 +36,7 @@ def participants(farmer="Parasite"):
     intent = deepcopy({"farmer": f, "merchant": m, "items": [item]})
     m["request"] = {
         "participant": farmer,
+        "participant_uid": f["character_uid"],
         "message": farmer + " wishes to trade with you.",
     }
     return intent, f, m

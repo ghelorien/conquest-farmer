@@ -124,7 +124,9 @@ def _managed_probe(release, data):
         shared = data / "machine-state"
         coordinator = InputCoordinator()
         assert coordinator.path == data / "locks/input.lock"
-        runtime = MerchantRuntime(NS(windows=lambda: []), coordinator)
+        runtime = MerchantRuntime(
+            NS(windows=lambda: [], identities=lambda: []), coordinator
+        )
         assert runtime.journal.path == shared / "reports/merchants/journal.sqlite3"
         assert PriceHistory().path == shared / "reports/merchants/price-history.sqlite3"
         runtime.stop_event = OneTick()
@@ -229,12 +231,66 @@ def _managed_probe(release, data):
         def no_input(*args, **kwargs):
             raise ValueError("offline test: no input")
 
+        # A self-consistent uncertain source operation: route, admission,
+        # transaction and merchant reservation must agree before cancellation.
+        item = {
+            "uid": 101,
+            "type_id": 1088001,
+            "plus": 0,
+            "gem1": 0,
+            "gem2": 0,
+            "quantity": 1,
+            "bound": False,
+        }
+        origin = {
+            "operation_id": "test-operation",
+            "town_visit_id": None,
+            "visit_id": None,
+            "farmer_profile_id": farmer.id,
+        }
+        intent = {
+            **origin,
+            "farmer": {
+                "character": "TestFarmer",
+                "character_uid": 1,
+                "server": "America",
+                "identity": {"pid": 1},
+            },
+            "merchant": {
+                "character": "Spiritual",
+                "character_uid": 2,
+                "server": "America",
+                "identity": {"pid": 2},
+            },
+            "items": [item],
+        }
         delivery = Journal(reserved.JOURNAL)
-        delivery.begin("test-request", merchant.id, "farmer_delivery", {})
+        delivery.admit_delivery(
+            "test-request", merchant.id, [item["uid"]], origin, [item]
+        )
+        delivery.begin(
+            "test-request", merchant.id, "farmer_delivery", intent, admission=True
+        )
         delivery.transition("test-request", "uncertain")
+        runtime.journal.set(
+            merchant.id,
+            "delivery_reservation",
+            {"request_id": "test-request", "phase": "reserved", "intent": intent},
+        )
         write_json(
             state_path("reports/banking/merchant-route.json"),
-            {"active": {"request_id": "test-request"}},
+            {
+                "active": {
+                    "request_id": "test-request",
+                    "merchant": "Spiritual",
+                    "merchant_identity": {"pid": 2},
+                    "merchant_uid": 2,
+                    "items": [item],
+                    "town_visit_id": None,
+                    "visit_id": None,
+                    "farmer_profile_id": farmer.id,
+                }
+            },
         )
         with (
             patch("threading.Thread", InlineThread),
@@ -246,10 +302,23 @@ def _managed_probe(release, data):
         receipt = shared / "reports/merchants/reserved-request-cancellation.json"
         assert read_json(receipt)["error"] == "offline test: no input"
         assert cancel.call_args.kwargs["output_path"] == receipt
+        # Empty-bot cleanup now starts only from the current open-trade probe
+        # receipt; its live ownership check (_open) is stubbed like `unchanged`.
+        from conquest.merchants import delivery_probe
+
+        delivery_probe.write_probe(
+            delivery_probe.JOURNAL,
+            {
+                "phase": "trade_open_verified",
+                "character": "Spiritual",
+                "farmer_profile_id": farmer.id,
+                "target_profile_id": merchant.id,
+            },
+        )
         with (
             patch("threading.Thread", InlineThread),
             patch.object(empty, "pair", return_value=({}, {"trade": True})),
-            patch.object(empty, "unchanged"),
+            patch.object(empty, "_open"),
             patch.object(empty, "run", side_effect=no_input),
         ):
             empty.start(ui, merchant.id)

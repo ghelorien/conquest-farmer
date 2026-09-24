@@ -7,8 +7,11 @@ from conquest.merchants import delivery_readiness as module
     "missing", ["none", "farmer", "booth_panel", "credentials", "paused", "rollout"]
 )
 def test_diagnostics_identify_prerequisites_without_input_or_permission_changes(
-    monkeypatch, missing
+    tmp_path, monkeypatch, missing
 ):
+    from conquest.merchants import farmer_preferences
+    from conquest.merchants.farmer_identity import ui_character
+
     calls = []
 
     def qualified(cap):
@@ -23,6 +26,10 @@ def test_diagnostics_identify_prerequisites_without_input_or_permission_changes(
         enabled=lambda c: missing != "paused",
     )
     ui = NS(runtime=runtime)
+    # Farmer transfers now default Off until the operator enables them once
+    # (3fe0f7f); isolate the preference file and record that explicit enable.
+    monkeypatch.setattr(farmer_preferences, "PATH", tmp_path / "preferences.json")
+    farmer_preferences.set_enabled(ui_character(ui), True)
 
     def farmer(ui):
         if missing == "farmer":

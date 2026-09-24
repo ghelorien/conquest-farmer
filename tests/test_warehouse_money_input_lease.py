@@ -50,8 +50,10 @@ def bank(tmp_path, monkeypatch):
     monkeypatch.setattr(
         warehouse_money,
         "WarehouseMoneyReader",
-        lambda _: NS(
-            read=lambda: read("bank", NS(silver=state.stored, amount=state.amount))
+        NS(
+            for_session=lambda _: NS(
+                read=lambda: read("bank", NS(silver=state.stored, amount=state.amount))
+            )
         ),
     )
     monkeypatch.setattr(

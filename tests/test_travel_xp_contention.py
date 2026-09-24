@@ -93,6 +93,8 @@ def rig(tmp_path, monkeypatch):
     care.info = service.info_path
     care.session = observer.adapter
     care.layout = None
+    care.exact_1078 = False
+    care.revive_state = {}
     care.pending = None
     care.last_heal = -float("inf")
     care.next_panel_check = float("inf")

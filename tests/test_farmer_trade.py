@@ -126,6 +126,7 @@ def test_receiver_memory_requires_one_stable_matching_uid_and_target_mode(
     monkeypatch, failure
 ):
     import struct
+    from conquest import memory_life
     from conquest.merchants import farmer_trade as module
 
     base = 0x100000
@@ -183,7 +184,11 @@ def test_receiver_memory_requires_one_stable_matching_uid_and_target_mode(
         },
     )
     observer = NS(
-        adapter=NS(read_block=read, assert_identity=lambda: None),
+        adapter=NS(
+            read_block=read,
+            assert_identity=lambda: None,
+            expected_sha256=memory_life.CLIENT_SHA256,
+        ),
         entities=NS(
             _resolve=lambda: (base, collection, []),
             layout=NS(
@@ -243,7 +248,11 @@ def test_delivery_target_reports_exact_absent_recipient_without_collapsing_ambig
         "recipient_actionability",
         lambda *a, **k: (_ for _ in ()).throw(module.RecipientAbsent("not in scene")),
     )
-    monkeypatch.setattr(memory_life, "read_life", lambda *a: NS(position=(10, 20)))
+    monkeypatch.setattr(
+        memory_life.MemoryLifeReader,
+        "for_session",
+        lambda session, character: NS(read=lambda: NS(position=(10, 20))),
+    )
     monkeypatch.setattr(scene_input, "memory_player_anchor", lambda *a: (500, 400))
     result = driver.target_status("Dutch")
     assert result == {
@@ -295,7 +304,11 @@ def test_delivery_target_defers_a_changed_receiver_scene_before_input(monkeypatc
             module.RecipientSceneChanged("Receiver scene changed")
         ),
     )
-    monkeypatch.setattr(memory_life, "read_life", lambda *a: NS(position=(10, 20)))
+    monkeypatch.setattr(
+        memory_life.MemoryLifeReader,
+        "for_session",
+        lambda session, character: NS(read=lambda: NS(position=(10, 20))),
+    )
     monkeypatch.setattr(scene_input, "memory_player_anchor", lambda *a: (500, 400))
 
     assert driver.target_status("Dutch") == {
@@ -317,12 +330,15 @@ def test_delivery_target_defers_a_changed_receiver_scene_before_input(monkeypatc
 
 @pytest.mark.parametrize("draw_format", [None, "f32"])
 def test_receiver_memory_rejects_unqualified_projection_before_observation(draw_format):
+    from conquest.memory_life import CLIENT_SHA256
     from conquest.merchants.farmer_trade import recipient_record
 
     spec = {"name_format": "inline_utf8"}
     if draw_format is not None:
         spec["draw_format"] = draw_format
-    observer = NS(adapter=None, entities=None)
+    # A 1074-build adapter without any read methods: validation must reject the
+    # profile before any memory observation is attempted.
+    observer = NS(adapter=NS(expected_sha256=CLIENT_SHA256), entities=None)
     with pytest.raises(ValueError, match="projection format is not qualified"):
         recipient_record(observer, {"recipient": spec}, {}, targeting=True)
 

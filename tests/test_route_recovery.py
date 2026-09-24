@@ -369,6 +369,8 @@ def test_town_revive_preinput_focus_race_retries_without_spending_attempt(monkey
     import pytest
 
     care = travel_care.TravelCare.__new__(travel_care.TravelCare)
+    care.exact_1078 = False  # Legacy (non-1078) revive path without a journal.
+    care.revive_state = {}
     care.info = "unused"
     care.health_layout = {}
     care.last_revive = -1000.0

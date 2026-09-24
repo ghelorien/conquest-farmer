@@ -103,11 +103,15 @@ def rig(tmp_path, monkeypatch):
         "Promotion must not acquire gameplay input"
     )
     runtime = MerchantRuntime(
-        object(),
+        # No client executables: the separate 1078 manual reader stays unfenced.
+        NS(identities=lambda: []),
         owner,
         journal=Journal(tmp_path / "journal.sqlite3"),
         market_path=tmp_path / "market.json",
     )
+    # New merchant profiles now default refill on (33b707e). Start from an
+    # explicit operator pause so promotion is shown never to resume it.
+    runtime.journal.set(character, "refill_enabled", False)
     driver = object.__new__(MerchantDriver)
     driver.observer = receiver
     driver.qualification = peer_path
@@ -697,7 +701,8 @@ def test_candidate_validation_uses_live_memory_reader_and_pinned_native_mode(
     from conquest.merchants import farmer_trade, memory, trade_controls
 
     observer = NS(
-        adapter=object(),
+        # The pinned 1074 client selects the trade_controls native accessor.
+        adapter=NS(expected_sha256=CLIENT_SHA256),
         operations=NS(target=NS(snapshot=lambda: {"client_size": [800, 600]})),
     )
     actor = {
@@ -707,13 +712,15 @@ def test_candidate_validation_uses_live_memory_reader_and_pinned_native_mode(
         "position": [10, 10],
         "point": [400, 300],
     }
-    monkeypatch.setattr(
-        memory,
-        "GuiReader",
-        lambda _: NS(
+    sessions = []
+
+    def gui_for_session(session):
+        sessions.append(session)
+        return NS(
             viewport_size=lambda: [801, 600] if change == "viewport" else [800, 600]
-        ),
-    )
+        )
+
+    monkeypatch.setattr(memory, "GuiReader", NS(for_session=gui_for_session))
     calls = []
 
     def read(source, candidate, merchant):
@@ -752,3 +759,4 @@ def test_candidate_validation_uses_live_memory_reader_and_pinned_native_mode(
         result = module.validate_candidate(observer, candidate, {}, merchant, state)
         assert result["uid"] == 2 and result["name"] == "Spiritual"
         assert calls == [(observer, {**candidate, "gui_size": [800, 600]}, merchant)]
+        assert sessions == [observer.adapter]

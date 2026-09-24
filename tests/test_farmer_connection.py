@@ -28,6 +28,8 @@ def test_exact_farmer_attachment_preserves_other_accounts_and_manual_control(
     observer = NS(
         adapter=NS(identity=identity, assert_identity=lambda: None),
         health_layout=None,
+        # attach() verifies the character through the probe's own life reader.
+        read_life=lambda: life(),
         close=lambda: calls.append("close"),
     )
     app = NS(

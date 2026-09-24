@@ -27,16 +27,19 @@ def test_warehouse_interaction_point_preserves_other_npcs(
     assert interaction_point(npc) == (638, expected_y)
 
 
-def test_market_warehouse_reachability_uses_actual_click_point():
+def test_market_warehouse_reachability_uses_actual_click_point(monkeypatch):
+    from types import SimpleNamespace as NS
+    from conquest import market_services
     from conquest.memory_npcs import NpcObservation
     from conquest.town_trade import TownTrade
 
     trade = object.__new__(TownTrade)
-    trade.observer = None
+    trade.observer = NS(entities="scene")
+    trade.life = lambda **kw: NS(map_id=1036, position=(182, 180))
     # Old -32 offset reports reachable at the failed approach (186,188).
-    trade.vendor = lambda kind: NpcObservation(
-        123, 456, 0, "Warehouseman", 1036, (182, 180), (638, 185)
-    )
+    npc = NpcObservation(123, 456, 0, "Warehouseman", 1036, (182, 180), (638, 185))
+    # Market Warehouseman status is read through the pinned discover() path.
+    monkeypatch.setattr(market_services, "discover", lambda *a, **kw: (None, npc))
     result = trade.execute({"action": "vendor-status", "vendor_type": 0})
     assert result["point"] == (638, 121)
     assert result["reachable"] is False
@@ -58,6 +61,7 @@ def test_vendor_reachability_uses_current_viewport_and_hud(size, draw, reachable
 
     trade = object.__new__(TownTrade)
     trade.observer = NS(adapter=NS(viewport_size=lambda: size))
+    trade.life = lambda **kw: NS(map_id=1011, position=(227, 246))
     trade.vendor = lambda kind: NpcObservation(
         123, 456, 0, "Warehouseman", 1011, (227, 246), draw
     )

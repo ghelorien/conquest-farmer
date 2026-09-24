@@ -135,6 +135,7 @@ def test_refresh_renders_detached_farmer_and_merchant_rows_and_buttons():
     runtime = NS(
         manual_farmer_status=lambda: farmer_status,
         manual_status=lambda target: merchant if target == "Dutch" else None,
+        manual_handoff_status=lambda: None,
     )
     ui = UnifiedUI.__new__(UnifiedUI)
     ui.runtime = runtime
@@ -235,6 +236,7 @@ def test_bridge_manual_actions_require_and_forward_exact_binding():
         manual_farmer_status=Mock(
             return_value={"session": None, "observation": {}, "input_fenced": False}
         ),
+        manual_handoff_status=Mock(return_value=None),
         approve_manual=Mock(return_value={"phase": "manual_active"}),
         reject_manual=Mock(return_value={"request_state": "decline_pending"}),
     )

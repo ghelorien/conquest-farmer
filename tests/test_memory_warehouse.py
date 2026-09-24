@@ -3,6 +3,7 @@ from dataclasses import replace
 import struct
 import pytest
 from conquest.memory_inventory import Item
+from conquest.memory_life import CLIENT_SHA256
 from conquest.memory_warehouse import (
     MemoryWarehouseReader,
     WarehouseSnapshot,
@@ -14,9 +15,9 @@ def test_deposit_receipt_requires_exact_item_in_warehouse_without_other_losses()
     meteor = Item(42, 1088001, 1, 1, 3, 0)
     other = Item(43, 1088000, 1, 1, 4, 0)
     before = NS(items=(meteor, other), silver=100)
-    stash = WarehouseSnapshot((), 20)
+    stash = WarehouseSnapshot((), 20, 500)
     after = NS(items=(replace(other, slot=0),), silver=100)
-    receipt = WarehouseSnapshot((replace(meteor, slot=0),), 20)
+    receipt = WarehouseSnapshot((replace(meteor, slot=0),), 20, 500)
     assert deposit_received(meteor, before, stash, after, receipt)
     assert not deposit_received(meteor, before, stash, after, stash)
     assert not deposit_received(
@@ -26,7 +27,15 @@ def test_deposit_receipt_requires_exact_item_in_warehouse_without_other_losses()
         meteor, before, stash, NS(items=after.items, silver=99), receipt
     )
     assert not deposit_received(
-        meteor, before, stash, after, WarehouseSnapshot((replace(meteor, uid=99),), 20)
+        meteor,
+        before,
+        stash,
+        after,
+        WarehouseSnapshot((replace(meteor, uid=99),), 20, 500),
+    )
+    # Bank silver is part of the conserved warehouse state.
+    assert not deposit_received(
+        meteor, before, stash, after, replace(receipt, bank_silver=499)
     )
 
 
@@ -44,6 +53,7 @@ def reader_fixture(monkeypatch, count=1):
         shared: struct.pack("<Q", owner),
         owner + 0x1008: struct.pack("<4Q", table, 8, 0, count),
         owner + 0x1030: struct.pack("<I", 20),
+        owner + 0x1044: struct.pack("<I", 500),
         table: struct.pack("<Q", entry),
         entry: struct.pack("<Q", item),
         item: struct.pack("<Q", base + 0x5CF220),
@@ -52,16 +62,22 @@ def reader_fixture(monkeypatch, count=1):
         item + 0x62: struct.pack("<HH", 1, 1),
         item + 0x6B: b"\0",
     }
-    s = NS(read_block=lambda address, size: data[address], assert_identity=lambda: None)
+    s = NS(
+        read_block=lambda address, size: data[address],
+        assert_identity=lambda: None,
+        expected_sha256=CLIENT_SHA256,
+    )
     monkeypatch.setattr(
-        module, "MemoryGui", lambda session: NS(base=base, read=lambda name: "active")
+        module,
+        "MemoryGui",
+        lambda session, layout=None: NS(base=base, read=lambda name: "active"),
     )
     return MemoryWarehouseReader(s), data, owner
 
 
 def test_warehouse_reads_exact_uid_and_type(monkeypatch):
     reader, data, owner = reader_fixture(monkeypatch)
-    assert reader.read() == WarehouseSnapshot((Item(42, 1088001, 1, 1, 0, 0),), 20)
+    assert reader.read() == WarehouseSnapshot((Item(42, 1088001, 1, 1, 0, 0),), 20, 500)
 
 
 def test_warehouse_rejects_invalid_count(monkeypatch):
@@ -106,6 +122,7 @@ def test_rich_warehouse_fences_first_row_gems_while_later_row_is_decoded(monkeyp
     put(shared, struct.pack("<Q", owner))
     put(owner + 0x1008, struct.pack("<4Q", table, 8, 0, 2))
     put(owner + 0x1030, struct.pack("<I", 20))
+    put(owner + 0x1044, struct.pack("<I", 500))
     put(table, struct.pack("<2Q", *entries) + bytes(48))
     for index, (entry, pointer) in enumerate(zip(entries, items), 1):
         put(entry, struct.pack("<Q", pointer))
@@ -122,9 +139,12 @@ def test_rich_warehouse_fences_first_row_gems_while_later_row_is_decoded(monkeyp
             memory[address + i] for i in range(size)
         ),
         assert_identity=lambda: None,
+        expected_sha256=CLIENT_SHA256,
     )
     monkeypatch.setattr(
-        module, "MemoryGui", lambda session: NS(base=base, read=lambda name: "active")
+        module,
+        "MemoryGui",
+        lambda session, layout=None: NS(base=base, read=lambda name: "active"),
     )
 
     def rich(pointer, slot):
@@ -147,23 +167,28 @@ def test_rich_warehouse_fences_first_row_gems_while_later_row_is_decoded(monkeyp
 
 def test_town_warehouse_items_rich_is_an_explicit_read_only_opt_in(monkeypatch):
     from conquest import town_trade as module
-    from conquest.merchants import memory as merchant_memory
+    from conquest.merchants import delivery_bridge
 
     rich_item = object()
     calls = []
     reader = NS(
-        read=lambda **options: calls.append(options) or WarehouseSnapshot((), 20)
+        read=lambda **options: calls.append(options) or WarehouseSnapshot((), 20, 500)
     )
     monkeypatch.setattr(module, "MemoryWarehouseReader", lambda adapter: reader)
+    # The rich opt-in reads through delivery_bridge.source_memory, which binds
+    # MerchantMemory at import; a non-1078 adapter selects that path.
     monkeypatch.setattr(
-        merchant_memory, "MerchantMemory", lambda observer: NS(item=rich_item)
+        delivery_bridge, "MerchantMemory", lambda observer: NS(item=rich_item)
     )
     trade = module.TownTrade.__new__(module.TownTrade)
-    trade.observer = NS(adapter="adapter")
+    trade.observer = NS(adapter=NS(expected_sha256=CLIENT_SHA256))
+    # A non-Market town map keeps the plain vendor(0) lookup.
+    trade.life = lambda **kwargs: NS(map_id=1002)
     trade.vendor = lambda kind: 77
     assert trade({"action": "warehouse-items", "rich": True}) == {
         "items": (),
         "capacity": 20,
+        "bank_silver": 500,
     }
     assert calls == [{"rich_item": rich_item}]
 
@@ -174,9 +199,11 @@ def test_town_warehouse_items_rich_is_an_explicit_read_only_opt_in(monkeypatch):
 def test_deposit_guards_and_ambiguous_receipt_never_repeat_drag(monkeypatch, case):
     from conquest import town_trade as module
 
-    item = Item(42, 1088001 if case != "unsupported" else 500005, 1, 1, 0, 0)
+    # Family 500 gear became urgent storage in 33b707e (URGENT_EQUIPMENT_FAMILIES),
+    # so the unsupported case uses +0 gear from a family that is still refused.
+    item = Item(42, 1088001 if case != "unsupported" else 410005, 1, 1, 0, 0)
     bag = NS(items=(item,), silver=100, equipped_ammo=None)
-    stash = WarehouseSnapshot((), 0 if case == "full" else 20)
+    stash = WarehouseSnapshot((), 0 if case == "full" else 20, 500)
     grid = NS(size=(407.0, 175.0), scroll=(0.0, 0.0), position=(577.0, 435.0))
     target = NS(size=(272.0, 326.0), scroll=(0.0, 0.0), position=(71.0, 195.0))
     reader = NS(read=lambda: stash, gui=NS(read=lambda name: target))
@@ -186,7 +213,7 @@ def test_deposit_guards_and_ambiguous_receipt_never_repeat_drag(monkeypatch, cas
     trade.vendor = lambda kind: 123
     trade.inventory = NS(read=lambda: bag)
     trade.shop = NS(gui=NS(read=lambda name: grid))
-    trade.life = lambda **kwargs: None
+    trade.life = lambda **kwargs: NS(map_id=1002)  # non-Market town
     layout = NS(assert_current=lambda revision: None)
     trade.warehouse_layout = lambda: (
         layout,
@@ -220,7 +247,7 @@ def test_deposit_drag_rechecks_control_layout_and_exact_state(monkeypatch, gui_r
 
     item = Item(42, 1088001, 1, 1, 0, 0)
     bag = NS(items=(item,), silver=100, equipped_ammo=None)
-    stash = WarehouseSnapshot((), 20)
+    stash = WarehouseSnapshot((), 20, 500)
     inventory_grid = NS(size=(407.0, 175.0), scroll=(0.0, 0.0), position=(577.0, 435.0))
     warehouse_grid = NS(size=(272.0, 326.0), scroll=(0.0, 0.0), position=(71.0, 195.0))
     reader = NS(read=lambda: stash, gui=NS(read=lambda name: warehouse_grid))
@@ -230,7 +257,7 @@ def test_deposit_drag_rechecks_control_layout_and_exact_state(monkeypatch, gui_r
     trade.vendor = lambda kind: 123
     trade.inventory = NS(read=lambda: bag)
     trade.shop = NS(gui=NS(read=lambda name: inventory_grid))
-    trade.life = lambda **kwargs: None
+    trade.life = lambda **kwargs: NS(map_id=1002)  # non-Market town
     hovered = []
     trade.require_warehouse_hover = lambda window: hovered.append(window)
     checks = []
@@ -255,7 +282,7 @@ def test_deposit_drag_rechecks_control_layout_and_exact_state(monkeypatch, gui_r
 
     def verified(read, accept, failure, **kwargs):
         after = NS(items=(), silver=100, equipped_ammo=None)
-        stored = WarehouseSnapshot((item,), 20)
+        stored = WarehouseSnapshot((item,), 20, 500)
         assert accept((after, stored))
         return after, stored
 
@@ -271,7 +298,7 @@ def test_deposit_drag_refuses_release_after_warehouse_grid_moves(monkeypatch):
 
     item = Item(42, 1088001, 1, 1, 0, 0)
     bag = NS(items=(item,), silver=100, equipped_ammo=None)
-    stash = WarehouseSnapshot((), 20)
+    stash = WarehouseSnapshot((), 20, 500)
     inventory_grid = NS(size=(407.0, 175.0), scroll=(0.0, 0.0), position=(577.0, 435.0))
     original = NS(size=(272.0, 326.0), scroll=(0.0, 0.0), position=(71.0, 195.0))
     moved = NS(size=(272.0, 326.0), scroll=(0.0, 0.0), position=(91.0, 195.0))
@@ -288,7 +315,7 @@ def test_deposit_drag_refuses_release_after_warehouse_grid_moves(monkeypatch):
     trade.vendor = lambda kind: 123
     trade.inventory = NS(read=lambda: bag)
     trade.shop = NS(gui=NS(read=lambda name: inventory_grid))
-    trade.life = lambda **kwargs: None
+    trade.life = lambda **kwargs: NS(map_id=1002)  # non-Market town
     trade.require_warehouse_hover = lambda window: None
     layout = NS(assert_current=lambda revision: None)
     trade.warehouse_layout = lambda: (
@@ -313,7 +340,7 @@ def test_deposit_refuses_grid_covered_by_another_panel(monkeypatch, covered):
 
     item = Item(42, 1088001, 1, 1, 0, 0)
     bag = NS(items=(item,), silver=100, equipped_ammo=None)
-    stash = WarehouseSnapshot((), 20)
+    stash = WarehouseSnapshot((), 20, 500)
     inventory_grid = NS(
         address=100, size=(407.0, 175.0), scroll=(0.0, 0.0), position=(577.0, 435.0)
     )
@@ -330,7 +357,7 @@ def test_deposit_refuses_grid_covered_by_another_panel(monkeypatch, covered):
     trade.vendor = lambda kind: 123
     trade.inventory = NS(read=lambda: bag)
     trade.shop = NS(gui=NS(read=lambda name: inventory_grid))
-    trade.life = lambda **kwargs: None
+    trade.life = lambda **kwargs: NS(map_id=1002)  # non-Market town
     layout = NS(assert_current=lambda revision: None)
     trade.warehouse_layout = lambda: (
         layout,

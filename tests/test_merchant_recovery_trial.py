@@ -104,6 +104,8 @@ def test_automatic_recovery_uses_launch_or_login_surface_not_embedded_booth(
         launch_owner=None,
         launches={},
         catalog=object(),
+        # No exact 1078 client is present, so the input-capable path is open.
+        read_only_1078=lambda character, force=False: False,
         controllers={"Dutch": NS(driver=driver)},
         recoveries={"Dutch": NS(attempt=lambda action: action() or True)},
     )
@@ -128,6 +130,7 @@ def test_dead_embedded_window_does_not_pause_reconnect(monkeypatch):
         resize_jobs={},
         closed=False,
         hosts={"Dutch": host},
+        runtime=NS(observers={}),
         render_sizes={"Dutch": (1888, 665)},
         layout_status={},
         calibration_results={},
@@ -187,6 +190,7 @@ def test_login_reattachment_requires_exact_previously_assigned_process(
         attachments={"Dutch": AttachmentStatus()},
         discovery_lock=threading.Lock(),
         catalog=NS(windows=windows),
+        read_only_1078=lambda character, force=False: False,
         observers={},
         observer_factory=lambda *a: observer,
         journal=NS(
@@ -255,6 +259,7 @@ def test_hidden_logged_in_merchants_are_memory_verified_before_reattachment(
         attachments={name: AttachmentStatus() for name in ("Spiritual", "Dutch")},
         discovery_lock=threading.Lock(),
         catalog=catalog,
+        read_only_1078=lambda character, force=False: False,
         observers={},
         observer_factory=observer_factory,
         journal=NS(get=lambda *args: None),
@@ -314,6 +319,7 @@ def test_hidden_merchant_ambiguity_closes_every_candidate_and_fails_closed(monke
         attachments={"Spiritual": AttachmentStatus()},
         discovery_lock=threading.Lock(),
         catalog=ClientCatalog(backend),
+        read_only_1078=lambda character, force=False: False,
         observers={},
         observer_factory=observer_factory,
         journal=NS(get=lambda *args: None),
@@ -537,6 +543,7 @@ def test_periodic_ui_poll_does_not_pause_a_dead_client(monkeypatch):
         refill_buttons={"Spiritual": Mock()},
         merchant_buttons={"Spiritual": Mock()},
         hosts={"Spiritual": host},
+        runtime=NS(observers={}),
         labels={"Spiritual": text},
         notebook=NS(select=lambda: "Other"),
         frames={"Spiritual": "Spiritual"},
@@ -570,6 +577,7 @@ def test_disconnected_recovery_recreates_one_handoff_before_input(
     r = NS(
         enabled=lambda c: True,
         coordinator=NS(safe_to_yield=lambda: False),
+        read_only_1078=lambda character, force=False: False,
         lock=threading.Lock(),
         handoff=None,
     )

@@ -469,7 +469,13 @@ def test_deadline_expiring_during_final_observation_never_presses(
         pressed.append(True)
 
     monkeypatch.setattr(
-        merchant_memory, "GuiReader", lambda adapter: NS(session="session", base=0)
+        merchant_memory,
+        "GuiReader",
+        NS(
+            for_session=lambda adapter: NS(
+                session="session", base=0, context_rva=0x6966F0
+            )
+        ),
     )
     monkeypatch.setattr(
         merchant_memory,
@@ -505,7 +511,13 @@ def test_control_revoked_after_final_observation_never_presses(tmp_path, monkeyp
         pressed.append(True)
 
     monkeypatch.setattr(
-        merchant_memory, "GuiReader", lambda adapter: NS(session="session", base=0)
+        merchant_memory,
+        "GuiReader",
+        NS(
+            for_session=lambda adapter: NS(
+                session="session", base=0, context_rva=0x6966F0
+            )
+        ),
     )
     monkeypatch.setattr(
         merchant_memory,
@@ -568,7 +580,7 @@ def test_double_warehouse_observation_uses_stable_npc_identity(
     from dataclasses import make_dataclass
     from conquest.memory_npcs import NpcObservation
     from conquest import memory_warehouse
-    from conquest.merchants import memory
+    from conquest.merchants import delivery_bridge
 
     one, two = item(1), item(2, 130403)
     before = observation(stash=(one, two))
@@ -593,8 +605,11 @@ def test_double_warehouse_observation_uses_stable_npc_identity(
             gui=NS(read=lambda name: grid),
         ),
     )
+    # _observe reads the farmer through delivery_bridge.source_memory, which
+    # binds MerchantMemory at import; BUILD is not the 1078 hash, so this is
+    # the MerchantMemory path.
     monkeypatch.setattr(
-        memory,
+        delivery_bridge,
         "MerchantMemory",
         lambda observer: NS(read=lambda **kw: source(), item=None),
     )

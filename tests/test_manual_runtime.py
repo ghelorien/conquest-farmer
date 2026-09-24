@@ -131,7 +131,8 @@ def test_unknown_request_is_durable_target_only_pause(rig):
     x = rig
     x.runtime.step("Dutch")
     row = x.runtime.manual_status("Dutch")
-    assert row["phase"] == "approval_pending" and row["deadline"] == 130
+    # Unapproved requests expire after APPROVAL_SECONDS (5s).
+    assert row["phase"] == "approval_pending" and row["deadline"] == 105
     assert row["fence_scope"] == "target" and not row["ever_approved"]
     assert x.journal.get("Dutch", "enabled") and not x.calls
     with input_scope():
@@ -141,12 +142,12 @@ def test_unknown_request_is_durable_target_only_pause(rig):
     with pytest.raises(CaptureUnavailable, match="Manual visitor"):
         with x.guard.lease("Dutch", purpose="trade"):
             pytest.fail("Pending target cannot take input")
-    x.now = 110
+    x.now = 104
     x.runtime.step("Dutch")
     assert (
         x.runtime.manual_status("Dutch")["approval_binding"] == row["approval_binding"]
     )
-    assert x.runtime.manual_status("Dutch")["deadline"] == 130
+    assert x.runtime.manual_status("Dutch")["deadline"] == 105
     json.dumps(x.runtime.manual_status())
 
 
@@ -385,7 +386,9 @@ def test_incomplete_first_memory_is_durable_target_hold(rig):
         and row["visitor"] is None
         and row["approval_binding"] is None
     )
-    restarted = MerchantRuntime(object(), InputCoordinator(), journal=x.journal)
+    restarted = MerchantRuntime(
+        NS(identities=lambda: []), InputCoordinator(), journal=x.journal
+    )
     assert restarted.manual_status("Dutch")["id"] == row["id"]
     assert restarted.coordinator.manual_session_blocked("Dutch")
 
@@ -394,7 +397,9 @@ def test_incomplete_first_memory_is_durable_target_hold(rig):
 def test_restart_observes_without_input_and_evidence_failures_stay_held(rig, fault):
     x = rig
     row = approve(x)
-    restarted = MerchantRuntime(object(), InputCoordinator(), journal=x.journal)
+    restarted = MerchantRuntime(
+        NS(identities=lambda: []), InputCoordinator(), journal=x.journal
+    )
     assert restarted.coordinator.manual_session_blocked()
     x.runtime = restarted
     x.now += 1
@@ -630,7 +635,9 @@ def test_override_rebaseline_survives_restart_and_requires_two_fresh_equal_sampl
     x.runtime.step("Dutch")
     observe(x.journal, x.read())
     first = x.now
-    restarted = MerchantRuntime(object(), InputCoordinator(), journal=x.journal)
+    restarted = MerchantRuntime(
+        NS(identities=lambda: []), InputCoordinator(), journal=x.journal
+    )
     assert restarted.manual_status("Dutch")["stable_since"] == first
     x.now += 4
     restarted.process_manual("Dutch", x.read())

@@ -622,13 +622,15 @@ def test_partial_arrow_cleanup_stops_at_four_free_slots():
     "kind,plus,slot,expected",
     [
         (490003, 0, 0, True),
-        (500005, 0, 1, True),
+        (480005, 0, 1, True),
         (530006, 0, 4, True),
-        (500005, 1, 0, False),
-        (500005, 12, 0, False),
-        (500005, None, 0, False),
-        (500005, False, 0, False),
-        (500005, 0, None, False),
+        # Carried bows (family 500) are urgent storage, never sold (8d27bbc).
+        (500005, 0, 1, False),
+        (480005, 1, 0, False),
+        (480005, 12, 0, False),
+        (480005, None, 0, False),
+        (480005, False, 0, False),
+        (480005, 0, None, False),
         (430007, 0, 0, False),
         (420009, 0, 0, False),
         (1088000, 0, 0, False),
@@ -834,6 +836,8 @@ def test_empty_travel_potions_do_not_strand_character_before_town():
     from conquest.travel_care import TravelCare
 
     care = TravelCare.__new__(TravelCare)
+    care.exact_1078 = False
+    care.revive_state = {}
     care.pending = None
     care.last_heal = -float("inf")
     care.next_panel_check = float("inf")  # This fixture isolates potion behavior.
@@ -1123,6 +1127,8 @@ def test_travel_healing_focus_race_retries_without_marking_unsent_potion_used(
     from conquest import travel_care as t
 
     care = t.TravelCare.__new__(t.TravelCare)
+    care.exact_1078 = False
+    care.revive_state = {}
     care.next_panel_check = float("inf")  # This fixture isolates potion behavior.
     care.info = "worker"
     care.session = None
@@ -1170,6 +1176,8 @@ def test_travel_healing_uncertain_input_failure_is_not_blindly_retried(monkeypat
     from conquest import travel_care as t
 
     care = t.TravelCare.__new__(t.TravelCare)
+    care.exact_1078 = False
+    care.revive_state = {}
     care.next_panel_check = float("inf")  # This fixture isolates potion behavior.
     care.info = "worker"
     care.session = None
@@ -1205,6 +1213,8 @@ def test_travel_heals_at_seventy_percent_and_does_not_stop_when_damage_masks_pot
     from conquest import travel_care as t
 
     care = t.TravelCare.__new__(t.TravelCare)
+    care.exact_1078 = False
+    care.revive_state = {}
     care.next_panel_check = float("inf")  # This fixture isolates potion behavior.
     care.info = "worker"
     care.session = None
@@ -1375,7 +1385,8 @@ def test_urgent_bank_deposits_before_hunting_without_supply_shopping(
         if action == "supplies":
             return bag
 
-    def bank(loop):
+    def bank(loop, *, urgent=False):
+        assert urgent is True
         calls.append("deposit")
         if not still_carried:
             bag["items"] = [{"type_id": 1000020, "amount": 5}]

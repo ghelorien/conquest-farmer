@@ -39,7 +39,7 @@ def test_money_widget_positions_come_from_live_geometry_and_font_metrics():
     )
     reader = NS(
         session=NS(read_block=lambda a, n: memory[a]),
-        gui=NS(base=0, read=lambda n: window),
+        gui=NS(base=0, context_rva=0x6966F0, read=lambda n: window),
     )
     assert money_points(reader, bank) == {
         "amount": (119, 182),
@@ -66,7 +66,9 @@ def test_money_submission_requires_verified_numeric_buffer_and_is_not_repeated(
     def bank():
         return NS(silver=state["bank"], amount=state["amount"])
 
-    monkeypatch.setattr(m, "WarehouseMoneyReader", lambda *a: NS(read=bank))
+    monkeypatch.setattr(
+        m, "WarehouseMoneyReader", NS(for_session=lambda *a: NS(read=bank))
+    )
     monkeypatch.setattr(
         m,
         "money_points",

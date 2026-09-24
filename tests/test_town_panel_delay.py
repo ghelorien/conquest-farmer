@@ -17,11 +17,23 @@ def test_panel_close_waits_for_memory_without_repeating_click(monkeypatch, close
         return panel
 
     trade = t.TownTrade.__new__(t.TownTrade)
+    trade.observer = NS(adapter=NS(assert_identity=lambda: None))
     trade.shop = NS(gui=NS(read=read))
     trade.click = lambda p: clicks.append(p)
+    # The retry guard compares the open panel set before and after (afee29d).
     monkeypatch.setattr(
-        "conquest.panel_close.click_close", lambda trade, name: trade.click((100, 100))
+        "conquest.merchants.memory.GuiReader.for_session",
+        lambda session: NS(windows=lambda: []),
     )
+
+    def click_close(trade, name, *, validate=None, before_mouse_down=None):
+        if validate is not None:
+            validate()
+        if before_mouse_down is not None:
+            before_mouse_down()
+        trade.click((100, 100))
+
+    monkeypatch.setattr("conquest.panel_close.click_close", click_close)
     if closes:
         assert trade.execute({"action": "close", "window": "Inventory"}) == {
             "closed": True
@@ -29,4 +41,6 @@ def test_panel_close_waits_for_memory_without_repeating_click(monkeypatch, close
     else:
         with pytest.raises(ValueError, match="not verified"):
             trade.execute({"action": "close", "window": "Inventory"})
-    assert len(clicks) == 1 and now[0] >= 0.4
+    # A slow close is waited for, not re-clicked. Since afee29d an unverified
+    # close is retried exactly once after memory proves the same panel is open.
+    assert len(clicks) == (1 if closes else 2) and now[0] >= 0.4

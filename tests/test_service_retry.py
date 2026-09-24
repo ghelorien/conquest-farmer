@@ -114,10 +114,10 @@ def test_exact_unadmitted_retry_is_bounded_durable_and_idempotent(rig, monkeypat
     )
     assert rig.dispatch() == {"visit": first}  # Lost reply cannot allocate again.
     monkeypatch.setattr(time, "time", lambda: first["deadline"] + 10)
-    assert (
-        retry.route_retry(rig.loop, first, lambda body: pytest.fail("Second retry"))
-        == first
-    )
+    # Since 4a33737 the bridge, not route_retry, bounds retries per controller:
+    # the same route controller cannot earn a second service window.
+    with pytest.raises(ValueError, match="fresh native town controller"):
+        retry.route_retry(rig.loop, first, lambda body: retry.dispatch(rig.ui, body))
     assert rig.dispatch() == {"visit": first}
     assert read_json(service_visit.MarketVisit().path) == first
 
@@ -143,8 +143,13 @@ def test_crash_after_retry_seal_recovers_same_deadline(rig, monkeypatch):
 
 
 def test_running_native_market_route_retries_then_admits_exact_item_once(
-    rig, monkeypatch
+    rig, monkeypatch, tmp_path
 ):
+    from conquest.merchants import farmer_preferences
+
+    # Transfers default Off since 3fe0f7f; the operator enables this farmer.
+    monkeypatch.setattr(farmer_preferences, "PATH", tmp_path / "preferences.json")
+    farmer_preferences.set_enabled("Parasite", True)
     events = []
     receipts = {}
     transferred = []
@@ -153,9 +158,18 @@ def test_running_native_market_route_retries_then_admits_exact_item_once(
         "embedded_controls": {
             "control": {"enabled": False, "paused": False, "revision": 7},
             "life": {"map_id": 1036},
+            # Pre-admission safety needs a fresh, complete observation (186bcfa).
+            "observations_available": True,
+            "monsters": [],
         },
     }
-    rig.loop.living = rig.loop.health = lambda: deepcopy(health)
+
+    def fresh_health():
+        result = deepcopy(health)
+        result["embedded_controls"]["observed_at"] = time.time()
+        return result
+
+    rig.loop.living = rig.loop.health = fresh_health
     rig.loop.focus = lambda h: None
     rig.loop.town = lambda action, **kw: events.append(action)
     plan = {

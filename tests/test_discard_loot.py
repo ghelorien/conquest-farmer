@@ -106,6 +106,7 @@ def test_inventory_button_uses_current_table_column_and_rejects_stale_frame():
 
     gui = NS(
         base=base,
+        context_rva=0x6966F0,  # The 1074 GUI context the fixture was recorded at.
         session=NS(read_block=read, assert_identity=lambda: None),
         read=lambda name: NS(position=(53, 691), size=(930, 102)),
     )

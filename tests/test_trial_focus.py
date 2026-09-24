@@ -342,7 +342,11 @@ def test_three_failed_moves_replan_and_combat_continues_without_switching_off(
     monkeypatch.setattr(trial.cv2, "imwrite", no_pixels)
     supervisor = SimpleNamespace(
         last_target=None,
-        recovery=SimpleNamespace(terrain=SimpleNamespace(width=1000, height=1000)),
+        # Movement clicks are checked against open terrain (33b707e); the
+        # failures here come from absent progress, not blocked tiles.
+        recovery=SimpleNamespace(
+            terrain=SimpleNamespace(width=1000, height=1000, walkable=lambda p: True)
+        ),
         observe=lambda: {"health_ratio": 1, "waiting": False},
         memory_targets=lambda *args: (
             [Target("Pheasant", 600, 400, 1)] if len(failures) >= 3 else []

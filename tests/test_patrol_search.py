@@ -27,11 +27,11 @@ def test_expansion_stays_inside_map_and_stops_at_saved_limit():
 def test_saved_routes_retain_idle_search_policy():
     from conquest.routes import RouteLibrary
 
+    # Macaque's tight patrol was narrowed to 4 tiles in 59410b2.
+    narrowed = {"apparition": 8, "macaque": 4}
     for route in RouteLibrary().all():
         assert 5 <= route.patrol_search.idle_seconds <= 10
-        assert route.patrol_search.expansion_tiles == (
-            8 if route.id == "apparition" else 12
-        )
+        assert route.patrol_search.expansion_tiles == narrowed.get(route.id, 12)
 
 
 def test_expanded_patrol_covers_interior_within_sixteen_tile_attack_range():
