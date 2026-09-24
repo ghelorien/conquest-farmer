@@ -91,7 +91,18 @@
         614
       ],
       "terrain_sha256": "2feb3cdcf2a5cfe8a3358f15103c9994b83094e319f7d780908da5e85658ca80",
-      "source": "installed ini/region.json town bounds; terrain-checked anchor"
+      "source": "installed ini/region.json town bounds; terrain-checked anchor; live memory NPC survey",
+      "services": {
+        "pharmacist": [
+          550,
+          547
+        ],
+        "blacksmith": [
+          560,
+          513
+        ],
+        "equipment": []
+      }
     },
     {
       "map_id": 1015,

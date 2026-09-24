@@ -13,7 +13,7 @@ BUILTIN_LABELS = {
     'pheasant': 'Pheasants', 'turtledove': 'Turtledoves', 'robin': 'Robins',
     'apparition': 'Apparitions', 'poltergeist': 'Poltergeists',
     'wingedsnake': 'Winged Snakes', 'bandit': 'Bandits',
-    'firespirit': 'Fire Spirits',
+    'firespirit': 'Fire Spirits', 'macaque': 'Macaques',
 }
 
 

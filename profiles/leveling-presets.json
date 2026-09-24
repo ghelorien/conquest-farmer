@@ -106,8 +106,8 @@
       51
     ],
     "monster_type_id": 10,
-    "saved_route": null,
-    "status": "needs_survey"
+    "saved_route": "macaque",
+    "status": "planned"
   },
   {
     "id": "giantape",
