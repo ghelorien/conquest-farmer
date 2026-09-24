@@ -57,8 +57,13 @@ def test_actual_read_and_module_resolution_on_own_process():
     path = Path(identity["path"])
     value = ctypes.c_uint32(0x12345678)
     with MemorySession(os.getpid(), fingerprint(path)["sha256"], path.name) as session:
-        assert session.read(ctypes.addressof(value), 4) == struct.pack("<I", value.value)
-        assert any(region.base <= ctypes.addressof(value) < region.base + region.size for region in session.regions())
+        assert session.read(ctypes.addressof(value), 4) == struct.pack(
+            "<I", value.value
+        )
+        assert any(
+            region.base <= ctypes.addressof(value) < region.base + region.size
+            for region in session.regions()
+        )
         with pytest.raises(ValueError, match="outside calibration bounds"):
             session.read(ctypes.addressof(value), 3 * 1024 * 1024)
     with pytest.raises(ValueError, match="closed"):

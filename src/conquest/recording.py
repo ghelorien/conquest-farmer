@@ -31,28 +31,50 @@ class Recorder:
     def begin(self, metadata):
         session_id = str(uuid.uuid4())
         with self.db:
-            self.db.execute("INSERT INTO observation_sessions(id, started_at, metadata_json) VALUES (?, ?, ?)",
-                            (session_id, datetime.now(timezone.utc).isoformat(), json.dumps(metadata, allow_nan=False)))
+            self.db.execute(
+                "INSERT INTO observation_sessions(id, started_at, metadata_json) VALUES (?, ?, ?)",
+                (
+                    session_id,
+                    datetime.now(timezone.utc).isoformat(),
+                    json.dumps(metadata, allow_nan=False),
+                ),
+            )
         return session_id
 
     def append(self, session_id, sequence, sample):
         with self.db:
-            self.db.execute("INSERT INTO observation_samples VALUES (?, ?, ?)",
-                            (session_id, sequence, json.dumps(sample.to_dict(), allow_nan=False)))
+            self.db.execute(
+                "INSERT INTO observation_samples VALUES (?, ?, ?)",
+                (session_id, sequence, json.dumps(sample.to_dict(), allow_nan=False)),
+            )
 
     def finish(self, session_id, duration, reason):
         with self.db:
-            self.db.execute("UPDATE observation_sessions SET duration_seconds=?, stop_reason=? WHERE id=?",
-                            (duration, reason, session_id))
+            self.db.execute(
+                "UPDATE observation_sessions SET duration_seconds=?, stop_reason=? WHERE id=?",
+                (duration, reason, session_id),
+            )
 
     def close(self):
         self.db.close()
 
 
-def record(reader, recorder, metadata, *, seconds=60, interval=0.25,
-           clock=time.monotonic, sleep=time.sleep, should_stop=lambda: False, on_sample=lambda _: None):
+def record(
+    reader,
+    recorder,
+    metadata,
+    *,
+    seconds=60,
+    interval=0.25,
+    clock=time.monotonic,
+    sleep=time.sleep,
+    should_stop=lambda: False,
+    on_sample=lambda _: None,
+):
     if not math.isfinite(seconds) or not 0 < seconds <= 3600:
-        raise ValueError("Observation duration must be greater than 0 and at most 3600 seconds")
+        raise ValueError(
+            "Observation duration must be greater than 0 and at most 3600 seconds"
+        )
     if not math.isfinite(interval) or not 0.05 <= interval <= 10:
         raise ValueError("Observation interval must be between 0.05 and 10 seconds")
     started = clock()
@@ -94,7 +116,16 @@ def record(reader, recorder, metadata, *, seconds=60, interval=0.25,
     finally:
         duration = clock() - started
         recorder.finish(session_id, duration, reason)
-    return {"schema_version": 1, "stage": "observation_recording", "session_id": session_id,
-            "samples": count, "duration_seconds": duration, "stop_reason": reason, "error": failure,
-            "candidate_change_counts": changes, "qualified": False, "autonomous_actions_enabled": False,
-            "note": "Changing values do not prove field semantics; constant values do not prove a frozen client."}
+    return {
+        "schema_version": 1,
+        "stage": "observation_recording",
+        "session_id": session_id,
+        "samples": count,
+        "duration_seconds": duration,
+        "stop_reason": reason,
+        "error": failure,
+        "candidate_change_counts": changes,
+        "qualified": False,
+        "autonomous_actions_enabled": False,
+        "note": "Changing values do not prove field semantics; constant values do not prove a frozen client.",
+    }

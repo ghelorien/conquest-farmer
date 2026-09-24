@@ -11,19 +11,32 @@ def fail(*args, **kwargs):
     pytest.fail("Memory-only mode must not start visual capture or input")
 
 
-def test_memory_only_farming_blocks_before_camera_worker_or_templates(tmp_path, monkeypatch):
+def test_memory_only_farming_blocks_before_camera_worker_or_templates(
+    tmp_path, monkeypatch
+):
     monkeypatch.setattr(trial, "DesktopFrames", fail)
     monkeypatch.setattr(trial, "WorkerPointerSession", fail)
     monkeypatch.setattr(trial.cv2, "imread", fail)
     with pytest.raises(ValueError, match="Memory-only farming is not qualified"):
-        trial.run_trial(Path("profiles/turtledove-foreground-trial.yaml"), "missing-worker", tmp_path,
-                        30, logging.getLogger("test"))
+        trial.run_trial(
+            Path("profiles/turtledove-foreground-trial.yaml"),
+            "missing-worker",
+            tmp_path,
+            30,
+            logging.getLogger("test"),
+        )
 
 
 def test_memory_only_dashboard_never_opens_camera(monkeypatch):
     monkeypatch.setattr(health_monitor, "DesktopFrames", fail)
-    monkeypatch.setattr(progression, "from_profile", lambda *args: health_monitor.UnavailableMemoryHealth())
-    monitor = health_monitor.from_profile("profiles/turtledove-foreground-trial.yaml", "missing-worker")
+    monkeypatch.setattr(
+        progression,
+        "from_profile",
+        lambda *args: health_monitor.UnavailableMemoryHealth(),
+    )
+    monitor = health_monitor.from_profile(
+        "profiles/turtledove-foreground-trial.yaml", "missing-worker"
+    )
     monitor.start()
     assert monitor.snapshot()["health_valid"] is False
     assert monitor.snapshot()["health"] is None

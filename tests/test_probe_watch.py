@@ -2,7 +2,11 @@ import struct
 
 import pytest
 
-from conquest.probe_watch import read_probe_watch, require_observed_values, watch_changes
+from conquest.probe_watch import (
+    read_probe_watch,
+    require_observed_values,
+    watch_changes,
+)
 
 
 class Session:
@@ -12,16 +16,35 @@ class Session:
     position = [430, 380]
 
     def read(self, address, size):
-        return struct.pack("<I", self.hp) if address == 0x10000 else struct.pack("<II", *self.position)
+        return (
+            struct.pack("<I", self.hp)
+            if address == 0x10000
+            else struct.pack("<II", *self.position)
+        )
 
     def assert_identity(self):
         pass
 
 
 def candidate_report():
-    return {"process_identity": Session.identity, "expected_sha256": Session.expected_sha256,
-            "candidates": {"hp_u32": {"kind": "u32", "value": 51, "addresses": ["0x10000"], "truncated": False},
-                           "position_u32": {"kind": "xy_u32", "value": [430, 380], "addresses": ["0x20000"], "truncated": False}}}
+    return {
+        "process_identity": Session.identity,
+        "expected_sha256": Session.expected_sha256,
+        "candidates": {
+            "hp_u32": {
+                "kind": "u32",
+                "value": 51,
+                "addresses": ["0x10000"],
+                "truncated": False,
+            },
+            "position_u32": {
+                "kind": "xy_u32",
+                "value": [430, 380],
+                "addresses": ["0x20000"],
+                "truncated": False,
+            },
+        },
+    }
 
 
 def test_alive_watch_is_still_unqualified():

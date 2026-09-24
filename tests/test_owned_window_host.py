@@ -1,10 +1,17 @@
 """Owned hosting must preserve native activation and reversible window state."""
+
 from types import SimpleNamespace
 from queue import Queue
 
 import pytest
 
-from conquest.window_host import EmbeddedWindow, HostApi, WindowState, WS_CHILD, WS_POPUP
+from conquest.window_host import (
+    EmbeddedWindow,
+    HostApi,
+    WindowState,
+    WS_CHILD,
+    WS_POPUP,
+)
 
 
 GAME, PANE, WRAPPER, ORIGINAL_OWNER = 20, 30, 10, 90
@@ -22,17 +29,21 @@ class WindowGui:
         self.reject_owner = False
         self.visible = {GAME: True, PANE: True, WRAPPER: True}
         self.minimized = False
-        self.z_order=[GAME,WRAPPER]
+        self.z_order = [GAME, WRAPPER]
 
     def GetAncestor(self, hwnd, flag):
         assert flag == 2  # GA_ROOT must not silently become GA_ROOTOWNER.
-        return WRAPPER if hwnd == PANE or (hwnd == GAME and self.style & WS_CHILD) else hwnd
+        return (
+            WRAPPER
+            if hwnd == PANE or (hwnd == GAME and self.style & WS_CHILD)
+            else hwnd
+        )
 
     def GetForegroundWindow(self):
         return self.foreground
 
     def ShowWindow(self, hwnd, command):
-        self.calls.append(('show', hwnd, command))
+        self.calls.append(("show", hwnd, command))
         self.visible[hwnd] = command != 0
 
     def IsWindowVisible(self, hwnd):
@@ -42,11 +53,11 @@ class WindowGui:
         return hwnd == WRAPPER and self.minimized
 
     def SetWindowLong(self, hwnd, index, value):
-        self.calls.append(('long', hwnd, index, value))
+        self.calls.append(("long", hwnd, index, value))
         if index == -16:
-            self.style = value & 0xffffffff
+            self.style = value & 0xFFFFFFFF
         elif index == -20:
-            self.exstyle = value & 0xffffffff
+            self.exstyle = value & 0xFFFFFFFF
         elif index == -8 and not self.reject_owner:
             self.owner = value
 
@@ -56,14 +67,14 @@ class WindowGui:
         return {-16: self.style, -20: self.exstyle, -8: self.owner}[index]
 
     def GetWindow(self, hwnd, flag):
-        if flag==3:
-            index=self.z_order.index(hwnd)
-            return self.z_order[index-1] if index else 0
+        if flag == 3:
+            index = self.z_order.index(hwnd)
+            return self.z_order[index - 1] if index else 0
         assert flag == 4
         return self.owner
 
     def SetParent(self, hwnd, parent):
-        self.calls.append(('parent', hwnd, parent))
+        self.calls.append(("parent", hwnd, parent))
         self.parent = parent
 
     def GetParent(self, hwnd):
@@ -71,20 +82,23 @@ class WindowGui:
 
     def ClientToScreen(self, hwnd, point):
         assert hwnd == PANE
-        return tuple(a+b for a, b in zip(self.screen_origin, point))
+        return tuple(a + b for a, b in zip(self.screen_origin, point))
 
     def SetWindowPos(self, hwnd, after, x, y, width, height, flags):
-        self.calls.append(('position', hwnd, after, x, y, width, height, flags))
-        if not flags&3:self.rect = (x, y, x+width, y+height)
-        if not flags&4:
+        self.calls.append(("position", hwnd, after, x, y, width, height, flags))
+        if not flags & 3:
+            self.rect = (x, y, x + width, y + height)
+        if not flags & 4:
             self.z_order.remove(hwnd)
-            self.z_order.insert(0 if after in (0,-1,-2) else self.z_order.index(after)+1,hwnd)
+            self.z_order.insert(
+                0 if after in (0, -1, -2) else self.z_order.index(after) + 1, hwnd
+            )
 
     def GetWindowRect(self, hwnd):
         return self.rect
 
     def SetWindowPlacement(self, hwnd, placement):
-        self.calls.append(('placement', hwnd, placement))
+        self.calls.append(("placement", hwnd, placement))
         self.placement = placement
 
     def IsChild(self, parent, child):
@@ -92,9 +106,14 @@ class WindowGui:
 
 
 def owned_api():
-    state = WindowState({'pid': 42, 'creation_time_100ns': 123}, GAME,
-                        0x10cf0000, 0x00040000, ORIGINAL_OWNER,
-                        (0, 1, (0, 0), (0, 0), (100, 100, 900, 700)))
+    state = WindowState(
+        {"pid": 42, "creation_time_100ns": 123},
+        GAME,
+        0x10CF0000,
+        0x00040000,
+        ORIGINAL_OWNER,
+        (0, 1, (0, 0), (0, 0), (100, 100, 900, 700)),
+    )
     api = HostApi.__new__(HostApi)
     api.gui = WindowGui(state)
     api.show_async = api.gui.ShowWindow
@@ -110,11 +129,11 @@ def test_owned_host_keeps_game_top_level_and_assigns_wrapper_owner():
     api.embed_owned(state, PANE)
     assert not api.gui.style & WS_CHILD
     assert api.gui.style & WS_POPUP
-    assert not api.gui.style & (0x00c00000 | 0x00040000)
+    assert not api.gui.style & (0x00C00000 | 0x00040000)
     assert not api.gui.exstyle & (0x00040000 | 0x08000000 | 0x00000008)
     assert api.gui.owner == WRAPPER
     assert api.gui.GetAncestor(GAME, 2) == GAME
-    assert ('parent', GAME, PANE) not in api.gui.calls
+    assert ("parent", GAME, PANE) not in api.gui.calls
 
 
 def test_owned_host_rejects_failed_owner_assignment():
@@ -127,7 +146,7 @@ def test_owned_host_rejects_failed_owner_assignment():
 def test_owned_resize_uses_screen_coordinates_without_activation():
     api, state = owned_api()
     api.resize_owned(state, PANE, 1036, 793)
-    positioned = [call for call in api.gui.calls if call[0] == 'position'][-1]
+    positioned = [call for call in api.gui.calls if call[0] == "position"][-1]
     assert positioned[1] == GAME
     assert positioned[3:7] == (-600, 80, 1036, 793)
     assert positioned[-1] & 0x10  # SWP_NOACTIVATE
@@ -146,44 +165,47 @@ def test_unchanged_owned_geometry_does_not_repeat_window_mutations():
 
 
 def test_visible_client_behind_wrapper_is_reordered_without_focus_or_geometry_changes():
-    api,state=owned_api()
-    api.gui.z_order=[777,WRAPPER,888,GAME]
-    api.gui.foreground=777
-    api.resize_owned(state,PANE,1036,793)
-    assert api.gui.z_order==[777,GAME,WRAPPER,888]
-    assert api.gui.foreground==777
-    assert api.gui.rect==(-600,80,436,873)
-    call=api.gui.calls[-1]
-    assert call[2]==777 and call[-1]&0x10 and call[-1]&0x200
+    api, state = owned_api()
+    api.gui.z_order = [777, WRAPPER, 888, GAME]
+    api.gui.foreground = 777
+    api.resize_owned(state, PANE, 1036, 793)
+    assert api.gui.z_order == [777, GAME, WRAPPER, 888]
+    assert api.gui.foreground == 777
+    assert api.gui.rect == (-600, 80, 436, 873)
+    call = api.gui.calls[-1]
+    assert call[2] == 777 and call[-1] & 0x10 and call[-1] & 0x200
     api.gui.calls.clear()
-    api.resize_owned(state,PANE,1036,793)
+    api.resize_owned(state, PANE, 1036, 793)
     assert not api.gui.calls
 
 
 def test_normal_client_does_not_become_topmost_at_owner_band_boundary():
-    api,state=owned_api();api.gui.z_order=[777,WRAPPER,GAME]
-    original=api.gui.GetWindowLong
-    api.gui.GetWindowLong=lambda hwnd,index:8 if hwnd==777 and index==-20 else original(hwnd,index)
-    api.ensure_above_owner(GAME,WRAPPER)
-    assert api.gui.calls[-1][2]==0  # HWND_TOP, not a topmost HWND insertion target.
+    api, state = owned_api()
+    api.gui.z_order = [777, WRAPPER, GAME]
+    original = api.gui.GetWindowLong
+    api.gui.GetWindowLong = lambda hwnd, index: (
+        8 if hwnd == 777 and index == -20 else original(hwnd, index)
+    )
+    api.ensure_above_owner(GAME, WRAPPER)
+    assert api.gui.calls[-1][2] == 0  # HWND_TOP, not a topmost HWND insertion target.
 
 
-@pytest.mark.parametrize('hidden', ['pane', 'wrapper', 'minimized'])
+@pytest.mark.parametrize("hidden", ["pane", "wrapper", "minimized"])
 def test_owned_client_tracks_host_visibility_without_taking_focus(hidden):
     api, state = owned_api()
     api.gui.foreground = 777
-    if hidden == 'minimized':
+    if hidden == "minimized":
         api.gui.minimized = True
     else:
-        api.gui.visible[PANE if hidden == 'pane' else WRAPPER] = False
+        api.gui.visible[PANE if hidden == "pane" else WRAPPER] = False
     api.resize_owned(state, PANE, 1036, 793)
     assert not api.gui.visible[GAME]
-    assert not any(call[0] == 'position' for call in api.gui.calls)
+    assert not any(call[0] == "position" for call in api.gui.calls)
     api.gui.minimized = False
     api.gui.visible[PANE] = api.gui.visible[WRAPPER] = True
     api.resize_owned(state, PANE, 1036, 793)
     assert api.gui.visible[GAME]
-    assert ('show', GAME, 4) in api.gui.calls  # SW_SHOWNOACTIVATE
+    assert ("show", GAME, 4) in api.gui.calls  # SW_SHOWNOACTIVATE
     assert api.gui.foreground == 777
 
 
@@ -193,14 +215,18 @@ def test_owned_restore_recovers_original_owner_styles_and_placement():
     api.resize_owned(state, PANE, 1036, 793)
     api.restore(state)
     assert (api.gui.style, api.gui.exstyle, api.gui.owner, api.gui.placement) == (
-        state.style, state.exstyle, state.owner, state.placement)
+        state.style,
+        state.exstyle,
+        state.owner,
+        state.placement,
+    )
 
 
-@pytest.mark.parametrize('foreground', [WRAPPER, 777])
+@pytest.mark.parametrize("foreground", [WRAPPER, 777])
 def test_owned_focus_rejects_wrapper_or_other_app_foreground(foreground):
     api, state = owned_api()
     api.gui.foreground = foreground
-    api.thread_info = lambda hwnd: pytest.fail('Must reject before keyboard handoff')
+    api.thread_info = lambda hwnd: pytest.fail("Must reject before keyboard handoff")
     with pytest.raises(ValueError):
         api.focus(state)
     assert api.gui.foreground == foreground
@@ -213,57 +239,83 @@ def test_owned_focus_preserves_game_text_field_when_game_is_foreground():
     assert api.gui.foreground == GAME
 
 
-@pytest.mark.parametrize('foreground,hit,visible,expected',[
-    (WRAPPER,GAME,True,True),(GAME,21,True,True),
-    (777,GAME,True,False),(WRAPPER,PANE,True,False),(WRAPPER,GAME,False,False)])
-def test_manual_owned_click_focus_only_reaches_visible_clicked_client(foreground,hit,visible,expected):
-    api,state=owned_api()
-    api.gui.owner=WRAPPER
-    api.gui.foreground=foreground
-    api.gui.visible[GAME]=visible
-    api.gui.GetCursorPos=lambda:(1,2)
-    api.gui.WindowFromPoint=lambda point:hit
-    activated=[];focused=[]
+@pytest.mark.parametrize(
+    "foreground,hit,visible,expected",
+    [
+        (WRAPPER, GAME, True, True),
+        (GAME, 21, True, True),
+        (777, GAME, True, False),
+        (WRAPPER, PANE, True, False),
+        (WRAPPER, GAME, False, False),
+    ],
+)
+def test_manual_owned_click_focus_only_reaches_visible_clicked_client(
+    foreground, hit, visible, expected
+):
+    api, state = owned_api()
+    api.gui.owner = WRAPPER
+    api.gui.foreground = foreground
+    api.gui.visible[GAME] = visible
+    api.gui.GetCursorPos = lambda: (1, 2)
+    api.gui.WindowFromPoint = lambda point: hit
+    activated = []
+    focused = []
+
     def activate(hwnd):
-        activated.append(hwnd);api.gui.foreground=hwnd
-    api.gui.SetForegroundWindow=activate
-    api.focus=lambda state:focused.append(state.hwnd)
-    assert api.activate_owned_click(state,PANE)==expected
-    assert focused==([GAME] if expected else [])
-    assert activated==([GAME] if expected and foreground==WRAPPER else [])
+        activated.append(hwnd)
+        api.gui.foreground = hwnd
+
+    api.gui.SetForegroundWindow = activate
+    api.focus = lambda state: focused.append(state.hwnd)
+    assert api.activate_owned_click(state, PANE) == expected
+    assert focused == ([GAME] if expected else [])
+    assert activated == ([GAME] if expected and foreground == WRAPPER else [])
 
 
 def test_merchant_manual_focus_preserves_pause_and_automation_owner():
     from conquest.merchants.ui import UnifiedUI
     from unittest.mock import Mock
-    host=SimpleNamespace(saved=object(),mode='owned',parent=PANE,api=SimpleNamespace(activate_owned_click=Mock(return_value=True)))
-    safe_to_yield=Mock(return_value=False)
-    ui=SimpleNamespace(closed=False,coordinator=SimpleNamespace(owner='Dutch'),hosts={'Spiritual':host},
-                       layout_status={},safe_to_yield=safe_to_yield)
+
+    host = SimpleNamespace(
+        saved=object(),
+        mode="owned",
+        parent=PANE,
+        api=SimpleNamespace(activate_owned_click=Mock(return_value=True)),
+    )
+    safe_to_yield = Mock(return_value=False)
+    ui = SimpleNamespace(
+        closed=False,
+        coordinator=SimpleNamespace(owner="Dutch"),
+        hosts={"Spiritual": host},
+        layout_status={},
+        safe_to_yield=safe_to_yield,
+    )
     assert not UnifiedUI.focus_clicked_merchant(ui)
     host.api.activate_owned_click.assert_not_called()
     safe_to_yield.assert_not_called()
-    ui.coordinator.owner=None
+    ui.coordinator.owner = None
     assert not UnifiedUI.focus_clicked_merchant(ui)
     host.api.activate_owned_click.assert_not_called()
-    safe_to_yield.return_value=True
+    safe_to_yield.return_value = True
     assert UnifiedUI.focus_clicked_merchant(ui)
-    assert 'click_focus_ms' in ui.layout_status['Spiritual']
+    assert "click_focus_ms" in ui.layout_status["Spiritual"]
     assert ui.coordinator.owner is None
 
 
-@pytest.mark.parametrize('restore_fails', [False, True])
+@pytest.mark.parametrize("restore_fails", [False, True])
 def test_app_close_restores_owned_client_before_destroying_owner(restore_fails):
     from conquest.desktop_app import DesktopApp
 
     api, state = owned_api()
-    host = EmbeddedWindow(api, mode='owned')
+    host = EmbeddedWindow(api, mode="owned")
     host.attach(GAME, state.identity, PANE, 1036, 793)
     assert api.gui.owner == WRAPPER
     destroyed = []
     if restore_fails:
+
         def fail_restore(state):
-            raise OSError('Owner restoration failed')
+            raise OSError("Owner restoration failed")
+
         api.restore = fail_restore
 
     def destroy_owner():
@@ -273,11 +325,18 @@ def test_app_close_restores_owned_client_before_destroying_owner(restore_fails):
         assert api.gui.placement == state.placement
         destroyed.append(WRAPPER)
 
-    app = SimpleNamespace(host=host, runtime=None, thread=None, closing=True,
-        messages=Queue(), launch_watch=SimpleNamespace(pending=False),
-        stop_observer=lambda: None, record=lambda **fields: None,
+    app = SimpleNamespace(
+        host=host,
+        runtime=None,
+        thread=None,
+        closing=True,
+        messages=Queue(),
+        launch_watch=SimpleNamespace(pending=False),
+        stop_observer=lambda: None,
+        record=lambda **fields: None,
         root=SimpleNamespace(destroy=destroy_owner),
-        state_text=SimpleNamespace(set=lambda message: None))
+        state_text=SimpleNamespace(set=lambda message: None),
+    )
     keep_open = DesktopApp._poll(app)
     if restore_fails:
         assert keep_open and not destroyed and host.saved is state
@@ -287,27 +346,37 @@ def test_app_close_restores_owned_client_before_destroying_owner(restore_fails):
 
 def test_taller_farmer_view_preserves_width_and_does_not_compound(monkeypatch):
     import win32api
+
     api, state = owned_api()
-    api.gui.screen_origin = (502,123)
+    api.gui.screen_origin = (502, 123)
     api.height_scale = 1.12
-    monkeypatch.setattr(win32api,'MonitorFromWindow',lambda h:1)
-    monkeypatch.setattr(win32api,'GetMonitorInfo',lambda h:{'Work':(0,0,1920,1032)})
-    api.resize_owned(state,PANE,1416,907)
-    assert api.gui.rect == (502,14,1918,1030)
+    monkeypatch.setattr(win32api, "MonitorFromWindow", lambda h: 1)
+    monkeypatch.setattr(
+        win32api, "GetMonitorInfo", lambda h: {"Work": (0, 0, 1920, 1032)}
+    )
+    api.resize_owned(state, PANE, 1416, 907)
+    assert api.gui.rect == (502, 14, 1918, 1030)
     count = len(api.gui.calls)
-    api.resize_owned(state,PANE,1416,907)
-    assert api.gui.rect == (502,14,1918,1030)
+    api.resize_owned(state, PANE, 1416, 907)
+    assert api.gui.rect == (502, 14, 1918, 1030)
     assert len(api.gui.calls) == count
 
 
-def test_unified_farmer_view_clamps_taller_preference_to_observed_pane_bounds(monkeypatch):
+def test_unified_farmer_view_clamps_taller_preference_to_observed_pane_bounds(
+    monkeypatch,
+):
     import win32api
-    api,state=owned_api()
-    api.gui.screen_origin=(502,123)
-    api.height_scale=1.12
-    api.constrain_owned_to_parent=True
-    monkeypatch.setattr(win32api,'MonitorFromWindow',lambda h:1)
-    monkeypatch.setattr(win32api,'GetMonitorInfo',lambda h:{'Work':(0,0,1920,1032)})
-    api.resize_owned(state,PANE,1416,907)
-    assert api.height_scale==1.12  # The standalone preference remains saved in memory.
-    assert api.gui.rect==(502,123,1918,1030)
+
+    api, state = owned_api()
+    api.gui.screen_origin = (502, 123)
+    api.height_scale = 1.12
+    api.constrain_owned_to_parent = True
+    monkeypatch.setattr(win32api, "MonitorFromWindow", lambda h: 1)
+    monkeypatch.setattr(
+        win32api, "GetMonitorInfo", lambda h: {"Work": (0, 0, 1920, 1032)}
+    )
+    api.resize_owned(state, PANE, 1416, 907)
+    assert (
+        api.height_scale == 1.12
+    )  # The standalone preference remains saved in memory.
+    assert api.gui.rect == (502, 123, 1918, 1030)

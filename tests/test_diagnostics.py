@@ -42,8 +42,12 @@ class FakeBackend:
         if self.exit and self.identity_calls > 1:
             raise OSError("Process exited")
         return {
-            "pid": pid, "path": self.path, "architecture": "x64",
-            "creation_time_100ns": 101 if self.restart and self.identity_calls > 1 else 100,
+            "pid": pid,
+            "path": self.path,
+            "architecture": "x64",
+            "creation_time_100ns": 101
+            if self.restart and self.identity_calls > 1
+            else 100,
         }
 
     def check_memory_access(self, pid):
@@ -101,7 +105,9 @@ def test_process_change_discards_session(executable, change):
 @pytest.mark.parametrize("candidates", [[], [123, 456]])
 def test_missing_or_ambiguous_process_does_not_attach(executable, candidates):
     backend = FakeBackend(executable)
-    backend.candidates = [{"pid": pid, "executable_name": "ImConquer.exe"} for pid in candidates]
+    backend.candidates = [
+        {"pid": pid, "executable_name": "ImConquer.exe"} for pid in candidates
+    ]
     report = diagnose(backend)
     assert check(report, "process_selection").status == "failed"
     assert backend.identity_calls == backend.memory_calls == 0
@@ -148,8 +154,12 @@ def test_malformed_executable_is_rejected(tmp_path, content):
         fingerprint(path)
 
 
-def test_cli_saves_json_and_nonzero_gate_exit(executable, tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr("conquest.cli.WindowsBackend", lambda: FakeBackend(executable, denied=True))
+def test_cli_saves_json_and_nonzero_gate_exit(
+    executable, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        "conquest.cli.WindowsBackend", lambda: FakeBackend(executable, denied=True)
+    )
     output = tmp_path / "reports" / "diagnostics.json"
     assert main(["diagnose", "--output", str(output)]) == 2
     captured = capsys.readouterr()
@@ -157,7 +167,10 @@ def test_cli_saves_json_and_nonzero_gate_exit(executable, tmp_path, monkeypatch,
     assert json.loads(output.read_text()) == report
     assert report["gate"] == "blocked"
     events = [json.loads(line) for line in captured.err.splitlines()]
-    assert [event["event"] for event in events] == ["diagnostic_started", "diagnostic_finished"]
+    assert [event["event"] for event in events] == [
+        "diagnostic_started",
+        "diagnostic_finished",
+    ]
 
 
 def test_cli_cannot_report_ready_from_access_check(executable, monkeypatch, capsys):
@@ -166,7 +179,15 @@ def test_cli_cannot_report_ready_from_access_check(executable, monkeypatch, caps
     assert json.loads(capsys.readouterr().out)["autonomous_actions_enabled"] is False
 
 
-@pytest.mark.parametrize("arguments", [["--pid", "0"], ["--pid", "-1"], ["--pid", "4294967296"], ["--expected-sha256", "invalid"]])
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--pid", "0"],
+        ["--pid", "-1"],
+        ["--pid", "4294967296"],
+        ["--expected-sha256", "invalid"],
+    ],
+)
 def test_cli_rejects_invalid_parameters(arguments):
     with pytest.raises(SystemExit) as error:
         main(["diagnose", *arguments])

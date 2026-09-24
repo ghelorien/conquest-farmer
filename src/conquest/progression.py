@@ -1,4 +1,5 @@
 """Level milestones from verified memory, with explicit review/qualification status."""
+
 import threading
 import time
 from pathlib import Path
@@ -19,17 +20,29 @@ def review_plan(level, plan):
         "monster_review": stage["monster"] if stage else None,
         "monster_route_qualified": bool(stage and stage["route_qualified"]),
         "due_reviews": [r for r in reviews if r["level"] <= level],
-        "next_reviews": sorted([r for r in reviews if r["level"] > level], key=lambda r: r["level"])[:4],
-        "completed_upgrades": [r["title"] for r in plan.get("reviews", []) if r.get("status") == "completed"],
+        "next_reviews": sorted(
+            [r for r in reviews if r["level"] > level], key=lambda r: r["level"]
+        )[:4],
+        "completed_upgrades": [
+            r["title"]
+            for r in plan.get("reviews", [])
+            if r.get("status") == "completed"
+        ],
     }
 
 
 def read_level(session, layout, character):
     started = time.monotonic()
     addresses = resolve_player(session, layout)
-    sample = session.request("sample", {"fields": [
-        {"name": n, "address": hex(addresses[n]), "kind": k}
-        for n, k in (("name", "utf8"), ("level", "u32"))]})
+    sample = session.request(
+        "sample",
+        {
+            "fields": [
+                {"name": n, "address": hex(addresses[n]), "kind": k}
+                for n, k in (("name", "utf8"), ("level", "u32"))
+            ]
+        },
+    )
     fields = {f["name"]: f["value"] for f in sample["fields"]}
     if fields["name"] != character or resolve_player(session, layout) != addresses:
         raise ValueError("Character changed during level observation")
@@ -45,7 +58,12 @@ class LevelMonitor:
     def __init__(self, reader, plan, *, clock=time.monotonic):
         self.reader, self.plan, self.clock = reader, plan, clock
         self.lock, self.stop = threading.Lock(), threading.Event()
-        self.level, self.timestamp, self.error, self.thread = None, None, "Waiting for level memory", None
+        self.level, self.timestamp, self.error, self.thread = (
+            None,
+            None,
+            "Waiting for level memory",
+            None,
+        )
 
     def sample(self):
         try:
@@ -53,7 +71,9 @@ class LevelMonitor:
             review_plan(level, self.plan)
             with self.lock:
                 if self.level is not None and level < self.level:
-                    raise ValueError("Level decreased; character integration needs review")
+                    raise ValueError(
+                        "Level decreased; character integration needs review"
+                    )
                 self.level, self.timestamp, self.error = level, self.clock(), None
         except Exception as error:
             with self.lock:
@@ -61,9 +81,16 @@ class LevelMonitor:
 
     def snapshot(self):
         with self.lock:
-            valid = self.timestamp is not None and 0 <= self.clock() - self.timestamp <= 5
-            result = {"character_level": self.level if valid else None, "level_valid": valid,
-                      "level_note": "Live read-only memory" if valid else (self.error or "Level reading is stale")}
+            valid = (
+                self.timestamp is not None and 0 <= self.clock() - self.timestamp <= 5
+            )
+            result = {
+                "character_level": self.level if valid else None,
+                "level_valid": valid,
+                "level_note": "Live read-only memory"
+                if valid
+                else (self.error or "Level reading is stale"),
+            }
             if valid:
                 result.update(review_plan(self.level, self.plan))
             return result
@@ -74,7 +101,9 @@ class LevelMonitor:
             self.stop.wait(2)
 
     def start(self):
-        self.thread = threading.Thread(target=self._run, name="level-monitor", daemon=True)
+        self.thread = threading.Thread(
+            target=self._run, name="level-monitor", daemon=True
+        )
         self.thread.start()
 
     def close(self):
@@ -103,9 +132,12 @@ class CombinedMonitor:
 
 
 def from_profile(config, info):
-    layout = PlayerLayout.model_validate(yaml.safe_load(Path(config.player_profile).read_text()))
+    layout = PlayerLayout.model_validate(
+        yaml.safe_load(Path(config.player_profile).read_text())
+    )
     plan = yaml.safe_load(Path(config.leveling_plan).read_text())
     session = None
+
     def reader():
         nonlocal session
         try:
@@ -115,4 +147,5 @@ def from_profile(config, info):
         except Exception:
             session = None  # Reconnect only through fresh worker identity checks.
             raise
+
     return LevelMonitor(reader, plan)

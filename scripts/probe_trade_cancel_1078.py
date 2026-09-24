@@ -13,11 +13,15 @@ import zlib
 
 if __name__ == "__main__":
     from _bootstrap import activate
+
     activate(__file__)
 
 from conquest.memory import MemorySession
 from conquest.merchants.memory import GuiReader, string
-from conquest.merchants.reader_1078 import CLIENT_SHA256_1078, TradeObservationReader1078
+from conquest.merchants.reader_1078 import (
+    CLIENT_SHA256_1078,
+    TradeObservationReader1078,
+)
 
 
 def observe(pid, created, character):
@@ -39,11 +43,17 @@ def observe(pid, created, character):
             return {"qualified": False, "reason": "No isolated incoming request"}
         gui = GuiReader.for_session(adapter)
         model = gui.model(15, reader.confirm_vtable_rva)
-        labels = [string(adapter, model + offset, 256) for offset in (0x48, 0x68, 0x88, 0xA8)]
+        labels = [
+            string(adapter, model + offset, 256) for offset in (0x48, 0x68, 0x88, 0xA8)
+        ]
         expected = ["Trade###Confirm", request["message"], "Accept", "Cancel"]
         if labels != expected:
-            raise ValueError("Request model labels differ from the exact incoming request")
-        windows = [window for window in gui.windows() if window["name"] == "Trade###Confirm"]
+            raise ValueError(
+                "Request model labels differ from the exact incoming request"
+            )
+        windows = [
+            window for window in gui.windows() if window["name"] == "Trade###Confirm"
+        ]
         if len(windows) != 1:
             raise ValueError("Incoming request GUI window is absent or ambiguous")
         window = windows[0]
@@ -51,14 +61,26 @@ def observe(pid, created, character):
         geometry = window["geometry"]
         end_x, button_y = struct.unpack_from("<2f", raw, 0xE8)
         line = struct.unpack_from("<f", raw, 0x114)[0]
-        context = struct.unpack("<Q", adapter.read_block(gui.base + gui.context_rva, 8))[0]
+        context = struct.unpack(
+            "<Q", adapter.read_block(gui.base + gui.context_rva, 8)
+        )[0]
         hovered_window = struct.unpack("<Q", adapter.read_block(context + 0x3EC0, 8))[0]
         hovered_id = struct.unpack("<I", adapter.read_block(context + 0x3EF0, 4))[0]
         seed = struct.unpack_from("<I", raw, 8)[0]
         cancel_id = zlib.crc32(b"Cancel", seed)
         after = reader.read_manual_ownership()
-        if any(after[key] != before[key] for key in
-               ("identity", "character_uid", "request", "trade", "inventory", "booth", "silver")):
+        if any(
+            after[key] != before[key]
+            for key in (
+                "identity",
+                "character_uid",
+                "request",
+                "trade",
+                "inventory",
+                "booth",
+                "silver",
+            )
+        ):
             raise ValueError("Request or ownership changed during Cancel observation")
         session.assert_identity()
         return {
@@ -73,7 +95,8 @@ def observe(pid, created, character):
             "end_x": end_x,
             "button_y": button_y,
             "line_height": line,
-            "hovered_cancel": hovered_window == window["address"] and hovered_id == cancel_id,
+            "hovered_cancel": hovered_window == window["address"]
+            and hovered_id == cancel_id,
             "hovered_window_matches": hovered_window == window["address"],
             "hovered_id": hex(hovered_id),
             "cancel_id": hex(cancel_id),
@@ -93,8 +116,15 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x", encoding="utf-8") as target:
         json.dump(result, target, indent=2)
-    print(json.dumps({"output": str(args.output), "request_present": "request" in result,
-                      "hovered_cancel": result.get("hovered_cancel")}))
+    print(
+        json.dumps(
+            {
+                "output": str(args.output),
+                "request_present": "request" in result,
+                "hovered_cancel": result.get("hovered_cancel"),
+            }
+        )
+    )
 
 
 if __name__ == "__main__":

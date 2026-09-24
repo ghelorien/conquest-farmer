@@ -35,15 +35,34 @@ class _Control:
 
 
 def _item(uid=10):
-    return {"uid": uid, "type_id": 130403, "plus": 1, "gem1": 0,
-            "gem2": 0, "quantity": 1, "bound": False, "slot": 0}
+    return {
+        "uid": uid,
+        "type_id": 130403,
+        "plus": 1,
+        "gem1": 0,
+        "gem2": 0,
+        "quantity": 1,
+        "bound": False,
+        "slot": 0,
+    }
 
 
 def _snapshot(name, uid, item):
-    return {"character": name, "character_uid": uid, "identity": {"pid": uid},
-            "server": "America", "timestamp": time.time(), "map_id": 1036,
-            "hp": 100, "silver": 100, "capacity": 40,
-            "inventory": [item], "booth": [], "request": None, "trade": None}
+    return {
+        "character": name,
+        "character_uid": uid,
+        "identity": {"pid": uid},
+        "server": "America",
+        "timestamp": time.time(),
+        "map_id": 1036,
+        "hp": 100,
+        "silver": 100,
+        "capacity": 40,
+        "inventory": [item],
+        "booth": [],
+        "request": None,
+        "trade": None,
+    }
 
 
 def test_farmer_recheck_dispatch_uses_fresh_worker_health_shape(monkeypatch):
@@ -58,9 +77,13 @@ def test_farmer_recheck_dispatch_uses_fresh_worker_health_shape(monkeypatch):
             "life": {"character": "Parasite", "current_hp": 100, "max_hp": 100},
         },
     }
-    incident = {"id": "market-route:one", "digest": "a" * 64,
-                "kind": "market-route-departure", "phase": "prepared",
-                "items": []}
+    incident = {
+        "id": "market-route:one",
+        "digest": "a" * 64,
+        "kind": "market-route-departure",
+        "phase": "prepared",
+        "items": [],
+    }
     app = DesktopApp.__new__(DesktopApp)
     app.last = {"worker_info_path": "worker-info.json"}
     app._farmer_recovery_incidents = lambda: [incident]
@@ -76,43 +99,67 @@ def test_farmer_recheck_dispatch_uses_fresh_worker_health_shape(monkeypatch):
 
 def test_meteor_recheck_dispatch_uses_memory_worker_bag_and_warehouse(monkeypatch):
     from conquest import meteor_banking
-    incident={"id":"meteor-consolidation:one","digest":"m" * 64,
-              "kind":"meteor-consolidation","phase":"travelling","items":[]}
-    evidence={"life":{"map_id":1011},"supplies":{"items":[{"uid":1}]},
-              "warehouse":{"items":[{"uid":2}]}}
-    app=DesktopApp.__new__(DesktopApp)
-    app.last={"worker_info_path":"worker-info.json"}
-    app._farmer_recovery_incidents=lambda:[incident]
-    recheck=Mock(return_value=evidence)
-    monkeypatch.setattr(meteor_banking,"recheck_worker",recheck)
 
-    result=app.dispatch({"action":"recovery-recheck","incident_id":incident["id"]})
+    incident = {
+        "id": "meteor-consolidation:one",
+        "digest": "m" * 64,
+        "kind": "meteor-consolidation",
+        "phase": "travelling",
+        "items": [],
+    }
+    evidence = {
+        "life": {"map_id": 1011},
+        "supplies": {"items": [{"uid": 1}]},
+        "warehouse": {"items": [{"uid": 2}]},
+    }
+    app = DesktopApp.__new__(DesktopApp)
+    app.last = {"worker_info_path": "worker-info.json"}
+    app._farmer_recovery_incidents = lambda: [incident]
+    recheck = Mock(return_value=evidence)
+    monkeypatch.setattr(meteor_banking, "recheck_worker", recheck)
+
+    result = app.dispatch({"action": "recovery-recheck", "incident_id": incident["id"]})
 
     recheck.assert_called_once_with("worker-info.json")
-    assert result["rechecked"]["supplies"]==evidence["supplies"]
-    assert result["rechecked"]["warehouse"]==evidence["warehouse"]
+    assert result["rechecked"]["supplies"] == evidence["supplies"]
+    assert result["rechecked"]["warehouse"] == evidence["warehouse"]
 
 
 def test_meteor_override_uses_the_same_bag_and_warehouse_recheck(monkeypatch):
     from conquest import meteor_banking
-    incident={"id":"meteor-consolidation:one","digest":"m" * 64,
-              "kind":"meteor-consolidation","phase":"travelling","items":[]}
-    evidence={"life":{"map_id":1011},"supplies":{"items":[{"uid":1}]},
-              "warehouse":{"items":[{"uid":2}]}}
-    app=DesktopApp.__new__(DesktopApp)
-    app.last={"worker_info_path":"worker-info.json"}
-    recheck=Mock(return_value=evidence);override=Mock(return_value={"phase":"operator_overridden"})
-    monkeypatch.setattr(meteor_banking,"recheck_worker",recheck)
-    monkeypatch.setattr(meteor_banking,"operator_override",override)
+
+    incident = {
+        "id": "meteor-consolidation:one",
+        "digest": "m" * 64,
+        "kind": "meteor-consolidation",
+        "phase": "travelling",
+        "items": [],
+    }
+    evidence = {
+        "life": {"map_id": 1011},
+        "supplies": {"items": [{"uid": 1}]},
+        "warehouse": {"items": [{"uid": 2}]},
+    }
+    app = DesktopApp.__new__(DesktopApp)
+    app.last = {"worker_info_path": "worker-info.json"}
+    recheck = Mock(return_value=evidence)
+    override = Mock(return_value={"phase": "operator_overridden"})
+    monkeypatch.setattr(meteor_banking, "recheck_worker", recheck)
+    monkeypatch.setattr(meteor_banking, "operator_override", override)
+
     @contextmanager
     def unlocked():
         yield True
-    monkeypatch.setattr("conquest.route_controller.controller_guard",unlocked)
 
-    assert app._apply_farmer_override(incident,incident["digest"])["phase"]=="operator_overridden"
+    monkeypatch.setattr("conquest.route_controller.controller_guard", unlocked)
+
+    assert (
+        app._apply_farmer_override(incident, incident["digest"])["phase"]
+        == "operator_overridden"
+    )
     recheck.assert_called_once_with("worker-info.json")
-    assert override.call_args.kwargs["fresh_evidence"]==evidence
-    assert override.call_args.kwargs["incident_digest"]==incident["digest"]
+    assert override.call_args.kwargs["fresh_evidence"] == evidence
+    assert override.call_args.kwargs["incident_digest"] == incident["digest"]
 
 
 def test_merchant_listing_recheck_dispatches_against_merchant_journal(tmp_path):
@@ -120,18 +167,33 @@ def test_merchant_listing_recheck_dispatches_against_merchant_journal(tmp_path):
     journal = Journal(tmp_path / "merchant.sqlite3")
     item = _item()
     journal.begin("listing-1", "Dutch", "listing", {"items": [item], "booth": []})
-    snapshot = {"character": "Dutch", "timestamp": time.time(), "hp": 100,
-                "inventory": [item], "booth": []}
-    controller = NS(driver=NS(read=Mock(return_value=snapshot)),
-                    reconcile=Mock(return_value={"ready": True}))
+    snapshot = {
+        "character": "Dutch",
+        "timestamp": time.time(),
+        "hp": 100,
+        "inventory": [item],
+        "booth": [],
+    }
+    controller = NS(
+        driver=NS(read=Mock(return_value=snapshot)),
+        reconcile=Mock(return_value={"ready": True}),
+    )
     observer = NS(lock=threading.RLock())
     ui = UnifiedUI.__new__(UnifiedUI)
-    ui.runtime = NS(journal=journal, controllers={"Dutch": controller},
-                    observers={"Dutch": observer})
+    ui.runtime = NS(
+        journal=journal,
+        controllers={"Dutch": controller},
+        observers={"Dutch": observer},
+    )
     ui.coordinator = NS(owner=None)
 
-    result = ui.dispatch({"action": "recovery-recheck", "character": "Dutch",
-                          "incident_id": "listing:listing-1"})
+    result = ui.dispatch(
+        {
+            "action": "recovery-recheck",
+            "character": "Dutch",
+            "incident_id": "listing:listing-1",
+        }
+    )
 
     assert result["incident"]["kind"] == "listing"
     assert result["incident"]["request_id"] == "listing-1"
@@ -142,16 +204,27 @@ def test_merchant_listing_recheck_dispatches_against_merchant_journal(tmp_path):
 
 
 def test_farmer_override_rejects_stale_confirmation_before_mutation(monkeypatch):
-    incident = {"id": "overflow:one", "digest": "b" * 64,
-                "kind": "overflow", "phase": "market", "items": []}
+    incident = {
+        "id": "overflow:one",
+        "digest": "b" * 64,
+        "kind": "overflow",
+        "phase": "market",
+        "items": [],
+    }
     app = DesktopApp.__new__(DesktopApp)
     app._farmer_recovery_incidents = lambda: [incident]
     app._apply_farmer_override = Mock(side_effect=AssertionError("must not mutate"))
 
     with pytest.raises(ValueError, match="evidence changed"):
-        app.dispatch({"action": "recovery-override", "incident_id": incident["id"],
-                      "operator_confirmed": True, "incident_digest": "c" * 64,
-                      "confirmation_reference": "c" * 64})
+        app.dispatch(
+            {
+                "action": "recovery-override",
+                "incident_id": incident["id"],
+                "operator_confirmed": True,
+                "incident_digest": "c" * 64,
+                "confirmation_reference": "c" * 64,
+            }
+        )
     app._apply_farmer_override.assert_not_called()
 
 
@@ -170,12 +243,23 @@ def test_offline_farmer_delivery_override_closes_both_journals(monkeypatch, tmp_
     # The receiver must not already own the offered UID; the reserved
     # incident records the farmer's item and the receiver's separate stock.
     merchant = _snapshot("Dutch", 2, _item(20))
-    intent = {"operation_id": "delivery-1", "farmer_profile_id": "Parasite",
-              "farmer": farmer, "merchant": merchant, "items": [item]}
+    intent = {
+        "operation_id": "delivery-1",
+        "farmer_profile_id": "Parasite",
+        "farmer": farmer,
+        "merchant": merchant,
+        "items": [item],
+    }
     source.begin("delivery-1", "Dutch", "farmer_delivery", intent)
     source.step("delivery-1", "action_trace", "initialized")
-    reserve(receiver, "delivery-1", farmer, merchant, [item],
-            origin={"operation_id": "delivery-1", "farmer_profile_id": "Parasite"})
+    reserve(
+        receiver,
+        "delivery-1",
+        farmer,
+        merchant,
+        [item],
+        origin={"operation_id": "delivery-1", "farmer_profile_id": "Parasite"},
+    )
 
     ui = UnifiedUI.__new__(UnifiedUI)
     ui.app = NS(observer=None)
@@ -186,10 +270,16 @@ def test_offline_farmer_delivery_override_closes_both_journals(monkeypatch, tmp_
     ui.delivery_errors = {}
     digest = source.original_evidence_digest("delivery-1")
 
-    result = ui.dispatch({"action": "recovery-override", "character": "Dutch",
-                          "incident_id": "farmer-delivery:delivery-1",
-                          "operator_confirmed": True, "incident_digest": digest,
-                          "confirmation_reference": digest})
+    result = ui.dispatch(
+        {
+            "action": "recovery-override",
+            "character": "Dutch",
+            "incident_id": "farmer-delivery:delivery-1",
+            "operator_confirmed": True,
+            "incident_digest": digest,
+            "confirmation_reference": digest,
+        }
+    )
 
     assert result["receipt"]["phase"] == "operator_overridden"
     assert result["reservation_phase"] == "operator_overridden"
@@ -213,8 +303,15 @@ def test_manual_stop_revision_and_global_stop_prevent_resume():
 
 
 def test_mouse_priority_defers_resume_after_hold_is_cleared():
-    active = [{"id": "overflow:one", "digest": "d" * 64,
-               "kind": "overflow", "phase": "market", "items": []}]
+    active = [
+        {
+            "id": "overflow:one",
+            "digest": "d" * 64,
+            "kind": "overflow",
+            "phase": "market",
+            "items": [],
+        }
+    ]
     app = DesktopApp.__new__(DesktopApp)
     app.control = _Control(revision=3)
     app.mouse_priority = NS(active=lambda: True)
@@ -222,19 +319,30 @@ def test_mouse_priority_defers_resume_after_hold_is_cleared():
     app.recovery_text = _Var()
     app.root = NS(after=Mock())
     app.last = {}
-    qualified = {"observations_available": True, "observed_at": time.time(),
-                 "external_execution": False,
-                 "life": {"character": "Parasite", "current_hp": 100}}
+    qualified = {
+        "observations_available": True,
+        "observed_at": time.time(),
+        "external_execution": False,
+        "life": {"character": "Parasite", "current_hp": 100},
+    }
     app._farmer_recovery_incidents = lambda: active
     app._farmer_fresh_recheck = lambda incident: {**incident, "rechecked": qualified}
     applied = []
-    app._apply_farmer_override = lambda incident, digest: applied.append((incident["id"], digest))
+    app._apply_farmer_override = lambda incident, digest: applied.append(
+        (incident["id"], digest)
+    )
     app.record = Mock()
     app.refresh_farmer_recovery = lambda: active.clear()
 
-    result = app.dispatch({"action": "recovery-override", "incident_id": "overflow:one",
-                           "operator_confirmed": True, "incident_digest": "d" * 64,
-                           "confirmation_reference": "d" * 64})
+    result = app.dispatch(
+        {
+            "action": "recovery-override",
+            "incident_id": "overflow:one",
+            "operator_confirmed": True,
+            "incident_digest": "d" * 64,
+            "confirmation_reference": "d" * 64,
+        }
+    )
 
     assert result is None  # the override is a disposition; resume is deferred
     assert applied == [("overflow:one", "d" * 64)]

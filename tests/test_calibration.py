@@ -4,14 +4,24 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from conquest.calibration import Observation, ObservationSet, find_matches, refine, scan, scan_near
+from conquest.calibration import (
+    Observation,
+    ObservationSet,
+    find_matches,
+    refine,
+    scan,
+    scan_near,
+)
 from conquest.memory import Region
 
 
 def observations(value=439, kind="u32"):
-    return ObservationSet(source="test fixture", observed_at=datetime.now(timezone.utc),
-                          expected_sha256="a" * 64,
-                          observations=[Observation(name="position", kind=kind, value=value)])
+    return ObservationSet(
+        source="test fixture",
+        observed_at=datetime.now(timezone.utc),
+        expected_sha256="a" * 64,
+        observations=[Observation(name="position", kind=kind, value=value)],
+    )
 
 
 class FakeSession:
@@ -32,7 +42,7 @@ class FakeSession:
         if self.fail:
             raise OSError("page unreadable")
         offset = address - 0x10000
-        return self.content[offset:offset + size]
+        return self.content[offset : offset + size]
 
 
 def test_cross_chunk_and_unaligned_matches_are_not_lost_or_duplicated():
@@ -40,13 +50,18 @@ def test_cross_chunk_and_unaligned_matches_are_not_lost_or_duplicated():
     data[254:258] = struct.pack("<I", 439)
     data[301:305] = struct.pack("<I", 439)
     report = scan(FakeSession(data), observations(), chunk_size=256)
-    assert report["candidates"]["position"]["addresses"] == [hex(0x10000 + 254), hex(0x10000 + 301)]
+    assert report["candidates"]["position"]["addresses"] == [
+        hex(0x10000 + 254),
+        hex(0x10000 + 301),
+    ]
     assert report["coverage"]["eligible_regions_complete"]
     assert not report["qualified"]
 
 
 def test_candidate_limit_is_explicit():
-    report = scan(FakeSession(struct.pack("<I", 439) * 100), observations(), max_candidates=3)
+    report = scan(
+        FakeSession(struct.pack("<I", 439) * 100), observations(), max_candidates=3
+    )
     result = report["candidates"]["position"]
     assert len(result["addresses"]) == 3
     assert result["truncated"]
@@ -61,14 +76,21 @@ def test_failed_reads_cannot_be_reported_as_complete():
 
 
 def test_byte_budget_is_enforced():
-    report = scan(FakeSession(b"\0" * 2048), observations(), max_bytes=512, chunk_size=256)
+    report = scan(
+        FakeSession(b"\0" * 2048), observations(), max_bytes=512, chunk_size=256
+    )
     assert report["coverage"]["attempted_bytes"] <= 512
     assert report["coverage"]["stop_reason"] == "byte_budget"
 
 
 def test_elapsed_budget_prevents_reads():
     ticks = iter([0, 2, 2, 2])
-    report = scan(FakeSession(b"\0" * 256), observations(), max_seconds=1, clock=lambda: next(ticks))
+    report = scan(
+        FakeSession(b"\0" * 256),
+        observations(),
+        max_seconds=1,
+        clock=lambda: next(ticks),
+    )
     assert report["coverage"]["attempted_bytes"] == 0
     assert report["coverage"]["stop_reason"] == "time_budget"
 
@@ -96,7 +118,10 @@ def test_overlapping_match_search():
     assert list(find_matches(b"aaaa", b"aa", 10)) == [0, 1, 2]
 
 
-@pytest.mark.parametrize("kind,value", [("u16", -1), ("u16", 65536), ("xy_u32", [1]), ("f32", float("nan")), ("utf8", "")])
+@pytest.mark.parametrize(
+    "kind,value",
+    [("u16", -1), ("u16", 65536), ("xy_u32", [1]), ("f32", float("nan")), ("utf8", "")],
+)
 def test_bad_observations_rejected(kind, value):
     with pytest.raises(ValidationError):
         Observation(name="invalid", kind=kind, value=value)

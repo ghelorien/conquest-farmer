@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 if __name__ == "__main__":
     from _bootstrap import activate
+
     activate(__file__)
 
 from conquest.memory import MemorySession
@@ -36,8 +37,16 @@ def observe(pid, created):
         before = asdict(life_reader.read())
         windows = GuiReader.for_session(adapter).windows()
         after = asdict(life_reader.read())
-        stable = ("status", "appearance", "map_id", "position", "current_hp",
-                  "max_hp", "revive_gate_value", "ghost_candidate")
+        stable = (
+            "status",
+            "appearance",
+            "map_id",
+            "position",
+            "current_hp",
+            "max_hp",
+            "revive_gate_value",
+            "ghost_candidate",
+        )
         if any(before[key] != after[key] for key in stable):
             raise ValueError("Life changed while reading Revive GUI")
         session.assert_identity()
@@ -46,8 +55,10 @@ def observe(pid, created):
             "reason": "Read-only Revive candidate; no 1078 click qualified",
             "identity": session.identity,
             "life": {key: before[key] for key in stable},
-            "windows": [{"name": window["name"], "geometry": window["geometry"]}
-                        for window in windows[:64]],
+            "windows": [
+                {"name": window["name"], "geometry": window["geometry"]}
+                for window in windows[:64]
+            ],
         }
 
 
@@ -63,7 +74,11 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x", encoding="utf-8") as target:
         json.dump(result, target, indent=2)
-    print(json.dumps({"output": str(args.output), "ghost": result["life"]["ghost_candidate"]}))
+    print(
+        json.dumps(
+            {"output": str(args.output), "ghost": result["life"]["ghost_candidate"]}
+        )
+    )
 
 
 if __name__ == "__main__":

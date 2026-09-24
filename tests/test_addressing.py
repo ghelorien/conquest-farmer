@@ -26,14 +26,26 @@ class Session:
 
 @pytest.fixture
 def layout():
-    return PlayerLayout(expected_sha256="a" * 64, module="client.exe", root_rva=0x100,
-                        pointer_offsets=(0, 0), vtable_rva=0x200, name_offset=0xa4,
-                        max_hp_offset=0x3e0, position_offset=0xe8)
+    return PlayerLayout(
+        expected_sha256="a" * 64,
+        module="client.exe",
+        root_rva=0x100,
+        pointer_offsets=(0, 0),
+        vtable_rva=0x200,
+        name_offset=0xA4,
+        max_hp_offset=0x3E0,
+        position_offset=0xE8,
+    )
 
 
 def test_resolves_from_current_module_base(layout):
     result = resolve_player(Session(), layout)
-    assert result == {"object": 0x300000, "name": 0x3000a4, "max_hp": 0x3003e0, "position": 0x3000e8}
+    assert result == {
+        "object": 0x300000,
+        "name": 0x3000A4,
+        "max_hp": 0x3003E0,
+        "position": 0x3000E8,
+    }
 
 
 def test_relocation_and_new_heap_allocations(layout):

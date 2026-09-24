@@ -1,4 +1,5 @@
 """Observations of the calibrated open inventory, never inferred from clicks."""
+
 from dataclasses import dataclass
 from pathlib import Path
 import cv2
@@ -24,7 +25,10 @@ class InventoryReader:
         if frame.shape != (861, 1584, 3):
             return False
         title = frame[293:310, 1285:1435]
-        return float(cv2.matchTemplate(title, self.title, cv2.TM_CCOEFF_NORMED)[0, 0]) > .98
+        return (
+            float(cv2.matchTemplate(title, self.title, cv2.TM_CCOEFF_NORMED)[0, 0])
+            > 0.98
+        )
 
     def read(self, frame):
         if not self.visible(frame):
@@ -33,10 +37,12 @@ class InventoryReader:
         for row in range(4):
             for col in range(10):
                 x, y = 1158 + col * 40, 327 + row * 40
-                cell = frame[y:y + 37, x:x + 37]
+                cell = frame[y : y + 37, x : x + 37]
                 if np.count_nonzero(cell.max(axis=2) > 70) > 8:
                     occupied += 1
-                score = float(cv2.matchTemplate(cell, self.potion, cv2.TM_CCOEFF_NORMED)[0, 0])
-                if score > .95:
+                score = float(
+                    cv2.matchTemplate(cell, self.potion, cv2.TM_CCOEFF_NORMED)[0, 0]
+                )
+                if score > 0.95:
                     potions.append((x + 18, y + 18))
         return Inventory(tuple(potions), occupied)

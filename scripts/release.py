@@ -1,4 +1,5 @@
 """Stable script entry point for immutable release build/activation commands."""
+
 from pathlib import Path
 import sys
 

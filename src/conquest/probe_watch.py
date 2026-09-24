@@ -12,15 +12,27 @@ def read_probe_watch(session, candidates):
         raise ValueError("Watch candidates belong to another process session")
     if candidates.get("expected_sha256") != session.expected_sha256:
         raise ValueError("Watch candidate fingerprint differs from the client")
-    result = {"sampled_at_monotonic": time.monotonic(), "qualified": False, "fields": {}}
+    result = {
+        "sampled_at_monotonic": time.monotonic(),
+        "qualified": False,
+        "fields": {},
+    }
     for name, kind, fmt in [("hp_u32", "u32", "<I"), ("position_u32", "xy_u32", "<II")]:
         field = candidates.get("candidates", {}).get(name)
-        if (not isinstance(field, dict) or field.get("kind") != kind or field.get("truncated")
-                or not 1 <= len(field.get("addresses", [])) <= 16):
-            raise ValueError(f"Probe watch requires 1 to 16 untruncated {name} candidates")
+        if (
+            not isinstance(field, dict)
+            or field.get("kind") != kind
+            or field.get("truncated")
+            or not 1 <= len(field.get("addresses", [])) <= 16
+        ):
+            raise ValueError(
+                f"Probe watch requires 1 to 16 untruncated {name} candidates"
+            )
         values = []
         for address in field["addresses"]:
-            value = struct.unpack(fmt, session.read(int(address, 16), struct.calcsize(fmt)))
+            value = struct.unpack(
+                fmt, session.read(int(address, 16), struct.calcsize(fmt))
+            )
             values.append({"address": address, "value": list(value)})
         result["fields"][name] = values
     session.assert_identity()
@@ -34,10 +46,16 @@ def require_observed_values(watch, candidates):
         if not isinstance(expected, list):
             expected = [expected]
         if any(value["value"] != expected for value in values):
-            raise ValueError(f"{name} no longer matches its reference; refresh calibration before input")
+            raise ValueError(
+                f"{name} no longer matches its reference; refresh calibration before input"
+            )
     if any(value["value"][0] <= 0 for value in watch["fields"]["hp_u32"]):
         raise ValueError("Health watch contains zero HP; no input allowed")
 
 
 def watch_changes(before, after):
-    return [name for name in before["fields"] if before["fields"][name] != after["fields"].get(name)]
+    return [
+        name
+        for name in before["fields"]
+        if before["fields"][name] != after["fields"].get(name)
+    ]

@@ -29,9 +29,13 @@ def fingerprint(path: Path) -> dict:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
         after = path.stat()
         if (before.st_size, before.st_mtime_ns, before.st_ino) != (
-            after.st_size, after.st_mtime_ns, after.st_ino
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ino,
         ):
-            raise ValueError("Executable changed during fingerprinting; retry diagnostics")
+            raise ValueError(
+                "Executable changed during fingerprinting; retry diagnostics"
+            )
     return {
         "path": str(path),
         "sha256": digest,

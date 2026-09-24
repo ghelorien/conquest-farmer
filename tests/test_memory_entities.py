@@ -17,24 +17,35 @@ class Memory:
         self.mutate, self.exited = None, False
         self.read_counts = {}
         self.values = {
-            0x140000000 + p.root_rva: 0x200000, 0x200018: 0x300000,
-            0x300008: 0x400000, 0x400000: 0x140000000 + p.collection_vtable_rva,
-            0x400000 + p.begin_offset: 0x500000, 0x400000 + p.end_offset: 0x500030,
+            0x140000000 + p.root_rva: 0x200000,
+            0x200018: 0x300000,
+            0x300008: 0x400000,
+            0x400000: 0x140000000 + p.collection_vtable_rva,
+            0x400000 + p.begin_offset: 0x500000,
+            0x400000 + p.end_offset: 0x500030,
             0x400000 + p.capacity_offset: 0x500100,
         }
-        for index, (address, kind, name) in enumerate([
-            (0x600000, 2, "Turtledove"), (0x700000, 0, "OtherPlayer"), (0x800000, 900, "Guard")
-        ]):
+        for index, (address, kind, name) in enumerate(
+            [
+                (0x600000, 2, "Turtledove"),
+                (0x700000, 0, "OtherPlayer"),
+                (0x800000, 900, "Guard"),
+            ]
+        ):
             self.values[0x500008 + index * 16] = address
-            self.values.update({
-                address: 0x140000000 + p.monster_vtable_rva,
-                address + p.id_offset: 450000 + index,
-                address + p.kind_offset: kind, address + p.name_offset: name,
-                address + p.position_offset: (680, 570),
-                address + p.draw_position_offset: -60,
-                address + p.draw_position_offset + 4: 800,
-                address + p.max_hp_offset: 81, address + p.level_offset: 7,
-            })
+            self.values.update(
+                {
+                    address: 0x140000000 + p.monster_vtable_rva,
+                    address + p.id_offset: 450000 + index,
+                    address + p.kind_offset: kind,
+                    address + p.name_offset: name,
+                    address + p.position_offset: (680, 570),
+                    address + p.draw_position_offset: -60,
+                    address + p.draw_position_offset + 4: 800,
+                    address + p.max_hp_offset: 81,
+                    address + p.level_offset: 7,
+                }
+            )
 
     def request(self, operation, body):
         assert operation == "sample"
@@ -72,22 +83,28 @@ def test_memory_ids_positions_exclude_players_and_do_not_infer_alive(setup):
     result = reader.read()
     assert len(result.monsters) == 1
     monster = result.monsters[0]
-    assert (monster.entity_id, monster.name, monster.position) == (450000, "Turtledove", (680, 570))
+    assert (monster.entity_id, monster.name, monster.position) == (
+        450000,
+        "Turtledove",
+        (680, 570),
+    )
     assert monster.draw_position == (-60, 800)  # Offscreen actors are still observable.
     assert monster.current_hp is None and monster.alive is None
     assert reader.report()["autonomous_actions_enabled"] is False
 
 
 def test_type_field_is_species_id_so_pheasants_are_included(setup):
-    memory,layout,reader = setup
-    memory.values[0x800000+layout.kind_offset] = 1
-    memory.values[0x800000+layout.name_offset] = 'Pheasant'
+    memory, layout, reader = setup
+    memory.values[0x800000 + layout.kind_offset] = 1
+    memory.values[0x800000 + layout.name_offset] = "Pheasant"
     result = reader.read()
-    assert [(m.entity_id,m.type_id,m.name) for m in result.monsters]==[
-        (450000,2,'Turtledove'),(450002,1,'Pheasant')]
+    assert [(m.entity_id, m.type_id, m.name) for m in result.monsters] == [
+        (450000, 2, "Turtledove"),
+        (450002, 1, "Pheasant"),
+    ]
 
 
-@pytest.mark.parametrize("value", [0x4ffff0, 0x500009, 0x600000])
+@pytest.mark.parametrize("value", [0x4FFFF0, 0x500009, 0x600000])
 def test_invalid_bounds_fail_before_object_reads(setup, value):
     memory, layout, reader = setup
     memory.values[0x400000 + layout.end_offset] = value
@@ -108,9 +125,11 @@ def test_other_client_rejected_before_read(setup):
 def test_entity_reuse_or_movement_during_sample_rejected(setup, offset):
     memory, layout, reader = setup
     address = 0x600000 + getattr(layout, offset)
+
     def mutate(m):
         if m.read_counts.get(address) == 2:
             m.values[address] = 999 if offset == "id_offset" else (681, 570)
+
     memory.mutate = mutate
     with pytest.raises(ValueError, match="Monster changed"):
         reader.read()
@@ -119,9 +138,11 @@ def test_entity_reuse_or_movement_during_sample_rejected(setup, offset):
 def test_root_changes_during_sample_rejected(setup):
     memory, layout, reader = setup
     root = 0x140000000 + layout.root_rva
+
     def mutate(m):
         if m.read_counts.get(root) == 3:
             m.values[root] = 0x900000
+
     memory.mutate = mutate
     with pytest.raises(ValueError, match="collection changed"):
         reader.read()
@@ -161,64 +182,118 @@ def test_restart_resolves_new_scene_addresses(setup):
     assert reader.read().monsters[0].entity_id == 450000
 
 
-@pytest.mark.parametrize('changed',['none','uid','missing','moving','membership'])
-def test_selected_refresh_only_reads_target_but_preserves_identity_guards(setup,changed):
-    memory,layout,reader=setup
-    if changed=='uid':memory.values[0x600000+layout.id_offset]+=1
-    if changed=='missing':memory.values[0x500008]=0x700000
-    if changed in ('moving','membership'):
+@pytest.mark.parametrize("changed", ["none", "uid", "missing", "moving", "membership"])
+def test_selected_refresh_only_reads_target_but_preserves_identity_guards(
+    setup, changed
+):
+    memory, layout, reader = setup
+    if changed == "uid":
+        memory.values[0x600000 + layout.id_offset] += 1
+    if changed == "missing":
+        memory.values[0x500008] = 0x700000
+    if changed in ("moving", "membership"):
+
         def mutate(m):
-            if m.read_counts.get(0x600000+layout.position_offset,0)>=2:
-                if changed=='moving':m.values[0x600000+layout.position_offset]=(681,570)
-                else:m.values[0x500008]=0x700000
-        memory.mutate=mutate
-    if changed=='none':
-        snapshot=reader.read(selected=(450000,0x600000))
-        assert len(snapshot.monsters)==1 and snapshot.monsters[0].entity_id==450000
-        assert 0x800000+layout.position_offset not in memory.read_counts
-        assert 0x600000+layout.position_offset in memory.read_counts
+            if m.read_counts.get(0x600000 + layout.position_offset, 0) >= 2:
+                if changed == "moving":
+                    m.values[0x600000 + layout.position_offset] = (681, 570)
+                else:
+                    m.values[0x500008] = 0x700000
+
+        memory.mutate = mutate
+    if changed == "none":
+        snapshot = reader.read(selected=(450000, 0x600000))
+        assert len(snapshot.monsters) == 1 and snapshot.monsters[0].entity_id == 450000
+        assert 0x800000 + layout.position_offset not in memory.read_counts
+        assert 0x600000 + layout.position_offset in memory.read_counts
     else:
-        with pytest.raises(ValueError):reader.read(selected=(450000,0x600000))
+        with pytest.raises(ValueError):
+            reader.read(selected=(450000, 0x600000))
 
 
-@pytest.mark.parametrize('change',[None,'id','position','draw','name','hp','level','membership','short','exit'])
-def test_packed_records_preserve_stability_identity_and_membership_guards(setup,change):
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        "id",
+        "position",
+        "draw",
+        "name",
+        "hp",
+        "level",
+        "membership",
+        "short",
+        "exit",
+    ],
+)
+def test_packed_records_preserve_stability_identity_and_membership_guards(
+    setup, change
+):
     import struct
-    memory,layout,reader=setup
-    expected=reader.read()
-    calls=[]
-    def block(address,size):
-        data=bytearray(size)
-        for location,value in memory.values.items():
-            if not address<=location<address+size:continue
-            if isinstance(value,str):encoded=value.encode()+b'\0'
-            elif isinstance(value,tuple):encoded=struct.pack('<II',*value)
-            else:encoded=int(value).to_bytes(4,'little',signed=value<0)
-            offset=location-address;data[offset:offset+len(encoded)]=encoded
-        calls.append((address,size))
-        if len(calls)==1:
-            offset={'id':layout.id_offset,'position':layout.position_offset,
-                'draw':layout.draw_position_offset,'name':layout.name_offset,
-                'hp':layout.max_hp_offset,'level':layout.level_offset}.get(change)
+
+    memory, layout, reader = setup
+    expected = reader.read()
+    calls = []
+
+    def block(address, size):
+        data = bytearray(size)
+        for location, value in memory.values.items():
+            if not address <= location < address + size:
+                continue
+            if isinstance(value, str):
+                encoded = value.encode() + b"\0"
+            elif isinstance(value, tuple):
+                encoded = struct.pack("<II", *value)
+            else:
+                encoded = int(value).to_bytes(4, "little", signed=value < 0)
+            offset = location - address
+            data[offset : offset + len(encoded)] = encoded
+        calls.append((address, size))
+        if len(calls) == 1:
+            offset = {
+                "id": layout.id_offset,
+                "position": layout.position_offset,
+                "draw": layout.draw_position_offset,
+                "name": layout.name_offset,
+                "hp": layout.max_hp_offset,
+                "level": layout.level_offset,
+            }.get(change)
             if offset is not None:
-                value=memory.values[0x600000+offset]
-                memory.values[0x600000+offset]=(681,570) if change=='position' else 'Changed' if change=='name' else value+1
-            elif change=='membership':memory.values[0x500008]=0x800000
-            elif change=='exit':memory.exited=True
-        return bytes(data[:-1] if change=='short' else data)
-    memory.read_block=block
+                value = memory.values[0x600000 + offset]
+                memory.values[0x600000 + offset] = (
+                    (681, 570)
+                    if change == "position"
+                    else "Changed"
+                    if change == "name"
+                    else value + 1
+                )
+            elif change == "membership":
+                memory.values[0x500008] = 0x800000
+            elif change == "exit":
+                memory.exited = True
+        return bytes(data[:-1] if change == "short" else data)
+
+    memory.read_block = block
     if change is None:
-        actual=reader.read(packed=True)
-        assert actual.monsters==expected.monsters
-        assert len(calls)==2 and all(size<=4096 for _,size in calls)
+        actual = reader.read(packed=True)
+        assert actual.monsters == expected.monsters
+        assert len(calls) == 2 and all(size <= 4096 for _, size in calls)
     else:
-        with pytest.raises((ValueError,OSError)):
+        with pytest.raises((ValueError, OSError)):
             reader.read(packed=True)
 
 
 def test_packed_record_span_is_bounded():
     from types import SimpleNamespace
     from conquest.memory_entities import record_values
-    def forbidden(*args):pytest.fail('Oversized records must not be read')
-    with pytest.raises(ValueError,match='bounded'):
-        record_values(SimpleNamespace(read_block=forbidden),[0x600000],[(0,'u32'),(4096,'u32')],packed=True)
+
+    def forbidden(*args):
+        pytest.fail("Oversized records must not be read")
+
+    with pytest.raises(ValueError, match="bounded"):
+        record_values(
+            SimpleNamespace(read_block=forbidden),
+            [0x600000],
+            [(0, "u32"), (4096, "u32")],
+            packed=True,
+        )

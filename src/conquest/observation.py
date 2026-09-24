@@ -64,7 +64,9 @@ def load_candidates(path: Path) -> dict:
 
 
 class CandidateReader:
-    def __init__(self, session, report, names=("hp_u32", "position_u32"), clock=time.monotonic):
+    def __init__(
+        self, session, report, names=("hp_u32", "position_u32"), clock=time.monotonic
+    ):
         if report.get("process_identity") != session.identity:
             raise ValueError("Candidate report belongs to another process session")
         if report.get("expected_sha256") != session.expected_sha256:
@@ -108,22 +110,55 @@ class CandidateReader:
             for candidate in self.candidates:
                 try:
                     fmt = "<" + KINDS[candidate.kind]
-                    value = list(struct.unpack(fmt, self.session.read(candidate.address, struct.calcsize(fmt))))
-                    if any(isinstance(item, float) and not math.isfinite(item) for item in value):
+                    value = list(
+                        struct.unpack(
+                            fmt,
+                            self.session.read(candidate.address, struct.calcsize(fmt)),
+                        )
+                    )
+                    if any(
+                        isinstance(item, float) and not math.isfinite(item)
+                        for item in value
+                    ):
                         raise ValueError("Non-finite candidate value")
-                    values.append(CandidateValue(candidate.name, hex(candidate.address), candidate.kind, value, True))
+                    values.append(
+                        CandidateValue(
+                            candidate.name,
+                            hex(candidate.address),
+                            candidate.kind,
+                            value,
+                            True,
+                        )
+                    )
                 except (OSError, ValueError, struct.error) as failure:
-                    values.append(CandidateValue(candidate.name, hex(candidate.address), candidate.kind,
-                                                 None, False, str(failure)))
+                    values.append(
+                        CandidateValue(
+                            candidate.name,
+                            hex(candidate.address),
+                            candidate.kind,
+                            None,
+                            False,
+                            str(failure),
+                        )
+                    )
             self.session.assert_identity()
         except (OSError, ValueError) as failure:
             error = str(failure)
             # A changed process invalidates the entire sample, including earlier reads.
-            values = [CandidateValue(item.name, item.address, item.kind, None, False, error) for item in values]
+            values = [
+                CandidateValue(item.name, item.address, item.kind, None, False, error)
+                for item in values
+            ]
         if len(values) != len(self.candidates):
-            values = [CandidateValue(item.name, hex(item.address), item.kind, None, False, error)
-                      for item in self.candidates]
+            values = [
+                CandidateValue(
+                    item.name, hex(item.address), item.kind, None, False, error
+                )
+                for item in self.candidates
+            ]
         read_ok = error is None and all(item.read_ok for item in values)
         if not read_ok and error is None:
             error = "One or more candidate reads failed"
-        return Observation(wall_time, start, self.clock(), self.identity, tuple(values), read_ok, error)
+        return Observation(
+            wall_time, start, self.clock(), self.identity, tuple(values), read_ok, error
+        )

@@ -4,6 +4,7 @@ This is intentionally outside EmbeddedObserver/MerchantDriver.  It discovers
 only exact local profiles before an operator handoff and opens a short-lived
 read-only session for each poll while that handoff is fenced.
 """
+
 from dataclasses import dataclass
 from pathlib import Path
 import threading
@@ -40,6 +41,7 @@ class ManualReaderRegistry1078:
     def exact_build_present(self):
         """Read the executable fingerprint only; do not open a game session."""
         from conquest.identity import fingerprint
+
         for identity in self.catalog.identities():
             try:
                 if fingerprint(Path(identity["path"]))["sha256"] == CLIENT_SHA256_1078:
@@ -53,29 +55,41 @@ class ManualReaderRegistry1078:
 
     def refresh_build_presence(self, *, force=False, now=None):
         """Bounded fingerprint refresh before selecting any merchant input path."""
-        now=time.monotonic() if now is None else now
+        now = time.monotonic() if now is None else now
         with self._build_lock:
-            if not force and now-self._checked_at<1:
+            if not force and now - self._checked_at < 1:
                 return self.read_only_build
-            present=self.exact_build_present()
-            self._checked_at=now
+            present = self.exact_build_present()
+            self._checked_at = now
             # Once the newer build is seen, retain the fence for this app
             # process. A transient enumeration gap or identity rollover must
             # never re-enable the older input controller.
-            self.read_only_build=self.read_only_build or present or bool(self.bindings)
+            self.read_only_build = (
+                self.read_only_build or present or bool(self.bindings)
+            )
             return self.read_only_build
 
     @staticmethod
     def _profiles():
         from conquest.character_context import registry
+
         profiles = registry()
         if profiles is None:
-            raise ValueError("1078 manual observation requires configured local profiles")
-        rows = [profile for profile in profiles.profiles()
-                if profile.local_enabled and profile.server == "America" and profile.role in ("Farmer", "Merchant")]
+            raise ValueError(
+                "1078 manual observation requires configured local profiles"
+            )
+        rows = [
+            profile
+            for profile in profiles.profiles()
+            if profile.local_enabled
+            and profile.server == "America"
+            and profile.role in ("Farmer", "Merchant")
+        ]
         if not rows or len({profile.id for profile in rows}) != len(rows):
             raise ValueError("Configured Farmer and merchant profiles are required")
-        if len({(profile.server.casefold(), profile.name.casefold()) for profile in rows}) != len(rows):
+        if len(
+            {(profile.server.casefold(), profile.name.casefold()) for profile in rows}
+        ) != len(rows):
             raise ValueError("Configured manual profiles are ambiguous")
         if sum(profile.role == "Farmer" for profile in rows) != 1:
             raise ValueError("Exactly one configured local Farmer profile is required")
@@ -85,39 +99,66 @@ class ManualReaderRegistry1078:
         """Warm identity discovery only. It never becomes a handoff baseline."""
         profiles = self._profiles()
         if profile_ids is not None:
-            expected=set(profile_ids)
-            profiles=[profile for profile in profiles if profile.id in expected]
+            expected = set(profile_ids)
+            profiles = [profile for profile in profiles if profile.id in expected]
             if {profile.id for profile in profiles} != expected:
-                raise ValueError("Frozen manual handoff profile is no longer configured")
+                raise ValueError(
+                    "Frozen manual handoff profile is no longer configured"
+                )
         found = {}
         identity_mismatch = set()
         for client in self.catalog.windows(include_hidden=True):
             matches = []
             for profile in profiles:
                 try:
-                    with self.session_factory(client.identity["pid"], CLIENT_SHA256_1078) as session:
+                    with self.session_factory(
+                        client.identity["pid"], CLIENT_SHA256_1078
+                    ) as session:
                         if session.identity != client.identity:
-                            raise ValueError("Client identity changed during manual discovery")
-                        snapshot = open_read_only_1078(session, profile.name).read_manual_ownership()
-                    if (snapshot["character"] == profile.name and snapshot["server"] == profile.server
-                            and (profile.character_uid is None or snapshot["character_uid"] == profile.character_uid)):
-                        if (expected_identities and expected_identities.get(profile.id) is not None
-                                and session.identity != expected_identities[profile.id]):
+                            raise ValueError(
+                                "Client identity changed during manual discovery"
+                            )
+                        snapshot = open_read_only_1078(
+                            session, profile.name
+                        ).read_manual_ownership()
+                    if (
+                        snapshot["character"] == profile.name
+                        and snapshot["server"] == profile.server
+                        and (
+                            profile.character_uid is None
+                            or snapshot["character_uid"] == profile.character_uid
+                        )
+                    ):
+                        if (
+                            expected_identities
+                            and expected_identities.get(profile.id) is not None
+                            and session.identity != expected_identities[profile.id]
+                        ):
                             identity_mismatch.add(profile.id)
                         else:
                             matches.append(profile)
                 except (ValueError, OSError):
                     continue
             if len(matches) == 1:
-                found.setdefault(matches[0].id, []).append((matches[0], client.identity))
+                found.setdefault(matches[0].id, []).append(
+                    (matches[0], client.identity)
+                )
         if identity_mismatch:
             raise ManualReaderIdentityChanged1078(sorted(identity_mismatch)[0])
         if any(len(found.get(profile.id, ())) != 1 for profile in profiles):
-            raise ValueError("Every configured Farmer and merchant needs one exact 1078 manual reader")
+            raise ValueError(
+                "Every configured Farmer and merchant needs one exact 1078 manual reader"
+            )
         if len({entry[0][1]["pid"] for entry in found.values()}) != len(profiles):
-            raise ValueError("One game process cannot satisfy more than one configured manual profile")
-        self.bindings = {profile_id: ManualReaderBinding1078(profile.id, profile.name, profile.role, dict(identity))
-                         for profile_id, ((profile, identity),) in found.items()}
+            raise ValueError(
+                "One game process cannot satisfy more than one configured manual profile"
+            )
+        self.bindings = {
+            profile_id: ManualReaderBinding1078(
+                profile.id, profile.name, profile.role, dict(identity)
+            )
+            for profile_id, ((profile, identity),) in found.items()
+        }
         return {binding.profile_id: binding.role for binding in self.bindings.values()}
 
     def covers(self, character):
@@ -132,13 +173,19 @@ class ManualReaderRegistry1078:
         return self.covers(character) or self.read_only_build
 
     def read_one(self, target):
-        binding=self.bindings[target]
-        with self.session_factory(binding.identity["pid"], CLIENT_SHA256_1078) as session:
+        binding = self.bindings[target]
+        with self.session_factory(
+            binding.identity["pid"], CLIENT_SHA256_1078
+        ) as session:
             if session.identity != binding.identity:
                 raise ManualReaderIdentityChanged1078(target)
             from conquest.merchants.trade_reader_1078 import manual_ownership
+
             snapshot = manual_ownership(session, binding.character)
-        if snapshot["character"] != binding.character or snapshot["identity"] != binding.identity:
+        if (
+            snapshot["character"] != binding.character
+            or snapshot["identity"] != binding.identity
+        ):
             raise ManualReaderIdentityChanged1078(target)
         # An open modal is valid observation evidence. The durable handoff
         # store records saw_window and waits for later closed ownership.
@@ -146,9 +193,11 @@ class ManualReaderRegistry1078:
 
     def detect_replacement(self, target):
         """Probe only a frozen profile after its previously bound PID fails."""
-        binding=self.bindings[target]
-        saved=self.bindings
+        binding = self.bindings[target]
+        saved = self.bindings
         try:
-            self.discover(profile_ids=[target], expected_identities={target:binding.identity})
+            self.discover(
+                profile_ids=[target], expected_identities={target: binding.identity}
+            )
         finally:
-            self.bindings=saved
+            self.bindings = saved

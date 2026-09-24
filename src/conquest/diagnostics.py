@@ -26,7 +26,9 @@ class Check:
 @dataclass
 class Report:
     schema_version: int = 1
-    generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    generated_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
     stage: str = "read_only_preflight"
     gate: str = "blocked"
     autonomous_actions_enabled: bool = False
@@ -34,7 +36,9 @@ class Report:
     checks: list[Check] = field(default_factory=list)
 
     def add(self, name: str, status: str, detail: str, error: Exception | None = None):
-        self.checks.append(Check(name, status, detail, getattr(error, "winerror", None)))
+        self.checks.append(
+            Check(name, status, detail, getattr(error, "winerror", None))
+        )
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -66,13 +70,16 @@ def diagnose(
         if len(candidates) != 1:
             report.target["candidates"] = candidates
             raise ValueError(
-                "No matching process found" if not candidates
+                "No matching process found"
+                if not candidates
                 else "Multiple matching processes found; select one with --pid"
             )
         selected = candidates[0]
         report.target.update(selected)
         selected_pid = selected["pid"]
-        report.add("process_selection", "passed", "Exactly one matching process selected")
+        report.add(
+            "process_selection", "passed", "Exactly one matching process selected"
+        )
     except (OSError, ValueError) as error:
         report.add("process_selection", "failed", str(error), error)
         return finish(report)
@@ -81,7 +88,8 @@ def diagnose(
         report.target["windows"] = backend.windows(selected_pid)
         visible = [window for window in report.target["windows"] if window["visible"]]
         report.add(
-            "window_discovery", "passed" if visible else "failed",
+            "window_discovery",
+            "passed" if visible else "failed",
             f"Found {len(visible)} visible top-level windows; no window was activated",
         )
     except OSError as error:
@@ -92,8 +100,14 @@ def diagnose(
         identity = backend.identity(selected_pid)
         report.target["process_identity"] = identity
         if Path(identity["path"]).name.casefold() != executable.casefold():
-            raise ValueError("Queried process image does not match the requested executable")
-        report.add("process_identity", "passed", "Image path and creation time queried from process")
+            raise ValueError(
+                "Queried process image does not match the requested executable"
+            )
+        report.add(
+            "process_identity",
+            "passed",
+            "Image path and creation time queried from process",
+        )
     except (OSError, ValueError) as error:
         report.add("process_identity", "failed", str(error), error)
         return finish(report)
@@ -103,12 +117,18 @@ def diagnose(
         report.target["executable"] = image
         if image["architecture"] != identity["architecture"]:
             raise ValueError("On-disk architecture differs from the running process")
-        report.add("executable_fingerprint", "passed", "SHA-256 and PE architecture read from disk")
+        report.add(
+            "executable_fingerprint",
+            "passed",
+            "SHA-256 and PE architecture read from disk",
+        )
         if expected_sha256 is not None:
             matches = image["sha256"] == expected_sha256.lower()
             report.add(
-                "expected_fingerprint", "passed" if matches else "failed",
-                "Executable matches expected SHA-256" if matches
+                "expected_fingerprint",
+                "passed" if matches else "failed",
+                "Executable matches expected SHA-256"
+                if matches
                 else "Executable fingerprint changed; existing integration profiles must be rejected",
             )
             if not matches:
@@ -120,7 +140,8 @@ def diagnose(
     try:
         backend.check_memory_access(selected_pid)
         report.add(
-            "read_only_memory_access", "passed",
+            "read_only_memory_access",
+            "passed",
             "PROCESS_VM_READ handle opened and closed; game-state reads are not yet validated",
         )
     except OSError as error:
@@ -129,8 +150,14 @@ def diagnose(
     try:
         current = backend.identity(selected_pid)
         if current != identity:
-            raise ValueError("Process identity changed during diagnostics; discard results and retry")
-        report.add("process_identity_stable", "passed", "Process creation time and image identity remained stable")
+            raise ValueError(
+                "Process identity changed during diagnostics; discard results and retry"
+            )
+        report.add(
+            "process_identity_stable",
+            "passed",
+            "Process creation time and image identity remained stable",
+        )
     except (OSError, ValueError) as error:
         report.add("process_identity_stable", "failed", str(error), error)
 
@@ -143,8 +170,8 @@ def finish(report: Report) -> Report:
     report.gate = "blocked" if failed else "unqualified"
     reason = (
         "Preflight failed; stopped at the feasibility gate without sending game input"
-        if failed else
-        "Preflight passed, but calibrated state and input validation are still required"
+        if failed
+        else "Preflight passed, but calibrated state and input validation are still required"
     )
     for name in DEFERRED:
         report.add(name, "not_run", reason)

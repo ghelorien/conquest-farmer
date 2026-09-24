@@ -15,13 +15,17 @@ def test_skipped_levels_include_all_pending_reviews_without_qualifying_routes():
     assert result["monster_review"] == "Robin"
     assert not result["monster_route_qualified"]
     assert {r["id"] for r in result["due_reviews"]} == {
-        "bow_proficiency", "dress", "archer_promotion", "hunting_bow"}
+        "bow_proficiency",
+        "dress",
+        "archer_promotion",
+        "hunting_bow",
+    }
     assert "Bamboo Bow" in result["completed_upgrades"][0]
     assert result["next_reviews"][0]["id"] == "scatter"
 
 
 def test_level_fault_staleness_and_decrease_do_not_display_old_level():
-    now, value = [10.], [9]
+    now, value = [10.0], [9]
     monitor = LevelMonitor(lambda: value[0], plan(), clock=lambda: now[0])
     monitor.sample()
     assert monitor.snapshot()["character_level"] == 9

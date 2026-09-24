@@ -8,10 +8,16 @@ from ctypes import wintypes as w
 
 class ProcessEntry(c.Structure):
     _fields_ = [
-        ("dwSize", w.DWORD), ("cntUsage", w.DWORD), ("th32ProcessID", w.DWORD),
-        ("th32DefaultHeapID", c.c_size_t), ("th32ModuleID", w.DWORD),
-        ("cntThreads", w.DWORD), ("th32ParentProcessID", w.DWORD),
-        ("pcPriClassBase", w.LONG), ("dwFlags", w.DWORD), ("szExeFile", w.WCHAR * 260),
+        ("dwSize", w.DWORD),
+        ("cntUsage", w.DWORD),
+        ("th32ProcessID", w.DWORD),
+        ("th32DefaultHeapID", c.c_size_t),
+        ("th32ModuleID", w.DWORD),
+        ("cntThreads", w.DWORD),
+        ("th32ParentProcessID", w.DWORD),
+        ("pcPriClassBase", w.LONG),
+        ("dwFlags", w.DWORD),
+        ("szExeFile", w.WCHAR * 260),
     ]
 
 
@@ -28,23 +34,56 @@ class WindowsBackend:
             raise OSError("Live diagnostics require Windows")
         self.kernel = c.WinDLL("kernel32", use_last_error=True)
         self.user = c.WinDLL("user32", use_last_error=True)
-        self.open_process = bind(self.kernel, "OpenProcess", [w.DWORD, w.BOOL, w.DWORD], w.HANDLE)
+        self.open_process = bind(
+            self.kernel, "OpenProcess", [w.DWORD, w.BOOL, w.DWORD], w.HANDLE
+        )
         self.close_handle = bind(self.kernel, "CloseHandle", [w.HANDLE], w.BOOL)
-        self.snapshot = bind(self.kernel, "CreateToolhelp32Snapshot", [w.DWORD, w.DWORD], w.HANDLE)
-        self.first = bind(self.kernel, "Process32FirstW", [w.HANDLE, c.POINTER(ProcessEntry)], w.BOOL)
-        self.next = bind(self.kernel, "Process32NextW", [w.HANDLE, c.POINTER(ProcessEntry)], w.BOOL)
-        self.image_name = bind(self.kernel, "QueryFullProcessImageNameW", [w.HANDLE, w.DWORD, w.LPWSTR, c.POINTER(w.DWORD)], w.BOOL)
-        self.times = bind(self.kernel, "GetProcessTimes", [w.HANDLE] + [c.POINTER(w.FILETIME)] * 4, w.BOOL)
-        self.exit_code = bind(self.kernel, "GetExitCodeProcess", [w.HANDLE, c.POINTER(w.DWORD)], w.BOOL)
-        self.wow64 = bind(self.kernel, "IsWow64Process2", [w.HANDLE, c.POINTER(w.WORD), c.POINTER(w.WORD)], w.BOOL)
+        self.snapshot = bind(
+            self.kernel, "CreateToolhelp32Snapshot", [w.DWORD, w.DWORD], w.HANDLE
+        )
+        self.first = bind(
+            self.kernel, "Process32FirstW", [w.HANDLE, c.POINTER(ProcessEntry)], w.BOOL
+        )
+        self.next = bind(
+            self.kernel, "Process32NextW", [w.HANDLE, c.POINTER(ProcessEntry)], w.BOOL
+        )
+        self.image_name = bind(
+            self.kernel,
+            "QueryFullProcessImageNameW",
+            [w.HANDLE, w.DWORD, w.LPWSTR, c.POINTER(w.DWORD)],
+            w.BOOL,
+        )
+        self.times = bind(
+            self.kernel,
+            "GetProcessTimes",
+            [w.HANDLE] + [c.POINTER(w.FILETIME)] * 4,
+            w.BOOL,
+        )
+        self.exit_code = bind(
+            self.kernel, "GetExitCodeProcess", [w.HANDLE, c.POINTER(w.DWORD)], w.BOOL
+        )
+        self.wow64 = bind(
+            self.kernel,
+            "IsWow64Process2",
+            [w.HANDLE, c.POINTER(w.WORD), c.POINTER(w.WORD)],
+            w.BOOL,
+        )
         self.window_callback = c.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
-        self.enum_windows = bind(self.user, "EnumWindows", [self.window_callback, w.LPARAM], w.BOOL)
-        self.window_pid = bind(self.user, "GetWindowThreadProcessId", [w.HWND, c.POINTER(w.DWORD)], w.DWORD)
-        self.window_text = bind(self.user, "GetWindowTextW", [w.HWND, w.LPWSTR, c.c_int], c.c_int)
+        self.enum_windows = bind(
+            self.user, "EnumWindows", [self.window_callback, w.LPARAM], w.BOOL
+        )
+        self.window_pid = bind(
+            self.user, "GetWindowThreadProcessId", [w.HWND, c.POINTER(w.DWORD)], w.DWORD
+        )
+        self.window_text = bind(
+            self.user, "GetWindowTextW", [w.HWND, w.LPWSTR, c.c_int], c.c_int
+        )
         self.visible = bind(self.user, "IsWindowVisible", [w.HWND], w.BOOL)
         self.iconic = bind(self.user, "IsIconic", [w.HWND], w.BOOL)
         self.foreground = bind(self.user, "GetForegroundWindow", [], w.HWND)
-        self.client_rect = bind(self.user, "GetClientRect", [w.HWND, c.POINTER(w.RECT)], w.BOOL)
+        self.client_rect = bind(
+            self.user, "GetClientRect", [w.HWND, c.POINTER(w.RECT)], w.BOOL
+        )
 
     @staticmethod
     def error(operation: str) -> OSError:
@@ -72,7 +111,9 @@ class WindowsBackend:
             success = self.first(handle, c.byref(entry))
             while success:
                 if entry.szExeFile.casefold() == executable.casefold():
-                    matches.append({"pid": entry.th32ProcessID, "executable_name": entry.szExeFile})
+                    matches.append(
+                        {"pid": entry.th32ProcessID, "executable_name": entry.szExeFile}
+                    )
                 success = self.next(handle, c.byref(entry))
             if c.get_last_error() != 18:  # ERROR_NO_MORE_FILES
                 raise self.error("Process32FirstW/Process32NextW")
@@ -96,12 +137,21 @@ class WindowsBackend:
                     self.window_text(hwnd, title, len(title))
                     rect = w.RECT()
                     has_rect = self.client_rect(hwnd, c.byref(rect))
-                    windows.append({
-                        "hwnd": int(hwnd), "title": title.value,
-                        "visible": bool(self.visible(hwnd)), "minimized": bool(self.iconic(hwnd)),
-                        "foreground": hwnd == foreground,
-                        "client_size": [rect.right - rect.left, rect.bottom - rect.top] if has_rect else None,
-                    })
+                    windows.append(
+                        {
+                            "hwnd": int(hwnd),
+                            "title": title.value,
+                            "visible": bool(self.visible(hwnd)),
+                            "minimized": bool(self.iconic(hwnd)),
+                            "foreground": hwnd == foreground,
+                            "client_size": [
+                                rect.right - rect.left,
+                                rect.bottom - rect.top,
+                            ]
+                            if has_rect
+                            else None,
+                        }
+                    )
                 return True
             except Exception as error:
                 callback_errors.append(error)
@@ -115,16 +165,28 @@ class WindowsBackend:
         return windows
 
     def identity(self, pid: int) -> dict:
-        with self.process_handle(pid, 0x1000) as handle:  # PROCESS_QUERY_LIMITED_INFORMATION
+        with self.process_handle(
+            pid, 0x1000
+        ) as handle:  # PROCESS_QUERY_LIMITED_INFORMATION
             path = c.create_unicode_buffer(32768)
             size = w.DWORD(len(path))
             if not self.image_name(handle, 0, path, c.byref(size)):
                 raise self.error("QueryFullProcessImageNameW")
-            creation, exit_time, kernel_time, user_time = (w.FILETIME() for _ in range(4))
-            if not self.times(handle, c.byref(creation), c.byref(exit_time), c.byref(kernel_time), c.byref(user_time)):
+            creation, exit_time, kernel_time, user_time = (
+                w.FILETIME() for _ in range(4)
+            )
+            if not self.times(
+                handle,
+                c.byref(creation),
+                c.byref(exit_time),
+                c.byref(kernel_time),
+                c.byref(user_time),
+            ):
                 raise self.error("GetProcessTimes")
             process_machine, native_machine = w.WORD(), w.WORD()
-            if not self.wow64(handle, c.byref(process_machine), c.byref(native_machine)):
+            if not self.wow64(
+                handle, c.byref(process_machine), c.byref(native_machine)
+            ):
                 raise self.error("IsWow64Process2")
             code = w.DWORD()
             if not self.exit_code(handle, c.byref(code)):
@@ -133,9 +195,13 @@ class WindowsBackend:
                 raise OSError(f"Process {pid} exited during diagnostics")
             machine = process_machine.value or native_machine.value
             return {
-                "pid": pid, "path": path.value,
-                "creation_time_100ns": (creation.dwHighDateTime << 32) | creation.dwLowDateTime,
-                "architecture": {0x014C: "x86", 0x8664: "x64", 0xAA64: "arm64"}.get(machine, f"0x{machine:04x}"),
+                "pid": pid,
+                "path": path.value,
+                "creation_time_100ns": (creation.dwHighDateTime << 32)
+                | creation.dwLowDateTime,
+                "architecture": {0x014C: "x86", 0x8664: "x64", 0xAA64: "arm64"}.get(
+                    machine, f"0x{machine:04x}"
+                ),
             }
 
     def check_memory_access(self, pid: int) -> None:

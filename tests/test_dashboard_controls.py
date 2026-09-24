@@ -41,8 +41,13 @@ def token(port):
 
 def test_control_post_and_status_reflect_same_state(dashboard):
     port, control = dashboard
-    status, body = call(port, "POST", "/control", json.dumps({"enabled":True,"target_ids":[77]}),
-        {"Content-Type":"application/json", "X-Control-Token":token(port)})
+    status, body = call(
+        port,
+        "POST",
+        "/control",
+        json.dumps({"enabled": True, "target_ids": [77]}),
+        {"Content-Type": "application/json", "X-Control-Token": token(port)},
+    )
     assert status == 200
     assert json.loads(body)["target_ids"] == [77]
     _, status_body = call(port, "GET", "/status")
@@ -52,17 +57,30 @@ def test_control_post_and_status_reflect_same_state(dashboard):
 
 def test_other_website_cannot_switch_farming_on(dashboard):
     port, control = dashboard
-    for headers in [{}, {"X-Control-Token":token(port), "Origin":"https://example.com"},
-                    {"X-Control-Token":token(port), "Host":"attacker.example"}]:
-        status, _ = call(port,"POST","/control",'{"enabled":true}',
-            {"Content-Type":"application/json", **headers})
+    for headers in [
+        {},
+        {"X-Control-Token": token(port), "Origin": "https://example.com"},
+        {"X-Control-Token": token(port), "Host": "attacker.example"},
+    ]:
+        status, _ = call(
+            port,
+            "POST",
+            "/control",
+            '{"enabled":true}',
+            {"Content-Type": "application/json", **headers},
+        )
         assert status == 403
         assert not control.snapshot()["enabled"]
 
 
 def test_bad_ids_cannot_partially_enable_farming(dashboard):
     port, control = dashboard
-    status, _ = call(port,"POST","/control",'{"enabled":true,"target_ids":[-1]}',
-        {"Content-Type":"application/json", "X-Control-Token":token(port)})
+    status, _ = call(
+        port,
+        "POST",
+        "/control",
+        '{"enabled":true,"target_ids":[-1]}',
+        {"Content-Type": "application/json", "X-Control-Token": token(port)},
+    )
     assert status == 400
     assert not control.snapshot()["enabled"]

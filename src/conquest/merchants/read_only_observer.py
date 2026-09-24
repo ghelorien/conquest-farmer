@@ -1,4 +1,5 @@
 """Exact-1078 merchant stock observation with no game input surface."""
+
 import threading
 from types import SimpleNamespace
 
@@ -26,15 +27,22 @@ class ReadOnlyMerchantObserver:
         # A verified native HWND is presentation data only.  Do not create an
         # Operations/MessageTarget object for this unqualified build.
         self.hwnd = client.hwnd
-        self.session = MemorySession(client.identity['pid'], CLIENT_SHA256_1078).__enter__()
+        self.session = MemorySession(
+            client.identity["pid"], CLIENT_SHA256_1078
+        ).__enter__()
         try:
             if self.session.identity != client.identity:
-                raise ValueError('Client identity changed during merchant observation attachment')
+                raise ValueError(
+                    "Client identity changed during merchant observation attachment"
+                )
             self.adapter = SimpleNamespace(
                 expected_sha256=self.session.expected_sha256,
-                identity=dict(self.session.identity), modules=self.session.modules,
-                read=self.session.read, read_block=self.session.read,
-                assert_identity=self.session.assert_identity)
+                identity=dict(self.session.identity),
+                modules=self.session.modules,
+                read=self.session.read,
+                read_block=self.session.read,
+                assert_identity=self.session.assert_identity,
+            )
             self.health_layout = health_reader_layout(self.adapter)
             self.memory = MerchantMemory.for_observer(self)
             # Verify the selected character in native memory before returning
@@ -55,16 +63,27 @@ class ReadOnlyMerchantObserver:
     def read_ownership(self):
         """Persistent full stock observation, including open manual modals."""
         from conquest.merchants.reader_1078 import open_read_only_1078
+
         with self.lock:
-            snapshot = open_read_only_1078(self.session, self.character).read_manual_ownership()
-            if snapshot['identity'] != self.adapter.identity:
-                raise ValueError('Merchant process changed during ownership observation')
-            profile=getattr(self.character_context,'profile',None)
-            if profile is not None and (snapshot['character']!=profile.name
-                    or snapshot['server']!=profile.server
-                    or (profile.character_uid is not None
-                        and snapshot['character_uid']!=profile.character_uid)):
-                raise ValueError('Merchant ownership differs from the configured profile')
+            snapshot = open_read_only_1078(
+                self.session, self.character
+            ).read_manual_ownership()
+            if snapshot["identity"] != self.adapter.identity:
+                raise ValueError(
+                    "Merchant process changed during ownership observation"
+                )
+            profile = getattr(self.character_context, "profile", None)
+            if profile is not None and (
+                snapshot["character"] != profile.name
+                or snapshot["server"] != profile.server
+                or (
+                    profile.character_uid is not None
+                    and snapshot["character_uid"] != profile.character_uid
+                )
+            ):
+                raise ValueError(
+                    "Merchant ownership differs from the configured profile"
+                )
             return snapshot
 
     def __call__(self):

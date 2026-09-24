@@ -1,4 +1,5 @@
 """Clock-independent farming decisions, separated from observation and input."""
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
@@ -75,13 +76,13 @@ class Policy:
     monsters: frozenset[str] = frozenset({"Pheasant"})
     items: frozenset[str] = frozenset({"Stancher"})
     tolerance: float = 2
-    heal_below: float = .4
+    heal_below: float = 0.4
     potion_cooldown: float = 1
     attack_wait: float = 1.8
     pickup_distance: float = 6
     pickup_limit: int = 2
     movement_wait: float = 1.5
-    stale_after: float = .5
+    stale_after: float = 0.5
     invalid_limit: int = 3
     recovery_limit: int = 3
     require_ammo: bool = True
@@ -172,7 +173,7 @@ class Controller:
             if now - self.last_potion < p.potion_cooldown:
                 return None
             self.last_potion = now
-            return self.issue(Action("heal", now + .3, point=o.potions[0]), o, now)
+            return self.issue(Action("heal", now + 0.3, point=o.potions[0]), o, now)
         if p.require_potions and not o.potions:
             self.stop("potions_exhausted")
             return None
@@ -184,8 +185,15 @@ class Controller:
                 return None
             self.pending = None
             if action.kind == "attack":
-                progress = o.experience != before.experience or o.max_health != before.max_health
-                self.last_outcome = "attack_progress_verified" if progress else "attack_progress_missing"
+                progress = (
+                    o.experience != before.experience
+                    or o.max_health != before.max_health
+                )
+                self.last_outcome = (
+                    "attack_progress_verified"
+                    if progress
+                    else "attack_progress_missing"
+                )
                 self.failures = 0 if progress else self.failures + 1
             elif action.kind == "loot":
                 # An allowlisted potion count increase is evidence. A vanished
@@ -196,7 +204,7 @@ class Controller:
                 else:
                     self.last_outcome = "pickup_not_verified"
             elif action.kind == "move":
-                moved = math.dist(o.position, before.position) > .5
+                moved = math.dist(o.position, before.position) > 0.5
                 self.last_outcome = "movement_verified" if moved else "movement_stuck"
                 self.failures = 0 if moved else self.failures + 1
 
@@ -208,23 +216,46 @@ class Controller:
                 self.stop("recovery_limit")
                 return None
             self.waypoint = (self.waypoint + 1) % len(p.route)
-            return self.issue(Action("move", now + .3, destination=p.route[self.waypoint]), o, now)
+            return self.issue(
+                Action("move", now + 0.3, destination=p.route[self.waypoint]), o, now
+            )
 
-        monsters = [e for e in o.entities if e.kind == "monster" and e.name in p.monsters and self.inside(e.position)]
+        monsters = [
+            e
+            for e in o.entities
+            if e.kind == "monster" and e.name in p.monsters and self.inside(e.position)
+        ]
         if monsters:
             self.state = State.ACQUIRE
             target = min(monsters, key=lambda e: math.dist(e.position, o.position))
             self.state = State.ATTACK
-            return self.issue(Action("attack", now + .3, point=target.screen, target=target.key), o, now)
-        items = [e for e in o.loot if e.name in p.items and self.inside(e.position)
-                 and math.dist(e.position, o.position) <= p.pickup_distance
-                 and self.pickup_attempts.get(e.key, 0) < p.pickup_limit]
+            return self.issue(
+                Action("attack", now + 0.3, point=target.screen, target=target.key),
+                o,
+                now,
+            )
+        items = [
+            e
+            for e in o.loot
+            if e.name in p.items
+            and self.inside(e.position)
+            and math.dist(e.position, o.position) <= p.pickup_distance
+            and self.pickup_attempts.get(e.key, 0) < p.pickup_limit
+        ]
         if items:
             self.state = State.LOOT
             target = min(items, key=lambda e: math.dist(e.position, o.position))
-            self.pickup_attempts[target.key] = self.pickup_attempts.get(target.key, 0) + 1
-            return self.issue(Action("loot", now + .3, point=target.screen, target=target.key), o, now)
+            self.pickup_attempts[target.key] = (
+                self.pickup_attempts.get(target.key, 0) + 1
+            )
+            return self.issue(
+                Action("loot", now + 0.3, point=target.screen, target=target.key),
+                o,
+                now,
+            )
         self.state = State.PATROL
         if math.dist(o.position, p.route[self.waypoint]) <= p.tolerance:
             self.waypoint = (self.waypoint + 1) % len(p.route)
-        return self.issue(Action("move", now + .3, destination=p.route[self.waypoint]), o, now)
+        return self.issue(
+            Action("move", now + 0.3, destination=p.route[self.waypoint]), o, now
+        )
