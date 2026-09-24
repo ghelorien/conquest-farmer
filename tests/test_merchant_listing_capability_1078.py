@@ -126,11 +126,13 @@ def make_ui(journal, state):
     journal.set('Dutch', 'enabled', False)
     journal.set('Dutch', 'refill_enabled', True)
     runtime = SimpleNamespace(journal=journal, listing1078_lock=threading.Lock(),
+                              lock=threading.RLock(), handoff=None,
                               refills={'Dutch': schedule},
                               observers={'Dutch': SimpleNamespace(hwnd=55, adapter=SimpleNamespace(identity=state['identity']))})
     runtime.refill_enabled = lambda character: journal.get(character, 'refill_enabled', True)
-    runtime.can_start_work = lambda seconds: seconds <= 20
-    ui = SimpleNamespace(runtime=runtime, safe_to_yield=lambda: True,
+    # A native listing needs a fresh 38-second handoff window.
+    runtime.can_start_work = lambda seconds: seconds <= 45
+    ui = SimpleNamespace(runtime=runtime, coordinator=SimpleNamespace(), safe_to_yield=lambda: True,
                          app=SimpleNamespace(control=SimpleNamespace(snapshot=lambda: {'enabled': False, 'paused': False})))
     return ui
 

@@ -14,7 +14,7 @@ from conquest.merchants import bridge, delivery_operation, service_visit, handof
 
 @pytest.fixture
 def recovered(tmp_path, monkeypatch):
-    x=NS(now=1000., calls=[], hold=False)
+    x=NS(now=1000., calls=[], hold=False, stops=[])
     monkeypatch.setattr(recovery.time,'time',lambda:x.now)
     monkeypatch.setattr(recovery,'state_path',lambda path:tmp_path/path)
     monkeypatch.setattr(recovery,'EVENTS',tmp_path/'events.jsonl')
@@ -76,6 +76,10 @@ def recovered(tmp_path, monkeypatch):
         route=NS(id='bandit',map_id=1011,restock_map_id=1011,
                  supplies=NS(arrow_type=1050002,healing_type=1000020)),
         record=lambda *a,**kw:x.calls.append(('record',a[0])))
+    def stop_farm():
+        x.stops.append(True)
+        x.health['embedded_controls']['control']['enabled']=False
+    x.loop.stop_farm=stop_farm
     monkeypatch.setattr(banking,'open_warehouse',lambda loop:x.calls.append(('open',)) or
                         {'silver':x.bag['silver'],'stored_silver':1000})
     monkeypatch.setattr(banking,'close_warehouse',lambda loop:x.calls.append(('close','Warehouse+Inventory')))
@@ -264,7 +268,8 @@ def test_changed_storage_return_or_safety_never_reaches_cash(recovered,changed):
     write_json(meteor_banking.JOURNAL,x.meteor);write_json(x.market_path,x.market)
     with pytest.raises(ValueError):recovery.resume_pre_admission_tail(x.loop)
     assert x.visit.state()['pre_admission_restock_tail']['phase']=='captured'
-    assert 'town_work_completed_at' not in x.visit.state() and not x.calls
+    assert 'town_work_completed_at' not in x.visit.state()
+    assert all(call==('record','restock_ownership_mismatch') for call in x.calls)
 
 
 def test_verified_cash_closes_panels_and_completes_same_trip_once(recovered):
@@ -279,6 +284,22 @@ def test_verified_cash_closes_panels_and_completes_same_trip_once(recovered):
                      ('close','Shop'),('service',{'town':True}),('record','restock_complete')]
     before=list(x.calls)
     assert recovery.resume_pre_admission_tail(x.loop) is False and x.calls==before
+
+
+def test_completed_meteor_restart_stops_enabled_farm_before_tail(recovered):
+    x=recovered;x.returned()
+    x.health['embedded_controls']['control']['enabled']=True
+    assert recovery.resume_pre_admission_tail(x.loop)
+    assert x.stops==[True]
+    assert x.health['embedded_controls']['control']['enabled'] is False
+
+
+def test_completed_meteor_manual_stop_prevents_control_and_cash(recovered):
+    x=recovered;x.returned()
+    x.loop.check_stop=lambda:(_ for _ in ()).throw(ValueError('Manual Stop'))
+    with pytest.raises(ValueError,match='Manual Stop'):
+        recovery.resume_pre_admission_tail(x.loop)
+    assert not x.stops and not x.calls
 
 
 @pytest.mark.parametrize('outcome',['raises','unverified','missing','post_cash_crash'])

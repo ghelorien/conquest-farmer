@@ -22,7 +22,8 @@ def stock(uid, type_id=130805, *, price=None, gem1=0):
 def setup(tmp_path):
     j=Journal(tmp_path/'journal.sqlite3')
     guard=InputCoordinator(lambda:True,path=tmp_path/'input.lock')
-    runtime=MerchantRuntime(object(),guard,journal=j,market_path=tmp_path/'missing-market.json')
+    catalog=SimpleNamespace(identities=lambda: [])
+    runtime=MerchantRuntime(catalog,guard,journal=j,market_path=tmp_path/'missing-market.json')
     guard.owner_allowed=runtime.input_allowed
     rows=[dict(name='Coat',category='Trojan Armor',quality='Normal',plus=2,sockets=['No socket','No socket'],
                seller='Outside',price=130000,quantity=1,server='America'),
@@ -109,7 +110,7 @@ def test_explicit_refill_pause_and_global_stop_persist(setup):
     x.guard.resume()
     assert not x.runtime.refill_enabled('Dutch') and not x.runtime.refill_enabled('Spiritual')
     x.runtime.step('Dutch');assert not x.calls
-    restarted=MerchantRuntime(object(),InputCoordinator(),journal=x.j)
+    restarted=MerchantRuntime(SimpleNamespace(identities=lambda: []),InputCoordinator(),journal=x.j)
     assert not restarted.refill_enabled('Dutch')
 
 

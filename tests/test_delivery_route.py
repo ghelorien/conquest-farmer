@@ -17,10 +17,69 @@ def snapshot(name,uid,items=(),position=(10,10)):
 
 
 @pytest.fixture
+def admission_clock(monkeypatch):
+    from conquest import safe_reload
+    clock=NS(now=1000.,reads=0,events=[])
+    monkeypatch.setattr(route.time,'time',lambda:clock.now)
+    monkeypatch.setattr(route.time,'monotonic',lambda:clock.now)
+    monkeypatch.setattr(route.time,'sleep',lambda delay:setattr(clock,'now',clock.now+delay))
+    monkeypatch.setattr(safe_reload,'clear_observation',lambda health:True)
+    def health():
+        clock.reads+=1
+        data={'control':{'enabled':False,'revision':1},'observed_at':clock.now,
+              'observations_available':True,'monsters':[],
+              'life':{'map_id':1036,'current_hp':100,'max_hp':100,'dead_candidate':False}}
+        clock.change(data,clock.reads)
+        return {'target':{'pid':7,'creation_time_100ns':80},'embedded_controls':data}
+    clock.loop=NS(check_stop=lambda:None,health=health,
+                  record=lambda event,**fields:clock.events.append((event,fields)))
+    return clock
+
+
+@pytest.mark.parametrize('first',['stale','unavailable'])
+def test_preadmission_reobserves_transient_read_before_authorizing(first,admission_clock):
+    x=admission_clock
+    def change(data,read):
+        if read==1:
+            if first=='stale':data['observed_at']=x.now-2
+            else:data['observations_available']=False
+    x.change=change
+    result=route._preadmission_health(x.loop,1060.,'visit')
+    assert result['embedded_controls']['observed_at']==x.now
+    assert x.reads==2 and not x.events and x.now<1002.
+
+
+def test_preadmission_unavailable_defers_at_original_deadline_without_input(admission_clock):
+    x=admission_clock
+    x.change=lambda data,read:data.update(observations_available=False)
+    assert route._preadmission_health(x.loop,1000.25,'visit') is None
+    assert 1000.25<=x.now<1000.26 and 2<=x.reads<=5
+    assert len(x.events)==1 and x.events[0][0]=='merchant_service_deferred'
+    assert x.events[0][1]['reason']=='observation_unavailable'
+
+
+def test_preadmission_control_revision_change_is_stop_not_fallback(admission_clock):
+    from conquest.overnight import OvernightStopped
+    x=admission_clock
+    def change(data,read):
+        data['observations_available']=False
+        if read>1:data['control']['revision']=2
+    x.change=change
+    with pytest.raises(OvernightStopped,match='revision'):
+        route._preadmission_health(x.loop,1060.,'visit')
+    assert x.reads==2 and not x.events
+
+
+@pytest.fixture
 def rig(monkeypatch,tmp_path):
     from conquest import safe_reload
+    from conquest.navigation import line_tiles
     from conquest.merchants import handoff
     from conquest.merchants import service_visit
+    from conquest.merchants import farmer_preferences
+    from conquest.character_context import farmer_name
+    monkeypatch.setattr(farmer_preferences,'PATH',tmp_path/'farmer-preferences.json')
+    write_json(farmer_preferences.PATH,{'farmers':{farmer_name():True}})
     original_visit=service_visit.MarketVisit
     monkeypatch.setattr(service_visit,'MarketVisit',lambda:original_visit(tmp_path/'visit.json'))
     monkeypatch.setattr(safe_reload,'clear_observation',lambda h:True)
@@ -30,9 +89,15 @@ def rig(monkeypatch,tmp_path):
     d=snapshot('Dutch',2,[item(i) for i in range(200,239)],(20,10))
     s=snapshot('Spiritual',3,[item(i) for i in range(300,339)],(30,10))
     events=[];receipts={};health={'target':{'pid':1},'embedded_controls':{
-        'life':{'map_id':1036},'control':{'enabled':False,'revision':1}}}
-    loop=NS(health=lambda:copy.deepcopy(health),living=lambda:copy.deepcopy(health),
-        terrain=NS(travel_path=lambda a,b:[a,b],walkable=lambda p:p[0]>=0 and p[1]>=0),check_stop=lambda:None,
+        'life':{'map_id':1036,'current_hp':100,'max_hp':100,'dead_candidate':False},
+        'observations_available':True,'monsters':[],
+        'control':{'enabled':False,'revision':1}}}
+    def observe():
+        result=copy.deepcopy(health)
+        result['embedded_controls']['observed_at']=time.time()
+        return result
+    loop=NS(health=observe,living=observe,state={'pid':7,'started_at':1.},
+        terrain=NS(travel_path=lambda a,b,**kw:line_tiles(a,b),walkable=lambda p:p[0]>=0 and p[1]>=0),check_stop=lambda:None,
         town=lambda action,**fields:events.append((action,fields)),
         focus=lambda h:events.append(('focus',None)),
         record=lambda event,**fields:events.append((event,fields)))
@@ -154,7 +219,7 @@ def test_full_bank_continuation_requires_current_qualified_reachable_capacity(ri
     if reason=='disabled':write_json(route.POLICY,{'enabled':False})
     if reason=='full':
         rig.d['inventory'].append(item(900));rig.s['inventory'].append(item(901))
-    if reason=='blocked_path':rig.loop.terrain.travel_path=lambda *a:[]
+    if reason=='blocked_path':rig.loop.terrain.travel_path=lambda *a,**kw:[]
     def send(body):
         result=rig.send(body)
         if reason=='unqualified' and body['action']=='delivery-readiness':result['qualified']=False
@@ -376,7 +441,7 @@ def test_merchant_approach_requires_visible_reachable_tile(rig):
 def test_absent_remote_recipient_uses_only_checked_ingress_before_fresh_target_probe(rig):
     from conquest.navigation import line_tiles
     rig.f['position']=[10,10];rig.d['position']=[50,10]
-    rig.loop.terrain.travel_path=lambda a,b:line_tiles(a,b)
+    rig.loop.terrain.travel_path=lambda a,b,**kw:line_tiles(a,b)
     def send(body):
         if body['action']=='delivery-target':
             distance=max(abs(a-b) for a,b in zip(rig.f['position'],rig.d['position']))
@@ -399,7 +464,7 @@ def test_approach_applies_short_deadline_inside_travel_and_restores_outer_visit(
     monkeypatch.setattr(route.time,'time',lambda:now[0])
     original=rig.loop.travel
     def travel(point,**fields):
-        assert rig.loop.market_service_deadline==1015.0
+        assert rig.loop.market_service_deadline==1004.0
         if stalled:raise TravelStalled('test stall')
         original(point,**fields)
     rig.loop.travel=travel
@@ -443,7 +508,7 @@ def test_slow_target_observation_cannot_authorize_after_approach_deadline(rig,mo
     now=[1000.0];monkeypatch.setattr(route.time,'time',lambda:now[0])
     def send(body):
         result=rig.send(body)
-        if body['action']=='delivery-target':now[0]=1016.0
+        if body['action']=='delivery-target':now[0]=1041.0
         return result
     assert not route.approach_merchant(rig.loop,
         {'merchant':'Dutch','position':rig.d['position']},send,deadline=1060.0)
@@ -453,7 +518,7 @@ def test_slow_target_observation_cannot_authorize_after_approach_deadline(rig,mo
 def test_service_window_covers_remote_ingress_before_recipient_is_actionable(rig):
     from conquest.navigation import line_tiles
     rig.f['position']=[10,10];rig.d['position']=[50,10]
-    rig.loop.terrain.travel_path=lambda a,b:line_tiles(a,b)
+    rig.loop.terrain.travel_path=lambda a,b,**kw:line_tiles(a,b)
     original_travel=rig.loop.travel
     def travel(point,**fields):
         visit=read_json(rig.visit_path)

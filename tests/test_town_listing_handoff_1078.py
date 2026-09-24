@@ -27,7 +27,7 @@ def test_phoenix_town_grants_receipt_qualified_refill_enough_work_time(
     grant = next(c for c in run.calls if c['action'] == 'handoff-grant')
     check = next(c for c in run.calls if c['action'] == 'refill-check')
     assert grant['scope'] == 'listing_1078' and grant['character'] == 'Spiritual'
-    assert grant['expires_at'] == 1045  # Allows the guarded 20-second listing admission.
+    assert grant['expires_at'] == 1045  # Allows 35 seconds plus the 3-second reconciliation reserve.
     assert grant['request_id'] == check['request_id']
     assert grant['request_id'].startswith('merchant-refill:Spiritual:')
     if existing_request:
