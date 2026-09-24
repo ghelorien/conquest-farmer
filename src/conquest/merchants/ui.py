@@ -825,29 +825,42 @@ class UnifiedUI:
             if listing:
                 from conquest.merchants.listing_handoff_1078 import validate_grant
                 authority=validate_grant(self,body)
-            fence=getattr(self,'grant_fence',None)
-            if fence:
-                from conquest.merchants.service_visit import farmer_id
-                fence.activate(body['request_id'],body['revision'],body['expires_at'],
-                    scope='merchant_host' if hosting else 'market_visit' if market else 'listing_1078' if listing else 'hunting',
-                    farmer_profile_id=farmer_id())
-            self.grant = dict(body)
-            if hosting:
-                self.grant['previous_handoff']=self.runtime.handoff
-                self.runtime.handoff=body['request_id']
-                # The Tk poll attaches exact clients under the shared input
-                # lock; host scope cannot start listing, trade or recovery.
-            if listing:
-                self.grant['listing_authority']=authority
-                self.runtime.refill_window=body['request_id']
-            if visit:
-                self.grant['town_visit_id']=visit.get('town_visit_id')
-                self.grant['farmer_profile_id']=visit['farmer_profile_id']
-                for refill in getattr(self.runtime,'refills',{}).values():
-                    if refill.state().get('pending'):
-                        refill.start(visit_id=visit['visit_id'],town_visit_id=visit.get('town_visit_id'),
-                                     operation_id=body['request_id'])
-            self.runtime.work_deadline = body['expires_at']
+            # Admission can perform slow memory reads. Serialize its final
+            # request check with forfeiture of an unreadable peer's *unsent*
+            # refill request, so an obsolete key cannot gain a late grant.
+            with self.runtime.lock:
+                current_request = ((host_requested(self) or {}).get('request_id') if hosting
+                                   else self.runtime.handoff)
+                fresh_control = self.app.control.snapshot()
+                if (current_request != body['request_id'] or self.grant is not None
+                        or self.coordinator.owner is not None
+                        or fresh_control['enabled'] or fresh_control.get('paused')
+                        or fresh_control['revision'] != body['revision']
+                        or body['expires_at'] <= time.time()):
+                    raise ValueError('Handoff request, owner, or Farmer revision changed during admission')
+                fence=getattr(self,'grant_fence',None)
+                if fence:
+                    from conquest.merchants.service_visit import farmer_id
+                    fence.activate(body['request_id'],body['revision'],body['expires_at'],
+                        scope='merchant_host' if hosting else 'market_visit' if market else 'listing_1078' if listing else 'hunting',
+                        farmer_profile_id=farmer_id())
+                self.grant = dict(body)
+                if hosting:
+                    self.grant['previous_handoff']=self.runtime.handoff
+                    self.runtime.handoff=body['request_id']
+                    # The Tk poll attaches exact clients under the shared input
+                    # lock; host scope cannot start listing, trade or recovery.
+                if listing:
+                    self.grant['listing_authority']=authority
+                    self.runtime.refill_window=body['request_id']
+                if visit:
+                    self.grant['town_visit_id']=visit.get('town_visit_id')
+                    self.grant['farmer_profile_id']=visit['farmer_profile_id']
+                    for refill in getattr(self.runtime,'refills',{}).values():
+                        if refill.state().get('pending'):
+                            refill.start(visit_id=visit['visit_id'],town_visit_id=visit.get('town_visit_id'),
+                                         operation_id=body['request_id'])
+                self.runtime.work_deadline = body['expires_at']
             return {'granted':True}
         if action=='handoff-release' and set(body)=={'action','request_id'}:
             hosting=(self.grant or {}).get('scope')=='merchant_host'

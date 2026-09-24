@@ -7,6 +7,21 @@ from conquest.merchants.restoration_preview_1078 import _preview
 from conquest.memory_build_layout import CLIENT_SHA256_1078
 
 
+class OwnedPeerUnavailable(ValueError):
+    """A named owned peer could not supply the fresh price-floor proof."""
+
+    def __init__(self, character, error):
+        self.character = character
+        super().__init__(f'{character} owned booth observation unavailable: {error}')
+
+
+def _peer(runtime, profile):
+    try:
+        return observe(runtime, profile.id)
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        raise OwnedPeerUnavailable(profile.name, error) from error
+
+
 def plan(runtime, character, snapshot):
     from conquest.merchants.booth_listing_once_1078 import _profile, _item_fingerprint
     profile = _profile(character)
@@ -19,7 +34,7 @@ def plan(runtime, character, snapshot):
     profiles = _owned_profiles()
     if profile.id not in {other.id for other in profiles}:
         raise ValueError('Selected merchant is not a configured local owned profile')
-    peers = [observe(runtime, other.id) for other in profiles if other.id != profile.id]
+    peers = [_peer(runtime, other) for other in profiles if other.id != profile.id]
     if len({source['character_uid'] for source in (snapshot, *peers)}) != len(profiles):
         raise ValueError('Owned merchant identity attribution is ambiguous')
     path = runtime.market_path.with_name('price-history.sqlite3')
@@ -46,7 +61,8 @@ def plan(runtime, character, snapshot):
     rows.sort(key=lambda row: (row['total_listing_price'] is None,
                               -(row['total_listing_price'] or 0), row['uid']))
     for peer in peers:
-        if not _same_stock(peer, observe(runtime, peer['profile_id'])):
+        peer_profile = next(other for other in profiles if other.id == peer['profile_id'])
+        if not _same_stock(peer, _peer(runtime, peer_profile)):
             raise ValueError('Owned peer booth changed while computing listing prices')
     if (_owned_profiles() != profiles or _saved_prices(path) != (catalog, quotes)
             or any(runtime.journal.get(character, key) != state[key] for key in names)

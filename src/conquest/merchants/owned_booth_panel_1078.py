@@ -3,6 +3,7 @@ import json
 import re
 import threading
 import time
+import uuid
 
 from conquest.capture import CaptureUnavailable
 from conquest.memory_build_layout import CLIENT_SHA256_1078
@@ -73,22 +74,65 @@ def require_receipt(runtime, character, snapshot):
         raise ValueError('Owned panel live receipt is unavailable')
     before, result = json.loads(row['before_json']), json.loads(row['result_json'])
     evidence = result['evidence']
+    from conquest.merchants.owned_booth_hover_1078 import PINS
+    submitted = evidence['input']
+    candidate, selected = submitted['candidate'], submitted['selected']
+    observations = evidence['observations']
+    profile = _profile(character)
     if (saved.get('digest') != _digest(evidence) or not result.get('closed_to_open_verified')
+            or before.get('client_sha256') != CLIENT_SHA256_1078
             or before['snapshot']['booth_open'] is not False
-            or before['profile_id'] != _profile(character).id
+            or before['profile_id'] != profile.id
+            or snapshot['character_uid'] != profile.character_uid
+            or snapshot['character'] != profile.name or snapshot['server'] != profile.server
             or snapshot['identity'] != before['snapshot']['identity']
             or snapshot['character_uid'] != before['snapshot']['character_uid']
             or snapshot['character'] != before['snapshot']['character']
-            or snapshot.get('client_sha256') != CLIENT_SHA256_1078):
+            or snapshot.get('client_sha256') != CLIENT_SHA256_1078
+            or submitted.get('native_code_sha256') != [pin[2] for pin in PINS]
+            or submitted.get('identity') != before['snapshot']['identity']
+            or submitted.get('hwnd') != before['hwnd']
+            or candidate['owned_booth_uid'] != before['snapshot']['own_booth_uid']
+            or selected['owned_booth_uid'] != candidate['owned_booth_uid']
+            or int(selected['selected_actor'],16) != int(candidate['actor_address'],16)+0x10
+            or len(observations) != 2 or observations[1]['timestamp'] <= observations[0]['timestamp']):
         raise ValueError('Owned panel live receipt identity or evidence changed')
     with runtime.journal.db() as db:
         marker = db.execute("SELECT payload FROM transaction_steps WHERE transaction_id=? "
                             "AND stage='panel_click' AND status='before_action'",(row['id'],)).fetchall()
     if len(marker) != 1 or json.loads(marker[0][0]) != evidence['input']:
         raise ValueError('Owned panel once-only input evidence changed')
-    for sample in evidence['observations']:
+    for sample in observations:
         _verify_open(sample, before['snapshot'], fresh=False)
     return saved
+
+
+def prepare_due(ui, character, snapshot):
+    """Prepare only a due closed-panel request backed by an actual prior open.
+
+    This does not click, grant input, advance a timer, or retry a terminal or
+    uncertain request. The existing route loop admits the normal safe window.
+    """
+    runtime = ui.runtime
+    if snapshot.get('booth_open') or not runtime.refills[character].due():
+        return None
+    if not runtime.refill_enabled(character):
+        return {'state':'waiting','blocker':'refill_paused_or_global_stop'}
+    row = pending(runtime.journal,character)
+    if row and row['phase'] != 'verified':
+        return {'state':'waiting','blocker':'owned_panel_request_needs_reconciliation',
+                'request_id':row['id'],'phase':row['phase']}
+    try:
+        require_receipt(runtime,character,snapshot)
+    except (ValueError,KeyError,TypeError) as error:
+        return {'state':'waiting','blocker':'owned_panel_live_receipt_required','note':str(error)}
+    request = {'action':'merchant-owned-panel-prepare-1078','character':character,
+        'request_id':'booth-open1078-auto-'+uuid.uuid4().hex,
+        'expected_identity':snapshot['identity'],'expected_character_uid':snapshot['character_uid'],
+        'expected_own_booth_uid':snapshot['own_booth_uid']}
+    _closed(snapshot,request,_profile(character))
+    result = prepare(ui,request)
+    return {'state':'owned_panel_prepared',**result}
 
 
 def prepare(ui, body):
@@ -120,6 +164,8 @@ def prepare(ui, body):
               'client_sha256':CLIENT_SHA256_1078}
     with runtime.lock:
         _idle(ui,character)
+        if getattr(ui,'grant',None):
+            raise ValueError('Another handoff was granted during owned panel observation')
         if runtime.handoff and not runtime.handoff.startswith(f'merchant-refill:{character}:'):
             raise ValueError('Another exact merchant handoff is pending')
         if not journal.begin(key,character,KIND,before):return status(journal,character,key)
@@ -208,7 +254,7 @@ def reconcile(ui, character, key):
 def step(ui, character, snapshot):
     row = pending(ui.runtime.journal,character)
     if not row or row['phase'] == 'verified':
-        return None  # Automatic new requests require the later live-proof review.
+        return None  # prepare_due separately admits new requests from real receipts.
     key = row['id']
     with LOCK:
         if key in WORKERS and WORKERS[key].is_alive():return status(ui.runtime.journal,character,key)
@@ -242,7 +288,7 @@ def _run(ui, character, before, grant, token):
         from conquest.merchants.memory import GuiReader, HoverNotReady
         from conquest.merchants.reader_1078 import open_read_only_1078
         from conquest.merchants.booth_target_1078 import collect
-        from conquest.merchants.owned_booth_hover_1078 import qualify,assert_selected
+        from conquest.merchants.owned_booth_hover_1078 import qualify,assert_selected,PINS
         from conquest.input_probe import MessageTarget
         from conquest.layout_revision import SharedLayoutRevision
         from conquest.foreground import foreground_click
@@ -308,6 +354,7 @@ def _run(ui, character, before, grant, token):
                             raise ValueError('Owned panel click was already marked; no replay')
                         journal.step(key,'panel_click','before_action',{'candidate':candidate,
                             'selected':selected,'identity':session.identity,'hwnd':target.hwnd,
+                            'native_code_sha256':[pin[2] for pin in PINS],
                             'grant_request_id':grant['request_id'],'at':time.time()})
                         attempted=True
                     foreground_click(target,*point,expected_size=revision.client_size,

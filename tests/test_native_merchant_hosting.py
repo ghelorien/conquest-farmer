@@ -15,7 +15,7 @@ def fixture(tmp_path,monkeypatch):
     pane=NS(winfo_ismapped=lambda:False,winfo_id=lambda:9,winfo_width=lambda:1,winfo_height=lambda:1)
     observer=NS(hwnd=2,merchant_observation_only=True,
         adapter=NS(expected_sha256=CLIENT_SHA256_1078,identity=identity,assert_identity=lambda:calls.append('identity')))
-    runtime=NS(journal=journal,observers={'Dutch':observer,'Spiritual':observer},latest={c:{'identity':identity,'timestamp':time.time()} for c in ('Dutch','Spiritual')},
+    runtime=NS(lock=threading.RLock(),journal=journal,observers={'Dutch':observer,'Spiritual':observer},latest={c:{'identity':identity,'timestamp':time.time()} for c in ('Dutch','Spiritual')},
         manual_handoff_status=lambda:None,connecting={},refilling={},attachments={},delivery_window=None,refill_window=None,stop_event=threading.Event(),handoff='merchant-refill:Spiritual:123')
     coordinator=NS(owner=None,purpose=None,lock=threading.RLock(),stopped=False,
         manual_active=lambda:False,manual_session_blocked=lambda c:False,surface_blocks={})
@@ -131,6 +131,27 @@ def test_host_grant_cannot_yield_game_input_and_release_restores_queued_refill(t
     assert UnifiedUI.dispatch(ui,{'action':'handoff-release','request_id':request['request_id']})=={'released':True}
     assert ui.runtime.handoff=='merchant-refill:Spiritual:123'
     assert ui.grant is None and ui.grant_fence.active is None
+
+
+def test_stale_listing_request_cannot_gain_late_grant_after_validation(tmp_path,monkeypatch):
+    from conquest.merchants.ui import UnifiedUI
+    from conquest.merchants.grant_fence import GrantFence
+    ui,_,_=fixture(tmp_path,monkeypatch)
+    ui.grant_fence=GrantFence()
+    old=ui.runtime.handoff
+    def slow_validation(*_):
+        # Simulate an unavailable peer forfeiting an unsent request while
+        # native validation is reading; final admission must see the change.
+        with ui.runtime.lock:
+            ui.runtime.handoff=None
+        return {'mode':'refill','profile_id':'Spiritual'}
+    monkeypatch.setattr('conquest.merchants.listing_handoff_1078.validate_grant',slow_validation)
+    with pytest.raises(ValueError,match='Handoff request, owner, or Farmer revision changed'):
+        UnifiedUI.dispatch(ui,{'action':'handoff-grant','request_id':old,
+            'revision':1,'expires_at':time.time()+15,'safe':True,
+            'scope':'listing_1078','character':'Spiritual'})
+    assert ui.grant is None and ui.grant_fence.active is None
+    assert ui.runtime.refill_window is None
 
 
 def test_host_request_admission_requires_matching_connected_process_and_separate_timer(tmp_path):

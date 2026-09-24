@@ -225,6 +225,65 @@ def test_due_scheduler_uses_shared_highest_value_plan_with_operations_paused(rec
     assert ui.runtime.refills['Dutch'].state()['last_checked'] is None
 
 
+def test_unreadable_owned_peer_holds_refill_without_pricing_or_advancing_timer(receipt, monkeypatch):
+    from conquest.merchants import listing_plan_1078, listing_handoff_1078
+    x = receipt
+    capability.settle(x.j, x.key, x.first, x.second)
+    current = {**deepcopy(x.second), 'inventory': [item(92)]}
+    ui = make_ui(x.j, current)
+    before = ui.runtime.refills['Dutch'].state()
+    monkeypatch.setattr(listing_plan_1078, 'plan', lambda *_:
+                        (_ for _ in ()).throw(listing_plan_1078.OwnedPeerUnavailable(
+                            'Spiritual', ValueError('Invalid 1078 health candidate'))))
+    released = []
+    monkeypatch.setattr(listing_handoff_1078, 'release_ungranted_unavailable_peer',
+                        lambda _, peer: released.append(peer) or True)
+    monkeypatch.setattr(listing, 'dispatch', lambda *a, **k: pytest.fail('No listing input allowed'))
+    result = refill_1078.step(ui, 'Dutch', current)
+    assert result['blocker'] == 'owned_peer_observation_unavailable'
+    assert result['unavailable_peer'] == 'Spiritual'
+    assert result['ungranted_peer_handoff_released'] is True
+    assert released == ['Spiritual']
+    assert x.j.get('Dutch', 'inventory_queue') is None
+    assert ui.runtime.refills['Dutch'].state() == before
+
+
+def test_peer_reader_failure_is_attributed_to_the_peer(monkeypatch):
+    from conquest.merchants import listing_plan_1078
+    monkeypatch.setattr(listing_plan_1078, 'observe', lambda *_:
+                        (_ for _ in ()).throw(ValueError('Invalid 1078 health candidate')))
+    with pytest.raises(listing_plan_1078.OwnedPeerUnavailable,
+                       match='Spiritual owned booth observation unavailable') as caught:
+        listing_plan_1078._peer(None, SimpleNamespace(id='spiritual-profile', name='Spiritual'))
+    assert caught.value.character == 'Spiritual'
+
+
+def test_only_ungranted_unsent_unavailable_peer_handoff_is_released(tmp_path, monkeypatch):
+    from conquest.merchants.listing_handoff_1078 import release_ungranted_unavailable_peer
+    monkeypatch.setattr('conquest.merchants.background_probe.probe_busy',lambda _: False)
+    journal = Journal(tmp_path/'journal.sqlite3')
+    runtime = SimpleNamespace(lock=threading.RLock(), journal=journal,
+        handoff='merchant-refill:Spiritual:123456789', delivery_window=None,
+        refill_window=None, stop_event=threading.Event(),
+        manual_handoff_status=lambda: None)
+    coordinator = SimpleNamespace(owner=None, stopped=False, manual_active=lambda: False)
+    fence = SimpleNamespace(active=None, requests={})
+    ui = SimpleNamespace(runtime=runtime, coordinator=coordinator, grant=None,
+                         grant_fence=fence, host_release_pending=None)
+    assert release_ungranted_unavailable_peer(ui,'Spiritual') is True
+    assert runtime.handoff is None
+    for unsafe in ('merchant-refill:Spiritual:123456789','operator-request'):
+        runtime.handoff=unsafe
+        fence.requests[unsafe]={'revoked':True}
+        assert release_ungranted_unavailable_peer(ui,'Spiritual') is False
+        assert runtime.handoff==unsafe
+        fence.requests.clear()
+    runtime.handoff='merchant-refill:Spiritual:123456789'
+    ui.grant={'request_id':runtime.handoff}
+    assert release_ungranted_unavailable_peer(ui,'Spiritual') is False
+    assert runtime.handoff=='merchant-refill:Spiritual:123456789'
+
+
 def fresh_binding(x,booth_uid=38):
     current=deepcopy(x.before)
     current.update(own_booth_uid=booth_uid,profile_id='test-dutch',profile_uid_verified=True,

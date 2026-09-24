@@ -10,6 +10,7 @@ import uuid
 
 from conquest.capture import CaptureUnavailable
 from conquest.merchants.listing_capability_1078 import require
+from conquest.merchants.listing_plan_1078 import OwnedPeerUnavailable
 
 
 def _blocked(code, note=None):
@@ -235,6 +236,11 @@ def step(ui, character, snapshot):
             return {'state': 'waiting_interval', 'next_check': state['next_check']}
         if state.get('pending') and state.get('listing1078_engine') != 1:
             return _blocked('legacy_refill_cursor_needs_reconciliation')
+        if not snapshot['booth_open']:
+            from conquest.merchants.owned_booth_panel_1078 import prepare_due
+            panel_result = prepare_due(ui, character, snapshot)
+            if panel_result is not None:
+                return panel_result
         if (snapshot['map_id'] != 1036 or snapshot['hp'] <= 0
                 or not snapshot['own_booth_uid'] or not snapshot['booth_open']):
             return _blocked('owned_booth_open_required')
@@ -305,6 +311,12 @@ def step(ui, character, snapshot):
         receipt = dispatch(ui, request, scheduled_refill=True)
         return {'state': 'listing_pending', 'request_id': request['request_id'],
                 'phase': receipt['phase']}
+    except OwnedPeerUnavailable as error:
+        from conquest.merchants.listing_handoff_1078 import release_ungranted_unavailable_peer
+        released = release_ungranted_unavailable_peer(ui, error.character)
+        return {**_blocked('owned_peer_observation_unavailable', str(error)),
+                'unavailable_peer': error.character,
+                'ungranted_peer_handoff_released': released}
     except (ValueError, OSError, KeyError, TypeError, CaptureUnavailable) as error:
         return _blocked('refill_precondition_unavailable', str(error))
     finally:

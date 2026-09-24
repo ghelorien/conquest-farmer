@@ -286,3 +286,43 @@ def request_handoff(runtime, character):
         if runtime.handoff is None:
             runtime.handoff = f'merchant-refill:{character}:{time.time_ns()}'
         return runtime.handoff
+
+
+def release_ungranted_unavailable_peer(ui, character):
+    """Forfeit only an unsent refill request from a peer that cannot be read.
+
+    A request with any grant, active input, or transaction stays held for
+    reconciliation. This does not cancel a listing or modify saved refill intent.
+    """
+    from conquest.merchants.journal import character_name
+    from conquest.merchants.owned_booth_panel_1078 import pending as panel_pending
+    peer = character_name(character)
+    runtime, coordinator = ui.runtime, ui.coordinator
+    with runtime.lock:
+        request = runtime.handoff
+        if (not isinstance(request, str) or
+                not re.fullmatch(r'merchant-refill:' + re.escape(peer) + r':\d+', request)
+                or ui.grant is not None or ui.grant_fence.active is not None
+                or request in ui.grant_fence.requests
+                or coordinator.owner is not None or coordinator.manual_active()
+                or runtime.manual_handoff_status() is not None
+                or runtime.stop_event.is_set() or coordinator.stopped
+                or runtime.delivery_window or runtime.refill_window
+                or getattr(ui, 'host_release_pending', None)):
+            return False
+        panel = panel_pending(runtime.journal, peer)
+        if panel and panel['phase'] not in ('verified','aborted','operator_overridden'):
+            return False
+        from conquest.merchants.background_probe import probe_busy
+        if probe_busy(ui) or runtime.journal.pending(peer):
+            return False
+        with runtime.journal.db() as db:
+            if (db.execute("SELECT 1 FROM transactions WHERE phase NOT IN "
+                           "('verified','aborted','operator_overridden') LIMIT 1").fetchone()
+                    or db.execute("SELECT 1 FROM delivery_admissions WHERE phase NOT IN "
+                                  "('verified','aborted','operator_overridden') LIMIT 1").fetchone()):
+                return False
+        if runtime.handoff != request:
+            return False
+        runtime.handoff = None
+        return True

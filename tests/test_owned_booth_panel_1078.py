@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 import json
 import struct
+import threading
 import time
 from types import SimpleNamespace as NS
 
@@ -41,6 +42,14 @@ def opened(x):
         'owned_booth':{'model_key':25,'owner_uid':77,'model_owner_verified':True},
         'price_modal':{'observed':False}})
     return s
+
+
+def marked(x):
+    value={'candidate':{'actor_address':'0x123456','owned_booth_uid':77},
+           'selected':{'selected_actor':'0x123466','owned_booth_uid':77},
+           'identity':x.snap['identity'],'hwnd':12,
+           'native_code_sha256':[pin[2] for pin in hover.PINS]}
+    x.j.step(x.key,'panel_click','before_action',value)
 
 
 def test_closed_panel_full_assets_and_new_actor_binding(state):
@@ -85,7 +94,7 @@ def test_request_uids_require_exact_positive_integers(state,field,value):
 
 
 def test_submitted_receipt_settles_read_only_and_survives_restart(state,monkeypatch):
-    x=state;x.j.step(x.key,'panel_click','before_action',{'selected':{'owned_booth_uid':77}})
+    x=state;marked(x)
     x.j.transition(x.key,'uncertain',{'click_attempted':True})
     monkeypatch.setattr('conquest.merchants.observe_1078.observe',lambda *a,**k:opened(x))
     result=panel.reconcile(x.ui,'Dutch',x.key)
@@ -95,6 +104,87 @@ def test_submitted_receipt_settles_read_only_and_survives_restart(state,monkeypa
     assert saved['request_id']==x.key
     assert panel.reconcile(x.ui,'Dutch',x.key)==result
     with pytest.raises(ValueError):panel.require_receipt(x.ui.runtime,'Dutch',{**x.snap,'identity':{'pid':99}})
+
+
+@pytest.fixture
+def qualified(state,monkeypatch):
+    x=state;marked(x)
+    monkeypatch.setattr('conquest.merchants.observe_1078.observe',lambda *a,**k:opened(x))
+    panel.reconcile(x.ui,'Dutch',x.key)
+    x.ui.runtime.refills={'Dutch':NS(due=lambda:True)}
+    x.ui.runtime.refill_enabled=lambda c:True
+    return x
+
+
+def test_due_new_booth_preparation_uses_verified_historical_receipt_without_rebinding(qualified,monkeypatch):
+    x=qualified;calls=[]
+    historical=panel.status(x.j,'Dutch',x.key)
+    current={**deepcopy(x.snap),'own_booth_uid':99,'timestamp':time.time()}
+    def prepare(ui,body):
+        calls.append(body)
+        assert body['expected_own_booth_uid']==99 and body['expected_identity']==x.snap['identity']
+        assert body['request_id']!=x.key
+        x.j.begin(body['request_id'],'Dutch',panel.KIND,{'request':body})
+        x.j.set('Dutch',panel.PENDING,body['request_id'])
+        return {'request_id':body['request_id'],'phase':'prepared'}
+    monkeypatch.setattr(panel,'prepare',prepare)
+    assert panel.prepare_due(x.ui,'Dutch',current)['state']=='owned_panel_prepared'
+    assert panel.prepare_due(x.ui,'Dutch',current)['blocker']=='owned_panel_request_needs_reconciliation'
+    assert len(calls)==1 and panel.status(x.j,'Dutch',x.key)==historical
+
+
+@pytest.mark.parametrize('case',['no_receipt','process','build','not_due','refill_paused','already_open'])
+def test_automatic_prepare_retains_receipt_due_and_intent_guards(qualified,monkeypatch,case):
+    x=qualified;current=deepcopy(x.snap)
+    monkeypatch.setattr(panel,'prepare',lambda *a:pytest.fail('No automatic preparation admitted'))
+    if case=='no_receipt':x.j.set('Dutch',panel.CAPABILITY,None)
+    elif case=='process':current['identity']={'pid':999}
+    elif case=='build':current['client_sha256']='changed'
+    elif case=='not_due':x.ui.runtime.refills['Dutch'].due=lambda:False
+    elif case=='refill_paused':x.ui.runtime.refill_enabled=lambda c:False
+    else:current['booth_open']=True
+    result=panel.prepare_due(x.ui,'Dutch',current)
+    if case in ('not_due','already_open'):assert result is None
+    else:assert result['state']=='waiting'
+
+
+@pytest.mark.parametrize('phase',['prepared','uncertain','aborted'])
+def test_automatic_prepare_never_replaces_held_request(qualified,monkeypatch,phase):
+    x=qualified;key='booth-open1078-held-request'
+    x.j.begin(key,'Dutch',panel.KIND,{'request':{}})
+    if phase!='prepared':x.j.transition(key,phase,{})
+    x.j.set('Dutch',panel.PENDING,key)
+    monkeypatch.setattr(panel,'prepare',lambda *a:pytest.fail('Existing exact request stays held'))
+    assert panel.prepare_due(x.ui,'Dutch',x.snap)['request_id']==key
+
+
+def test_global_stop_blocks_real_prepare_before_journal_mutation(qualified):
+    x=qualified
+    x.ui.closed=False;x.ui.app=NS(closing=False)
+    x.ui.runtime.stop_event=NS(is_set=lambda:False)
+    x.ui.coordinator=NS(stopped=True)
+    before=x.j.trace(x.key)
+    with pytest.raises(panel.CaptureUnavailable,match='stopped'):
+        panel.prepare_due(x.ui,'Dutch',x.snap)
+    assert x.j.get('Dutch',panel.PENDING)==x.key and x.j.trace(x.key)==before
+
+
+def test_grant_activated_during_preflight_prevents_new_panel_request(state,monkeypatch):
+    x=state;x.ui.grant=None
+    x.ui.runtime.lock=threading.RLock()
+    x.ui.runtime.observers={'Dutch':NS(adapter=NS(identity=x.snap['identity']),hwnd=12)}
+    monkeypatch.setattr(panel,'_idle',lambda *a,**k:None)
+    monkeypatch.setattr('conquest.merchants.listing_capability_1078.require',lambda *a:None)
+    calls=[]
+    def observe(*args,**kwargs):
+        calls.append(1)
+        if len(calls)==2:x.ui.grant={'request_id':'another-existing-grant'}
+        return {**x.snap,'timestamp':time.time(),'booth_target_preflight':{}}
+    monkeypatch.setattr('conquest.merchants.observe_1078.observe',observe)
+    body={**x.body,'request_id':'booth-open1078-concurrent-grant'}
+    with pytest.raises(ValueError,match='granted during'):
+        panel.prepare(x.ui,body)
+    assert panel._row(x.j,body['request_id']) is None
 
 
 def test_panel_scope_never_admits_listing_or_cancel(state):
