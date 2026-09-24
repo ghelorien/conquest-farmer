@@ -958,6 +958,8 @@ class OvernightLoop:
         # is allowed until that read has released the durable ownership hold.
         delivery_journey.reconcile_pending_scroll(self)
         guard_protected_assets()
+        from conquest.manual_storage_recovery import resume as resume_manual_storage
+        resume_manual_storage(self)
         if delivery_journey.pending():
             self.stop_farm()
             delivery_journey.resume(self)

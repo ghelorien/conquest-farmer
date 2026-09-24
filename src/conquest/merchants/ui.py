@@ -314,6 +314,9 @@ class UnifiedUI:
         body=normalize_command(body)
         if body=={'action':'profiles'}:return {'profiles':profile_status()}
         action = body.get('action')
+        if action=='report-manual-phoenix-storage':
+            from conquest.manual_storage_recovery import report_command
+            return report_command(self,body)
         if action=='show-merchant-view' and set(body)=={'action','character'}:
             from conquest.merchants.restore_hosts import present_user_view
             character=character_name(body['character'])

@@ -416,9 +416,10 @@ def dispatch(ui, body, *, scheduled_refill=False):
             or observed['listing_preflight']['price_modal'].get('observed') is not False):
         raise ValueError('Refresh exact merchant ownership with the price dialog closed')
     item = _selected(observed, body)
+    capability_binding = None
     if scheduled_refill:
-        from conquest.merchants.listing_capability_1078 import require
-        require(journal, character, observed)
+        from conquest.merchants.listing_capability_1078 import bind_current
+        capability_binding = bind_current(journal, character, observed, body)
     if len(observed['booth']) >= 32:
         raise ValueError('Owned booth has no free listing slot')
     plan = _price_plan(ui, character, observed, item)
@@ -448,6 +449,8 @@ def dispatch(ui, body, *, scheduled_refill=False):
               'listing_engine_revision': ENGINE_REVISION,
               'scheduled_foreground_refill': scheduled_refill,
               'farmer_grant': dict(ui.grant) if getattr(ui, 'grant', None) else None}
+    if capability_binding is not None:
+        before['source_capability_binding'] = capability_binding
     if not journal.begin(request_id, character, KIND, before):
         return _status(journal, request_id, character)
     worker = threading.Thread(target=_run, args=(ui, character, profile, before, token),
@@ -543,7 +546,7 @@ def _run(ui, character, profile, before, token):
                     _validate_snapshot(baseline, profile, request)
                     if before.get('scheduled_foreground_refill'):
                         from conquest.merchants.listing_capability_1078 import require
-                        require(journal, character, baseline)
+                        require(journal, character, {**baseline,'client_sha256':session.expected_sha256})
                     from conquest.focus_recovery import activate_client
                     # The explicit exact-item request also authorizes safe
                     # native focus for its first supervised live proof. This

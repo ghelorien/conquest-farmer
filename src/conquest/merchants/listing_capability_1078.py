@@ -1,7 +1,9 @@
 """Receipt-backed qualification for one narrowly bounded native listing path.
 
 This never qualifies focus, embedding, booth opening, trade or recovery. A
-verified live submission in the same process and owned booth is required.
+verified live submission in the same process and configured character is required.
+Its historical booth ID is evidence; every new request binds its current owned
+booth independently. Existing requests never change that binding.
 Static renderer pins, observations and legacy qualification JSON grant nothing.
 """
 import hashlib
@@ -55,12 +57,15 @@ def _proof(before, steps, first, second):
     if confirm != {'uid': request['item_uid'], 'price': request['price'],
                    'owned_booth_uid': request['expected_own_booth_uid']}:
         raise ValueError('Irreversible confirmation does not match the exact request')
-    return {'capability': CAPABILITY, 'engine_revision': ENGINE_REVISION,
+    proof = {'capability': CAPABILITY, 'engine_revision': ENGINE_REVISION,
             'client_sha256': CLIENT_SHA256_1078, 'profile_id': before['profile_id'],
             'identity': request['expected_identity'],
             'character_uid': request['expected_character_uid'],
             'own_booth_uid': request['expected_own_booth_uid'],
             'first': first, 'second': second}
+    if 'source_capability_binding' in before:
+        proof['source_capability_binding'] = before['source_capability_binding']
+    return proof
 
 
 def settle(journal, request_id, first, second):
@@ -101,7 +106,7 @@ def settle(journal, request_id, first, second):
 
 def require(journal, character, snapshot):
     """Revalidate the durable source receipt, never a saved boolean flag."""
-    from conquest.merchants.booth_listing_once_1078 import KIND
+    from conquest.merchants.booth_listing_once_1078 import KIND, _profile
     from conquest.merchants.journal import character_name
     character = character_name(character)
     with journal.db() as db:
@@ -121,13 +126,48 @@ def require(journal, character, snapshot):
         validated = _proof(json.loads(row['before_json']), steps, proof['first'], proof['second'])
         if proof != validated or saved['proof_digest'] != _digest(proof):
             raise ValueError('listing_live_receipt_changed')
-    if (snapshot['identity'] != proof['identity']
+    profile = _profile(character)
+    if (snapshot.get('client_sha256') != CLIENT_SHA256_1078
+            or profile.id != proof['profile_id']
+            or profile.character_uid != proof['character_uid']
+            or profile.name != proof['second']['character'] or profile.server != 'America'
+            or snapshot['identity'] != proof['identity']
             or snapshot['character_uid'] != proof['character_uid']
-            or snapshot['own_booth_uid'] != proof['own_booth_uid']
             or snapshot['character'] != proof['second']['character']
             or snapshot['server'] != 'America'):
-        raise ValueError('listing_process_or_owned_booth_changed')
-    return saved
+        raise ValueError('listing_build_process_or_character_changed')
+    return {**saved, 'qualified_own_booth_uid': proof['own_booth_uid'],
+            'profile_id': proof['profile_id']}
+
+
+def bind_current(journal, character, snapshot, request):
+    """Provenance for a NEW current-booth request, never a receipt rewrite."""
+    from conquest.merchants.booth_listing_once_1078 import _profile, _validate_snapshot
+    with journal.db() as db:
+        if db.execute('SELECT 1 FROM transactions WHERE id=?',(request['request_id'],)).fetchone():
+            raise ValueError('Existing listing request cannot be rebound to another booth')
+    evidence = require(journal, character, snapshot)
+    preflight = snapshot.get('listing_preflight') or {}
+    owned = preflight.get('owned_booth') or {}
+    if (snapshot.get('profile_id') != evidence['profile_id']
+            or snapshot.get('profile_uid_verified') is not True
+            or snapshot.get('closed_modal') is not True
+            or preflight.get('layout_observed') is not True
+            or not preflight.get('inventory_grid') or not preflight.get('booth_grid')
+            or owned.get('model_owner_verified') is not True
+            or owned.get('model_key') != 25
+            or owned.get('owner_uid') != snapshot['own_booth_uid']
+            or (preflight.get('price_modal') or {}).get('observed') is not False):
+        raise ValueError('Current owned booth model and grids require fresh verified preflight')
+    _validate_snapshot({**snapshot, 'trade': None, 'request': None}, _profile(character), request)
+    return {'version': 1, 'source_request_id': evidence['request_id'],
+            'source_proof_digest': evidence['proof_digest'],
+            'qualified_own_booth_uid': evidence['qualified_own_booth_uid'],
+            'current_own_booth_uid': snapshot['own_booth_uid'],
+            'current_request_id': request['request_id'],
+            'profile_id': evidence['profile_id'], 'client_sha256': CLIENT_SHA256_1078,
+            'identity': snapshot['identity'], 'character_uid': snapshot['character_uid'],
+            'observed_at': snapshot['timestamp'], 'snapshot_digest': _digest(snapshot)}
 
 
 def status(journal, character, snapshot):

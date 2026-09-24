@@ -1538,7 +1538,8 @@ class DesktopApp:
         from conquest.storage_overflow import pending
         from conquest import meteor_banking
         from conquest.merchants.delivery_journey import pending as merchant_journey_pending
-        if (pending() or meteor_banking.pending() or merchant_journey_pending()) and self.selected_route:
+        from conquest.manual_storage_recovery import pending as manual_storage_pending
+        if (pending() or meteor_banking.pending() or merchant_journey_pending() or manual_storage_pending()) and self.selected_route:
             from conquest.route_controller import ensure_running
             if ensure_running(self.selected_route.id,fresh_start=fresh_start) and fresh_start:
                 self._fresh_controller_start_revision=None

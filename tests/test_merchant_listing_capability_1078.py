@@ -22,7 +22,8 @@ def item(uid=91, price=None):
 
 
 def snapshot():
-    return dict(identity={'pid': 1, 'creation_time_100ns': 2, 'path': 'C:/ImConquer.exe'},
+    return dict(client_sha256=CLIENT_SHA256_1078,
+                identity={'pid': 1, 'creation_time_100ns': 2, 'path': 'C:/ImConquer.exe'},
                 character='Dutch', character_uid=8, server='America', map_id=1036,
                 position=[262, 211], hp=900, silver=10, capacity=40,
                 inventory=[item()], booth=[], own_booth_uid=18, booth_open=True,
@@ -30,7 +31,9 @@ def snapshot():
 
 
 @pytest.fixture
-def receipt(tmp_path):
+def receipt(tmp_path,monkeypatch):
+    monkeypatch.setattr(listing,'_profile',lambda character:SimpleNamespace(
+        id='test-dutch',character_uid=8,name='Dutch',server='America'))
     journal = Journal(tmp_path/'journal.sqlite3')
     before = snapshot()
     request = dict(action='merchant-booth-list-once-1078', character='Dutch',
@@ -67,7 +70,7 @@ def test_verified_exact_receipt_promotes_only_same_process_open_booth_path(recei
     assert state['booth_input'] is False and state['trade'] is False
     assert state['market_return'] is False and state['automatic_focus'] is False
     changed = {**x.second, 'identity': {**x.second['identity'], 'creation_time_100ns': 3}}
-    with pytest.raises(ValueError, match='process_or_owned_booth_changed'):
+    with pytest.raises(ValueError, match='build_process_or_character_changed'):
         capability.require(journal, 'Dutch', changed)
 
 
@@ -203,7 +206,6 @@ def test_due_scheduler_uses_shared_highest_value_plan_with_operations_paused(rec
     capability.settle(x.j, x.key, x.first, x.second)
     current = {**deepcopy(x.second), 'inventory': [item(92), item(93)]}
     ui = make_ui(x.j, current)
-    monkeypatch.setattr(listing, '_profile', lambda c: object())
     monkeypatch.setattr(listing, '_policy', lambda *a, **k: None)
     monkeypatch.setattr(listing, '_farmer_safe_market', lambda *a: {'pid': 10})
     from conquest import input_probe
@@ -221,3 +223,76 @@ def test_due_scheduler_uses_shared_highest_value_plan_with_operations_paused(rec
     assert x.j.get('Dutch', 'enabled') is False
     assert x.j.get('Dutch', 'inventory_queue') == [93, 92]
     assert ui.runtime.refills['Dutch'].state()['last_checked'] is None
+
+
+def fresh_binding(x,booth_uid=38):
+    current=deepcopy(x.before)
+    current.update(own_booth_uid=booth_uid,profile_id='test-dutch',profile_uid_verified=True,
+        closed_modal=True,timestamp=time.time(),listing_preflight={
+            'layout_observed':True,'inventory_grid':{'id':1},'booth_grid':{'id':2},
+            'owned_booth':{'model_key':25,'owner_uid':booth_uid,'model_owner_verified':True},
+            'price_modal':{'observed':False}})
+    request={**deepcopy(x.request),'request_id':'booth-list1078-new-stall',
+             'expected_own_booth_uid':booth_uid}
+    return current,request
+
+
+def test_same_actor_new_owned_booth_retains_control_proof_and_records_current_binding(receipt):
+    x=receipt;capability.settle(x.j,x.key,x.first,x.second)
+    with x.j.db() as db:
+        original=tuple(db.execute('SELECT before_json,result_json FROM transactions WHERE id=?',(x.key,)).fetchone())
+    saved=x.j.get('Dutch',capability.STATE)
+    current,request=fresh_binding(x)
+    assert capability.require(x.j,'Dutch',current)['qualified_own_booth_uid']==18
+    binding=capability.bind_current(x.j,'Dutch',current,request)
+    assert binding['source_request_id']==x.key and binding['source_proof_digest']==saved['proof_digest']
+    assert binding['qualified_own_booth_uid']==18 and binding['current_own_booth_uid']==38
+    assert binding['current_request_id']==request['request_id']
+    assert binding['snapshot_digest']==capability._digest(current)
+    with x.j.db() as db:
+        assert tuple(db.execute('SELECT before_json,result_json FROM transactions WHERE id=?',(x.key,)).fetchone())==original
+    assert x.j.get('Dutch',capability.STATE)==saved
+
+
+@pytest.mark.parametrize('field,value',[('identity',{'pid':2}),('character_uid',9),
+                                      ('character','Spiritual'),('server','Other'),
+                                      ('client_sha256','different-build')])
+def test_control_receipt_cannot_cross_identity_or_build(receipt,field,value):
+    x=receipt;capability.settle(x.j,x.key,x.first,x.second)
+    current,request=fresh_binding(x);current[field]=value
+    with pytest.raises(ValueError,match='build_process_or_character_changed'):
+        capability.bind_current(x.j,'Dutch',current,request)
+
+
+def test_control_receipt_cannot_cross_profile(receipt,monkeypatch):
+    x=receipt;capability.settle(x.j,x.key,x.first,x.second)
+    current,request=fresh_binding(x)
+    monkeypatch.setattr(listing,'_profile',lambda c:SimpleNamespace(
+        id='other-profile',character_uid=8,name='Dutch',server='America'))
+    with pytest.raises(ValueError,match='build_process_or_character_changed'):
+        capability.bind_current(x.j,'Dutch',current,request)
+
+
+@pytest.mark.parametrize('change',['foreign_model','unverified_model','missing_grid','stale','closed_panel'])
+def test_new_booth_requires_current_owned_model_and_live_grids(receipt,change):
+    x=receipt;capability.settle(x.j,x.key,x.first,x.second)
+    current,request=fresh_binding(x)
+    if change=='foreign_model':current['listing_preflight']['owned_booth']['owner_uid']=99
+    elif change=='unverified_model':current['listing_preflight']['owned_booth']['model_owner_verified']=False
+    elif change=='missing_grid':current['listing_preflight']['booth_grid']=None
+    elif change=='stale':current['timestamp']-=2
+    else:current['booth_open']=False
+    with pytest.raises(ValueError):capability.bind_current(x.j,'Dutch',current,request)
+
+
+def test_pending_old_request_cannot_be_rebound_or_used_on_new_booth(receipt):
+    x=receipt;capability.settle(x.j,x.key,x.first,x.second)
+    current,request=fresh_binding(x)
+    old={**deepcopy(x.request),'request_id':'booth-list1078-pending-old'}
+    x.j.begin(old['request_id'],'Dutch',listing.KIND,{'request':old,'snapshot':x.before})
+    redirected={**old,'expected_own_booth_uid':38}
+    with pytest.raises(ValueError,match='cannot be rebound'):
+        capability.bind_current(x.j,'Dutch',current,redirected)
+    with pytest.raises(ValueError,match='owned booth'):
+        listing._validate_snapshot(current,listing._profile('Dutch'),old)
+    assert json.loads(listing._row(x.j,old['request_id'])['before_json'])['request']['expected_own_booth_uid']==18
