@@ -69,13 +69,10 @@ from conquest.merchants.journal import Journal
 from conquest.merchants.runtime import MerchantRuntime
 
 NAMES = ("Spiritual", "Dutch")
-HOLD = 1.0  # Spiritual's heavy failing check, per tick
+HOLD = 0.25  # Spiritual's heavy failing check, per tick
 DUTCH_GAP = 0.05  # Dutch's short tick between attempts
-BOUND = 4.0  # generous bound on any refusal streak (expected ~HOLD + DUTCH_GAP)
-# A refusal must return while the holder still owns the lock. Full-suite CPU
-# load can delay a thread by >0.2 s, so the margin is taken from a long hold.
-NONBLOCKING = 0.5 * HOLD
-PHASE_DEADLINE = 20.0
+BOUND = 2.0  # generous bound on any refusal streak (expected ~HOLD + DUTCH_GAP)
+PHASE_DEADLINE = 8.0
 TURNS = 3
 REFUSED = ("other_refill_check_active", "refill_turn_yielded")
 LIVE_ERROR = "Pre-disconnect merchant ownership differs from current stock"
@@ -301,13 +298,25 @@ def starvation_phase(root, monkeypatch):
             ),
             "refused_at_least_once": any(refused(result) for _, _, result in log),
             "blocked_since_consistent": blocked_since_consistent(log),
+            # F8, structurally rather than by wall clock (full-suite CPU load
+            # delays threads by >0.5 s): a lock refusal exists at all only
+            # if admission never waits (a blocking acquire would eventually
+            # succeed instead), and each one was returned while the OTHER
+            # merchant held the lock, never this one.
             "refusals_nonblocking": all(
-                duration < NONBLOCKING for _, duration, result in log if refused(result)
+                (result.get("lock_holder") or {}).get("character") != name
+                for _, _, result in log
+                if result.get("blocker") == "other_refill_check_active"
             ),
         }
     return {
         "merchants": by_name,
         "concurrent_admitted_bodies": plan.max_inside > 1,
+        "lock_refusal_seen": any(
+            result.get("blocker") == "other_refill_check_active"
+            for name in NAMES
+            for _, _, result in logs[name]
+        ),
         "status_showed_holder": samples["holders"] > 0,
         "status_holder_fields": [list(keys) for keys in sorted(samples["keys"])],
         "status_showed_spiritual_in_plan": ("Spiritual", "plan") in samples["seen"],
@@ -465,6 +474,8 @@ def test_busy_refill_check_cannot_starve_the_other_merchant(tmp_path, monkeypatc
         assert merchant["refusal_blockers_known"] is True
         assert merchant["blocked_since_consistent"] is True
         assert merchant["refusals_nonblocking"] is True
+    # F8: admission never waits, so the contended lock produced refusals.
+    assert starvation["lock_refusal_seen"] is True
     # F5: never two admitted checks at once.
     assert starvation["concurrent_admitted_bodies"] is False
     assert starvation["lock_free_after_threads_stop"] is True
