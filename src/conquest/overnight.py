@@ -1569,6 +1569,12 @@ class OvernightLoop:
         # Only a proved restock whose Meteor batch completed on restart, with no
         # recorded or possible transfer since it began; claimed once, never replayed.
         resume_restock_cash_tail(self)
+        from conquest.restock_restart import resume as restart_zero_transaction_restock
+
+        # Only a restock whose route failed walking to the Warehouseman before
+        # any transaction, proved from its journals; revives a dead farmer via
+        # living() first, marks it once, then runs restock() again; never replayed.
+        restart_zero_transaction_restock(self)
         # Never leave town merely because a restarted worker sees stocked
         # supplies. The previous process may have stopped before banking or
         # may have submitted a transfer whose result needs reconciliation.

@@ -173,6 +173,9 @@ class FakeGame:
                     self.runner_note = "Farm runner stopped: ammo_unavailable"
                 if not body["enabled"]:
                     self.runner_note = None
+            if "route_id" in body and getattr(self, "death_return", None):
+                # The app's route selection cancels its native death return.
+                self.death_return.write_text(json.dumps({"phase": "cancelled"}))
             return {}
         if operation == "revive-click":
             if not self.dead:
