@@ -154,27 +154,19 @@ def verify_observer(context, observer):
 
     session = observer.adapter
     layout = read_build_layout(session)
-    if getattr(observer, "read_only_build", False):
-        from conquest.memory_life import MemoryLifeReader
+    if not getattr(observer, "read_only_build", False):
+        # Only exact-build observers have a qualified life reader; any
+        # other observer fails as the retired 1074 reader did.
+        raise ValueError("Life candidate offsets belong to a different client build")
+    from conquest.memory_life import MemoryLifeReader
 
-        life = MemoryLifeReader.for_session(session, context.profile.name).read()
-        base = GuiReader.for_session(session).base
-        server_rva = layout.merchant_server_rva
-    else:
-        from conquest.memory_life import read_life
-
-        life = read_life(session, observer.health_layout, context.profile.name)
-        base = GuiReader(session).base
-        server_rva = 0x697860
+    life = MemoryLifeReader.for_session(session, context.profile.name).read()
+    base = GuiReader.for_session(session).base
+    server_rva = layout.merchant_server_rva
     server = session.read_block(base + server_rva, 64).split(b"\0")[0]
     if server != b"Classic_US":
         raise ValueError("This engine supports the qualified America client only")
-    uid = character_uid(
-        session,
-        base,
-        life.object_address,
-        layout=layout if getattr(observer, "read_only_build", False) else None,
-    )
+    uid = character_uid(session, base, life.object_address, layout=layout)
     evidence = {
         "character": context.profile.name,
         "server": "America",

@@ -198,7 +198,7 @@ class Operations:
                 raise ValueError("Revive does not accept arbitrary click coordinates")
             # Recovery is a separate action: a ghost may retain positive HP.
             # It must never reuse the healthy-character combat/movement guard.
-            from conquest.memory_life import MemoryLifeReader, read_life
+            from conquest.memory_life import MemoryLifeReader
             from conquest.memory_build_layout import CLIENT_SHA256_1078
             from conquest.memory_health import HealthLayout
             from types import SimpleNamespace
@@ -213,16 +213,16 @@ class Operations:
                 read=self.session.read,
                 read_block=self.session.read,
             )
-            exact_1078 = self.session.expected_sha256 == CLIENT_SHA256_1078
-            if exact_1078:
-                # The legacy read_life entry point pins the 1074 map RVA.
-                # The exact build reader owns 1078's player and health layouts.
-                from conquest.merchants.memory import GuiReader
+            if self.session.expected_sha256 != CLIENT_SHA256_1078:
+                # Only the exact 1078 reader owns a qualified life layout;
+                # every other build fails as the retired 1074 reader did.
+                raise ValueError(
+                    "Life candidate offsets belong to a different client build"
+                )
+            from conquest.merchants.memory import GuiReader
 
-                adapter.viewport_size = GuiReader.for_session(adapter).viewport_size
-                life = MemoryLifeReader.for_session(adapter, body["character"]).read()
-            else:
-                life = read_life(adapter, layout, body["character"])
+            adapter.viewport_size = GuiReader.for_session(adapter).viewport_size
+            life = MemoryLifeReader.for_session(adapter, body["character"]).read()
             if not life.revive_ready_candidate:
                 raise ValueError(
                     "The inspected ghost state is not present; no Revive click sent"
@@ -232,20 +232,13 @@ class Operations:
             viewport = validate_size(body.get("expected_size", []))
             if tuple(self.target.snapshot()["client_size"]) != viewport:
                 raise ValueError("Revive client geometry changed")
-            if exact_1078:
-                if tuple(adapter.viewport_size()) != viewport:
-                    raise ValueError("Revive native viewport changed")
-            else:
-                adapter.viewport_size = lambda: viewport
+            if tuple(adapter.viewport_size()) != viewport:
+                raise ValueError("Revive native viewport changed")
             logical_point = revive_point(adapter, viewport)
             mode = body.get("input_mode", "background")
             if mode == "background":
-                if exact_1078:
-                    raise ValueError(
-                        "1078 Revive requires native foreground control qualification"
-                    )
-                result = click_probe(
-                    self.target, *logical_point, list(viewport), move_settle_seconds=0.2
+                raise ValueError(
+                    "1078 Revive requires native foreground control qualification"
                 )
             elif mode == "foreground":
                 # The hosted child shares its wrapper's foreground root. Convert
@@ -262,8 +255,6 @@ class Operations:
                     ]
 
                     def before_press():
-                        if not exact_1078:
-                            return
                         try:
                             fresh = MemoryLifeReader.for_session(
                                 adapter, body["character"]
@@ -300,8 +291,8 @@ class Operations:
                         self.target,
                         *point,
                         size,
-                        require_foreground=exact_1078,
-                        before_press=before_press if exact_1078 else None,
+                        require_foreground=True,
+                        before_press=before_press,
                     )
             else:
                 raise ValueError("Unknown recovery input mode")

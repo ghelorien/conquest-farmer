@@ -82,17 +82,18 @@ class EmbeddedObserver:
             return self._observe()
 
     def read_life(self):
-        if self.read_only_build:
-            from conquest.memory_life import MemoryLifeReader
+        if not self.read_only_build:
+            # Only the exact 1078 reader owns a qualified life layout;
+            # any other build fails as the retired 1074 reader did.
+            raise ValueError(
+                "Life candidate offsets belong to a different client build"
+            )
+        from conquest.memory_life import MemoryLifeReader
 
-            return MemoryLifeReader.for_session(self.adapter, self.character).read()
-        from conquest.memory_life import read_life
-
-        return read_life(self.adapter, self.health_layout, self.character)
+        return MemoryLifeReader.for_session(self.adapter, self.character).read()
 
     def _observe(self):
         import win32gui
-        from conquest.memory_life import read_life, MemoryLifeReader
         from conquest.reconnect import login_screen
 
         if self.read_only_build:
@@ -141,36 +142,10 @@ class EmbeddedObserver:
                 "read_only_worker": True,
                 "blockers": ["Client is disconnected"],
             }
-        life = read_life(self.adapter, self.health_layout, self.character)
-        try:
-            entities = self.entities.read()
-            monsters = [asdict(monster) for monster in entities.monsters]
-            available, note = True, "Connected to embedded client"
-        except ValueError as error:
-            monsters, available, note = [], False, str(error)
-        window = self.operations.target.snapshot()
-        root = win32gui.GetAncestor(window["hwnd"], 2)
-        return {
-            "monsters": monsters,
-            "observations_available": available,
-            "observation_note": note,
-            "hp_candidate": life.current_hp,
-            "max_hp_candidate": life.max_hp,
-            "life": {**asdict(life), "dead_candidate": life.dead_candidate},
-            "focused": window["foreground"] == root
-            and bool(win32gui.IsWindowVisible(window["hwnd"])),
-            "minimized": bool(win32gui.IsIconic(root))
-            or not bool(win32gui.IsWindowVisible(window["hwnd"])),
-            "observed_at": time.time(),
-            "read_only_worker": True,
-            "blockers": [
-                "Monster life state and kill-linked loot need live validation",
-                "Input for the embedded client has not been verified",
-            ],
-        }
+        # No build other than 1078 has a qualified life reader.
+        raise ValueError("Life candidate offsets belong to a different client build")
 
     def sample_npcs(self):
-        from conquest.memory_life import read_life
         from conquest.memory_npcs import MemoryNpcReader
         from conquest.reconnect import login_screen
 
