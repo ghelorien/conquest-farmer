@@ -1065,6 +1065,41 @@ def test_recurring_rollout_rejects_missing_or_invented_receipts(journal, tmp_pat
         verify_rollout(tmp_path / "absent.json", journal, tmp_path)
 
 
+# Failure modes, written first: no build has qualified rollout receipts, so
+# - a corrupt rollout file is incomplete;
+# - a rollout stamped with any build (1078, the retired 1074 hash, or none)
+#   belongs to another build, even with receipt-shaped content.
+@pytest.mark.parametrize(
+    "build",
+    [
+        None,
+        "be9dd723cad8eb9068da792b5cb8ceec0d330f08aacb8c948e6f412d1520c4e0",
+        "c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396",
+    ],
+)
+def test_recurring_rollout_is_never_qualified_on_any_build(journal, tmp_path, build):
+    from conquest.merchants.rollout import verify_rollout
+
+    corrupt = tmp_path / "corrupt.json"
+    corrupt.write_text("{")
+    with pytest.raises(ValueError, match="incomplete"):
+        verify_rollout(corrupt, journal, tmp_path)
+    rollout = tmp_path / "rollout.json"
+    rollout.write_text(
+        json.dumps(
+            {
+                "client_sha256": build,
+                "characters": {
+                    c: {"delivery": "d", "listing": "l", "repricing": "r"}
+                    for c in ("Spiritual", "Dutch")
+                },
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="another client build"):
+        verify_rollout(rollout, journal, tmp_path)
+
+
 def test_equipment_type_mapping_does_not_require_exact_name_or_quality():
     data = market_data()
     data["equipment_categories"] = {"130": "Coat"}
