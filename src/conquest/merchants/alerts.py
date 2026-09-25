@@ -56,6 +56,66 @@ def unavailable_owned_peer(state):
     return None
 
 
+NATIVE_TERMINAL = ("complete", "operator_overridden", "restored_observed")
+NATIVE_NOTICES = {
+    "logged_in_awaiting_return": (
+        "logged back in",
+        "Login verified after a disconnect (same character and process, two "
+        "stable in-world readings). Return to Market and shop restoration are "
+        "pending and not yet automated; the shop is not restored.",
+    ),
+    "needs_attention": (
+        "disconnect recovery stopped",
+        "Automatic disconnect recovery stopped and will not retry: {note}",
+    ),
+}
+
+
+def native_incident(state):
+    """An unresolved exact-1078 disconnect recovery incident, if any."""
+    native = state.get("native_return_1078")
+    if (
+        isinstance(native, dict)
+        and native.get("id")
+        and native.get("phase") not in NATIVE_TERMINAL
+    ):
+        return native
+    return None
+
+
+def native_note(native):
+    phase = native.get("phase")
+    if phase == "needs_attention":
+        return "Disconnect recovery needs attention: " + str(
+            native.get("note") or "automatic recovery stopped"
+        )
+    if phase == "logged_in_awaiting_return":
+        return (
+            "Reconnected after a disconnect; login verified. Return to Market and "
+            "shop restoration are pending and not yet automated."
+        )
+    if phase == "login_submitted":
+        return (
+            "Merchant was disconnected. One automatic login was submitted and is "
+            "being verified; it will not be repeated."
+        )
+    return (
+        "Merchant was disconnected and is at the login screen. One automatic "
+        "login attempt is armed; no travel or shop restoration is automated yet."
+    )
+
+
+def login_problem(state):
+    """A memory-proven login screen that automatic recovery cannot handle."""
+    login = state.get("login_1078") or {}
+    if login.get("at_login") and login.get("reason") and not native_incident(state):
+        return (
+            "Merchant is at the login screen: " + str(login["reason"]),
+            60,
+        )
+    return None
+
+
 def condition(state):
     manual = state.get("manual_session") or {}
     if manual.get("phase") == "needs_attention":
@@ -81,6 +141,13 @@ def condition(state):
             "A trade or listing has not completed. Check the transaction and game connection.",
             60,
         )
+    native = native_incident(state)
+    if native:
+        # An active disconnect incident alerts even with operations Off.
+        return safe_note(native_note(native)), 0
+    login = login_problem(state)
+    if login:
+        return safe_note(login[0]), login[1]
     if not state.get("connected"):
         return (
             "Client disconnected or memory observation unavailable. Check the client/reconnect status.",
@@ -162,6 +229,35 @@ class Alerts:
                 }
             )
             self.state["incidents"].pop(subject)
+
+    def native_notice(self, subject, state, now):
+        """One durable #shops notice per incident milestone, never repeated."""
+        native = state.get("native_return_1078")
+        if not isinstance(native, dict) or not native.get("id"):
+            return
+        notice = NATIVE_NOTICES.get(native.get("phase"))
+        if notice is None:
+            return
+        key = f"{native['id']}:{native['phase']}"
+        sent = self.state.setdefault("native_notices", [])
+        if key in sent:
+            return
+        title, body = notice
+        self.state["queue"].append(
+            {
+                "id": uuid.uuid4().hex,
+                "subject": f"{subject} recovery",
+                "kind": "notice",
+                "content": safe_note(
+                    f"**{subject} — {title}**\n"
+                    + body.format(note=native.get("note") or "see the app")
+                ),
+                "created": now,
+                "retry_at": 0,
+            }
+        )
+        sent.append(key)
+        del sent[:-100]
 
     def poll(self, status, now, *, clean_shutdown=False):
         if status is None:
@@ -250,11 +346,16 @@ class Alerts:
             pass
         for character, state in status["characters"].items():
             manual = state.get("manual_session") or {}
+            self.native_notice(character, state, now)
+            # A disconnect recovery incident (or a login screen it cannot
+            # handle) is never a quiet manual wait, even with operations Off.
+            disconnect = bool(native_incident(state) or login_problem(state))
             if (
                 state.get("manual_input_fence")
                 and manual.get("phase") != "needs_attention"
                 and manual.get("request_state") != "decline_claimed"
                 and not state.get("needs_attention")
+                and not disconnect
             ):
                 continue  # A manual wait neither alerts nor confirms recovery.
             returning = state.get("shop_return")
@@ -263,6 +364,7 @@ class Alerts:
                 and returning["phase"] not in ("complete", "operator_overridden")
                 and not state.get("enabled")
                 and not state.get("needs_attention")
+                and not disconnect
             ):
                 continue  # Manual pause neither alerts nor confirms unfinished recovery.
             if (
@@ -274,6 +376,7 @@ class Alerts:
                     for p in state.get("pending", [])
                 )
                 and manual.get("phase") != "needs_attention"
+                and not disconnect
             ):
                 continue  # An operations-Off login/disconnect is a manual wait.
             problem = condition(state)

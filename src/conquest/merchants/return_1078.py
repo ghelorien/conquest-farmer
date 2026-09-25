@@ -17,7 +17,13 @@ KEY = "native_return_1078"
 BASELINE = "market_baseline_1078"
 BASELINE_VERSION = 1
 BASELINE_REFRESH_SECONDS = 60
-TERMINAL = ("complete", "operator_overridden")
+TERMINAL = ("complete", "operator_overridden", "restored_observed")
+AUTHORIZATION = "automatic_1078_disconnect_recovery"
+# Milestone 1 stops after a verified login. Travel, fare and stall claim are
+# later separately admitted stages; nothing below the login stage may run.
+STAGE_LIMIT = "login"
+LOGIN_PHASES = ("login", "login_submitted")
+TRAVEL_PHASES = ("returning", "fare_submitted")
 
 
 def digest(value):
@@ -61,6 +67,26 @@ def unresolved(runtime, character):
     if isinstance(state, dict) and state and state.get("phase") not in TERMINAL:
         return state
     return None
+
+
+def status_view(state):
+    """Bridge/status projection without bulky pre-loss stock evidence."""
+    if not isinstance(state, dict):
+        return None
+    return {
+        key: value
+        for key, value in state.items()
+        if key
+        not in (
+            "before",
+            "previous_shop_return",
+            "previous_native_return",
+            "login_verified",
+            "world_reading",
+            "restore_reading",
+            "restored_snapshot",
+        )
+    }
 
 
 def healthy_market(snapshot, profile):
@@ -188,57 +214,101 @@ def baseline(runtime, character):
     return value
 
 
+def pinned_identity(runtime, character):
+    """Exact process identity recovery may rebind while no actor is readable."""
+    state = unresolved(runtime, character)
+    if state is not None:
+        identity = state.get("identity")
+        return dict(identity) if _identity_ok(identity) else None
+    before = baseline(runtime, character)
+    return dict(before["identity"]) if before else None
+
+
+def _login_shell(hwnd):
+    """Win32 class/title only; never sufficient on its own."""
+    from conquest.reconnect import login_screen
+
+    try:
+        return bool(login_screen(hwnd))
+    except Exception:  # pywintypes.error is not an OSError subclass.
+        return False
+
+
+def _login_memory(adapter):
+    """The pinned 1078 renderer's native Login window is active this frame."""
+    from conquest.login_1078 import assert_code
+    from conquest.memory_shop import MemoryGui
+
+    assert_code(adapter)
+    window = MemoryGui.for_session(adapter).read("Login")
+    if window.name != "Login":
+        raise ValueError("1078 Login window is not the active login form")
+    assert_code(adapter)
+    return True
+
+
+def at_login(observer):
+    """Same pinned process, login shell window and native Login GUI proof."""
+    observer.adapter.assert_identity()
+    if not _login_shell(observer.hwnd):
+        return False
+    try:
+        _login_memory(observer.adapter)
+    except (ValueError, OSError):
+        return False
+    observer.adapter.assert_identity()
+    return _login_shell(observer.hwnd)
+
+
+def _login_statuses(runtime):
+    return runtime.__dict__.setdefault("login1078_status", {})
+
+
 def begin_loss(runtime, character, before, identity):
-    """Preserve a superseded historical incident, without declaring it resolved."""
+    """Arm one durable incident; an unresolved one is reused, never replaced."""
     if before is None or before["identity"] != identity:
         raise ValueError(
             "Recovery needs a verified pre-loss baseline for this exact process"
         )
-    state = runtime.journal.get(character, KEY)
-    if state and state.get("phase") not in TERMINAL:
-        if state.get("identity") != identity:
+    previous = runtime.journal.get(character, KEY)
+    if previous and previous.get("phase") not in TERMINAL:
+        if previous.get("identity") != identity:
             raise ValueError("Another native recovery incident remains unresolved")
-        return state
-    if runtime.journal.pending(character):
-        raise ValueError("Pending merchant transaction must reconcile before recovery")
+        return previous
     old = runtime.returns[character].state()
     state = {
         "id": uuid.uuid4().hex,
         "phase": "login",
+        "authorization": AUTHORIZATION,
+        "stage_limit": STAGE_LIMIT,
         "identity": copy.deepcopy(identity),
         "before": copy.deepcopy(before),
         "before_sha256": digest(before),
         "started_at": time.time(),
         "login_attempted": False,
         "moves": 0,
+        # Recorded only. Recovery runs regardless of trading/refill toggles;
+        # it never enables trades, listing or refill.
         "intent": {
             "operations": runtime.journal.get(character, "enabled", False),
             "refill": runtime.journal.get(character, "refill_enabled", True),
         },
+        "pending_at_loss": bool(runtime.journal.pending(character)),
     }
     if old:
         state["previous_shop_return"] = {
             "sha256": digest(old),
             "state": copy.deepcopy(old),
         }
-    runtime.journal.set(character, KEY, state)
-    # The new loss is a separate incident with its own current stock. The old
-    # unresolved state remains verbatim in the immutable lineage above.
-    runtime.returns[character].save(
-        {
-            "phase": "returning",
-            "started_at": state["started_at"],
-            "native_return_id": state["id"],
-            "before": copy.deepcopy(before),
-            "moves": 0,
-            "stalls": 0,
-            "home": {"map_id": 1036, "position": before["position"]},
-            "previous_incident": state.get("previous_shop_return"),
+    if previous:
+        state["previous_native_return"] = {
+            "id": previous.get("id"),
+            "phase": previous.get("phase"),
+            "sha256": digest(previous),
         }
-    )
-    from conquest.merchants.recovery_safety import arm
-
-    arm(runtime, character)
+    runtime.journal.set(character, KEY, state)
+    # The five-second protective-disconnect watchdog is deliberately not armed
+    # here: login and loading never count toward it (recovery_safety.observe).
     runtime.journal.event(
         character,
         "native_return_started",
@@ -248,120 +318,94 @@ def begin_loss(runtime, character, before, identity):
     return state
 
 
-def prepare(runtime, character, expected_identity):
-    """Explicit one-time relog intent; never enables merchant operations."""
-    from conquest.character_context import merchant_context, merchant_directory
-    from conquest.merchants.journal import character_name
-    from conquest.reconnect import login_screen
-    from conquest.login_1078 import assert_code
-    from conquest.memory import MemorySession
-    from conquest.memory_life import MemoryLifeReader
-    from conquest.memory_build_layout import health_reader_layout
-    from conquest.input_probe import MessageTarget
-    from conquest.merchants.driver import MerchantDriver
-    from conquest.merchants.controller import MerchantController
-    from conquest.merchants.memory import MerchantMemory
-
-    character = character_name(character)
+def _release_handoff(runtime, state):
+    """Forget only this incident's own ungranted farmer handoff request."""
+    key = (state or {}).get("handoff_request")
+    if not key:
+        return
+    fence = getattr(runtime.coordinator, "fence", None)
     with runtime.lock:
-        if (
-            runtime.coordinator.owner is not None
-            or runtime.coordinator.stopped
-            or runtime.manual_handoff_status() is not None
-            or runtime.coordinator.manual_session_blocked(character)
-            or runtime.coordinator.manual_session_blocked("Farmer")
-            or runtime.journal.pending(character)
-            or runtime.journal.get(character, "connect_hold", False)
-            or runtime.connecting
-            or runtime.refilling
-            or getattr(runtime, "delivery_window", None)
-            or getattr(runtime, "refill_window", None)
+        active = getattr(fence, "active", None)
+        if runtime.handoff == key and (
+            active is None or getattr(active, "request_id", None) != key
         ):
-            raise ValueError(
-                "One-time native recovery is held by another operation or Stop"
-            )
-        previous = runtime.journal.get(character, KEY)
-        if previous and previous.get("phase") not in TERMINAL:
-            if previous.get("identity") != expected_identity:
-                raise ValueError("Existing native recovery identity differs")
-            return previous
-        before = baseline(runtime, character)
-        if before is None or before["identity"] != expected_identity:
-            raise ValueError(
-                "One-time relog must match the exact last verified merchant process"
-            )
-        observer = runtime.observers.get(character)
-        if observer is None:
-            matches = [
-                c
-                for c in runtime.merchant_windows()
-                if c.identity == expected_identity and login_screen(c.hwnd)
-            ]
-            if len(matches) != 1:
-                raise ValueError(
-                    "Expected one exact previous merchant process at login"
-                )
-            client = matches[0]
-            session = MemorySession(
-                client.identity["pid"], CLIENT_SHA256_1078
-            ).__enter__()
-            try:
-                if session.identity != expected_identity:
-                    raise ValueError("Login process identity changed")
-                adapter = SimpleNamespace(
-                    expected_sha256=session.expected_sha256,
-                    identity=session.identity,
-                    modules=session.modules,
-                    read=session.read,
-                    read_block=session.read,
-                    assert_identity=session.assert_identity,
-                )
-                assert_code(adapter)
-                observer = SimpleNamespace(
-                    character=character,
-                    character_context=merchant_context(character),
-                    adapter=adapter,
-                    session=session,
-                    lock=threading.RLock(),
-                    hwnd=client.hwnd,
-                    merchant_observation_only=True,
-                    read_only_build=True,
-                    automation_ready_build=False,
-                    health_layout=health_reader_layout(adapter),
-                    close=session.close,
-                    operations=SimpleNamespace(
-                        target=MessageTarget(client.identity["pid"], client.hwnd)
-                    ),
-                )
-                observer.read_life = lambda: MemoryLifeReader.for_session(
-                    adapter, character
-                ).read()
-                observer.memory = MerchantMemory.for_observer(observer)
-                observer.read_ownership = observer.memory.read_manual_ownership
-                driver = MerchantDriver(
-                    observer,
-                    merchant_directory(character) / "qualification.json",
-                    runtime.coordinator,
-                )
-                runtime.observers[character] = observer
-                runtime.controllers[character] = MerchantController(
-                    character, runtime.journal, driver, runtime.coordinator
-                )
-                runtime.coordinator.surface_blocks[character] = True
-            except BaseException:
-                session.close()
-                raise
-        if observer.adapter.identity != expected_identity or not login_screen(
-            observer.hwnd
-        ):
-            raise ValueError(
-                "One-time relog requires the exact identified client still at login"
-            )
-        assert_code(observer.adapter)
-        state = begin_loss(runtime, character, before, expected_identity)
-        state["authorization"] = "explicit_one_time_relog_to_market"
-        save(runtime, character, state)
+            runtime.handoff = None
+
+
+def needs_attention(runtime, character, state, note, *, now=None):
+    """Stop automatic recovery input for this incident; #shops is notified."""
+    if state.get("phase") == "needs_attention":
         return state
+    save(
+        runtime,
+        character,
+        state,
+        "needs_attention",
+        note=note,
+        previous_phase=state.get("phase"),
+        needs_attention_at=time.time() if now is None else now,
+    )
+    runtime.journal.event(
+        character, "native_return_needs_attention", incident=state["id"], note=note
+    )
+    _release_handoff(runtime, state)
+    return state
+
+
+def _attempt_login(runtime, character, observer, state, now):
+    """Milestone 1 login submission stage (separately gated)."""
+    return state
+
+
+def on_login(runtime, character, observer, *, now=None):
+    """Called only after at_login(): arm once, then run the bounded login stage."""
+    now = time.time() if now is None else now
+    identity = dict(observer.adapter.identity)
+    status = {"at_login": True, "identity": identity, "observed_at": now}
+    _login_statuses(runtime)[character] = status
+    state = unresolved(runtime, character)
+    if state is None:
+        before = baseline(runtime, character)
+        if before is None:
+            status["reason"] = (
+                "No verified Market baseline; automatic login is unavailable"
+            )
+            return None
+        if before["identity"] != identity:
+            # A different process at login is never identified by title alone.
+            status["reason"] = (
+                "Login process is not the last verified Market process; "
+                "automatic login is unavailable"
+            )
+            return None
+        state = begin_loss(runtime, character, before, identity)
+    status["incident"] = state["id"]
+    if state.get("identity") != identity:
+        return needs_attention(
+            runtime,
+            character,
+            state,
+            "Merchant process identity changed during recovery; reconciliation required",
+            now=now,
+        )
+    if state.get("world_reading") is not None:
+        save(runtime, character, state, world_reading=None)
+    phase = state.get("phase")
+    if phase == "login":
+        return _attempt_login(runtime, character, observer, state, now)
+    if phase == "needs_attention":
+        _release_handoff(runtime, state)
+        return state
+    if phase == "login_submitted":
+        return state
+    return needs_attention(
+        runtime,
+        character,
+        state,
+        "Merchant returned to the login screen after a verified login; "
+        "automatic login is not repeated",
+        now=now,
+    )
 
 
 class ReturnDriver1078(ReturnDriver):

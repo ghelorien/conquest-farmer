@@ -45,12 +45,15 @@ class ReadOnlyMerchantObserver:
             )
             self.health_layout = health_reader_layout(self.adapter)
             self.memory = MerchantMemory.for_observer(self)
-            # Verify the selected character in native memory before returning
-            # an observer; a title or process alone never identifies a merchant.
-            self.read_life()
+            self._verify_attachment()
         except BaseException:
             self.session.close()
             raise
+
+    def _verify_attachment(self):
+        # Verify the selected character in native memory before returning
+        # an observer; a title or process alone never identifies a merchant.
+        self.read_life()
 
     def read_life(self):
         with self.lock:
@@ -92,3 +95,31 @@ class ReadOnlyMerchantObserver:
     def close(self):
         with self.lock:
             self.session.close()
+
+
+class LoginMerchantObserver1078(ReadOnlyMerchantObserver):
+    """Disconnect-recovery rebind of one pinned exact process at login.
+
+    At the login screen no actor exists to identify. Only the full durable
+    process identity (PID, creation time and path) recorded with the last
+    healthy Market baseline or unresolved incident, plus the native Login GUI
+    proof, admits this observer. In world, ``read_ownership`` still pins the
+    configured name, server and UID before any snapshot is accepted.
+    """
+
+    login_rebound = True
+
+    def __init__(self, client, character, *, context=None, pinned=None):
+        if pinned is None or dict(client.identity) != dict(pinned):
+            raise ValueError(
+                "Login rebind requires the pinned merchant process identity"
+            )
+        self._pinned = dict(pinned)
+        super().__init__(client, character, context=context)
+
+    def _verify_attachment(self):
+        from conquest.merchants.return_1078 import _login_memory
+
+        if self.session.identity != self._pinned:
+            raise ValueError("Pinned merchant process changed during login rebind")
+        _login_memory(self.adapter)

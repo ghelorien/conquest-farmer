@@ -87,6 +87,12 @@ class MerchantRuntime(ManualRuntime):
         self.refill1078_step = None
         self.refill1078_status = {}
         self.native1078_farmer_check = None
+        # Exact-1078 disconnect recovery: in-memory login observations and the
+        # worker binding for its thread-bound native input capability.
+        self.login1078_status, self.native_return_workers = {}, {}
+        from conquest.merchants.read_only_observer import LoginMerchantObserver1078
+
+        self.login_observer_factory = LoginMerchantObserver1078
         self.connecting, self.connect_checks, self.connect_cancel = {}, {}, {}
         for refill in self.refills.values():
             refill.state()
@@ -414,6 +420,7 @@ class MerchantRuntime(ManualRuntime):
         status.enter("discovery")
         with self.discovery_lock:
             matches = []
+            login_clients = []
             for client in self.merchant_windows():
                 if any(
                     o.adapter.identity == client.identity
@@ -423,7 +430,10 @@ class MerchantRuntime(ManualRuntime):
                 from conquest.reconnect import login_screen
 
                 if login_screen(client.hwnd):
-                    continue  # No logged-in actor exists to identify in memory.
+                    # No logged-in actor exists to identify in memory. Only the
+                    # exact pinned recovery process may be rebound below.
+                    login_clients.append(client)
+                    continue
                 try:
                     with MemorySession(
                         client.identity["pid"], CLIENT_SHA256_1078
@@ -444,6 +454,17 @@ class MerchantRuntime(ManualRuntime):
                     )
                 ):
                     matches.append(client)
+            if not matches and login_clients:
+                from conquest.merchants.return_1078 import pinned_identity
+
+                pinned = pinned_identity(self, character)
+                exact = [
+                    c
+                    for c in login_clients
+                    if pinned is not None and c.identity == pinned
+                ]
+                if len(exact) == 1:
+                    return self._attach_login_1078(character, exact[0], context, pinned)
             if len(matches) != 1:
                 raise ValueError(
                     f"{character}: expected one memory-identified 1078 window, found {len(matches)}"
@@ -489,20 +510,11 @@ class MerchantRuntime(ManualRuntime):
                 # live trade receipts and an exact reserved delivery window.
                 from types import SimpleNamespace
                 from conquest.input_probe import MessageTarget
-                from conquest.character_context import merchant_directory
 
                 observer.operations = SimpleNamespace(
                     target=MessageTarget(client.identity["pid"], client.hwnd)
                 )
-                driver = MerchantDriver(
-                    observer,
-                    merchant_directory(character) / "qualification.json",
-                    self.coordinator,
-                )
-                with self.lock:
-                    self.controllers[character] = MerchantController(
-                        character, self.journal, driver, self.coordinator
-                    )
+                self._bind_controller_1078(character, observer)
                 status.enter("memory", pid=client.identity["pid"])
                 status.observation_ready = True
                 # Do not set recovery's last_identity or create a return driver.
@@ -510,6 +522,73 @@ class MerchantRuntime(ManualRuntime):
             except BaseException:
                 observer.close()
                 raise
+
+    def _bind_controller_1078(self, character, observer):
+        from conquest.character_context import merchant_directory
+
+        driver = MerchantDriver(
+            observer,
+            merchant_directory(character) / "qualification.json",
+            self.coordinator,
+        )
+        with self.lock:
+            self.controllers[character] = MerchantController(
+                character, self.journal, driver, self.coordinator
+            )
+
+    def _attach_login_1078(self, character, client, context, pinned):
+        """Rebind only the pinned exact recovery process after an app restart.
+
+        A login-screen client exposes no actor to identify, so only a process
+        whose full identity equals the durable baseline/incident pin and whose
+        native Login GUI is active can be bound. No controller, recovery
+        last_identity or input capability is created here.
+        """
+        from types import SimpleNamespace
+        from conquest.input_probe import MessageTarget
+        from conquest.merchants.return_1078 import at_login
+
+        status = self.attachments[character]
+        status.enter(
+            "access",
+            pid=client.identity["pid"],
+            hwnd=client.hwnd,
+            process_created=client.identity.get("creation_time_100ns"),
+        )
+        observer = self.login_observer_factory(
+            client, character, context=context, pinned=pinned
+        )
+        try:
+            if (
+                not getattr(observer, "merchant_observation_only", False)
+                or not getattr(observer, "login_rebound", False)
+                or observer.adapter.identity != pinned
+                or observer.adapter.identity != client.identity
+                or observer.hwnd != client.hwnd
+            ):
+                raise ValueError(
+                    "Login rebind did not produce the pinned read-only observer"
+                )
+            observer.operations = SimpleNamespace(
+                target=MessageTarget(client.identity["pid"], client.hwnd)
+            )
+            if not at_login(observer):
+                raise ValueError(
+                    "Pinned merchant process is not at a memory-proven login screen"
+                )
+            with self.lock:
+                if character in self.observers:
+                    raise ValueError("Merchant observer was attached concurrently")
+                self.observers[character] = observer
+            status.enter("memory", pid=client.identity["pid"])
+            status.observation_ready = False
+            self.journal.event(
+                character, "native_login_rebound", identity=dict(client.identity)
+            )
+            return observer
+        except BaseException:
+            observer.close()
+            raise
 
     def step_observation_1078(self, character):
         observer = self.observers.get(character)
@@ -537,6 +616,18 @@ class MerchantRuntime(ManualRuntime):
         if observer is None:
             self.attach_observation_1078(character)
             return
+        from conquest.merchants import return_1078
+
+        if return_1078.at_login(observer):
+            # Same pinned process, login shell and native Login GUI proof.
+            # No actor exists, so ownership, sales, trade and refill are all
+            # skipped; the durable recovery incident owns this merchant now.
+            with self.lock:
+                self.latest.pop(character, None)
+            self.attachments[character].observation_ready = False
+            return_1078.on_login(self, character, observer)
+            return
+        self.login1078_status.pop(character, None)
         try:
             controller = self.controllers.get(character)
             if controller is not None and getattr(
@@ -571,6 +662,10 @@ class MerchantRuntime(ManualRuntime):
                     self.observers.pop(character, None)
                 observer.close()
             raise
+        if controller is None and getattr(observer, "login_rebound", False):
+            # A login rebind creates its inert trade reader only after the
+            # configured actor is readable again in world.
+            self._bind_controller_1078(character, observer)
         with self.lock:
             self.latest[character] = snapshot
         self.attachments[character].observation_ready = True
@@ -1348,15 +1443,29 @@ class MerchantRuntime(ManualRuntime):
                         and not self.coordinator.manual_session_blocked("Farmer")
                         and not self.journal.get(character, "connect_hold", False)
                     )
+                    from conquest.merchants.return_1078 import status_view
+
+                    native_return = self.journal.get(character, "native_return_1078")
+                    recovering = bool(
+                        isinstance(native_return, dict)
+                        and native_return.get("id")
+                        and native_return.get("phase")
+                        not in ("complete", "operator_overridden", "restored_observed")
+                    )
                     result[character] = {
                         "enabled": self.enabled(character),
                         "connected": fresh,
                         "input_active": self.coordinator.owner == character,
                         "activity": (
-                            "1078 listing uses safe route grants and verified native focus; unsupported capabilities stay blocked"
+                            "Disconnect recovery: "
+                            + str(native_return["phase"]).replace("_", " ")
+                            if recovering
+                            else "1078 listing uses safe route grants and verified native focus; unsupported capabilities stay blocked"
                             if limited_listing
                             else "1078 read-only merchant observation; input qualification pending"
                         ),
+                        "native_return_1078": status_view(native_return),
+                        "login_1078": self.login1078_status.get(character),
                         "snapshot": snapshot if fresh else None,
                         "error": self.errors.get(character),
                         "scan": self.journal.get(character, "scan", {}),

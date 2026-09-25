@@ -160,6 +160,21 @@ def observe(runtime, character, identity, life=None, *, now=None, close=None):
     state = runtime.journal.get(character, KEY) or {}
     if not state.get("active"):
         return False
+    from conquest.merchants.return_1078 import TERMINAL, TRAVEL_PHASES, KEY as NATIVE
+
+    native = runtime.journal.get(character, NATIVE)
+    if (
+        isinstance(native, dict)
+        and native.get("id")
+        and native.get("phase") not in TERMINAL + TRAVEL_PHASES
+    ):
+        # An exact-1078 incident at login, loading or awaiting its next stage
+        # never counts toward the protective-disconnect deadline. Only real
+        # movement in Twin City (a later travel stage) may start that clock.
+        if state.get("last_progress") is not None:
+            state["last_progress"] = None
+            runtime.journal.set(character, KEY, state)
+        return True
     coordinator = getattr(runtime, "coordinator", None)
     if (
         coordinator
