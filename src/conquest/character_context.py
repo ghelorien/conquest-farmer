@@ -40,6 +40,11 @@ class ProfileName(str):
         value.profile_id = profile_id
         return value
 
+    def __getnewargs__(self):
+        # copy/deepcopy/pickle rebuild str subclasses through __new__; without
+        # this they call ProfileName(name) and raise (live 2026-09-25 r41/r42).
+        return (str(self), self.profile_id)
+
 
 def is_farmer_owner(value):
     return value == "Farmer" and not isinstance(value, ProfileName)
