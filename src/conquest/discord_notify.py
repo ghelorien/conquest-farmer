@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from conquest import kill_increment
 from conquest.farm_telemetry import item_label
 
 SECRET = Path(state_path(".runtime/discord-webhook.dpapi"))
@@ -377,9 +378,9 @@ def recent_kills(path, now, seconds=900):
             )
             total = 0
             for (payload,) in rows:
-                count = json.loads(payload).get("count")
-                # run_trial qualifies Scatter counter increments up to 32.
-                if type(count) is not int or not 1 <= count <= 32:
+                # Same bounded rule run_trial used to qualify the increment.
+                count = kill_increment.verified_kill_count(json.loads(payload))
+                if count is None:
                     return None
                 total += count
             return total

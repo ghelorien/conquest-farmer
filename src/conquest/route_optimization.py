@@ -4,6 +4,7 @@ The scheduled optimization monitor conducts the tests. This module never sends
 game input or changes farming intent; discovering an area only queues work.
 """
 
+from conquest import kill_increment
 from conquest.character_context import state_path
 from pathlib import Path
 import time
@@ -22,15 +23,23 @@ def area_key(route):
 def fixed_route_windows(kills, *, started_at, now, window_seconds=900, retain=4):
     """Completed, non-overlapping elapsed-time windows anchored to activation.
 
-    Input is (timestamp, verified increment), covering every returned interval.
-    These are throughput measurements, not safety or route qualification. Empty
-    periods count as zero; a partially elapsed interval never counts as complete.
+    Input is (timestamp, kill_verified payload), covering every returned
+    interval; a bare integer is a pre-rule historical count. Both are qualified
+    by the shared kill_increment rule. These are throughput measurements, not
+    safety or route qualification. Empty periods count as zero; a partially
+    elapsed interval never counts as complete.
     """
     if window_seconds <= 0 or retain < 1 or now < started_at:
         raise ValueError("Invalid measurement interval")
     completed = int((now - started_at) // window_seconds)
     windows = []
-    verified = [(t, n) for t, n in kills if type(n) is int and 0 < n <= 32]
+    verified = []
+    for t, value in kills:
+        count = kill_increment.verified_kill_count(
+            value if isinstance(value, dict) else {"count": value}
+        )
+        if count is not None:
+            verified.append((t, count))
     for index in range(max(0, completed - retain), completed):
         start = started_at + index * window_seconds
         end = start + window_seconds

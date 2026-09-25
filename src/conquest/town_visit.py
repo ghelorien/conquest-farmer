@@ -9,6 +9,7 @@ import time
 import uuid
 from copy import deepcopy
 
+from conquest import kill_increment
 from conquest.character_context import current, farmer_name, state_path
 from conquest.discord_notify import read_json, write_json
 
@@ -252,8 +253,8 @@ def kill_checkpoint(*, now=None, output=None, after_cursor=None, after_time=None
         def evidence(value):
             if value is None:
                 return None
-            count = json.loads(value[2]).get("count")
-            if type(count) is not int or not 1 <= count <= 32:
+            count = kill_increment.verified_kill_count(json.loads(value[2]))
+            if count is None:
                 raise ValueError("Invalid verified kill")
             if type(value[1]) not in (int, float) or not math.isfinite(value[1]):
                 raise ValueError("Invalid kill time")

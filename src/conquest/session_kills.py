@@ -6,6 +6,8 @@ from pathlib import Path
 import sqlite3
 import time
 
+from conquest import kill_increment
+
 
 class SessionKills:
     def __init__(self, output, *, clock=time.time):
@@ -92,8 +94,8 @@ class SessionKills:
                             and observed_at > self.state["stopped_at"]
                         ):
                             continue
-                        count = json.loads(payload).get("count")
-                        if type(count) is not int or not 1 <= count <= 32:
+                        count = kill_increment.verified_kill_count(json.loads(payload))
+                        if count is None:
                             raise ValueError("Unqualified kill increment")
                         increment += count
                 changed = end != self.state["cursor"]

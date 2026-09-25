@@ -18,6 +18,7 @@ from conquest.patrol_search import PatrolSearchConfig, AdaptivePatrol
 from pydantic import BaseModel, ConfigDict, Field
 
 from conquest.addressing import PlayerLayout, WorkerPointerSession, resolve_player
+from conquest import kill_increment
 from conquest.farmer_profile import CombatSpeed, load_combat_speed
 from conquest.capture import DesktopFrames, CaptureUnavailable, Frame
 from conquest.vision import health_ratio, targets
@@ -338,6 +339,9 @@ def run_trial(
     escape_settle_until = 0
     attack_interrupted = False
     last_kill_counter = None
+    # Monotonic time of the last processed counter read. None after any pause,
+    # wait or focus loss: that interval earns no rate allowance.
+    counter_read_at = None
     last_scatter_cast = -float("inf")
     # Start with a cast if a living selected target is already in range.
     # Only a successful cast earns the next ordinary hunting jump.
@@ -388,7 +392,7 @@ def run_trial(
                 last_pause_key = pause_key
                 if paused:
                     # Manual play during F11 pause is not bot performance.
-                    last_kill_counter = None
+                    last_kill_counter = counter_read_at = None
                     pending_attack = None
                     time.sleep(0.05)
                     continue
@@ -412,6 +416,7 @@ def run_trial(
                     break
                 if supervised and supervised["waiting"]:
                     healing = reloading = picking_up = moving = pending_attack = None
+                    counter_read_at = None
                     if supervised.get("manual_session"):
                         # Keep verified totals; a later manual kill must never
                         # be attributed to the automation counter interval.
@@ -424,6 +429,7 @@ def run_trial(
                 try:
                     camera.geometry()
                 except CaptureUnavailable as error:
+                    counter_read_at = None
                     if "Mouse control is yours" in str(error):
                         # The user may kill a whole group before yielding input.
                         # Keep session totals and elapsed time, but start a fresh
@@ -494,6 +500,7 @@ def run_trial(
                         ]
                     },
                 )
+                sampled_at = time.monotonic()
                 fields = {field["name"]: field["value"] for field in sample["fields"]}
                 if fields["name"] != config.character:
                     raise ValueError("Character identity changed")
@@ -712,13 +719,32 @@ def run_trial(
                     )
 
                 counter = fields["kill_counter"][0]
+                counter_elapsed = (
+                    None if counter_read_at is None else sampled_at - counter_read_at
+                )
                 if last_kill_counter is None or counter < last_kill_counter:
                     last_kill_counter = counter
-                elif counter > last_kill_counter:
+                    counter_read_at = sampled_at
+                elif counter == last_kill_counter:
+                    counter_read_at = sampled_at
+                else:
                     increment = counter - last_kill_counter
-                    if increment > (32 if config.attack_button == "right" else 10):
+                    # Shared with every journal reader: conquest.kill_increment.
+                    counter_evidence = kill_increment.evidence(
+                        counter_elapsed,
+                        kill_increment.base_limit(config.attack_button),
+                    )
+                    if increment > counter_evidence["increment_limit"]:
                         if not (supervisor and speed.counter_gap_recovery):
                             reason = "kill_counter_discontinuity"
+                            event(
+                                "kill_counter_discontinuity",
+                                previous=last_kill_counter,
+                                counter=counter,
+                                unverified_increment=increment,
+                                verified_total=confirmed_kills,
+                                **counter_evidence,
+                            )
                             break
                         check = session.request(
                             "sample",
@@ -755,18 +781,22 @@ def run_trial(
                             unverified_increment=increment,
                             verified_total=confirmed_kills,
                             action="Excluded from verified totals; continuing with stable counter",
+                            **counter_evidence,
                         )
                         last_kill_counter = counter
+                        counter_read_at = sampled_at
                         # Do not treat an unqualified count as a kill receipt.
                         # Pending combat still uses its normal ammunition/HP feedback.
                     else:
                         confirmed_kills += increment
                         last_kill_counter = counter
+                        counter_read_at = sampled_at
                         event(
                             "kill_verified",
                             count=increment,
                             total=confirmed_kills,
                             counter=counter,
+                            **counter_evidence,
                             character_level=fields["level"][0],
                             ammo=inventory.equipped_ammo.amount
                             if inventory.equipped_ammo
@@ -1967,6 +1997,7 @@ def run_trial(
                 if not focus_paused:
                     event("paused", reason=str(error))
                 focus_paused = True
+                counter_read_at = None  # a paused interval earns no allowance
                 time.sleep(0.1)
                 # Re-enter with a fresh observation; never reuse this action.
                 continue
