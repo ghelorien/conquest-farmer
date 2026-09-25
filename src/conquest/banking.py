@@ -398,7 +398,7 @@ def stash_urgent_valuables(loop):
             )
         if len(stored["items"]) >= stored["capacity"]:
             return False
-        receipt = loop.town("warehouse-deposit", uid=item["uid"])
+        receipt = deposit_item(loop, item)
         if (
             receipt.get("verified_in_warehouse") is not True
             or receipt.get("stored") != item["uid"]
@@ -445,6 +445,104 @@ def stash_valuables(loop, *, deliver=False):
     deposit_stash_items(loop)
 
 
+def deferrable_storage(item):
+    """Ordinary stash loot may wait for a later visit; urgent/special never."""
+    from conquest.valuables import SPECIAL_LOOT_TYPES
+
+    return not urgent_storage(item) and item.get("type_id") not in SPECIAL_LOOT_TYPES
+
+
+def _storage_state(loop):
+    bag = loop.town("supplies")
+    stored = loop.town("warehouse-items")
+    return (
+        {k: bag.get(k) for k in ("items", "equipped_ammo", "capacity", "silver")},
+        {k: stored.get(k) for k in ("items", "capacity", "bank_silver")},
+    )
+
+
+def _still_carried(state, item):
+    bag, stored = state
+    carried = [i for i in bag.get("items") or [] if i.get("uid") == item["uid"]]
+    return (
+        len(carried) == 1
+        and carried[0].get("type_id") == item["type_id"]
+        and item["uid"] not in {i.get("uid") for i in stored.get("items") or []}
+    )
+
+
+def deposit_item(loop, item, *, allow_defer=False):
+    """Deposit one exact UID; a covered drag source gets one warehouse reopen.
+
+    Only the typed source-phase error proves that no button was pressed: the
+    bridge re-verified inventory and warehouse immediately before the hover
+    check and raised before mouse-down. Any other failure (a covered
+    destination while held, an unverified receipt) keeps its strict no-retry
+    behaviour. Still covered after one reopen, an ordinary stash item is
+    deferred (it stays carried for a later visit) so the rest of the visit,
+    including its cash lines, can finish; urgent and special loot fail closed.
+    Returns the receipt, or None when the item was deferred.
+    """
+    from conquest.town_trade import WarehouseHoverCovered
+
+    reopened = None  # Storage state observed after the one reopen.
+    for attempt in (1, 2):
+        try:
+            return loop.town("warehouse-deposit", uid=item["uid"])
+        except WarehouseHoverCovered as error:
+            covered, diagnostic = error, error.diagnostic
+            loop.record(
+                "warehouse_hover_covered",
+                uid=item["uid"],
+                type_id=item["type_id"],
+                attempt=attempt,
+                diagnostic=diagnostic,
+                activity="Warehouse drag source is covered by another window; no button pressed",
+            )
+            if (
+                diagnostic.get("phase") != "source"
+                or diagnostic.get("button_pressed") is not False
+            ):
+                raise ValueError(
+                    "Covered warehouse deposit lacks its pre-press proof; no repeat input issued"
+                ) from error
+            state = _storage_state(loop)
+            if not _still_carried(state, item) or attempt == 2 and state != reopened:
+                raise ValueError(
+                    "Warehouse or inventory changed around a covered deposit; no retry issued"
+                ) from error
+        if attempt == 1:
+            # Like the money-geometry retry: reopening moves nothing. It also
+            # closes a stale Shop panel before the Warehouseman is used again.
+            loop.record(
+                "warehouse_hover_reopen",
+                uid=item["uid"],
+                activity="Reopening the warehouse once before retrying a covered deposit",
+            )
+            close_warehouse(loop)
+            open_warehouse(loop)
+            reopened = _storage_state(loop)
+            if reopened != state:
+                raise ValueError(
+                    "Warehouse or inventory changed around a covered deposit; no retry issued"
+                )
+    summary = str(covered).split("; diagnostic=", 1)[0]
+    if allow_defer and deferrable_storage(item):
+        loop.record(
+            "valuable_storage_deferred",
+            uid=item["uid"],
+            type_id=item["type_id"],
+            plus=item.get("plus"),
+            diagnostic=diagnostic,
+            activity="Warehouse cell stayed covered; item stays carried for a later visit",
+        )
+        return None
+    raise ValueError(
+        "Warehouse deposit source stayed covered after one warehouse reopen; "
+        "no button pressed; item remains carried: " + summary
+    ) from covered
+
+
 def deposit_stash_items(loop, *, only_meteors=False):
     from conquest.town_trade import stash_candidate
 
@@ -464,7 +562,9 @@ def deposit_stash_items(loop, *, only_meteors=False):
                 raise ValueError(
                     "Town warehouse full; ten-Meteor packing needs a qualified exchanger"
                 )
-        receipt = loop.town("warehouse-deposit", uid=item["uid"])
+        receipt = deposit_item(loop, item, allow_defer=True)
+        if receipt is None:
+            continue  # Provably unmoved; recorded as valuable_storage_deferred.
         if receipt.get("verified_in_warehouse") is not True:
             raise ValueError("Valuable deposit is unverified; no repeat input issued")
         loop.record(

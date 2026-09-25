@@ -2,11 +2,14 @@
 
 from conquest.viewport import size_for
 from dataclasses import asdict
+import json
 from pathlib import Path
+import struct
 import time
 import yaml
 
 from conquest.capture import CaptureUnavailable
+from conquest.merchants.memory import HoverNotReady
 from conquest.addressing import PlayerLayout
 from conquest.foreground import foreground_click, foreground_drag
 from conquest.memory_inventory import MemoryInventoryReader, InventoryLayout
@@ -94,6 +97,98 @@ class TownObservationUnavailable(ValueError):
     """Observation or input acquisition failed before the action was submitted."""
 
     code = "town_observation_unavailable"
+
+
+class WarehouseHoverCovered(HoverNotReady):
+    """The deposit drag source stayed covered before mouse-down.
+
+    Only the pre-press source check raises this; no button was pressed and
+    no item moved. It is not retried blindly: banking.deposit_item gives it
+    one warehouse reopen. ``diagnostic`` names the covering window.
+    """
+
+    code = "warehouse_hover_covered"
+
+    def __init__(self, message, diagnostic=None):
+        super().__init__(message)
+        self.diagnostic = diagnostic if isinstance(diagnostic, dict) else {}
+
+
+class WarehouseDropCovered(ValueError):
+    """The destination was covered while the item was held: outcome uncertain."""
+
+    def __init__(self, message, diagnostic=None):
+        super().__init__(message)
+        self.diagnostic = diagnostic if isinstance(diagnostic, dict) else {}
+
+
+def town_error_fields(error):
+    """Typed fields a bridge adds to an error response (shared by all bridges)."""
+    code = getattr(error, "code", None)
+    if isinstance(error, WarehouseHoverCovered):
+        return {"code": WarehouseHoverCovered.code, "diagnostic": error.diagnostic}
+    if code == TownObservationUnavailable.code:
+        return {"code": code}
+    return {}
+
+
+def coded_town_error(detail, payload):
+    """Rebuild a typed town error from a bridge error response, if any."""
+    code = payload.get("code") if isinstance(payload, dict) else None
+    if code == TownObservationUnavailable.code:
+        return TownObservationUnavailable(detail)
+    if code == WarehouseHoverCovered.code:
+        return WarehouseHoverCovered(detail, payload.get("diagnostic"))
+    return None
+
+
+def _gui_summary(value):
+    """Name/address/geometry of a GuiWindow or GuiReader registry entry."""
+    if isinstance(value, dict):
+        x, y, width, height = value["geometry"]
+        name, address = value["name"], value["address"]
+    else:
+        (x, y), (width, height) = value.position, value.size
+        name, address = getattr(value, "name", None), getattr(value, "address", None)
+    return {
+        "name": name,
+        "address": hex(address) if type(address) is int else None,
+        "position": [float(x), float(y)],
+        "size": [float(width), float(height)],
+    }
+
+
+def _describe_window(summary):
+    if not summary or "error" in summary:
+        return "unavailable (" + str((summary or {}).get("error")) + ")"
+    if summary.get("position") is None:
+        return f"window {summary.get('address')} outside the active GUI registry"
+    (x, y), (width, height) = summary["position"], summary["size"]
+    return (
+        f"{summary.get('name')!r} at ({round(x)}, {round(y)}) "
+        f"{round(width)}x{round(height)}"
+    )
+
+
+def covered_message(diagnostic):
+    """Human-readable covered-endpoint error that carries its full evidence."""
+    pointer = diagnostic.get("pointer") or {}
+    logical = pointer.get("logical") or [None, None]
+    native = pointer.get("native") or [None, None]
+    outcome = (
+        "no button pressed"
+        if diagnostic.get("button_pressed") is False
+        else "item was held and the button released; no repeat input issued"
+    )
+    return (
+        "Warehouse drag endpoint is covered by another window "
+        f"({diagnostic.get('phase')}): hovered "
+        f"{_describe_window(diagnostic.get('hovered_window'))}; expected "
+        f"{_describe_window(diagnostic.get('expected_window'))}; pointer GUI "
+        f"({logical[0]}, {logical[1]}) native ({native[0]}, {native[1]}); "
+        f"Warehouse window {_describe_window(diagnostic.get('warehouse_window'))}; "
+        f"{outcome}; diagnostic={json.dumps(diagnostic, sort_keys=True)}"
+    )
 
 
 def transient_observation(error):
@@ -188,6 +283,67 @@ class TownTrade:
         address = window["address"] if isinstance(window, dict) else window.address
         if unpack(gui.session, context + 0x3EC0, "<Q")[0] != address:
             raise HoverNotReady("Warehouse drag endpoint is covered by another window")
+
+    def hovered_gui_window(self):
+        """Read-only: ImGui's hovered-window pointer and the live window registry."""
+        from conquest.merchants.memory import GuiReader, unpack
+
+        gui = GuiReader.for_session(self.observer.adapter)
+        context = unpack(gui.session, gui.base + gui.context_rva, "<Q")[0]
+        return unpack(gui.session, context + 0x3EC0, "<Q")[0], gui.windows()
+
+    def warehouse_hover_diagnostic(
+        self, phase, expected, logical, native, reader, item
+    ):
+        """Read-only evidence of what covers a warehouse drag endpoint.
+
+        Never raises for a failed read: each part records its own error so
+        the covered classification (and its no-press proof) is preserved.
+        """
+        diagnostic = {
+            "phase": phase,
+            "button_pressed": phase != "source",
+            "item": {"uid": item.uid, "type_id": item.type_id, "slot": item.slot},
+            "pointer": {"logical": list(logical), "native": list(native)},
+        }
+        readers = (
+            ("expected_window", lambda: expected),
+            ("warehouse_window", lambda: reader.gui.read("Warehouse")),
+            ("inventory_window", lambda: self.shop.gui.read("Inventory")),
+        )
+        for key, read in readers:
+            try:
+                diagnostic[key] = _gui_summary(read())
+            except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:
+                diagnostic[key] = {"error": str(error)}
+        try:
+            hovered, windows = self.hovered_gui_window()
+            summaries = [_gui_summary(w) for w in windows]
+            match = [s for s in summaries if s["address"] == hex(hovered)]
+            diagnostic["hovered_window"] = (
+                match[0]
+                if match
+                else {"name": None, "address": hex(hovered), "position": None}
+            )
+            # Registry order is ImGui's back-to-front display order.
+            x, y = logical
+            diagnostic["windows_at_pointer"] = [
+                s
+                for s in summaries
+                if s["position"][0] <= x < s["position"][0] + s["size"][0]
+                and s["position"][1] <= y < s["position"][1] + s["size"][1]
+            ]
+        except (
+            ValueError,
+            OSError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            struct.error,
+        ) as error:
+            diagnostic["hovered_window"] = {"error": str(error)}
+            diagnostic["windows_at_pointer"] = []
+        return diagnostic
 
     def warehouse_vendor_snapshot(self, *, grid_input=False):
         """Read one nearby Warehouseman without treating Market churn as movement."""
@@ -356,7 +512,17 @@ class TownTrade:
                         )
                     self.require_warehouse_hover(grid)
 
-                wait_hover_validation(ready, input_guard)
+                try:
+                    wait_hover_validation(ready, input_guard)
+                except HoverNotReady as error:
+                    # Raised before mouse-down: no button was pressed, so this
+                    # is the only covered case safe for one bounded remedy.
+                    diagnostic = self.warehouse_hover_diagnostic(
+                        "source", grid, logical_source, source, reader, item
+                    )
+                    raise WarehouseHoverCovered(
+                        covered_message(diagnostic), diagnostic
+                    ) from error
 
             def before_release():
                 from conquest.merchants.driver import wait_hover_validation
@@ -375,7 +541,22 @@ class TownTrade:
                         )
                     self.require_warehouse_hover(target)
 
-                wait_hover_validation(ready, input_guard)
+                try:
+                    wait_hover_validation(ready, input_guard)
+                except HoverNotReady as error:
+                    # The item is held: the drag helper still releases the
+                    # button. The outcome is uncertain and never retried.
+                    diagnostic = self.warehouse_hover_diagnostic(
+                        "destination",
+                        target,
+                        logical_destination,
+                        destination,
+                        reader,
+                        item,
+                    )
+                    raise WarehouseDropCovered(
+                        covered_message(diagnostic), diagnostic
+                    ) from error
 
             self.input_attempted = True
             from conquest.merchants.memory import GuiObservationChanged

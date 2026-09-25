@@ -413,7 +413,14 @@ def test_deposit_refuses_grid_covered_by_another_panel(monkeypatch, covered):
         kwargs["before_release"]()
 
     monkeypatch.setattr(module, "foreground_drag", drag)
-    with pytest.raises(HoverNotReady, match="covered"):
+    # Only the pre-press source cover is the typed, bounded-retry error. A
+    # covered destination while held is uncertain (WarehouseDropCovered).
+    expected = (
+        module.WarehouseHoverCovered
+        if covered == "source"
+        else module.WarehouseDropCovered
+    )
+    with pytest.raises(expected, match="covered"):
         trade({"action": "warehouse-deposit", "uid": 42})
     assert pressed == ([] if covered == "source" else [True])
 

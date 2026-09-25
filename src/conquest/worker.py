@@ -512,16 +512,17 @@ def request(info_path, operation, body=None):
         with opener.open(call, timeout=30) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
-        error_code = None
+        error_code, payload = None, {}
         try:
             payload = json.load(error)
             detail, error_code = payload.get("error", str(error)), payload.get("code")
         except (ValueError, AttributeError):
             detail = str(error)
-        if error_code == "town_observation_unavailable":
-            from conquest.town_trade import TownObservationUnavailable
+        from conquest.town_trade import coded_town_error
 
-            raise TownObservationUnavailable(detail) from error
+        typed = coded_town_error(detail, payload)
+        if typed is not None:
+            raise typed from error
         if error_code == "foreground_unavailable":
             raise CaptureUnavailable(detail) from error
         if error_code == "input_acquisition_busy":

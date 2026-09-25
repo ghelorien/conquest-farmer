@@ -311,8 +311,11 @@ class EmbeddedBridge:
 
                     if isinstance(error, InputAcquisitionBusy):
                         result["code"] = "input_acquisition_busy"
-                    if getattr(error, "code", None) == "town_observation_unavailable":
-                        result["code"] = error.code
+                    from conquest.town_trade import town_error_fields
+
+                    # Typed pre-input town errors keep their class across the
+                    # bridge, including a covered warehouse cell's diagnostic.
+                    result.update(town_error_fields(error))
                 except Exception as error:
                     # A bridge-side crash can occur after an input callback has
                     # started.  Do not expose exception text (which can carry
