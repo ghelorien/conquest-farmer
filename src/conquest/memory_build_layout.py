@@ -277,34 +277,14 @@ def entity_reader_layout(session):
     import yaml
     from conquest.memory_entities import EntityLayout
 
+    # The entity profile is keyed per build. Only 1078 has one; every other
+    # build fails closed rather than inheriting another build's fields.
     layout = read_build_layout(session)
+    if layout.expected_sha256 != CLIENT_SHA256_1078:
+        raise ValueError("No qualified entity layout for this client build")
     root = Path(__file__).resolve().parents[2] / "profiles"
-    if layout.expected_sha256 == CLIENT_SHA256_1078:
-        return EntityLayout.model_validate(
-            yaml.safe_load(
-                (root / "classic-1078-entities-candidate.yaml").read_text(
-                    encoding="utf-8"
-                )
-            )
-        )
-    old = EntityLayout.model_validate(
+    return EntityLayout.model_validate(
         yaml.safe_load(
-            (root / "classic-1074-entities-candidate.yaml").read_text(encoding="utf-8")
+            (root / "classic-1078-entities-candidate.yaml").read_text(encoding="utf-8")
         )
-    )
-    return old.model_copy(
-        update={
-            "expected_sha256": layout.expected_sha256,
-            "root_rva": layout.entity_root_rva,
-            "pointer_offsets": layout.entity_pointer_offsets,
-            "collection_vtable_rva": layout.entity_collection_vtable_rva,
-            "monster_vtable_rva": layout.entity_actor_vtable_rva,
-            "max_hp_offset": 0x3F0
-            if layout.expected_sha256 == CLIENT_SHA256_1078
-            else old.max_hp_offset,
-            "level_offset": 0x708
-            if layout.expected_sha256 == CLIENT_SHA256_1078
-            else old.level_offset,
-            "attribute_pointer_offset": layout.entity_attribute_pointer_offset,
-        }
     )
