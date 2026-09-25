@@ -51,6 +51,20 @@ def storage_only(item):
     )
 
 
-def require_marketable(item):
-    if storage_only(item):
+def exact_dragonball(item):
+    """An exact memory-qualified Dragonball type ID (never a name-only match)."""
+    get = item.get if isinstance(item, dict) else lambda k, d=None: getattr(item, k, d)
+    kind = get("type_id")
+    return type(kind) is int and kind in DRAGONBALL_TYPES
+
+
+def require_marketable(item, *, merchant_dragonball=False):
+    """Refuse storage-only stock for automatic sale.
+
+    ``storage_only`` stays the farmer/warehouse banking policy. Only the
+    guarded 1078 merchant refill passes ``merchant_dragonball=True``: it may
+    then sell a Dragonball already held by the merchant, and must itself
+    enforce the not-bound, last-refresh and lowest-comparable guards.
+    """
+    if storage_only(item) and not (merchant_dragonball and exact_dragonball(item)):
         raise ValueError("Rare Dragonball is storage-only; automatic sale is forbidden")

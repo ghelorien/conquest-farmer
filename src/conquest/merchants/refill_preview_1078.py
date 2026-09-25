@@ -19,12 +19,13 @@ from conquest.merchants.pricing import (
     OWNED,
     ItemKey,
     Listing,
+    historical_quote,
     quote_item,
     validate_booth_price,
 )
 from conquest.merchants.refill import HistoricalComparisons
 from conquest.merchants.restoration_preview_1078 import _journal_image, _preview
-from conquest.valuables import require_marketable
+from conquest.valuables import exact_dragonball, require_marketable
 
 
 def _saved_prices(path):
@@ -35,7 +36,9 @@ def _saved_prices(path):
         with sqlite3.connect(uri, uri=True, timeout=2) as db:
             db.execute("PRAGMA query_only=ON")
             db.execute("BEGIN")
-            row = db.execute("SELECT data FROM catalog WHERE id=1").fetchone()
+            row = db.execute(
+                "SELECT data,observed_at FROM catalog WHERE id=1"
+            ).fetchone()
             try:
                 catalog = json.loads(row[0]) if row else empty
             except (TypeError, ValueError):
@@ -47,6 +50,22 @@ def _saved_prices(path):
                 or not isinstance(catalog.get("ambiguous_equipment_types"), list)
             ):
                 catalog = empty
+            else:
+                # PriceHistory.remember stamps the catalog and every quote of
+                # one market refresh with the same time: the last refresh.
+                # Only that column (never stored JSON) may supply it.
+                catalog = {
+                    key: value
+                    for key, value in catalog.items()
+                    if key != "market_refreshed_at"
+                }
+                if (
+                    row
+                    and isinstance(row[1], (int, float))
+                    and math.isfinite(row[1])
+                    and 0 <= row[1] <= time.time()
+                ):
+                    catalog["market_refreshed_at"] = row[1]
             quotes = {}
             for encoded, raw_price, observed_at in db.execute(
                 "SELECT key,unit_price,observed_at FROM quotes"
@@ -146,6 +165,25 @@ def _owned_listings(market, snapshots):
     return listings
 
 
+def _dragonball_floor(key, quantity, quotes, refreshed_at):
+    """Lowest valid comparable total from the last market refresh, or refuse.
+
+    A merchant may sell a Dragonball it holds only against a comparable from
+    the last recorded market refresh, and never below that refresh's lowest
+    valid (outlier-excluded) comparable. Anything else stays queued.
+    """
+    if not isinstance(refreshed_at, (int, float)) or not math.isfinite(refreshed_at):
+        raise ValueError("Dragonball needs a recorded last market refresh")
+    saved = historical_quote(quotes, key)
+    if saved is None:
+        raise ValueError("Dragonball has no comparable from the last market refresh")
+    if saved["observed_at"] < refreshed_at:
+        raise ValueError("Dragonball comparable is older than the last market refresh")
+    floor = math.ceil(Fraction(saved["unit_price"]) * quantity)
+    validate_booth_price(floor)
+    return floor
+
+
 def _queue(snapshot, catalog, quotes, restoration, *, owned_snapshots=()):
     market = HistoricalComparisons(catalog)
     owned = _owned_listings(market, (snapshot, *owned_snapshots))
@@ -167,7 +205,8 @@ def _queue(snapshot, catalog, quotes, restoration, *, owned_snapshots=()):
             "reason": None,
         }
         try:
-            require_marketable(item)
+            dragonball = exact_dragonball(item)
+            require_marketable(item, merchant_dragonball=dragonball)
             if item["type_id"] == 1088001:
                 raise ValueError("Loose Meteors require verified scroll consolidation")
             if item["bound"]:
@@ -180,7 +219,7 @@ def _queue(snapshot, catalog, quotes, restoration, *, owned_snapshots=()):
                     raise ValueError(
                         "Prior booth price is outside verified memory range"
                     )
-                row.update(
+                update = dict(
                     total_listing_price=price,
                     source="verified_prior_booth_listing",
                     reason="Restore verified prior total price",
@@ -197,7 +236,7 @@ def _queue(snapshot, catalog, quotes, restoration, *, owned_snapshots=()):
                 if decision.price is None:
                     raise ValueError(decision.reason)
                 validate_booth_price(decision.price)
-                row.update(
+                update = dict(
                     total_listing_price=decision.price,
                     source=(
                         "fresh_owned_booth_price"
@@ -207,6 +246,19 @@ def _queue(snapshot, catalog, quotes, restoration, *, owned_snapshots=()):
                     source_observed_at=decision.source_observed_at,
                     reason=decision.reason,
                 )
+            if dragonball:
+                floor = _dragonball_floor(
+                    market.key_for(item),
+                    item["quantity"],
+                    quotes,
+                    catalog.get("market_refreshed_at"),
+                )
+                if update["total_listing_price"] < floor:
+                    raise ValueError(
+                        "Dragonball price is below the lowest live comparable"
+                    )
+                update["dragonball_floor"] = floor
+            row.update(update)
         except (KeyError, TypeError, ValueError) as error:
             row["reason"] = str(error)
         rows.append(row)

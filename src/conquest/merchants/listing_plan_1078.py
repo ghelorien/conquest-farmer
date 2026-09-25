@@ -82,28 +82,9 @@ def plan(runtime, character, snapshot):
         raise ValueError(
             "Shop restoration has an unresolved ownership or recovery hold"
         )
+    # The preview's exact queue: merchant-held Dragonballs carry the same
+    # not-bound, last-refresh and lowest-comparable guard in both callers.
     rows = _queue(snapshot, catalog, quotes, restoration, owned_snapshots=peers)
-    from conquest.valuables import DRAGONBALL_TYPES
-
-    protected = {
-        item["uid"]
-        for item in snapshot["inventory"]
-        if item["type_id"] in DRAGONBALL_TYPES
-    }
-    for row in rows:
-        if row["uid"] in protected:
-            row.update(
-                total_listing_price=None,
-                source=None,
-                reason="Protected Dragonball stock requires storage",
-            )
-    rows.sort(
-        key=lambda row: (
-            row["total_listing_price"] is None,
-            -(row["total_listing_price"] or 0),
-            row["uid"],
-        )
-    )
     for peer in peers:
         peer_profile = next(
             other for other in profiles if other.id == peer["profile_id"]

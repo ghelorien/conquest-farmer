@@ -23,7 +23,8 @@ Failure modes this module must catch (written before the implementation):
 2. A Dragonball whose only comparable is older than the last market refresh is
    listed from that stale price instead of staying queued.
 3. A Dragonball with no recorded market refresh time (unreadable catalog) is
-   priced instead of queued.
+   priced instead of queued; or reading the refresh time crashes on a history
+   that has never remembered a refresh.
 4. A live owned-booth price for the same Dragonball kind that is below the last
    refresh's lowest valid comparable is matched (listing below the floor).
 5. Every Dragonball price source is guarded: a verified prior-booth restoration
@@ -304,6 +305,13 @@ def test_dragonball_without_recorded_refresh_stays_queued(tmp_path, monkeypatch)
     rows = refill_preview_1078._queue(snapshot, catalog, quotes, None)
     assert rows[0]["total_listing_price"] is None
     assert "market refresh" in rows[0]["reason"]
+
+
+def test_history_without_any_refresh_reads_as_empty(tmp_path):
+    path = tmp_path / "price-history.sqlite3"
+    PriceHistory(path)  # Tables exist, but no market refresh was remembered.
+    catalog, quotes = refill_preview_1078._saved_prices(path)
+    assert quotes == {} and "market_refreshed_at" not in catalog
 
 
 def test_unreadable_catalog_refresh_time_is_not_invented(tmp_path, monkeypatch):

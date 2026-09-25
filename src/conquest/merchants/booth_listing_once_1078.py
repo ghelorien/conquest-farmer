@@ -21,7 +21,7 @@ from conquest.memory_build_layout import CLIENT_SHA256_1078, read_build_layout
 from conquest.merchants.memory import GuiReader, HoverNotReady, unpack
 from conquest.merchants.pricing import validate_booth_price
 from conquest.merchants.reader_1078 import open_read_only_1078
-from conquest.valuables import DRAGONBALL_TYPES, require_marketable
+from conquest.valuables import exact_dragonball, require_marketable
 
 from conquest.merchants.booth_probe_1078 import (
     _farmer_journals_clear,
@@ -93,13 +93,11 @@ def _selected(snapshot, request):
     ):
         raise ValueError("Exact requested item changed or left merchant inventory")
     item = matches[0]
-    require_marketable(item)
-    if (
-        item["bound"]
-        or item["type_id"] in DRAGONBALL_TYPES
-        or item["type_id"] == 1088001
-    ):
-        raise ValueError("Protected or loose Meteor stock cannot be listed")
+    # A merchant-held Dragonball is admissible here only; _price_plan still
+    # requires the shared planner's refresh/lowest-comparable guard for it.
+    require_marketable(item, merchant_dragonball=exact_dragonball(item))
+    if item["bound"] or item["type_id"] == 1088001:
+        raise ValueError("Bound or loose Meteor stock cannot be listed")
     return item
 
 
@@ -331,7 +329,14 @@ def _price_plan(ui, character, snapshot, item):
         raise ValueError(
             "Only the highest-valued reliably priced inventory item may fill the booth"
         )
-    return eligible[0]
+    selected = eligible[0]
+    if exact_dragonball(item):
+        floor = selected.get("dragonball_floor")
+        if type(floor) is not int or selected["price"] < floor:
+            raise ValueError(
+                "Dragonball needs a last-refresh price at or above the lowest live comparable"
+            )
+    return selected
 
 
 def _same_quote(before, after):
@@ -344,6 +349,7 @@ def _same_quote(before, after):
             "reason",
             "reference",
             "source_observed_at",
+            "dragonball_floor",
         )
     )
 

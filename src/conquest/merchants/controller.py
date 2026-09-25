@@ -1,7 +1,7 @@
 """Merchant decisions and durable, verified transactions, independent of Windows."""
 
 from conquest.merchants.capacity import available_slots
-from conquest.valuables import require_marketable, storage_only
+from conquest.valuables import exact_dragonball, require_marketable, storage_only
 from dataclasses import asdict
 import hashlib
 import json
@@ -10,6 +10,10 @@ import uuid
 from conquest.merchants.pricing import OWNED, Listing, quote_item, validate_booth_price
 from conquest.capture import CaptureUnavailable
 from conquest.character_context import trusted_delivery
+
+_DRAGONBALL_1078_ONLY = (
+    "Dragonballs list only through the guarded 1078 refill, never undercut"
+)
 
 
 class ListingNotSubmitted(CaptureUnavailable):
@@ -420,6 +424,10 @@ class MerchantController:
                     raise ValueError(
                         "Hold loose Meteors for ten-Meteor consolidation; list scrolls only"
                     )
+                if exact_dragonball(item):
+                    # This path undercuts competitors and has no last-refresh
+                    # guard; Dragonballs never go below the lowest comparable.
+                    raise ValueError(_DRAGONBALL_1078_ONLY)
                 if item["bound"]:
                     raise ValueError("Bound item")
                 key = market.key_for(item)
@@ -505,6 +513,8 @@ class MerchantController:
                 raise ValueError(
                     "Hold loose Meteors for ten-Meteor consolidation; list scrolls only"
                 )
+            if exact_dragonball(item):
+                raise ValueError(_DRAGONBALL_1078_ONLY)
             if not 0 <= self.clock() - plan.get("observed_at", 0) <= 900 or list(
                 identities([item])[uid]
             ) != plan.get("attributes"):
