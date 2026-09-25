@@ -72,11 +72,16 @@ def read_xp_for_session(session, character):
 def fly_point(observer, state):
     if state["charge"] != 100 or not state["ready"] or state["flying"]:
         raise ValueError("Fly requires full XP and the ready status")
+    from conquest.memory_build_layout import read_build_layout
+
     s = observer.adapter
+    # Exact-build offsets: the XP-skill vector and skill vtable differ between
+    # client builds (1078: 0x19C0 / 0x5EB7B8); an unqualified build fails here.
+    layout = read_build_layout(s)
     actor = state["actor"]
     base = next(m["base"] for m in s.modules if m["name"].lower() == "imconquer.exe")
     # The XP popup iterates this vector (separate from the learned-skill list).
-    header = s.read_block(actor + 0x1998, 24)
+    header = s.read_block(actor + layout.xp_skills_offset, 24)
     start, end, capacity = struct.unpack("<3Q", header)
     if (
         not 16 <= end - start <= 8 * 16
@@ -94,7 +99,7 @@ def fly_point(observer, state):
         raise ValueError("Duplicate XP skill entries")
     records = [s.read_block(pointer, 0x68) for pointer in pointers]
     if any(
-        struct.unpack_from("<Q", raw)[0] != base + 0x5CFF78
+        struct.unpack_from("<Q", raw)[0] != base + layout.skill_vtable_rva
         or struct.unpack_from("<I", raw, 8)[0] not in (0, 1)
         for raw in records
     ):
@@ -115,7 +120,7 @@ def fly_point(observer, state):
         or struct.unpack_from("<I", raw, 0x44)[0] != 2
     ):
         raise ValueError("Ready XP entry is not the self-target Fly skill")
-    gui = MemoryGui(s)
+    gui = MemoryGui(s, layout=layout)
     window = gui.read("##SkillsPopup")
     # Pinned renderer 0x9b2c0 iterates every non-null entry, including disabled
     # buttons, in vector order. 0xab610 draws 40x40 icons with 8px spacing and
@@ -126,7 +131,7 @@ def fly_point(observer, state):
     ):
         raise ValueError("Fly popup geometry changed")
     if (
-        s.read_block(actor + 0x1998, 24) != header
+        s.read_block(actor + layout.xp_skills_offset, 24) != header
         or s.read_block(start, len(entries)) != entries
         or any(
             s.read_block(pointer, 0x68) != raw

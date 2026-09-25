@@ -33,7 +33,9 @@ def fixture(monkeypatch):
     life = NS(object_address=actor, dead_candidate=False)
     monkeypatch.setattr(xp, "read_life", lambda *args: life)
     window = NS(position=(490.0, 613.0), size=(56.0, 56.0), scroll=(0.0, 0.0))
-    monkeypatch.setattr(xp, "MemoryGui", lambda s: NS(read=lambda name: window))
+    monkeypatch.setattr(
+        xp, "MemoryGui", lambda s, layout=None: NS(read=lambda name: window)
+    )
     return NS(adapter=session, health_layout=None, character="Parasite"), blobs, window
 
 
