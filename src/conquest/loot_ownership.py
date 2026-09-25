@@ -7,7 +7,7 @@ import json
 import struct
 import time
 from conquest.addressing import checked_address
-from conquest.memory_build_layout import CLIENT_SHA256_1074, CLIENT_SHA256_1078
+from conquest.memory_build_layout import CLIENT_SHA256_1078
 
 OWNERSHIP_MESSAGE = "You can`t pick up other player`s loot at the moment. Please wait."
 
@@ -32,10 +32,10 @@ def ownership_rejected(before, after):
 
 class SystemMessageReader:
     def __init__(self, session):
-        # Both head RVAs are pinned to their exact executable fingerprints.
+        # The head RVA is pinned to its exact executable fingerprint.
         # The 1078 getter at RVA 0x77c65 returns manager RVA 0x6b8e90;
         # its System-channel tree, deque and records retain the checked layout.
-        heads = {CLIENT_SHA256_1074: 0x698740, CLIENT_SHA256_1078: 0x6B8ED0}
+        heads = {CLIENT_SHA256_1078: 0x6B8ED0}
         try:
             self.head_rva = heads[session.expected_sha256]
         except KeyError as error:
