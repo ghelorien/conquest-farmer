@@ -4,18 +4,14 @@ Layouts are derived from the c2b53437 client renderer and checked against live
 merchant inventories/booths. Trade and input qualification is tracked separately.
 """
 
-from conquest.character_context import farmer_name
 from dataclasses import dataclass, asdict
 import math
 import struct
 import time
 import zlib
-from pathlib import Path
-import yaml
-from conquest.addressing import PlayerLayout, resolve_player, checked_address
-from conquest.memory_inventory import InventoryLayout, MemoryInventoryReader
+from conquest.addressing import checked_address
+from conquest.memory_inventory import MemoryInventoryReader
 from conquest.memory_life import CLIENT_SHA256
-from conquest.merchants.transit_life import stable_life as read_life
 from conquest.equipment import item_details
 from conquest.merchants.pricing import ItemKey, quality, socket_name
 
@@ -437,44 +433,17 @@ class StockItem:
         )
 
 
-def trade_silver(text, *, accepted=False, locked=False):
-    # The pinned Accept Trade renderer (10fa50..10fa6d) writes this exact
-    # zero/checkmark string when it locks an untouched own gold field.
-    if text == "0 \u2714" and accepted and locked:
-        return 0
-    if text and text.isascii() and text.isdecimal():
-        return int(text)
-    raise ValueError("Unverified trade silver fields")
-
-
 class MerchantMemory:
     def __init__(self, observer, *, definitions=None):
-        self.observer = observer
-        self.s = observer.adapter
-        self.gui = GuiReader(self.s)
-        self.base = self.gui.base
-        self.player = PlayerLayout.model_validate(
-            yaml.safe_load(
-                Path("profiles/classic-1074-player-candidate.yaml").read_text()
-            )
-        )
-        self.inventory = MemoryInventoryReader(
-            self.s,
-            self.player,
-            InventoryLayout.model_validate(
-                yaml.safe_load(
-                    Path("profiles/classic-1074-inventory-candidate.yaml").read_text()
-                )
-            ),
-        )
-        self.definitions = definitions or {}
+        # The default constructor served only the retired 1074 client. Build
+        # a reader with for_session/for_observer; this always fails closed.
+        raise ValueError("Unqualified merchant client fingerprint")
 
     @classmethod
     def for_session(cls, session, character, *, definitions=None):
         """Explicit 1078 closed-modal stock observation with no input surface."""
         from types import SimpleNamespace
-        from conquest.memory_build_layout import read_build_layout
-        from conquest.memory_inventory import MemoryInventoryReader
+        from conquest.memory_build_layout import CLIENT_SHA256_1078, read_build_layout
 
         if not hasattr(session, "read_block"):
             session = SimpleNamespace(
@@ -487,8 +456,8 @@ class MerchantMemory:
                 viewport_size=getattr(session, "viewport_size", None),
             )
         layout = read_build_layout(session)
-        if layout.expected_sha256 == CLIENT_SHA256:
-            raise ValueError("Use the default MerchantMemory constructor for 1074")
+        if layout.expected_sha256 != CLIENT_SHA256_1078:
+            raise ValueError("Merchant stock observation is qualified only for 1078")
         self = cls.__new__(cls)
         self.observer = SimpleNamespace(character=character, adapter=session)
         self.s = session
@@ -498,16 +467,10 @@ class MerchantMemory:
         self.player = None
         self.inventory = MemoryInventoryReader.for_session(session)
         self.definitions = definitions or {}
-        self._closed_modal_only = True
         return self
 
     @classmethod
     def for_observer(cls, observer, *, definitions=None):
-        from conquest.memory_build_layout import read_build_layout
-
-        layout = read_build_layout(observer.adapter)
-        if layout.expected_sha256 == CLIENT_SHA256:
-            return cls(observer, definitions=definitions)
         return cls.for_session(
             observer.adapter, observer.character, definitions=definitions
         )
@@ -540,73 +503,10 @@ class MerchantMemory:
         )
 
     def booth_pointer(self, slot, uid):
-        if getattr(self, "_closed_modal_only", False):
-            raise ValueError("1078 booth input targeting is not qualified")
-        life = read_life(self.s, self.observer.health_layout, self.observer.character)
-        pointers, _ = deque_items(self.s, life.object_address + 0x3468, 32)
-        if (
-            not 0 <= slot < len(pointers)
-            or self.item(pointers[slot], slot, True).uid != uid
-        ):
-            raise ValueError("Booth item identity changed before checking its control")
-        return pointers[slot]
+        raise ValueError("1078 booth input targeting is not qualified")
 
     def read_travel(self, *, max_seconds=3):
-        if getattr(self, "_closed_modal_only", False):
-            raise ValueError("1078 merchant travel observation is not qualified")
-        """Transit evidence only; never a stock, capacity or trade snapshot."""
-        started = time.monotonic()
-        s = self.s
-        server = s.read_block(self.base + 0x697860, 64)
-        if server.split(b"\0")[0] != b"Classic_US":
-            raise ValueError("Merchant is not on the verified America server")
-        life = read_life(s, self.observer.health_layout, self.observer.character)
-        if (
-            life.dead_candidate
-            or life.current_hp <= 0
-            or life.map_id not in (1002, 1036)
-        ):
-            raise ValueError(
-                "Market travel requires a living merchant in a supported town"
-            )
-        wrapper = resolve_player(s, self.player)
-        silver_address = wrapper["object"] + self.inventory.layout.silver
-        silver = unpack(s, silver_address, "<I")[0]
-        models = [self.gui.model(14, 0x5CB328), self.gui.model(15, 0x5C4F30)]
-        flags = [unpack(s, p + 12, "<B")[0] for p in models]
-        windows = self.gui.windows()
-        fresh = read_life(s, self.observer.health_layout, self.observer.character)
-        if (
-            fresh.object_address != life.object_address
-            or fresh.dead_candidate
-            or fresh.current_hp <= 0
-            or resolve_player(s, self.player) != wrapper
-            or s.read_block(self.base + 0x697860, 64) != server
-        ):
-            raise ValueError("Merchant transit identity or life changed")
-        if (
-            fresh.map_id != life.map_id
-            or fresh.position != life.position
-            or unpack(s, silver_address, "<I")[0] != silver
-            or [unpack(s, p + 12, "<B")[0] for p in models] != flags
-        ):
-            raise TransitObservationChanged("Merchant transit observation changed")
-        s.assert_identity()
-        if time.monotonic() - started > max_seconds:
-            raise ValueError("Merchant transit observation expired")
-        return {
-            "character": self.observer.character,
-            "identity": s.identity,
-            "timestamp": time.time(),
-            "observation": "travel_only",
-            "map_id": fresh.map_id,
-            "position": list(fresh.position),
-            "hp": fresh.current_hp,
-            "silver": silver,
-            "trade": bool(flags[0]),
-            "request": bool(flags[1]),
-            "windows": windows,
-        }
+        raise ValueError("1078 merchant travel observation is not qualified")
 
     def _read_closed_1078(self, *, max_seconds):
         """Reuse the normal stock decoder, but never decode an open trade."""
@@ -757,181 +657,6 @@ class MerchantMemory:
         }
 
     def read(self, *, max_seconds=3, recovery=False, farmer_preflight=False):
-        if getattr(self, "_closed_modal_only", False):
-            if recovery or farmer_preflight:
-                raise ValueError("1078 merchant recovery/preflight is not qualified")
-            return self._read_closed_1078(max_seconds=max_seconds)
-        started = time.monotonic()
-        s = self.s
-        server_raw = s.read_block(self.base + 0x697860, 64)
-        if server_raw.split(b"\0")[0] != b"Classic_US":
-            raise ValueError("Merchant is not on the verified America server")
-        life = read_life(s, self.observer.health_layout, self.observer.character)
-        allowed_maps = (1002, 1036) if recovery else (1036,)
-        if farmer_preflight:
-            if self.observer.character != farmer_name():
-                raise ValueError("Town delivery preflight is restricted to the farmer")
-            allowed_maps = (1002, 1011, 1036)
-        if (
-            life.dead_candidate
-            or life.current_hp <= 0
-            or life.map_id not in allowed_maps
-        ):
-            raise ValueError("Merchant must be alive on the Market map")
-        actor = life.object_address
-        inv = self.inventory.read()
-        wrapper = resolve_player(s, self.player)["object"]
-        inv_ptrs, inv_header = deque_items(s, wrapper + 0xB88, 40)
-        stock = [self.item(p, i) for i, p in enumerate(inv_ptrs)]
-        if [i.uid for i in stock] != [i.uid for i in inv.items]:
-            raise ValueError("Inventory identities changed")
-        booth_ptrs, booth_header = deque_items(s, actor + 0x3468, 32)
-        booth = [self.item(p, i, True) for i, p in enumerate(booth_ptrs)]
-        model = self.gui.model(25, 0x5C27F8)
-        own_uid = character_uid(s, self.base, actor)
-        own_booth_uid = unpack(s, actor + 0x3258, "<I")[0]
-        model_raw = s.read_block(model, 0x58)
-        booth_open = bool(model_raw[12])
-        if booth_open and (
-            not own_booth_uid
-            or struct.unpack_from("<I", model_raw, 0x4C)[0] != own_booth_uid
-        ):
-            raise ValueError("Displayed booth is not this merchant’s booth")
-        trade_model = self.gui.model(14, 0x5CB328)
-        trade_raw = s.read_block(trade_model, 0x9A)
-        confirmation_model = self.gui.model(15, 0x5C4F30)
-        request_active = bool(unpack(s, confirmation_model + 12, "<B")[0])
-        trade = None
-        if trade_raw[12]:
-            own_ptrs, own_header = deque_items(s, actor + 0xF28, 20)
-            other_ptrs, other_header = deque_items(s, actor + 0xF50, 20)
-            own = [self.item(p, i) for i, p in enumerate(own_ptrs)]
-            other = [self.item(p, i) for i, p in enumerate(other_ptrs)]
-            participant = string(s, actor + 0xF88, 63)
-            participant_uid = unpack(s, actor + 0xF84, "<I")[0]
-            # The renderer's editable silver string is authoritative; never
-            # infer zero just because no gold has left inventory yet.
-            own_silver_text = string(s, trade_model + 0x78, 32)
-            other_silver_text = string(s, trade_model + 0x58, 32)
-            own_silver = trade_silver(
-                own_silver_text,
-                accepted=bool(trade_raw[0x98]),
-                locked=bool(trade_raw[0x54]),
-            )
-            other_silver = trade_silver(other_silver_text)
-            trade = {
-                "participant": participant,
-                "participant_uid": participant_uid,
-                "own_items": [asdict(i) for i in own],
-                "items": [asdict(i) for i in other],
-                "own_silver": own_silver,
-                "other_silver": other_silver,
-                "accepted": bool(trade_raw[0x98]),
-                "other_accepted": bool(trade_raw[0x99]),
-            }
-            if (
-                s.read_block(actor + 0xF28, 32) != own_header
-                or s.read_block(actor + 0xF50, 32) != other_header
-                or s.read_block(trade_model, 0x9A) != trade_raw
-            ):
-                raise ValueError("Trade changed during observation")
-        request = None
-        if request_active:
-            title = string(s, confirmation_model + 0x48)
-            if title == "Trade###Confirm":
-                request = {
-                    "participant": string(s, actor + 0xFD8, 63),
-                    "message": string(s, confirmation_model + 0x68, 256),
-                }
-                if (
-                    request["message"]
-                    != f"{request['participant']} wishes to trade with you."
-                ):
-                    raise ValueError(
-                        "Incoming trade participant and confirmation disagree"
-                    )
-                from conquest.merchants.request_identity import participant_uid
-
-                request["participant_uid"] = participant_uid(
-                    self.observer, request["participant"]
-                )
-                if (
-                    not unpack(s, confirmation_model + 12, "<B")[0]
-                    or string(s, confirmation_model + 0x48) != title
-                    or string(s, actor + 0xFD8, 63) != request["participant"]
-                    or string(s, confirmation_model + 0x68, 256) != request["message"]
-                ):
-                    raise ValueError(
-                        "Incoming trade request changed during identity resolution"
-                    )
-        final_inventory = self.inventory.read()
-        if (
-            s.read_block(wrapper + 0xB88, 32) != inv_header
-            or s.read_block(actor + 0x3468, 32) != booth_header
-            or final_inventory.items != inv.items
-            or final_inventory.silver != inv.silver
-        ):
-            raise ValueError("Merchant inventory changed during observation")
-        uids = [i.uid for i in stock + booth]
-        if len(set(uids)) != len(uids):
-            raise ValueError("Item appears in both booth and inventory")
-        windows = self.gui.windows()
-        s.assert_identity()
-        if time.monotonic() - started > max_seconds:
-            raise ValueError("Merchant observation expired during GUI sampling")
-        if character_uid(s, self.base, actor) != own_uid:
-            raise ValueError("Character UID changed during observation")
-        assert_booth_stable(s, actor, model, own_booth_uid, model_raw)
-        # Input guards must not combine stock/GUI sampled at one position with
-        # a later position reached while the snapshot was being assembled.
-        fresh = read_life(s, self.observer.health_layout, self.observer.character)
-        if (
-            fresh.object_address != actor
-            or fresh.map_id != life.map_id
-            or fresh.dead_candidate
-            or fresh.current_hp <= 0
-            or s.read_block(self.base + 0x697860, 64) != server_raw
-            or time.monotonic() - started > max_seconds
-        ):
-            raise ValueError("Merchant observation expired or identity changed")
-        if fresh.position != life.position:
-            raise TransitObservationChanged(
-                "Merchant position changed during observation"
-            )
-        snapshot = {
-            "character": self.observer.character,
-            "character_uid": own_uid,
-            "identity": s.identity,
-            "timestamp": time.time(),
-            "server": "America",
-            "map_id": life.map_id,
-            "position": list(fresh.position),
-            "hp": fresh.current_hp,
-            "capacity": inv.capacity,
-            "silver": inv.silver,
-            "inventory": [asdict(i) for i in stock],
-            "booth": [asdict(i) for i in booth],
-            "own_booth_uid": own_booth_uid,
-            "booth_open": booth_open,
-            "trade": trade,
-            "request": request,
-            "windows": windows,
-        }
-        from conquest.character_context import merchant_context, current, registry
-
-        # Market trades and town preflight use the same verified farmer identity.
-        context = (
-            current()
-            if self.observer.character == farmer_name()
-            else merchant_context(self.observer.character)
-        )
-        if context:
-            context.verify(snapshot)
-            if context.profile.character_uid is None:
-                registry().bind(
-                    context.profile.id,
-                    snapshot["character"],
-                    snapshot["server"],
-                    own_uid,
-                )
-        return snapshot
+        if recovery or farmer_preflight:
+            raise ValueError("1078 merchant recovery/preflight is not qualified")
+        return self._read_closed_1078(max_seconds=max_seconds)
