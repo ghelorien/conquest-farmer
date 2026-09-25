@@ -7,7 +7,7 @@ import time
 
 from conquest.addressing import checked_address
 from conquest.memory_shop import MemoryGui
-from conquest.memory_build_layout import CLIENT_SHA256_1074, CLIENT_SHA256_1078
+from conquest.memory_build_layout import CLIENT_SHA256_1078
 
 
 class SelectionReader:
@@ -162,7 +162,6 @@ class SelectionReader:
 
     def menu_point(self):
         if self.layout is not None and self.layout.expected_sha256 not in (
-            CLIENT_SHA256_1074,
             CLIENT_SHA256_1078,
         ):
             raise ValueError("Skill-selection input is not qualified for this build")
@@ -243,7 +242,6 @@ class SelectionReader:
 
     def scatter_point(self, actor):
         if self.layout is not None and self.layout.expected_sha256 not in (
-            CLIENT_SHA256_1074,
             CLIENT_SHA256_1078,
         ):
             raise ValueError("Skill-selection input is not qualified for this build")
