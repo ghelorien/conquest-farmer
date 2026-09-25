@@ -416,6 +416,10 @@ def warehouse_fallback_only(loop, meteor):
         return False
     row = visit.state()
     claim = row.get("pre_admission_restock_tail") or {}
+    if claim.get("capture_kind") == "approach_stall":
+        from conquest.restock_town_recovery import approach_stall_fallback
+
+        return approach_stall_fallback(loop, row, claim, meteor)
     if claim.get("capture_kind") not in ("no_transfer", "operator_warehouse"):
         return False
     market = read_json(MarketVisit().path)

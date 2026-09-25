@@ -19,6 +19,25 @@ from conquest.town_visit import _process_identity
 EVENTS = Path(state_path("reports/overnight/events.jsonl"))
 MONEY = Path(state_path("reports/banking/transfers.jsonl"))
 FIELDS = ("uid", "type_id", "amount", "plus", "gem1", "gem2", "bound", "quantity")
+TRAVEL_STALLED = "conquest.travel_progress.TravelStalled"
+STALL_DETAIL = "Route made no improving progress after bounded recovery"
+# Read-only frames of this module's own capture.  A refusal raised wholly
+# inside them observed memory/journals only and cannot hide an input action.
+CAPTURE_FRAMES = (
+    "capture_pre_admission_tail",
+    "_capture_approach_stall_tail",
+    "_native_tail_safe",
+    "_ownership",
+    "_rows",
+)
+# Any of these after the Meteor batch started means input beyond movement.
+TRANSACTION_EVENTS = (
+    "valuable_stored",
+    "purchase",
+    "sale",
+    "merchant_journey_started",
+    "meteor_loop_complete",
+)
 
 
 def _save_tail(visit, row):
@@ -97,6 +116,12 @@ def capture_pre_admission_tail(loop):
                 "Captured restock continuation changed before Meteor recovery"
             )
         _native_tail_safe(loop, prior["target"], 1036)
+        if prior.get("capture_kind") == "approach_stall" and (
+            resumed != prior["meteor"]
+            or market != prior["market"]
+            or _ownership(loop.town("supplies")) != _ownership(prior["bag"])
+        ):
+            raise ValueError("Captured approach-stall ownership changed")
         if prior.get("capture_kind") in (
             "settled_delivery",
             "no_transfer",
@@ -162,6 +187,16 @@ def capture_pre_admission_tail(loop):
         for e in _rows(EVENTS)
     ):
         return capture(loop, row, meteor)
+    events = [
+        e for e in _rows(EVENTS) if e.get("town_visit_id") == row["town_visit_id"]
+    ]
+    gameplay = [
+        e for e in events if e.get("event") == "failed" and not _capture_refusal(e)
+    ]
+    if gameplay and gameplay[-1].get("error_type") == TRAVEL_STALLED:
+        # The grant-rejection binding below can never accept a trip whose
+        # latest gameplay failure is a movement stall.
+        return _capture_approach_stall_tail(loop, row, meteor, events, gameplay[-1])
     history = row.get("history") or []
     previous = history[-1] if history else {}
     target = previous.get("return_target")
@@ -303,6 +338,228 @@ def capture_pre_admission_tail(loop):
         "phase": "captured",
     }
     _save_tail(visit, row)
+    return True
+
+
+def _capture_refusal(event):
+    """An earlier read-only refusal by this capture, never a gameplay failure."""
+    frames = [
+        (Path(f.get("file", "")).name, f.get("function"))
+        for f in event.get("failure_trace") or []
+    ]
+    entry = ("restock_town_recovery.py", "capture_pre_admission_tail")
+    if (
+        event.get("event") != "failed"
+        or event.get("error_type") != "builtins.ValueError"
+        or entry not in frames
+    ):
+        return False
+    start = frames.index(entry)
+    return start > 0 and (
+        frames[start - 1] == ("overnight.py", "_run_route")
+        and all(
+            name == "restock_town_recovery.py" and function in CAPTURE_FRAMES
+            for name, function in frames[start:]
+        )
+    )
+
+
+def _capture_approach_stall_tail(loop, row, meteor, events, failure):
+    """Bind a movement-only Market warehouse approach stall after the exchange.
+
+    approach_market_warehouse queues movement only, so a stall inside it
+    cannot hide a deposit, fare, sale or delivery.  The earlier (departed)
+    Market service visit is retained unchanged; nothing is replayed here.
+    """
+    from contextlib import closing
+    import sqlite3
+    from conquest.meteor_banking import SCROLL
+    from conquest.merchants.delivery_operation import JOURNAL as deliveries
+    from conquest.merchants.service_visit import MarketVisit
+    from conquest.merchants.bridge import request
+    from conquest.merchants.handoff import qualified_listing_request
+
+    visit = loop.town_visit
+    target = row.get("restock_target")
+    started = meteor.get("started_at")
+    after = meteor.get("after")
+    if (
+        row.get("phase") != "town_work"
+        or row.get("reasons") != ["restock"]
+        or row.get("town_work_completed_at")
+        or not _process_identity(target)
+        or row.get("route_id") != loop.route.id
+        or row.get("hunt_map_id") != loop.route.map_id
+        or meteor.get("phase") != "storing_scroll"
+        or meteor.get("origin") != loop.route.restock_map_id
+        or meteor.get("exchange_verified") is not True
+        or type(started) not in (int, float)
+        or not row["required_at"] <= started
+        or not isinstance(after, dict)
+        or type(meteor.get("scroll_uid")) is not int
+        or [
+            i.get("type_id")
+            for i in after.get("items") or []
+            if i.get("uid") == meteor["scroll_uid"]
+        ]
+        != [SCROLL]
+        or meteor.get("market_verified_at")
+        or meteor.get("return_submitted_at")
+        or meteor.get("receipts")
+        or meteor.get("user_confirmed_scroll_consumption")
+        or meteor.get("user_confirmed_scroll_transfer")
+    ):
+        raise ValueError(
+            "Approach-stall restock lacks its original process and exchange chain"
+        )
+    frames = [
+        (Path(f.get("file", "")).name, f.get("function"))
+        for f in failure.get("failure_trace") or []
+    ]
+    approach = ("meteor_banking.py", "approach_market_warehouse")
+    at = frames.index(approach) if approach in frames else 0
+    movement = {
+        ("overnight.py", "travel"),
+        ("overnight.py", "_travel"),
+        ("travel_progress.py", "observe"),
+    }
+    tail = frames[at + 1 :]
+    if (
+        failure.get("event") != "failed"
+        or failure.get("error_type") != TRAVEL_STALLED
+        or failure.get("detail") != STALL_DETAIL
+        or type(failure.get("time")) not in (int, float)
+        or failure["time"] < started
+        or frames.count(approach) != 1
+        or not {("meteor_banking.py", "resume"), ("meteor_banking.py", "market_bank")}
+        <= set(frames[:at])
+        or not tail
+        or not set(tail) <= movement
+        or not {("overnight.py", "travel"), ("overnight.py", "_travel")} <= set(tail)
+        or tail[-1] != ("travel_progress.py", "observe")
+    ):
+        raise ValueError(
+            "Restock failure is not the exact Market warehouse approach stall"
+        )
+    exchanges = [
+        e
+        for e in events
+        if e.get("event") == "meteor_exchange_verified"
+        and started <= e.get("time", 0) <= failure["time"]
+    ]
+    if len(exchanges) != 1 or exchanges[0].get("scroll_uid") != meteor["scroll_uid"]:
+        raise ValueError("Approach stall does not follow this batch's exchange")
+    if any(
+        e.get("time", 0) >= started
+        and (
+            e.get("event") in TRANSACTION_EVENTS
+            or str(e.get("event")).startswith(("silver_", "merchant_"))
+        )
+        for e in events
+    ):
+        raise ValueError("A transaction followed the interrupted Meteor batch")
+    # Restart bookkeeping and this capture's own read-only refusals cannot
+    # hide the stall. Every later gameplay event remains held.
+    position = next(i for i, e in enumerate(events) if e is failure)
+    for event in events[position + 1 :]:
+        if event.get("event") in ("started", "stopped") or _capture_refusal(event):
+            continue
+        raise ValueError("Gameplay followed the Market warehouse approach stall")
+    market = read_json(MarketVisit().path)
+    attempts = market.get("attempts")
+    if (
+        market.get("phase") != "departed"
+        or market.get("town_visit_id") != row["town_visit_id"]
+        or market.get("parent_visit_id") != row["town_visit_id"]
+        or market.get("farmer_profile_id") != visit.profile
+        or not isinstance(attempts, list)
+        or not row["required_at"]
+        <= market.get("started_at", 0)
+        <= market.get("departed_at", float("inf"))
+        < started
+        or any(
+            not market["started_at"]
+            <= a.get("at", float("inf"))
+            <= market["departed_at"]
+            for a in attempts
+        )
+    ):
+        raise ValueError("Market service visit changed after the Meteor batch started")
+    if deliveries.exists():
+        with closing(
+            sqlite3.connect(deliveries.resolve().as_uri() + "?mode=ro", uri=True)
+        ) as db:
+            if (
+                db.execute(
+                    "SELECT 1 FROM delivery_admissions WHERE created>=? LIMIT 1",
+                    (started,),
+                ).fetchone()
+                or db.execute(
+                    "SELECT 1 FROM transactions WHERE created>=? LIMIT 1", (started,)
+                ).fetchone()
+            ):
+                raise ValueError(
+                    "A delivery was admitted after the Meteor batch started"
+                )
+    if any(
+        type(e.get("time")) not in (int, float) or e["time"] >= started
+        for e in _rows(MONEY, allow_missing=True)
+    ):
+        raise ValueError("Money transfer after Meteor departure needs reconciliation")
+    _native_tail_safe(loop, target, 1036)
+    status = request({"action": "status"})
+    manual = request({"action": "manual-status"}).get("farmer") or {}
+    observation = manual.get("observation") or {}
+    pending = status.get("handoff_requested")
+    if (
+        status.get("input_owner") is not None
+        or status.get("handoff_granted") is not False
+        or pending is not None
+        and qualified_listing_request(status) is None
+        or manual.get("session")
+        or manual.get("input_fenced")
+        or observation.get("available") is not True
+        or observation.get("windows_absent") is not True
+        or not 0 <= time.time() - observation.get("observed_at", 0) <= 5
+        or _other_holds()
+    ):
+        raise ValueError(
+            "Merchant or manual ownership holds the approach-stall restock"
+        )
+    bag = loop.town("supplies")
+    if _ownership(bag) != _ownership(after):
+        raise ValueError("Post-exchange ownership changed before recovery")
+    _native_tail_safe(loop, target, 1036)
+    row["pre_admission_restock_tail"] = {
+        "capture_kind": "approach_stall",
+        "target": target,
+        "failure": failure,
+        "market": market,
+        "meteor": meteor,
+        "bag": bag,
+        "captured_at": time.time(),
+        "phase": "captured",
+    }
+    _save_tail(visit, row)
+    return True
+
+
+def approach_stall_fallback(loop, row, claim, meteor):
+    """A captured approach stall only stores the scroll; no new admission."""
+    from conquest.merchants.service_visit import MarketVisit
+
+    if (
+        claim.get("phase") != "captured"
+        or row.get("phase") != "town_work"
+        or row.get("reasons") != ["restock"]
+        or row.get("town_work_completed_at")
+        or meteor != claim["meteor"]
+        or read_json(MarketVisit().path) != claim["market"]
+    ):
+        raise ValueError("Captured approach-stall warehouse fallback changed")
+    _native_tail_safe(loop, claim["target"], 1036)
+    if _ownership(loop.town("supplies")) != _ownership(claim["bag"]):
+        raise ValueError("Approach-stall ownership changed before warehouse fallback")
     return True
 
 
@@ -618,6 +875,8 @@ def resume_pre_admission_tail(loop):
             )
         )
         or market.get("phase") != "departed"
+        or claim.get("capture_kind") == "approach_stall"
+        and market != claim["market"]
     ):
         raise ValueError(
             "Existing Meteor return or original Market budget is unverified"

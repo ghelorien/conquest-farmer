@@ -640,3 +640,274 @@ def test_uncertain_cash_or_later_crash_never_replays(recovered, monkeypatch, out
     with pytest.raises(ValueError, match="replay"):
         recovery.resume_pre_admission_tail(x.loop)
     assert x.calls == before and "town_work_completed_at" not in x.visit.state()
+
+
+STALL_TRACE = [
+    ("banking.py", "stash_valuables"),
+    ("meteor_banking.py", "consolidate"),
+    ("meteor_banking.py", "resume"),
+    ("meteor_banking.py", "market_bank"),
+    ("meteor_banking.py", "approach_market_warehouse"),
+    ("overnight.py", "travel"),
+    ("overnight.py", "_travel"),
+    ("travel_progress.py", "observe"),
+]
+REFUSAL_TRACE = [
+    ("overnight.py", "run"),
+    ("overnight.py", "_run_route"),
+    ("restock_town_recovery.py", "capture_pre_admission_tail"),
+]
+
+
+def trace(frames):
+    return [{"file": f, "function": fn, "line": 0} for f, fn in frames]
+
+
+@pytest.fixture
+def stalled(recovered, monkeypatch, tmp_path):
+    """The live shape: earlier settled Market visit, then a second batch stall."""
+    x = recovered
+    x.row["restock_target"] = deepcopy(x.target)
+    write_json(x.visit.path, x.row)
+    x.market.update(
+        phase="departed",
+        started_at=802.0,
+        deadline=862.0,
+        departed_at=815.0,
+        arrival_map=1011,
+        attempts=[{"merchant": "Dutch", "outcome": "transferred", "at": 808.0}],
+    )
+    write_json(x.market_path, x.market)
+    with sqlite3.connect(delivery_operation.JOURNAL) as db:
+        db.execute("INSERT INTO delivery_admissions VALUES(804)")
+        db.execute("INSERT INTO transactions VALUES(804)")
+    monkeypatch.setattr(recovery, "MONEY", tmp_path / "transfers.jsonl")
+    recovery.MONEY.write_text(json.dumps({"time": 700.0}) + "\n")
+    x.failure = {
+        "event": "failed",
+        "time": 850.0,
+        "phase": "needs_attention",
+        "town_visit_id": "original-town",
+        "detail": "Route made no improving progress after bounded recovery",
+        "error_type": "conquest.travel_progress.TravelStalled",
+        "failure_trace": trace(STALL_TRACE),
+    }
+    x.events = [
+        {"event": "merchant_delivery_verified", "time": 808.0},
+        {"event": "valuable_stored", "time": 812.0, "stored": 99},
+        {"event": "meteor_loop_complete", "time": 816.0},
+        {"event": "meteor_consolidation_started", "time": 820.5},
+        {"event": "meteor_exchange_verified", "time": 830.0, "scroll_uid": 3},
+        {"event": "market_movement_recovery", "time": 840.0},
+        x.failure,
+    ]
+    for event in x.events:
+        event["town_visit_id"] = "original-town"
+    x.write_events()
+    x.manual = {
+        "observation": {"available": True, "windows_absent": True, "observed_at": 999.0}
+    }
+    return x
+
+
+def test_approach_stall_captures_unchanged_trip_and_reenters_without_input(stalled):
+    from conquest.no_transfer_town_recovery import warehouse_fallback_only
+
+    x = stalled
+    market = deepcopy(x.market)
+    assert recovery.capture_pre_admission_tail(x.loop)
+    claim = x.visit.state()["pre_admission_restock_tail"]
+    assert claim["capture_kind"] == "approach_stall" and claim["phase"] == "captured"
+    assert claim["target"] == x.target and claim["failure"] == x.failure
+    assert claim["market"] == market == read_json(x.market_path)
+    assert claim["meteor"] == x.meteor and claim["bag"] == x.bag
+    # Re-entry validates, then native Meteor recovery skips any new admission.
+    assert recovery.capture_pre_admission_tail(x.loop)
+    assert warehouse_fallback_only(x.loop, read_json(meteor_banking.JOURNAL))
+    assert x.visit.state()["pre_admission_restock_tail"] == claim and not x.calls
+
+
+@pytest.mark.parametrize(
+    "later",
+    [
+        "valuable_stored",
+        "purchase",
+        "sale",
+        "silver_deposit",
+        "merchant_journey_started",
+        "merchant_repositioning",
+        "second_exchange",
+        "delivery_admissions",
+        "transactions",
+        "money",
+    ],
+)
+def test_approach_stall_rejects_any_transaction_after_meteor_start(stalled, later):
+    x = stalled
+    if later in ("delivery_admissions", "transactions"):
+        with sqlite3.connect(delivery_operation.JOURNAL) as db:
+            db.execute(f"INSERT INTO {later} VALUES(825)")
+    elif later == "money":
+        recovery.MONEY.write_text(json.dumps({"time": 825.0}) + "\n")
+    else:
+        event = {"event": later, "time": 835.0, "town_visit_id": "original-town"}
+        if later == "second_exchange":
+            event.update(event="meteor_exchange_verified", scroll_uid=4)
+        x.events.insert(-1, event)
+        x.write_events()
+    with pytest.raises(ValueError):
+        recovery.capture_pre_admission_tail(x.loop)
+    assert "pre_admission_restock_tail" not in x.visit.state() and not x.calls
+
+
+@pytest.mark.parametrize(
+    "changed",
+    ["phoenix_travel", "after_deposit", "no_market_bank", "detail", "before_batch"],
+)
+def test_approach_stall_requires_exact_movement_only_warehouse_stall(stalled, changed):
+    x = stalled
+    frames = list(STALL_TRACE)
+    if changed == "phoenix_travel":
+        frames = [("meteor_banking.py", "trip")] + frames[5:]
+    if changed == "after_deposit":
+        frames.insert(5, ("banking.py", "open_warehouse"))
+    if changed == "no_market_bank":
+        frames.remove(("meteor_banking.py", "market_bank"))
+    x.failure["failure_trace"] = trace(frames)
+    if changed == "detail":
+        x.failure["detail"] = "Town route remains obstructed"
+    if changed == "before_batch":
+        x.failure["time"] = 819.0
+    x.write_events()
+    with pytest.raises(ValueError, match="approach stall|exchange"):
+        recovery.capture_pre_admission_tail(x.loop)
+    assert "pre_admission_restock_tail" not in x.visit.state() and not x.calls
+
+
+@pytest.mark.parametrize("changed", ["bag", "silver", "ammo", "manual", "holds"])
+def test_approach_stall_rejects_changed_post_exchange_ownership(stalled, changed):
+    x = stalled
+    if changed == "bag":
+        x.bag["items"].pop()
+    if changed == "silver":
+        x.bag["silver"] -= 1
+    if changed == "ammo":
+        x.bag["equipped_ammo"]["amount"] -= 1
+    if changed == "manual":
+        x.manual["observation"]["windows_absent"] = False
+    if changed == "holds":
+        x.hold = True
+    with pytest.raises(ValueError):
+        recovery.capture_pre_admission_tail(x.loop)
+    assert "pre_admission_restock_tail" not in x.visit.state() and not x.calls
+
+
+@pytest.mark.parametrize("changed", ["attempt", "active", "meteor", "bag"])
+def test_approach_stall_reentry_rejects_changed_market_meteor_or_bag(stalled, changed):
+    from conquest.no_transfer_town_recovery import warehouse_fallback_only
+
+    x = stalled
+    assert recovery.capture_pre_admission_tail(x.loop)
+    if changed == "attempt":
+        x.market["attempts"].append({"merchant": "Dutch", "at": 900.0})
+    if changed == "active":
+        x.market["phase"] = "active"
+    if changed == "meteor":
+        x.meteor["receipts"] = [{"stored": 3, "verified_in_warehouse": True}]
+    if changed == "bag":
+        x.bag["items"].pop()
+    write_json(x.market_path, x.market)
+    write_json(meteor_banking.JOURNAL, x.meteor)
+    with pytest.raises(ValueError, match="changed"):
+        recovery.capture_pre_admission_tail(x.loop)
+    with pytest.raises(ValueError, match="changed"):
+        warehouse_fallback_only(x.loop, read_json(meteor_banking.JOURNAL))
+    assert not x.calls
+
+
+@pytest.mark.parametrize("suffix", ["refusal", "gameplay", "foreign_refusal"])
+def test_approach_stall_tolerates_only_its_own_earlier_capture_refusal(stalled, suffix):
+    x = stalled
+    refusal = {
+        "event": "failed",
+        "time": 960.0,
+        "town_visit_id": "original-town",
+        "detail": "Restock continuation is not the exact pre-admission grant rejection",
+        "error_type": "builtins.ValueError",
+        "failure_trace": trace(REFUSAL_TRACE),
+    }
+    if suffix == "gameplay":
+        refusal = {"event": "travel", "time": 960.0, "town_visit_id": "original-town"}
+    if suffix == "foreign_refusal":
+        refusal["failure_trace"] = trace(
+            REFUSAL_TRACE + [("meteor_banking.py", "market_bank")]
+        )
+    x.events += [
+        {"event": "started", "time": 950.0, "town_visit_id": "original-town"},
+        refusal,
+    ]
+    x.write_events()
+    if suffix == "refusal":
+        assert recovery.capture_pre_admission_tail(x.loop)
+        claim = x.visit.state()["pre_admission_restock_tail"]
+        assert claim["failure"] == x.failure
+    else:
+        with pytest.raises(ValueError):
+            recovery.capture_pre_admission_tail(x.loop)
+        assert "pre_admission_restock_tail" not in x.visit.state()
+    assert not x.calls
+
+
+def test_approach_stall_resume_completes_cash_tail_once(stalled):
+    x = stalled
+    x.returned()
+    assert x.visit.state()["pre_admission_restock_tail"]["capture_kind"] == (
+        "approach_stall"
+    )
+    assert recovery.resume_pre_admission_tail(x.loop)
+    row = x.visit.state()
+    assert row["town_work_completed_kind"] == "restock" and x.loop.cycles == 1
+    assert read_json(x.market_path) == row["pre_admission_restock_tail"]["market"]
+    assert x.calls == [
+        ("open",),
+        ("transfer", "deposit", 300),
+        ("close", "Warehouse+Inventory"),
+        ("close", "Shop"),
+        ("service", {"town": True}),
+        ("record", "restock_complete"),
+    ]
+    before = list(x.calls)
+    assert recovery.resume_pre_admission_tail(x.loop) is False and x.calls == before
+
+
+def test_approach_stall_resume_rejects_changed_market_before_cash(stalled):
+    x = stalled
+    x.returned()
+    x.market["attempts"].append({"merchant": "Dutch", "at": 905.0})
+    write_json(x.market_path, x.market)
+    with pytest.raises(ValueError, match="Market budget"):
+        recovery.resume_pre_admission_tail(x.loop)
+    assert x.visit.state()["pre_admission_restock_tail"]["phase"] == "captured"
+    assert not x.calls
+
+
+def test_approach_stall_uncertain_cash_never_replays(stalled, monkeypatch):
+    x = stalled
+    x.returned()
+
+    def transfer(*args):
+        assert (
+            x.visit.state()["pre_admission_restock_tail"]["phase"] == "cash_attempted"
+        )
+        x.calls.append(("attempt",))
+        raise OSError("uncertain")
+
+    monkeypatch.setattr(banking, "transfer", transfer)
+    with pytest.raises(OSError):
+        recovery.resume_pre_admission_tail(x.loop)
+    before = list(x.calls)
+    with pytest.raises(ValueError, match="replay"):
+        recovery.resume_pre_admission_tail(x.loop)
+    with pytest.raises(ValueError):
+        recovery.capture_pre_admission_tail(x.loop)
+    assert x.calls == before and "town_work_completed_at" not in x.visit.state()
