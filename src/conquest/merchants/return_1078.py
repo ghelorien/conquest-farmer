@@ -728,6 +728,7 @@ def _observe_restored(runtime, character, state, snapshot, now):
 def observe_world(runtime, character, observer, snapshot, *, now=None):
     """Route an in-world ownership snapshot: baseline, verification or closure."""
     now = _clock() if now is None else now
+    observed(runtime, character)
     state = unresolved(runtime, character)
     if state is None:
         if snapshot.get("identity") == observer.adapter.identity:
@@ -769,6 +770,38 @@ def market_arrived(runtime, character, state, current):
     return state
 
 
+def _detached(runtime):
+    # In memory only: a detach before an app restart never escalates on start.
+    return runtime.__dict__.setdefault("_native_detached_1078", {})
+
+
+def observed(runtime, character):
+    """The merchant process is observable again (at login or in world)."""
+    _detached(runtime).pop(character, None)
+
+
+def observe_detached(runtime, character, *, now=None):
+    """No attached exact process during an incident: bounded, then attention."""
+    now = _clock() if now is None else now
+    _login_statuses(runtime).pop(character, None)
+    state = unresolved(runtime, character)
+    if state is None or state.get("phase") == "needs_attention":
+        _detached(runtime).pop(character, None)
+        return state
+    since = _detached(runtime).setdefault(character, now)
+    if now - since >= LOADING_SECONDS:
+        _detached(runtime).pop(character, None)
+        return needs_attention(
+            runtime,
+            character,
+            state,
+            "The merchant process is no longer observable during recovery; "
+            "automatic recovery stopped",
+            now=now,
+        )
+    return state
+
+
 def observe_gap(runtime, character, *, now=None):
     """Neither at login nor readable in world: bounded wait after submission."""
     now = _clock() if now is None else now
@@ -792,6 +825,7 @@ def observe_gap(runtime, character, *, now=None):
 def on_login(runtime, character, observer, *, now=None):
     """Called only after at_login(): arm once, then run the bounded login stage."""
     now = _clock() if now is None else now
+    observed(runtime, character)
     identity = dict(observer.adapter.identity)
     status = {"at_login": True, "identity": identity, "observed_at": now}
     _login_statuses(runtime)[character] = status

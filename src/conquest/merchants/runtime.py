@@ -613,11 +613,14 @@ class MerchantRuntime(ManualRuntime):
                 self.attachments[character].observation_ready = False
                 observer.close()
                 observer = None
-        if observer is None:
-            self.attach_observation_1078(character)
-            return
         from conquest.merchants import return_1078
 
+        if observer is None:
+            # A recovery incident whose exact process is gone is bounded; the
+            # stale login observation is dropped with the process.
+            return_1078.observe_detached(self, character)
+            self.attach_observation_1078(character)
+            return
         if return_1078.at_login(observer):
             # Same pinned process, login shell and native Login GUI proof.
             # No actor exists, so ownership, sales, trade and refill are all
@@ -1581,6 +1584,14 @@ class MerchantRuntime(ManualRuntime):
                 result[character]["connect_market"] = self.journal.get(
                     character, "connect_market"
                 )
+                # An unresolved 1078 incident stays visible to #shops alerts
+                # even when no exact-1078 process is currently present.
+                from conquest.merchants.return_1078 import status_view
+
+                result[character]["native_return_1078"] = status_view(
+                    self.journal.get(character, "native_return_1078")
+                )
+                result[character]["login_1078"] = self.login1078_status.get(character)
                 result[character]["profile_id"] = getattr(character, "profile_id", None)
                 result[character]["attachment"] = self.attachments[character].snapshot()
                 result[character]["refill"] = {

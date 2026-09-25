@@ -917,10 +917,6 @@ def test_e2e_market_to_verified_login_stops_at_stage_limit(x, tmp_path, monkeypa
 
 # --- D: detached process during an incident (failure modes first) -------------
 
-detached_pending = pytest.mark.xfail(
-    strict=True, reason="Failure modes written first; detach handling not built yet"
-)
-
 
 def process_gone(x):
     """The exact merchant process exited: its identity can no longer be proven."""
@@ -931,7 +927,6 @@ def process_gone(x):
     x.rt.observers[x.character].adapter.assert_identity = gone
 
 
-@detached_pending
 def test_detached_process_during_an_incident_stops_for_attention(x):
     """D1"""
     disconnect(x)
@@ -946,7 +941,6 @@ def test_detached_process_during_an_incident_stops_for_attention(x):
     assert x.game.submits == []
 
 
-@detached_pending
 def test_brief_detach_or_app_restart_does_not_escalate(x):
     """D2"""
     disconnect(x)
@@ -977,7 +971,6 @@ def test_brief_detach_or_app_restart_does_not_escalate(x):
     assert state(x)["phase"] == "needs_attention"
 
 
-@detached_pending
 def test_login_observation_is_dropped_with_the_process(x):
     """D3"""
     assert tick(x) is None
