@@ -28,6 +28,212 @@ def missing_stock(before, current):
     return [i for i in before["booth"] if i["uid"] not in present]
 
 
+SALE_FIELDS = (
+    "uid",
+    "name",
+    "type_id",
+    "plus",
+    "gem1",
+    "gem2",
+    "quantity",
+    "bound",
+    "price",
+)
+BASELINE_FIELDS = (
+    "identity",
+    "timestamp",
+    "inventory",
+    "booth",
+    "silver",
+    "request",
+    "trade",
+)
+
+
+def hold_purchases(before, current):
+    """Booth rows provably bought by players between two exact snapshots.
+
+    Admissible only as removals from our own booth: no row added, every
+    remaining row identical except its compacted ``slot`` index, and the
+    silver gain inside the same 3%-deduction bounds that verify a sale.
+    Returns None when nothing was removed (the caller keeps exact equality).
+    Inventory and every other ownership field stay the caller's exact check.
+    """
+    old, new = {}, {}
+    for rows, index in ((before["booth"], old), (current["booth"], new)):
+        for row in rows:
+            if type(row["uid"]) is not int or row["uid"] in index:
+                raise ValueError("Booth stock contains an ambiguous UID")
+            index[row["uid"]] = row
+    if set(new) - set(old):
+        raise ValueError(
+            "Booth gained a row during the listing hold; the listing may have been submitted"
+        )
+    removed = [row for row in before["booth"] if row["uid"] not in new]
+    if not removed:
+        return None
+    for uid, row in new.items():
+        prior = old[uid]
+        if set(row) != set(prior) or any(
+            row[key] != prior[key] for key in row if key != "slot"
+        ):
+            raise ValueError("A remaining booth row changed beyond its slot index")
+    silver = (before["silver"], current["silver"])
+    if any(
+        type(row["price"]) is not int or row["price"] <= 0 for row in removed
+    ) or any(type(value) is not int for value in silver):
+        raise ValueError("Removed booth rows lack exact prices or silver is unreadable")
+    gain = silver[1] - silver[0]
+    low, high = net_bounds(removed)
+    if not 0 < gain or not low <= gain <= high:
+        raise ValueError(
+            "Silver change does not match the removed booth rows net of the 3% deduction"
+        )
+    return {
+        "items": [{key: row[key] for key in SALE_FIELDS} for row in removed],
+        "silver": gain,
+        "gross": sum(row["price"] for row in removed),
+        "net_bounds": [low, high],
+    }
+
+
+def observation_held(db, character, at, since):
+    """Manual sessions, rebaselines and handoffs never produce sale receipts."""
+    target = getattr(character, "profile_id", str(character))
+    if db.execute(
+        "SELECT 1 FROM state WHERE character=? AND name='manual_reader_hold' AND value!='null'",
+        (character,),
+    ).fetchone():
+        return True
+    if db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_rebaseline'"
+    ).fetchone():
+        if db.execute(
+            "SELECT 1 FROM manual_rebaseline WHERE target_profile_id=? AND phase!='completed'",
+            (character,),
+        ).fetchone():
+            return True
+    # Manual intervals include their entire stabilization window. This
+    # guard also covers independent observers and app restart. The atomic
+    # settlement callback installs the fresh post-session baseline.
+    if db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_sessions'"
+    ).fetchone():
+        if db.execute(
+            "SELECT 1 FROM manual_sessions m WHERE target_profile_id=? AND created_at<=? AND (phase NOT IN ('completed','request_withdrawn','declined_verified','operator_overridden') OR COALESCE(json_extract(terminal_json,'$.settled_at'),json_extract(terminal_json,'$.at'))>? OR (json_extract(terminal_json,'$.settled_at') IS NULL AND json_extract(terminal_json,'$.at') IS NULL AND NOT EXISTS (SELECT 1 FROM events e WHERE e.character=? AND e.event='sales_observation_gap' AND json_extract(e.payload,'$.session_id')=m.id) AND NOT EXISTS (SELECT 1 FROM manual_rebaseline r WHERE r.source_session_id=m.id AND r.phase='completed' AND r.last_observed_at<=?))) LIMIT 1",
+            (target, at, since, target, since),
+        ).fetchone():
+            return True
+    # The operator handoff has a separate durable interval table.  Do not
+    # infer a sale across its preparation/settlement window, including
+    # after an app restart or a terminal interval with no sale receipt.
+    if db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_handoffs'"
+    ).fetchone():
+        if db.execute(
+            "SELECT 1 FROM manual_handoffs h JOIN manual_handoff_participants p ON p.session_id=h.id WHERE p.target_profile_id=? AND h.created_at<=? AND (h.phase!='completed' OR p.last_at>?) LIMIT 1",
+            (target, at, since),
+        ).fetchone():
+            return True
+    return False
+
+
+def _plain(items):
+    return [{k: v for k, v in item.items() if k != "category"} for item in items]
+
+
+def record_hold_purchases(db, character, transaction_id, before, current, purchases):
+    """Journal a settled listing hold's proven purchases exactly once.
+
+    Called inside the SQLite transaction that makes the hold terminal, so it
+    cannot run twice. Observation pauses while a bot transaction is pending;
+    this receipt covers exactly that interval when the saved sales baseline is
+    provably the hold's starting stock. Otherwise the interval is recorded as
+    a labelled observation gap, never a sale. Either way the settlement
+    snapshot becomes the fresh baseline.
+    """
+    row = db.execute(
+        "SELECT * FROM sales_baseline WHERE character=?", (character,)
+    ).fetchone()
+    if not row:
+        return  # Tracking has not started; nothing is attributable.
+    latest = json.loads(row["snapshot"])
+    since, at = latest["timestamp"], current["timestamp"]
+    if "_sales_anchor" in latest:
+        reason = "Sales baseline held an unsettled receipt when the listing hold began"
+    elif (
+        since > at
+        or latest["identity"] != current["identity"]
+        or before["identity"] != current["identity"]
+        or latest["silver"] != before["silver"]
+        or any(
+            _plain(latest[key]) != _plain(before[key]) for key in ("booth", "inventory")
+        )
+    ):
+        reason = "Sales baseline differs from the listing hold's starting stock"
+    elif observation_held(db, character, at, since):
+        reason = "A manual session or handoff overlaps the listing hold"
+    elif db.execute(
+        "SELECT 1 FROM sales WHERE character=? AND observed_at>?", (character, since)
+    ).fetchone():
+        reason = "A sale receipt already covers part of the listing hold"
+    else:
+        reason = None
+    if reason:
+        db.execute(
+            "INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)",
+            (
+                character,
+                "sales_observation_gap",
+                json.dumps(
+                    {
+                        "from": since,
+                        "to": at,
+                        "reason": reason,
+                        "transaction_id": transaction_id,
+                    }
+                ),
+                at,
+            ),
+        )
+    else:
+        note = "Booth removal and net silver gain after 3% deduction verified across a settled listing hold"
+        items = purchases["items"]
+        gain = purchases["silver"]
+        db.execute(
+            "INSERT INTO sales(character,observed_at,phase,items,silver,note) VALUES(?,?,?,?,?,?)",
+            (character, at, "verified", json.dumps(items), gain, note),
+        )
+        db.execute(
+            "INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)",
+            (
+                character,
+                "sale_verified",
+                json.dumps(
+                    {
+                        "items": items,
+                        "silver": gain,
+                        "note": note,
+                        "before_silver": before["silver"],
+                        "after_silver": current["silver"],
+                        "from": since,
+                        "gross": purchases["gross"],
+                        "net_bounds": purchases["net_bounds"],
+                        "deduction": purchases["gross"] - gain,
+                        "foreign_request_observed": False,
+                        "listing_hold_transaction_id": transaction_id,
+                    }
+                ),
+                at,
+            ),
+        )
+    baseline = {key: current[key] for key in BASELINE_FIELDS}
+    db.execute(
+        "INSERT OR REPLACE INTO sales_baseline VALUES(?,?,?)",
+        (character, json.dumps(baseline), row["started_at"]),
+    )
+
+
 def unrelated_request(character, snapshot):
     request = snapshot.get("request")
     if not request:
@@ -69,48 +275,8 @@ def observe(journal, snapshot):
         if latest and at <= latest["timestamp"]:
             return
         before = latest.get("_sales_anchor", latest) if latest else None
-        target = getattr(character, "profile_id", str(character))
-        if db.execute(
-            "SELECT 1 FROM state WHERE character=? AND name='manual_reader_hold' AND value!='null'",
-            (character,),
-        ).fetchone():
+        if observation_held(db, character, at, before["timestamp"] if before else at):
             return
-        if db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_rebaseline'"
-        ).fetchone():
-            if db.execute(
-                "SELECT 1 FROM manual_rebaseline WHERE target_profile_id=? AND phase!='completed'",
-                (character,),
-            ).fetchone():
-                return
-        # Manual intervals include their entire stabilization window. This
-        # guard also covers independent observers and app restart. The atomic
-        # settlement callback installs the fresh post-session baseline.
-        if db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_sessions'"
-        ).fetchone():
-            if db.execute(
-                "SELECT 1 FROM manual_sessions m WHERE target_profile_id=? AND created_at<=? AND (phase NOT IN ('completed','request_withdrawn','declined_verified','operator_overridden') OR COALESCE(json_extract(terminal_json,'$.settled_at'),json_extract(terminal_json,'$.at'))>? OR (json_extract(terminal_json,'$.settled_at') IS NULL AND json_extract(terminal_json,'$.at') IS NULL AND NOT EXISTS (SELECT 1 FROM events e WHERE e.character=? AND e.event='sales_observation_gap' AND json_extract(e.payload,'$.session_id')=m.id) AND NOT EXISTS (SELECT 1 FROM manual_rebaseline r WHERE r.source_session_id=m.id AND r.phase='completed' AND r.last_observed_at<=?))) LIMIT 1",
-                (
-                    target,
-                    at,
-                    before["timestamp"] if before else at,
-                    target,
-                    before["timestamp"] if before else at,
-                ),
-            ).fetchone():
-                return
-        # The operator handoff has a separate durable interval table.  Do not
-        # infer a sale across its preparation/settlement window, including
-        # after an app restart or a terminal interval with no sale receipt.
-        if db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_handoffs'"
-        ).fetchone():
-            if db.execute(
-                "SELECT 1 FROM manual_handoffs h JOIN manual_handoff_participants p ON p.session_id=h.id WHERE p.target_profile_id=? AND h.created_at<=? AND (h.phase!='completed' OR p.last_at>?) LIMIT 1",
-                (target, at, before["timestamp"] if before else at),
-            ).fetchone():
-                return
         if before:
             old = {i["uid"]: i for i in before["booth"]}
             booth = {i["uid"]: i for i in current["booth"]}

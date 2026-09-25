@@ -446,7 +446,11 @@ def _status(journal, request_id, character, *, runtime=None):
 
 
 def _unchanged_before_input(before, profile):
-    """Certify pointer-only failure without trusting the old snapshot alone."""
+    """Certify pointer-only failure without trusting the old snapshot alone.
+
+    Returns False, True, or (scheduled refill only) a proof dict carrying
+    player purchases from our booth that the same exact rule proves.
+    """
     request = before["request"]
     identity = request["expected_identity"]
     with MemorySession(identity["pid"], CLIENT_SHA256_1078) as session:
@@ -466,13 +470,21 @@ def _unchanged_before_input(before, profile):
         if any(win["name"] == "Add Item to Booth" for win in gui.windows()):
             return False
         session.assert_identity()
-        old = before["snapshot"]
-        return (
-            all(first[key] == second[key] for key in OWNERSHIP_FIELDS)
-            and all(second[key] == old[key] for key in OWNERSHIP_FIELDS if key in old)
+        if any(first[key] != second[key] for key in OWNERSHIP_FIELDS):
+            return False
+        from conquest.merchants.booth_listing_cancel_1078 import purchase_adjusted
+
+        try:
+            old, purchases = purchase_adjusted(before["snapshot"], second, before)
+        except (ValueError, KeyError, TypeError):
+            return False
+        if not (
+            all(second[key] == old[key] for key in OWNERSHIP_FIELDS if key in old)
             and second["character_uid"] == profile.character_uid
             and second["own_booth_uid"] == request["expected_own_booth_uid"]
-        )
+        ):
+            return False
+        return {"second": second, "purchases": purchases} if purchases else True
 
 
 def reconcile(ui, request_id, character):
@@ -1222,6 +1234,8 @@ def _run(ui, character, profile, before, token):
                 unchanged = _unchanged_before_input(before, profile)
             except (OSError, ValueError, CaptureUnavailable):
                 pass
+        proof = unchanged if isinstance(unchanged, dict) else None
+        unchanged = bool(unchanged)
         result = {
             "input_attempted": attempted,
             "confirmation_attempted": confirmation_marked,
@@ -1230,9 +1244,28 @@ def _run(ui, character, profile, before, token):
             "reason": str(error),
         }
         try:
-            journal.transition(
-                request_id, "aborted" if unchanged else "uncertain", result
-            )
+            if proof:
+                # No input was attempted; only other booth rows were bought.
+                result["player_purchases"] = proof["purchases"]
+                from conquest.merchants.sales import record_hold_purchases
+
+                journal.transition(
+                    request_id,
+                    "aborted",
+                    result,
+                    within=lambda db, row: record_hold_purchases(
+                        db,
+                        row["character"],
+                        request_id,
+                        before["snapshot"],
+                        proof["second"],
+                        proof["purchases"],
+                    ),
+                )
+            else:
+                journal.transition(
+                    request_id, "aborted" if unchanged else "uncertain", result
+                )
             if not unchanged:
                 journal.set(
                     character,

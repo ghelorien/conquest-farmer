@@ -108,6 +108,15 @@ def _settle_cancelled(journal, character, request_id):
         before = json.loads(row["before_json"])
         result = json.loads(row["result_json"] or "{}")
         first, second = result.get("first"), result.get("second")
+        from conquest.merchants.booth_listing_cancel_1078 import purchase_adjusted
+
+        # Only provable player purchases from our booth may differ from the
+        # original baseline; recompute them rather than trusting the receipt.
+        baseline, purchases = (
+            purchase_adjusted(before["snapshot"], second, before)
+            if isinstance(second, dict)
+            else (before["snapshot"], None)
+        )
         markers = {
             step["stage"]
             for step in db.execute(
@@ -131,11 +140,11 @@ def _settle_cancelled(journal, character, request_id):
                     ("replay_allowed", False),
                 )
             )
+            or result.get("player_purchases") != purchases
             or not isinstance(first, dict)
             or not isinstance(second, dict)
             or any(
-                first.get(key) != before["snapshot"].get(key)
-                or second.get(key) != first.get(key)
+                first.get(key) != baseline.get(key) or second.get(key) != first.get(key)
                 for key in OWNERSHIP_FIELDS
                 if key in before["snapshot"]
             )

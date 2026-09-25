@@ -186,7 +186,9 @@ class Journal:
                     raise ValueError("Delivery admission is no longer open")
             return True
 
-    def transition(self, key, phase, result=None, *, expected=None):
+    def transition(self, key, phase, result=None, *, expected=None, within=None):
+        """``within(db, row)`` runs only in the same SQLite transaction that
+        performs this phase change, so its writes happen exactly once."""
         if phase not in LEGAL_TRANSITIONS:
             raise ValueError("Unknown transaction phase")
         with self.db() as db:
@@ -217,6 +219,8 @@ class Journal:
                 "INSERT INTO transaction_steps(transaction_id,stage,status,payload,timestamp) VALUES(?,?,?,?,?)",
                 (key, "transaction", phase, encoded, now),
             )
+            if within is not None:
+                within(db, row)
             if phase == "verified":
                 db.execute(
                     "INSERT INTO events(character,event,payload,timestamp) VALUES(?,?,?,?)",

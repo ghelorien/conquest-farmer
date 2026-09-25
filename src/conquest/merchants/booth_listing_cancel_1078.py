@@ -5,6 +5,7 @@ once, including after a crash; later calls can only observe settlement.
 """
 
 from contextlib import nullcontext
+from copy import deepcopy
 import json
 import threading
 import time
@@ -41,18 +42,43 @@ def _pending(journal, request_id, character, *, allow_cancel=False):
     return json.loads(row["before_json"])
 
 
+def purchase_adjusted(old, snapshot, before):
+    """Scheduled-refill baseline after provable player purchases only.
+
+    A scheduled refill hold can outlive buyers at our own booth. Rows that
+    left the booth with the exactly matching net silver gain are purchases,
+    never evidence about the listing; every other ownership field, including
+    the whole inventory and the listed item, still compares exactly. Returns
+    (baseline, purchases); purchases is None when nothing was bought.
+    """
+    if before.get("scheduled_foreground_refill") is not True:
+        return old, None
+    from conquest.merchants.sales import hold_purchases
+
+    purchases = hold_purchases(old, snapshot)
+    if purchases is None:
+        return old, None
+    return {
+        **old,
+        "booth": deepcopy(snapshot["booth"]),
+        "silver": snapshot["silver"],
+    }, purchases
+
+
 def _unchanged(snapshot, before, profile):
+    """Return proven hold purchases (or None); raise on any other change."""
     from conquest.merchants.booth_listing_once_1078 import (
         OWNERSHIP_FIELDS,
         _validate_snapshot,
     )
 
     _validate_snapshot(snapshot, profile, before["request"])
-    old = before["snapshot"]
+    old, purchases = purchase_adjusted(before["snapshot"], snapshot, before)
     if any(snapshot[key] != old[key] for key in OWNERSHIP_FIELDS if key in old):
         raise ValueError(
             "Original listing ownership changed; cancellation is unavailable"
         )
+    return purchases
 
 
 def _cancel_marker(journal, request_id, character, payload):
@@ -132,27 +158,40 @@ def reconcile_cancel(ui, request_id, character):
             return _status(journal, request_id, character)
         time.sleep(0.25)
         second = reader.read_manual_ownership()
-        _unchanged(second, before, profile)
+        purchases = _unchanged(second, before, profile)
         if not cleared() or any(first[key] != second[key] for key in OWNERSHIP_FIELDS):
             return _status(journal, request_id, character)
         session.assert_identity()
         _pending(journal, request_id, character, allow_cancel=True)
-        journal.transition(
-            request_id,
-            "aborted",
-            {
-                "uid": before["request"]["item_uid"],
-                "cancel_verified": True,
-                "stock_unchanged": True,
-                "listing_submitted": False,
-                "confirmation_attempted": False,
-                "cancellation_attempted": True,
-                "first": first,
-                "second": second,
-                "replay_allowed": False,
-                "foreground_listing_qualified": False,
-            },
-        )
+        result = {
+            "uid": before["request"]["item_uid"],
+            "cancel_verified": True,
+            "stock_unchanged": True,
+            "listing_submitted": False,
+            "confirmation_attempted": False,
+            "cancellation_attempted": True,
+            "first": first,
+            "second": second,
+            "replay_allowed": False,
+            "foreground_listing_qualified": False,
+        }
+        within = None
+        if purchases:
+            # Listed stock is unchanged; only other booth rows were bought.
+            result["player_purchases"] = purchases
+            from conquest.merchants.sales import record_hold_purchases
+
+            def within(db, row):
+                record_hold_purchases(
+                    db,
+                    row["character"],
+                    request_id,
+                    before["snapshot"],
+                    second,
+                    purchases,
+                )
+
+        journal.transition(request_id, "aborted", result, within=within)
         attention = journal.get(character, "attention") or {}
         if (
             attention.get("kind") == KIND
