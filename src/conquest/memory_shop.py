@@ -173,9 +173,10 @@ class ShopSnapshot:
 
 
 class MemoryShopReader:
-    def __init__(self, session, *, layout=None):
-        # A supplied layout is the only 1078 opt-in. Existing town/control
-        # callers use the historical constructor and stay 1074-only.
+    def __init__(self, session, *, layout):
+        # The exact build layout is required; there is no pinned default.
+        if layout is None:
+            raise ValueError("Shop reader requires an exact build layout")
         self.session = session
         self.layout = layout
         self.gui = MemoryGui(session, layout=layout)
@@ -189,10 +190,10 @@ class MemoryShopReader:
     def read(self, vendor_id):
         s = self.session
         layout = self.layout
-        root = self.base + (layout.shop_root_rva if layout is not None else 0x69A740)
+        root = self.base + layout.shop_root_rva
         record = s.read_block(root, 0x60)
-        shop_vtable = layout.shop_vtable_rva if layout is not None else 0x5D0088
-        item_vtable = layout.item_vtable_rva if layout is not None else 0x5CF220
+        shop_vtable = layout.shop_vtable_rva
+        item_vtable = layout.item_vtable_rva
         if struct.unpack_from("<Q", record)[0] != self.base + shop_vtable:
             raise ValueError("Shop object type changed")
         selected = struct.unpack_from("<I", record, 8)[0]
