@@ -5,7 +5,6 @@ This is a supervised integration trial, not the fully qualified autonomous farme
 
 import json
 import math
-import sqlite3
 import time
 from contextlib import nullcontext
 from typing import Literal
@@ -19,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from conquest.addressing import PlayerLayout, WorkerPointerSession, resolve_player
 from conquest import kill_increment
+from conquest.event_journal import EventJournal
 from conquest.farmer_profile import CombatSpeed, load_combat_speed
 from conquest.capture import DesktopFrames, CaptureUnavailable, Frame
 from conquest.vision import health_ratio, targets
@@ -292,21 +292,16 @@ def run_trial(
     hwnd = health["window"]["hwnd"]
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(output / "trial.sqlite3")
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS events (time REAL, event TEXT, payload TEXT)"
-    )
+    # A reader's lock never ends the trial: rows queue in order (durably) and
+    # are written exactly once when it clears, or by the next trial start.
+    journal = EventJournal(output, logger)
     from conquest.native_loop_timing import NativeLoopTiming
 
     timing = NativeLoopTiming() if supervisor else None
 
     def event(name, **payload):
         with timing.measure("event_commit") if timing else nullcontext():
-            db.execute(
-                "INSERT INTO events VALUES (?,?,?)",
-                (time.time(), name, json.dumps(payload)),
-            )
-            db.commit()
+            journal.record(name, json.dumps(payload))
         logger.info(name, extra={"fields": payload})
 
     camera = (camera_factory or DesktopFrames)(
@@ -2015,19 +2010,21 @@ def run_trial(
         if supervisor and hasattr(supervisor, "finish_runback"):
             supervisor.finish_runback(reason)
         camera.close()
-        event(
-            "trial_stopped",
-            reason=reason,
-            duration=time.monotonic() - started,
-            attack_attempts=attempts,
-            verified_heals=verified_heals,
-            verified_reloads=verified_reloads,
-            deaths=deaths,
-            verified_revivals=verified_revivals,
-            confirmed_kills=confirmed_kills,
-            confirmed_pickups=verified_pickups,
-        )
-        db.close()
+        try:
+            event(
+                "trial_stopped",
+                reason=reason,
+                duration=time.monotonic() - started,
+                attack_attempts=attempts,
+                verified_heals=verified_heals,
+                verified_reloads=verified_reloads,
+                deaths=deaths,
+                verified_revivals=verified_revivals,
+                confirmed_kills=confirmed_kills,
+                confirmed_pickups=verified_pickups,
+            )
+        finally:
+            journal.close()
     return {
         "reason": reason,
         "attack_attempts": attempts,

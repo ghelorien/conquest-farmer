@@ -26,6 +26,7 @@ from conquest.desktop_runtime import (
     physical_coordinates,
 )
 from conquest.trial import TrialConfig, run_trial
+from conquest.event_journal import transient_lock
 from conquest.win32 import WindowsBackend
 from conquest.window_host import EmbeddedWindow, use_unaware_dpi
 from conquest.control import FarmingControl
@@ -53,6 +54,10 @@ from conquest.focus_recovery import (
     activate_client,
     activate_focused_client,
 )
+
+
+# In-place trial restarts for a lock error that escapes run_trial anyway.
+RUNNER_STORAGE_RESTARTS = 3
 
 
 class EventQueue(logging.Handler):
@@ -2555,22 +2560,51 @@ class DesktopApp:
                 logger.handlers = [EventQueue(self.messages)]
                 logger.setLevel(logging.INFO)
                 result = {"reason": "requested_stop"}
+                storage_restarts = 0
                 while self.control.snapshot()["enabled"]:
-                    result = run_trial(
-                        self.profile,
-                        None,
-                        self.output,
-                        1800,
-                        logger,
-                        session_override=session,
-                        camera_factory=factory,
-                        config_override=config,
-                        supervisor=supervisor,
-                    )
+                    try:
+                        result = run_trial(
+                            self.profile,
+                            None,
+                            self.output,
+                            1800,
+                            logger,
+                            session_override=session,
+                            camera_factory=factory,
+                            config_override=config,
+                            supervisor=supervisor,
+                        )
+                    except sqlite3.OperationalError as error:
+                        # The journal absorbs reader locks itself; this is the
+                        # bounded backstop, never a reason to leave the farmer
+                        # idle in the field.
+                        if (
+                            not transient_lock(error)
+                            or storage_restarts >= RUNNER_STORAGE_RESTARTS
+                        ):
+                            raise
+                        storage_restarts += 1
+                        self.messages.put(
+                            (
+                                "runner_restarted",
+                                {"detail": str(error), "attempt": storage_restarts},
+                            )
+                        )
+                        time.sleep(0.2)
+                        continue
+                    storage_restarts = 0
                     if result["reason"] not in ("duration_limit", "action_limit"):
                         break
                 self.messages.put(("finished", result))
         except Exception as error:
+            # A runner failure is never a user stop: requested_stop would switch
+            # Farming Off, and an earlier trial's duration_limit would hide it.
+            result = {
+                "reason": "startup_error"
+                if result["reason"] == "startup_error"
+                else "runner_failure",
+                "detail": f"{type(error).__name__}: {error}",
+            }
             self.messages.put(("failed", {"detail": str(error)}))
         finally:
             if session:
@@ -2592,6 +2626,9 @@ class DesktopApp:
             else:
                 intent = self.control.snapshot()
                 reason = result.get("reason", "Run interrupted")
+                if result.get("detail"):
+                    # The route records this as needs_attention (Discord STOPPED).
+                    reason += ": " + result["detail"]
                 self.runtime.external_failure = (intent["revision"], reason)
                 self.control.publish(
                     intent["revision"],
