@@ -25,7 +25,7 @@ def promote(
     build = candidate.get("client_sha256")
     if (
         state.get("phase") != "delivery_verified"
-        or build not in (CLIENT_SHA256, CLIENT_SHA256_1078)
+        or build != CLIENT_SHA256_1078
         or not state.get("verified_at")
         or not intent.get("items")
         or not reconcile(
@@ -38,7 +38,7 @@ def promote(
         raise ValueError(
             "Qualification requires an exact completed two-account receipt"
         )
-    if build == CLIENT_SHA256_1078 and any(
+    if any(
         snapshot.get("client_sha256") != build
         or snapshot.get("reader_build") != "1078-canonical-trade"
         for snapshot in (
@@ -122,7 +122,9 @@ def promote(
             raise ValueError("Listing-chain audit evidence is unavailable")
         profile["listing_chain_evidence"] = chain_evidence
     peer = read_json(merchant_path)
-    if build == CLIENT_SHA256_1078 and (
+    # A merchant file still stamped with the retired 1074 hash
+    # (CLIENT_SHA256) is never 1078 evidence: archive it and start afresh.
+    if (
         not peer
         or peer.get("character") == merchant["character"]
         and peer.get("client_sha256") == CLIENT_SHA256
@@ -145,18 +147,17 @@ def promote(
         or peer.get("client_sha256") != build
     ):
         raise ValueError("Merchant profile does not match the verified recipient")
-    if build == CLIENT_SHA256_1078:
-        from copy import deepcopy
-        from conquest.merchants.trade_driver_1078 import (
-            validate_receipt,
-            receipt_digest,
-        )
+    from copy import deepcopy
+    from conquest.merchants.trade_driver_1078 import (
+        validate_receipt,
+        receipt_digest,
+    )
 
-        validate_receipt(state)
-        for document in (profile, peer):
-            document["trade_receipt_1078"] = deepcopy(state)
-            document["trade_receipt_1078_sha256"] = receipt_digest(state)
-            document["native_trade_layout_revision"] = 1
+    validate_receipt(state)
+    for document in (profile, peer):
+        document["trade_receipt_1078"] = deepcopy(state)
+        document["trade_receipt_1078_sha256"] = receipt_digest(state)
+        document["native_trade_layout_revision"] = 1
     peer.setdefault("controls", {}).update(
         accept_request=dict(
             window="###Confirm", mode="native_trade_request", label="Accept"
