@@ -75,12 +75,6 @@ from conquest.merchants.journal import Journal
 from conquest.merchants.reader_1078 import ObservationUnavailable1078
 from conquest.merchants.runtime import MerchantRuntime
 
-# Part e rows stay strict-xfail until login verification and the stage limit
-# are implemented; part d rows above run normally.
-pending = pytest.mark.xfail(
-    strict=True, reason="Failure modes written first; part e not built yet"
-)
-
 HWND = 0x5150
 IDENTITY = {
     "pid": 4100,
@@ -673,7 +667,6 @@ def test_hunting_farmer_grants_only_exact_pending_native_login():
 # --- Part e: verified login and the M1 stage limit ---------------------------
 
 
-@pending
 def test_login_is_verified_only_by_two_stable_world_readings(x):
     """V1 V13"""
     submit(x)
@@ -693,7 +686,6 @@ def test_login_is_verified_only_by_two_stable_world_readings(x):
     assert x.journal.get(x.character, return_1078.BASELINE) == before  # V13
 
 
-@pending
 def test_other_character_in_world_is_not_the_lost_merchant(x):
     """V2"""
     x.game.after_submit = "world"
@@ -704,7 +696,6 @@ def test_other_character_in_world_is_not_the_lost_merchant(x):
     assert state(x)["phase"] == "needs_attention"
 
 
-@pending
 def test_other_process_in_world_is_not_the_lost_merchant(x):
     """V3"""
     submit(x)
@@ -714,7 +705,6 @@ def test_other_process_in_world_is_not_the_lost_merchant(x):
     assert state(x)["phase"] == "needs_attention"
 
 
-@pending
 def test_stale_first_reading_restarts_verification(x):
     """V4"""
     submit(x)
@@ -725,7 +715,6 @@ def test_stale_first_reading_restarts_verification(x):
     assert state(x)["phase"] == "logged_in_awaiting_return"
 
 
-@pending
 def test_login_between_readings_resets_verification(x):
     """V5"""
     submit(x)
@@ -758,7 +747,6 @@ def verified(x):
     assert state(x)["phase"] == "logged_in_awaiting_return"
 
 
-@pending
 def test_stage_limit_sends_no_travel_input_after_verified_login(x, monkeypatch):
     """V8"""
     verified(x)
@@ -774,7 +762,6 @@ def test_stage_limit_sends_no_travel_input_after_verified_login(x, monkeypatch):
     assert x.coordinator.owner is None and len(x.game.submits) == 1
 
 
-@pending
 def test_market_arrival_is_not_terminal_without_shop_restoration(x):
     """V9"""
     verified(x)
@@ -786,7 +773,6 @@ def test_market_arrival_is_not_terminal_without_shop_restoration(x):
     assert return_1078.unresolved(x.rt, x.character)["id"] == saved["id"]
 
 
-@pending
 def test_second_disconnect_after_verified_login_does_not_log_in_again(x):
     """V10"""
     verified(x)
@@ -797,7 +783,6 @@ def test_second_disconnect_after_verified_login_does_not_log_in_again(x):
     assert len(x.game.submits) == 1
 
 
-@pending
 def test_incident_closes_only_on_two_healthy_owned_market_readings(x):
     """V11 V13"""
     verified(x)
@@ -814,7 +799,6 @@ def test_incident_closes_only_on_two_healthy_owned_market_readings(x):
     assert after["recorded_at"] > before["recorded_at"]
 
 
-@pending
 def test_login_verified_notice_is_sent_once(x):
     """V12"""
     from conquest.merchants.alerts import Alerts
@@ -833,7 +817,6 @@ def test_login_verified_notice_is_sent_once(x):
 # --- E1: end-to-end scenario with a repeatable artifact ----------------------
 
 
-@pending
 def test_e2e_market_to_verified_login_stops_at_stage_limit(x, tmp_path, monkeypatch):
     """E1"""
     from conquest.merchants.alerts import Alerts

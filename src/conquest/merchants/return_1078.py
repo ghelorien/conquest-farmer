@@ -610,6 +610,165 @@ def _attempt_login(runtime, character, observer, state, now):
     return _submit_once(runtime, character, observer, state)
 
 
+def _reading_age(first, reading, keys):
+    """Seconds between two matching readings, or None if they cannot pair."""
+    if not isinstance(first, dict) or any(first.get(k) != reading[k] for k in keys):
+        return None
+    before, after = first.get("timestamp"), reading.get("timestamp")
+    if type(before) not in (int, float) or type(after) not in (int, float):
+        return None
+    return after - before
+
+
+def _verify_login(runtime, character, state, snapshot, now):
+    """Two stable in-world readings of the same character and process."""
+    before = state.get("before") or {}
+    if snapshot.get("character_uid") != before.get("character_uid") or snapshot.get(
+        "character"
+    ) != before.get("character"):
+        return needs_attention(
+            runtime,
+            character,
+            state,
+            "A different character is in world after the login; reconciliation required",
+            now=now,
+        )
+    reading = {
+        "timestamp": snapshot.get("timestamp"),
+        "character_uid": snapshot["character_uid"],
+        "identity": dict(snapshot["identity"]),
+        "map_id": snapshot.get("map_id"),
+        "position": snapshot.get("position"),
+        "hp": snapshot.get("hp"),
+    }
+    first = state.get("world_reading")
+    age = _reading_age(first, reading, ("character_uid", "identity", "map_id"))
+    if age is None or not 0 <= age <= VERIFY_MAX_SECONDS:
+        save(runtime, character, state, world_reading=reading)
+        return state
+    if age < VERIFY_MIN_SECONDS:
+        return state
+    save(
+        runtime,
+        character,
+        state,
+        "logged_in_awaiting_return",
+        login_verified={"first": first, "second": reading},
+        login_verified_at=now,
+        login_by="automatic" if state.get("login_attempted") else "external",
+        world_reading=None,
+    )
+    runtime.journal.event(
+        character,
+        "native_return_login_verified",
+        incident=state["id"],
+        identity=reading["identity"],
+        character_uid=reading["character_uid"],
+        map_id=reading["map_id"],
+        stage_limit=STAGE_LIMIT,
+    )
+    _release_handoff(runtime, state)
+    return state
+
+
+def _observe_restored(runtime, character, state, snapshot, now):
+    """Close only on two readings of the same character's open owned booth."""
+    if state.get("phase") in TRAVEL_PHASES:
+        return state  # A later travel stage owns its own evidence.
+    try:
+        profile = _profile(character)
+    except ValueError:
+        return state
+    before = state.get("before") or {}
+    if (
+        not healthy_market(snapshot, profile)
+        or snapshot.get("character_uid") != before.get("character_uid")
+        or runtime.journal.pending(character)
+    ):
+        if state.get("restore_reading") is not None:
+            save(runtime, character, state, restore_reading=None)
+        return state
+    reading = {
+        "timestamp": snapshot.get("timestamp"),
+        "identity": dict(snapshot["identity"]),
+        "character_uid": snapshot["character_uid"],
+        "own_booth_uid": snapshot["own_booth_uid"],
+        "booth_count": len(snapshot["booth"]),
+    }
+    first = state.get("restore_reading")
+    age = _reading_age(first, reading, ("identity", "character_uid", "own_booth_uid"))
+    if age is None or not 0 <= age <= VERIFY_MAX_SECONDS:
+        save(runtime, character, state, restore_reading=reading)
+        return state
+    if age < VERIFY_MIN_SECONDS:
+        return state
+    save(
+        runtime,
+        character,
+        state,
+        "restored_observed",
+        restored_at=now,
+        restored_snapshot=copy.deepcopy(snapshot),
+        restored_by="observed_open_owned_market_booth",
+        restore_reading=None,
+    )
+    runtime.journal.event(
+        character,
+        "native_return_restored_observed",
+        incident=state["id"],
+        identity=reading["identity"],
+        booth_count=reading["booth_count"],
+    )
+    # The next healthy Market snapshot re-establishes the durable baseline.
+    runtime.__dict__.get("_market_baseline_1078", {}).pop(character, None)
+    _release_handoff(runtime, state)
+    return state
+
+
+def observe_world(runtime, character, observer, snapshot, *, now=None):
+    """Route an in-world ownership snapshot: baseline, verification or closure."""
+    now = _clock() if now is None else now
+    state = unresolved(runtime, character)
+    if state is None:
+        if snapshot.get("identity") == observer.adapter.identity:
+            record_baseline(runtime, character, snapshot, now=now)
+        return None
+    if state.get("phase") in LOGIN_PHASES:
+        if snapshot.get("identity") != state.get("identity"):
+            return needs_attention(
+                runtime,
+                character,
+                state,
+                "A different merchant process is in world during recovery; "
+                "reconciliation required",
+                now=now,
+            )
+        return _verify_login(runtime, character, state, snapshot, now)
+    return _observe_restored(runtime, character, state, snapshot, now)
+
+
+def market_arrived(runtime, character, state, current):
+    """Market arrival ends unsafe transit, never the incident: no shop yet."""
+    save(
+        runtime,
+        character,
+        state,
+        "market_arrived",
+        market_snapshot=copy.deepcopy(current),
+        market_arrived_at=_clock(),
+        market_arrival_verified=True,
+        shop_restored=False,
+    )
+    runtime.journal.event(
+        character,
+        "native_return_market_verified",
+        incident=state["id"],
+        identity=current.get("identity"),
+        shop_restored=False,
+    )
+    return state
+
+
 def observe_gap(runtime, character, *, now=None):
     """Neither at login nor readable in world: bounded wait after submission."""
     now = _clock() if now is None else now
@@ -806,23 +965,30 @@ def save(runtime, character, state, phase=None, **values):
 
 
 def step(runtime, character):
-    """Run one bounded native recovery stage before normal merchant work."""
-    from conquest.reconnect import login_screen
+    """Bounded travel stage of a later milestone; M1 stops after verified login.
 
+    The single login belongs to on_login(). While the stage limit is "login"
+    this returns before constructing the travel driver, requesting a farmer
+    handoff or leasing input. A future travel stage must add its own
+    thread-bound capability scope and extend policy() before it can run.
+    """
+    state = unresolved(runtime, character)
+    if state is None or state.get("phase") not in (
+        ("logged_in_awaiting_return",) + TRAVEL_PHASES
+    ):
+        return False
+    if STAGE_LIMIT == "login" or state.get("stage_limit") == "login":
+        return False  # Milestone 1: no travel, fare or stall input.
     observer = runtime.observers.get(character)
-    state = runtime.journal.get(character, KEY) or {}
     if observer is None:
         return False
     observer.adapter.assert_identity()
-    at_login = login_screen(observer.operations.target.hwnd)
-    if not state or state.get("phase") in TERMINAL:
-        return False
     if state.get("identity") != observer.adapter.identity:
         raise ValueError(
             "Native recovery process identity changed; reconciliation required"
         )
-    if state["phase"] == "needs_attention":
-        raise ValueError(state["note"])
+    if _login_shell(observer.hwnd):
+        return False
     if (
         runtime.coordinator.stopped
         or runtime.manual_handoff_status() is not None
@@ -843,10 +1009,7 @@ def step(runtime, character):
         runtime, "delivery_window", None
     ):
         return True
-    workers = getattr(runtime, "native_return_workers", None)
-    if workers is None:
-        runtime.native_return_workers = {}
-        workers = runtime.native_return_workers
+    workers = runtime.__dict__.setdefault("native_return_workers", {})
     workers[character] = (threading.get_ident(), state["id"])
     try:
         with runtime.coordinator.lease(character, purpose=PURPOSE):
@@ -857,16 +1020,14 @@ def step(runtime, character):
                     raise CaptureUnavailable("Native recovery authority changed")
 
             check()
-            if at_login:
-                # The single journaled login belongs to on_login(); never here.
-                return False
             travel = ReturnDriver1078(runtime.controllers[character].driver)
             current = travel.read()
             from conquest.merchants.controller import identities
 
+            before = state["before"]["snapshot"]
             if (
                 identities(current["inventory"] + current["booth"])
-                != identities(state["before"]["inventory"] + state["before"]["booth"])
+                != identities(before["inventory"] + before["booth"])
                 or current.get("trade")
                 or current.get("request")
             ):
@@ -877,7 +1038,7 @@ def step(runtime, character):
                     current["map_id"] == 1036
                     and state["silver_before"] - current["silver"] == 100
                 ):
-                    save(runtime, character, state, "market", fare_verified=current)
+                    save(runtime, character, state, fare_verified=current)
                 elif _clock() - state["submitted_at"] <= 10:
                     return True
                 else:
@@ -892,17 +1053,17 @@ def step(runtime, character):
                         character,
                         state,
                         "returning",
-                        moves=state["moves"] + 1,
+                        moves=state.get("moves", 0) + 1,
                         last_movement={"before": current, "after": after},
                     )
                     return True
                 records = travel.prepare_transfer(current, check)
                 check()
-                before = travel.read()
+                fare_before = travel.read()
                 if (
-                    before["identity"] != current["identity"]
-                    or before["position"] != current["position"]
-                    or before["silver"] != current["silver"]
+                    fare_before["identity"] != current["identity"]
+                    or fare_before["position"] != current["position"]
+                    or fare_before["silver"] != current["silver"]
                 ):
                     raise ValueError("Native fare baseline changed")
                 save(
@@ -910,38 +1071,22 @@ def step(runtime, character):
                     character,
                     state,
                     "fare_submitted",
-                    silver_before=before["silver"],
+                    silver_before=fare_before["silver"],
                     submitted_at=_clock(),
-                    fare_before=before,
+                    fare_before=fare_before,
                     fare_records=records,
                 )
                 travel.transfer(records, check)
                 return True
             if current["map_id"] != 1036:
                 raise ValueError("Native recovery arrived in an unsupported map")
-            save(
-                runtime,
-                character,
-                state,
-                "complete",
-                market_snapshot=current,
-                completed_at=_clock(),
-                market_arrival_verified=True,
-                shop_restored=False,
-            )
-            # Market arrival ends the unsafe-transit watchdog, not recovery.
-            # Occupancy/claim and immutable-price restoration remain separately
-            # admitted stages; they must never borrow movement qualification.
+            # Market arrival ends the unsafe-transit watchdog, not recovery:
+            # occupancy/claim and verified-price restoration remain separate,
+            # later stages, so the incident stays unresolved here.
+            market_arrived(runtime, character, state, current)
             from conquest.merchants.recovery_safety import observe
 
             observe(runtime, character, current["identity"], travel.life())
-            runtime.journal.event(
-                character,
-                "native_return_market_verified",
-                incident=state["id"],
-                identity=current["identity"],
-                shop_restored=False,
-            )
             return True
     finally:
         workers.pop(character, None)
