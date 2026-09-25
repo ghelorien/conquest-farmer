@@ -686,37 +686,6 @@ class UnifiedUI:
             from conquest.merchants.disconnect import disconnect
 
             return disconnect(self.runtime, body["character"])
-        if action == "start-account-diagnostic" and set(body) == {
-            "action",
-            "character",
-        }:
-            import subprocess, sys
-
-            character = character_name(body["character"])
-            path = Path(
-                state_path(f".runtime/account-diagnostic-{character.lower()}.json")
-            )
-            if path.exists():
-                from conquest.worker import request as worker_request
-
-                result = worker_request(path, "health")
-                if not result.get("read_only"):
-                    raise ValueError("Diagnostic worker is not read-only")
-                return {"existing": True, "read_only": True}
-            process = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "conquest.merchants.diagnostic_worker",
-                    character,
-                ],
-                cwd=Path.cwd(),
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return {"starting": True, "read_only": True, "pid": process.pid}
         if action == "test-merchant-recovery" and set(body) == {"action", "character"}:
             from conquest.merchants.recovery_trial import start
 
@@ -858,43 +827,6 @@ class UnifiedUI:
             from conquest.merchants.connect_market import start
 
             return start(self, body["character"], market_trial=True)
-        if action == "start-readonly-diagnostics" and set(body) == {"action"}:
-            import subprocess, sys
-            from conquest.worker import request as worker_request
-
-            paths = [
-                Path(state_path(f".runtime/merchant-diagnostic-{c.lower()}.json"))
-                for c in CHARACTERS
-            ]
-            if any(p.exists() for p in paths):
-                results = [worker_request(p, "health") for p in paths]
-                if not all(r.get("read_only") for r in results):
-                    raise ValueError("Existing diagnostic workers are not read-only")
-                return {"existing": True, "read_only": True}
-            process = getattr(self, "readonly_diagnostics", None)
-            if process is not None and process.poll() is None:
-                return {"pid": process.pid, "starting": True, "read_only": True}
-            for c in CHARACTERS:
-                if c not in self.runtime.observers:
-                    raise ValueError("Both merchants must be attached")
-                self.runtime.controllers[c].driver.memory.read()
-            from conquest.application_layout import RuntimeLayout
-
-            layout = RuntimeLayout.resolve()
-            repo = layout.root
-            self.readonly_diagnostics = subprocess.Popen(
-                [
-                    str(layout.python()),
-                    str(layout.script("start_merchant_diagnostics.py")),
-                ],
-                cwd=repo,
-                env=layout.environment(),
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return {"pid": self.readonly_diagnostics.pid, "read_only": True}
         if action == "peer-identity-evidence" and set(body) == {
             "action",
             "character",

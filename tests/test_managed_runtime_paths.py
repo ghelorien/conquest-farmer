@@ -177,22 +177,6 @@ def _managed_probe(release, data):
         ui.ui_requests.get_nowait()[0]()
         assert app.host.api.height_scale == 1.1 and resized == [(800, 600)]
         assert read_json(profile / ".runtime/farmer-view.json") == {"height_scale": 1.1}
-        diagnostic = Path(state_path(".runtime/account-diagnostic-spiritual.json"))
-        write_json(diagnostic, {"port": 1})
-        with (
-            patch(
-                "conquest.worker.request", return_value={"read_only": True}
-            ) as health,
-            patch(
-                "subprocess.Popen",
-                side_effect=AssertionError("Must reuse existing diagnostic"),
-            ),
-        ):
-            result = UnifiedUI.dispatch(
-                ui, {"action": "start-account-diagnostic", "profile_id": merchant.id}
-            )
-        assert result == {"existing": True, "read_only": True}
-        assert health.call_args.args == (diagnostic, "health")
         assert (
             notification_health.describe()
             == "Discord farmer: not configured | Discord shops: not configured"
