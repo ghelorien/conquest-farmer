@@ -7,5 +7,14 @@
   "work_budget_seconds": 15,
   "qualification_required": true,
   "warehouse_fallback": true,
+  "town_batch_refill": {
+    "enabled": true,
+    "backlog_threshold": 5,
+    "drain_below": 1,
+    "max_seconds": 600,
+    "city_parking_seconds": 240,
+    "cooldown_seconds": 900,
+    "max_grants_without_listing": 2
+  },
   "note": "Enable only after farming parity and two-sided live delivery/reconnect qualification."
 }

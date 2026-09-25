@@ -111,3 +111,26 @@ input is bounded to 35 seconds with at least three seconds reserved before grant
 expiry; scheduled items still require twenty seconds remaining before starting.
 Queued inventory waits for the existing next fifteen-minute route check when
 the window is exhausted; no extra recurring checker is created.
+
+Town batch refill (`merchants/town_batch.py`, policy `town_batch_refill` in
+`profiles/merchant-deliveries.json`): the refill engine publishes, read-only,
+`eligible_backlog` (reliably priced items that fit free booth slots; unknown
+prices never count). When a due hunting window finds any enabled, qualified
+merchant at or above `backlog_threshold` (5) and no Stop, pause, manual,
+transaction, recovery, delivery, town-visit or banking obligation, the farmer
+uses the existing `require_city` parking (saved Phoenix terrain/anchor
+191,249, checked travel, three quiet stable seconds) instead of field parking.
+It then grants the same exact 45-second listing scope repeatedly, one at a
+time, rechecking fresh farmer memory (identity, alive, city spot, no threat,
+no damage, no manual input) before each grant and only reading memory while
+a merchant holds input. It releases a grant as soon as its verified listing
+leaves no time for another. The batch ends on an empty queue, `drain_below`,
+`max_seconds` (600, from departure), two grants without a verified listing,
+an unreconciled listing, any blocker, or unsafe farmer state; farming then
+resumes through the normal hunt-return path and the next merchant window
+waits `cooldown_seconds` (900). Failed city parking falls back to the
+existing field window in the same interval. Events:
+`merchant_town_batch_started`, `merchant_parking_finished` (`mode: city`),
+`merchant_work_started` per grant, `merchant_town_batch_finished` (counts,
+listings per merchant, backlogs, parking and elapsed seconds) and
+`merchant_town_batch_refused` (rate-limited reasons).

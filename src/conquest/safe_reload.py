@@ -154,6 +154,7 @@ def park(
     allow_town_retreat=True,
     diagnostic=None,
     require_city=False,
+    travel_activity="Parking at the verified city anchor for app reload",
 ):
     """Keep care active; deployment can require the saved city anchor."""
     from conquest.travel_care import TravelStateChanged
@@ -198,10 +199,7 @@ def park(
             # open a shop, spend a scroll, or cross an unverified map here.
             stable_since = None
             notify("Heading to the verified city anchor before app reload")
-            loop.travel(
-                city_anchor,
-                activity="Parking at the verified city anchor for app reload",
-            )
+            loop.travel(city_anchor, activity=travel_activity)
             previous = None
             continue
         quiet = clear_observation(health)

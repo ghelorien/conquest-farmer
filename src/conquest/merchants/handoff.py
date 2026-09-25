@@ -319,6 +319,19 @@ def service_window(loop, *, town=False):
     control = before["embedded_controls"]["control"]
     if before["embedded_controls"].get("manual_mouse"):
         return False
+    batch = None
+    if (
+        not town
+        and not host_request
+        and not urgent
+        and listing_character
+        and windows.due()
+    ):
+        # A large priced backlog lists faster from the verified city than
+        # from single field windows. Refusal keeps the field path below.
+        from conquest.merchants import town_batch
+
+        batch = town_batch.admission(loop, status, before, policy)
     visit = None
     if (
         not host_request
@@ -407,6 +420,24 @@ def service_window(loop, *, town=False):
     loop.check_stop = check
     try:
         loop.phase = "merchant_handoff"
+        if batch:
+            from conquest.merchants import town_batch
+
+            try:
+                outcome = town_batch.run(
+                    loop,
+                    batch,
+                    windows=windows,
+                    merchant=merchant,
+                    check=check,
+                    revision=revision,
+                )
+            except town_batch.InputNotReleased:
+                released = False
+                raise
+            if outcome is not town_batch.FALLBACK:
+                return outcome
+            # City parking did not qualify: keep the existing field window.
         loop.record(
             "merchant_safe_spot", activity="Finding a safe spot for merchant refill"
         )
