@@ -252,145 +252,34 @@ def test_handoff_failure_releases_input_and_notifies_host(tmp_path):
     assert calls == [("prepare", "Dutch", "Dutch"), ("release", "Dutch", None)]
 
 
-@pytest.mark.parametrize(
-    "typed_correctly,cancel_preserves_stock",
-    [(True, True), (False, True), (True, False)],
-)
-def test_booth_probe_only_enters_and_cancels_before_qualification(
-    tmp_path, monkeypatch, typed_correctly, cancel_preserves_stock
-):
-    import conquest.merchants.qualification as module
-    import conquest.warehouse_money as money
+@pytest.mark.parametrize("build", ["1074", "1078"])
+@pytest.mark.parametrize("state", ["ready", "trade", "closed", "pending"])
+def test_booth_control_check_fails_closed_on_every_build(tmp_path, build, state):
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
 
-    memory = Memory()
-    memory.expected_sha256 = CLIENT_SHA256
-    model = 0x15000
-    memory.put(model + 0x50, "<I", 123)
-    modal = modal_fixture(memory)
-    item = dict(
-        uid=123,
-        type_id=111805,
-        plus=1,
-        gem1=0,
-        gem2=0,
-        quantity=1,
-        bound=False,
-        slot=0,
-        price=None,
-    )
-    inventory = {
-        "name": "Inventory/##ItemGrid_A800F95C",
-        "address": 0x20000,
-        "geometry": [900, 300, 407, 175],
-        "scroll": [0, 0],
-    }
-    booth = {
-        "name": "Booth",
-        "address": 0x21000,
-        "geometry": [20, 100, 620, 300],
-        "scroll": [0, 0],
-    }
-    child = {
-        "name": "Booth/##BoothChild_FFE4633E",
-        "address": 0x22000,
-        "geometry": [40, 138, 580, 232],
-        "scroll": [0, 0],
-    }
-    state = {
-        "identity": {"pid": 100, "creation_time_100ns": 1},
-        "inventory": [item],
-        "booth": [],
-        "silver": 100,
-        "booth_open": True,
+    journal = Journal(tmp_path / "journal.sqlite3")
+    if state == "pending":
+        journal.begin("pending", "Spiritual", "listing", {})
+    snapshot = {
+        "booth_open": state != "closed",
         "request": None,
-        "trade": None,
-        "windows": [modal, inventory, booth, child],
+        "trade": {"participant": "Parasite"} if state == "trade" else None,
     }
-
-    def table(window, label):
-        inv = label == "##ItemTable"
-        x, y = window["geometry"][:2]
-        stride = 40 if inv else 140
-        return {
-            "columns": [
-                {
-                    "content_x": x + i * stride,
-                    "minimum": x + i * stride,
-                    "maximum": x + (i + 1) * stride,
-                }
-                for i in range(10 if inv else 4)
-            ],
-            "outer": [x, y, x + 400, y + 160],
-            "clip": [x, y, x + 400, y + 160],
-            "row_height": 40 if inv else 64,
-        }
-
-    gui = SimpleNamespace(
-        table=table, model=lambda *args: model, viewport_size=lambda: [1401, 760]
+    adapter = SimpleNamespace(
+        expected_sha256=CLIENT_SHA256 if build == "1074" else CLIENT_SHA256_1078
     )
     driver = SimpleNamespace(
-        observer=SimpleNamespace(adapter=memory, character="Spiritual"),
+        observer=SimpleNamespace(adapter=adapter, character="Spiritual"),
         qualification=tmp_path / "qualification.json",
-        coordinator=object(),
-        memory=SimpleNamespace(gui=gui),
-        read=lambda: copy.deepcopy(state),
-        target=SimpleNamespace(snapshot=lambda: {"client_size": [1401, 760]}),
+        read=lambda: dict(snapshot),
     )
-    clicks = []
-
-    class Probe:
-        def __init__(self, *args):
-            self.target = driver.target
-
-        def click(self, snapshot, control, validate=None):
-            validate()
-            clicks.append(control)
-            if control == "cancel_listing":
-                state["windows"].remove(modal)
-                memory.put(model + 0x50, "<I", 0)
-                if not cancel_preserves_stock:
-                    state["inventory"].clear()
-
-        def wait_for(self, predicate, check):
-            check()
-            assert predicate(state)
-            return copy.deepcopy(state)
-
-    monkeypatch.setattr(module, "MerchantDriver", Probe)
-
-    def type_amount(*args, **kwargs):
-        value = b"123,456" if typed_correctly else b"123"
-        memory.data[model + 0x54 : model + 0x60] = value + b"\0" * (12 - len(value))
-
-    monkeypatch.setattr(money, "type_amount", type_amount)
-    journal = Journal(tmp_path / "journal.sqlite3")
-    if typed_correctly and cancel_preserves_stock:
-        recovery = {
-            "shop_setup": {"occupancy_mode": "scene_booth", "booth_model": 406},
-            "booth_panel": {"mode": "owned_scene_entity", "draw_offset": [0, -32]},
-        }
-        driver.qualification.write_text(
-            json.dumps(
-                {
-                    **recovery,
-                    "client_sha256": CLIENT_SHA256,
-                    "character": "Spiritual",
-                    "server": "America",
-                    "capabilities": {"inventory_panel": True, "booth_panel": True},
-                }
-            )
-        )
-        assert verify_booth_controls(driver, journal, lambda: None)["verified"]
-        saved = json.loads(driver.qualification.read_text())
-        assert saved["capabilities"]["booth_input"] is True
-        assert saved["capabilities"]["inventory_panel"] is True
-        assert all(saved[k] == v for k, v in recovery.items())
-    else:
-        with pytest.raises(ValueError):
-            verify_booth_controls(driver, journal, lambda: None)
-        assert not driver.qualification.exists()
-    assert "confirm_listing" not in clicks and "remove_listing" not in clicks
-    assert not journal.pending("Spiritual")
+    checked = []
+    match = "Unqualified client" if state == "ready" else "open own booth"
+    with pytest.raises(ValueError, match=match):
+        verify_booth_controls(driver, journal, lambda: checked.append(True))
+    assert checked == [True]
+    assert not driver.qualification.exists()
+    assert not driver.qualification.with_name("qualification.candidate.json").exists()
 
 
 def test_manual_focus_change_wins_over_merchant_focus_restoration():

@@ -1,19 +1,14 @@
-"""Bounded native booth-control check: enter a test price, then cancel.
+"""Shared booth-window helpers and the retired booth-control check.
 
-Runs inside the elevated desktop app with its normal input coordinator. It
-never confirms a listing, removes booth stock, accepts a trade, or changes
-merchant/farmer enablement. All coordinates come from pinned live GUI memory.
+The enter-a-test-price-then-cancel booth calibration was pinned to client
+build 1074, which is retired. verify_booth_controls now refuses every build
+after its existing preconditions; stock, window, grid_control and
+modal_controls remain for their other callers.
 """
 
-import json
-from pathlib import Path
 import struct
-import time
 
 from conquest.merchants.controller import identities
-from conquest.merchants.driver import MerchantDriver, booth_dialog_ready
-from conquest.merchants.memory import unpack
-from conquest.memory_life import CLIENT_SHA256
 
 
 def stock(snapshot):
@@ -107,187 +102,7 @@ def verify_booth_controls(driver, journal, check):
         raise ValueError(
             "Booth verification needs an open own booth and no pending trade/transaction"
         )
-    if driver.observer.adapter.expected_sha256 != CLIENT_SHA256:
-        raise ValueError("Unqualified client fingerprint")
-    gui = driver.memory.gui
-    inventory, inventory_table = grid_control(
-        gui, before, "Inventory/##ItemGrid_A800F95C", "##ItemTable", (20, 20)
-    )
-    removal, booth_table = grid_control(
-        gui, before, "Booth/##BoothChild_FFE4633E", "BoothTable", (60, 39)
-    )
-    if inventory["stride"] != [40.0, 40.0] or booth_table["row_height"] != 64:
-        raise ValueError("Unexpected inventory or booth item spacing")
-    booth = window(before, "Booth")
-    controls = {
-        "inventory_item": inventory,
-        "remove_listing": removal,
-        "booth_drop": {
-            "window": "Booth",
-            "size": list(booth["geometry"][2:]),
-            "offset": [booth["geometry"][2] / 2, booth["geometry"][3] / 2],
-        },
-    }
-    size = tuple(driver.target.snapshot()["client_size"])
-    profile = {
-        "client_sha256": CLIENT_SHA256,
-        "character": driver.observer.character,
-        "server": "America",
-        "client_size": list(size),
-        "gui_size": gui.viewport_size(),
-        "controls": controls,
-        "capabilities": {"booth_input": False},
-    }
-    try:
-        previous = json.loads(driver.qualification.read_text(encoding="utf-8"))
-        if all(
-            previous.get(k) == profile[k]
-            for k in ("client_sha256", "character", "server")
-        ):
-            # Recalibrating listing controls must retain separately qualified
-            # recovery control specifications as well as their capability flags.
-            for key in ("shop_setup", "booth_panel"):
-                if key in previous:
-                    profile[key] = previous[key]
-            controls.update(
-                {
-                    k: v
-                    for k, v in previous.get("controls", {}).items()
-                    if k not in controls
-                }
-            )
-            profile["capabilities"].update(
-                {
-                    k: v
-                    for k, v in previous.get("capabilities", {}).items()
-                    if k != "booth_input"
-                }
-            )
-    except (OSError, ValueError):
-        pass
-    candidate = driver.qualification.with_name("qualification.candidate.json")
-    candidate.parent.mkdir(parents=True, exist_ok=True)
-    candidate.write_text(json.dumps(profile, indent=2), encoding="utf-8")
-    probe = MerchantDriver(driver.observer, candidate, driver.coordinator)
-    model = gui.model(25, 0x5C27F8)
-
-    def unchanged():
-        check()
-        current = driver.read()
-        if (
-            stock(current) != stock(before)
-            or current.get("trade")
-            or current.get("request")
-        ):
-            raise ValueError(
-                "Merchant stock or trade state changed during booth verification"
-            )
-        return current
-
-    opened = before
-    if not any(w["name"] == "Add Item to Booth" for w in opened["windows"]):
-        eligible = [i for i in before["inventory"] if not i["bound"]]
-        if not eligible or len(before["booth"]) >= 32:
-            raise ValueError(
-                "Open a price dialog for an unbound inventory item before verifying"
-            )
-        item = eligible[0]
-        source = probe.point(before, "inventory_item", item["slot"])
-        destination = probe.point(before, "booth_drop")
-        from conquest.focus_recovery import activate_client
-        from conquest.foreground import foreground_drag
-
-        if not activate_client(probe.target.hwnd, before["identity"]):
-            raise ValueError("Merchant did not receive foreground focus")
-
-        def before_drag():
-            current = unchanged()
-            if (
-                probe.point(current, "inventory_item", item["slot"]) != source
-                or probe.point(current, "booth_drop") != destination
-            ):
-                raise ValueError("Merchant layout changed before calibration drag")
-
-        foreground_drag(
-            probe.target, source, destination, size, before_press=before_drag
-        )
-        opened = probe.wait_for(booth_dialog_ready, check)
-        if unpack(driver.observer.adapter, model + 0x50, "<I")[0] != item["uid"]:
-            raise ValueError(
-                "Calibration drag selected another item; leave the dialog for inspection"
-            )
-    uid = unpack(driver.observer.adapter, model + 0x50, "<I")[0]
-    if uid not in identities(before["inventory"]):
-        raise ValueError("Price dialog does not belong to carried inventory")
-    controls.update(modal_controls(driver.observer.adapter, opened))
-    candidate.write_text(json.dumps(profile, indent=2), encoding="utf-8")
-
-    def same_dialog():
-        current = unchanged()
-        if unpack(driver.observer.adapter, model + 0x50, "<I")[
-            0
-        ] != uid or modal_controls(driver.observer.adapter, current) != {
-            k: controls[k] for k in ("price_field", "confirm_listing", "cancel_listing")
-        }:
-            raise ValueError("Price dialog changed during calibration")
-
-    probe.click(opened, "price_field", validate=same_dialog)
-    from conquest.warehouse_money import type_amount
-
-    same_dialog()
-    type_amount(probe.target, 123456, expected_size=size)
-    from conquest.merchants.pricing import wait_booth_price
-
-    wait_booth_price(
-        lambda: driver.observer.adapter.read_block(model + 0x54, 12).split(b"\0")[0],
-        123456,
-        same_dialog,
-    )
-    current = unchanged()
-    probe.click(current, "cancel_listing", validate=same_dialog)
-    after = probe.wait_for(
-        lambda s: not any(w["name"] == "Add Item to Booth" for w in s["windows"]), check
-    )
-    if (
-        stock(after) != stock(before)
-        or unpack(driver.observer.adapter, model + 0x50, "<I")[0] != 0
-    ):
-        raise ValueError(
-            "Cancellation did not preserve stock; inspect before continuing"
-        )
-    check()
-    evidence = {
-        "character": driver.observer.character,
-        "identity": before["identity"],
-        "client_sha256": CLIENT_SHA256,
-        "timestamp": time.time(),
-        "uid": uid,
-        "test_price_verified": 123456,
-        "cancel_verified": True,
-        "stock_unchanged": True,
-        "inventory_table": inventory_table,
-        "booth_table": booth_table,
-        "controls": controls,
-        "listing_submitted": False,
-    }
-    evidence_path = candidate.with_name("booth-control-evidence.json")
-    evidence_path.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
-    profile["evidence"] = str(evidence_path)
-    profile["capabilities"]["booth_input"] = True
-    candidate.write_text(json.dumps(profile, indent=2), encoding="utf-8")
-    candidate.replace(driver.qualification)
-    journal.event(
-        driver.observer.character,
-        "booth_controls_verified",
-        uid=uid,
-        listing_submitted=False,
-    )
-    if (journal.get(driver.observer.character, "attention") or {}).get(
-        "kind"
-    ) == "calibration":
-        journal.set(driver.observer.character, "attention", None)
-    return {
-        "verified": True,
-        "character": driver.observer.character,
-        "listing_submitted": False,
-    }
+    # No live build has a qualified booth-control calibration: the 1074
+    # renderer it was pinned to is retired, and 1078 was always refused here.
+    # Fail closed before any input or qualification write.
+    raise ValueError("Unqualified client fingerprint")
