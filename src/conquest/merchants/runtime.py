@@ -574,6 +574,12 @@ class MerchantRuntime(ManualRuntime):
         with self.lock:
             self.latest[character] = snapshot
         self.attachments[character].observation_ready = True
+        if snapshot["identity"] == observer.adapter.identity:
+            from conquest.merchants.return_1078 import record_baseline
+
+            # Durable pre-loss evidence for disconnect recovery. It is written
+            # only for a healthy owned Market booth and frozen during incidents.
+            record_baseline(self, character, snapshot)
         # The 1078 surface is input-fenced, but its exact-process, configured
         # ownership reader can still maintain sales observation. Never bridge
         # an unresolved bot transaction into a sale baseline. The sales

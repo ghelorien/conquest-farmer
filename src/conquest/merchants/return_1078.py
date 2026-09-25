@@ -14,6 +14,9 @@ from conquest.merchants.return_driver import ReturnDriver
 
 PURPOSE = "merchant_return_1078"
 KEY = "native_return_1078"
+BASELINE = "market_baseline_1078"
+BASELINE_VERSION = 1
+BASELINE_REFRESH_SECONDS = 60
 TERMINAL = ("complete", "operator_overridden")
 
 
@@ -23,29 +26,163 @@ def digest(value):
     ).hexdigest()
 
 
-def baseline(runtime, character):
-    """Only the last native full-stock baseline can identify a lost actor."""
-    from conquest.character_context import merchant_context
+def _profile(character):
+    """The configured, UID-pinned local merchant profile, or ValueError."""
+    from conquest.merchants.booth_listing_once_1078 import _profile as pinned
 
-    with runtime.journal.db() as db:
-        row = db.execute(
-            "SELECT snapshot FROM sales_baseline WHERE character=?", (str(character),)
-        ).fetchone()
-    if row is None:
-        return None
-    value = json.loads(row["snapshot"])
-    profile = merchant_context(character).profile
+    return pinned(character)
+
+
+def _identity_ok(identity):
+    return (
+        isinstance(identity, dict)
+        and type(identity.get("pid")) is int
+        and identity["pid"] > 0
+        and type(identity.get("creation_time_100ns")) is int
+        and identity["creation_time_100ns"] > 0
+        and isinstance(identity.get("path"), str)
+        and bool(identity["path"])
+    )
+
+
+def _booth_prices(booth):
+    return [
+        {
+            key: item.get(key)
+            for key in ("uid", "type_id", "name", "plus", "gem1", "gem2", "price")
+        }
+        for item in booth
+    ]
+
+
+def unresolved(runtime, character):
+    """The durable non-terminal native recovery incident, if any."""
+    state = runtime.journal.get(character, KEY)
+    if isinstance(state, dict) and state and state.get("phase") not in TERMINAL:
+        return state
+    return None
+
+
+def healthy_market(snapshot, profile):
+    """A live owned Market booth with no modal, as read from exact memory."""
+    return bool(
+        isinstance(snapshot, dict)
+        and snapshot.get("map_id") == 1036
+        and snapshot.get("own_booth_uid")
+        and snapshot.get("booth_open") is True
+        and snapshot.get("trade") is None
+        and snapshot.get("request") is None
+        and type(snapshot.get("hp")) is int
+        and snapshot["hp"] > 0
+        and snapshot.get("character") == profile.name
+        and snapshot.get("server") == profile.server
+        and snapshot.get("character_uid") == profile.character_uid
+        and _identity_ok(snapshot.get("identity"))
+        and isinstance(snapshot.get("inventory"), list)
+        and isinstance(snapshot.get("booth"), list)
+        and isinstance(snapshot.get("position"), list)
+    )
+
+
+def record_baseline(runtime, character, snapshot, *, now=None):
+    """Persist the last healthy Market snapshot; frozen while an incident exists.
+
+    Only the exact-1078 ownership snapshot of the attached observer reaches this
+    function. Non-Market, modal, pending or incident-time snapshots never
+    replace the durable pre-loss evidence.
+    """
     if (
-        value.get("client_sha256") != CLIENT_SHA256_1078
+        not isinstance(snapshot, dict)
+        or snapshot.get("map_id") != 1036
+        or snapshot.get("booth_open") is not True
+    ):
+        return False
+    try:
+        profile = _profile(character)
+    except ValueError:
+        return False  # Recovery stays unavailable for an unpinned profile.
+    if not healthy_market(snapshot, profile):
+        return False
+    if unresolved(runtime, character) is not None:
+        return False
+    if runtime.journal.pending(character):
+        return False
+    now = time.time() if now is None else now
+    content = digest(
+        {
+            key: snapshot.get(key)
+            for key in (
+                "identity",
+                "character_uid",
+                "map_id",
+                "position",
+                "own_booth_uid",
+                "booth_open",
+                "inventory",
+                "booth",
+                "silver",
+            )
+        }
+    )
+    cache = runtime.__dict__.setdefault("_market_baseline_1078", {})
+    previous = cache.get(character)
+    if (
+        previous
+        and previous[0] == content
+        and 0 <= now - previous[1] < BASELINE_REFRESH_SECONDS
+    ):
+        return False
+    record = {
+        "version": BASELINE_VERSION,
+        "client_sha256": CLIENT_SHA256_1078,
+        "profile_id": profile.id,
+        "character": profile.name,
+        "server": profile.server,
+        "character_uid": snapshot["character_uid"],
+        "identity": copy.deepcopy(snapshot["identity"]),
+        "map_id": 1036,
+        "position": list(snapshot["position"]),
+        "own_booth_uid": snapshot["own_booth_uid"],
+        "booth_prices": _booth_prices(snapshot["booth"]),
+        "observed_at": snapshot.get("timestamp"),
+        "recorded_at": now,
+        "snapshot": copy.deepcopy(snapshot),
+    }
+    record["sha256"] = digest(record)
+    runtime.journal.set(character, BASELINE, record)
+    cache[character] = (content, now)
+    return True
+
+
+def baseline(runtime, character):
+    """Only the durable last healthy Market snapshot can identify a lost actor."""
+    value = runtime.journal.get(character, BASELINE)
+    if not isinstance(value, dict):
+        return None
+    try:
+        profile = _profile(character)
+    except ValueError:
+        return None
+    snapshot = value.get("snapshot")
+    if (
+        not isinstance(snapshot, dict)
+        or value.get("version") != BASELINE_VERSION
+        or value.get("client_sha256") != CLIENT_SHA256_1078
+        or value.get("profile_id") != profile.id
         or value.get("character") != profile.name
         or value.get("server") != profile.server
         or value.get("character_uid") != profile.character_uid
         or value.get("map_id") != 1036
         or not value.get("own_booth_uid")
-        or value.get("trade")
-        or value.get("request")
-        or not isinstance(value.get("inventory"), list)
-        or not isinstance(value.get("booth"), list)
+        or not _identity_ok(value.get("identity"))
+        or not healthy_market(snapshot, profile)
+        or snapshot.get("identity") != value["identity"]
+        or snapshot.get("character_uid") != value["character_uid"]
+        or snapshot.get("own_booth_uid") != value["own_booth_uid"]
+        or snapshot.get("position") != value.get("position")
+        or value.get("booth_prices") != _booth_prices(snapshot["booth"])
+        or value.get("sha256")
+        != digest({k: v for k, v in value.items() if k != "sha256"})
     ):
         return None
     return value
