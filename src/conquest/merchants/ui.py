@@ -776,14 +776,6 @@ class UnifiedUI:
                     ),
                     "last_attempt": last,
                 }
-        if action == "probe-delivery-reconcile-request":
-            if set(body) != {"action"}:
-                raise ValueError("Unsupported request reconciliation arguments")
-            from conquest.merchants.delivery_request_reconciliation import (
-                reconcile_request,
-            )
-
-            return reconcile_request(self)
         if action == "probe-delivery-override":
             allowed = {
                 "action",
