@@ -6,7 +6,7 @@ import time
 from conquest.capture import CaptureUnavailable
 from conquest.character_context import farmer_name
 from conquest.memory_build_layout import read_build_layout
-from conquest.merchants.memory import MerchantMemory, GuiReader, string, unpack
+from conquest.merchants.memory import GuiReader, string, unpack
 
 
 def presence(observer):
@@ -144,14 +144,11 @@ def observe(runtime, observer=None):
                 "qualified_full_snapshot_maps": [1002, 1011, 1036],
             }
             return False
-        from conquest.memory_build_layout import CLIENT_SHA256_1078
+        # read_build_layout (checked by presence above) qualifies only 1078.
+        read_build_layout(observer.adapter)
+        from conquest.merchants.trade_reader_1078 import manual_ownership
 
-        if read_build_layout(observer.adapter).expected_sha256 == CLIENT_SHA256_1078:
-            from conquest.merchants.trade_reader_1078 import manual_ownership
-
-            snapshot = manual_ownership(observer.adapter, observer.character)
-        else:
-            snapshot = MerchantMemory(observer).read(farmer_preflight=True)
+        snapshot = manual_ownership(observer.adapter, observer.character)
     except (ValueError, OSError) as error:
         reason = "Farmer manual memory unavailable: " + str(error)
         runtime.manual_farmer_observation = {

@@ -6,7 +6,6 @@ from types import MappingProxyType
 from typing import Mapping
 
 
-CLIENT_SHA256_1074 = "c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396"
 CLIENT_SHA256_1078 = "be9dd723cad8eb9068da792b5cb8ceec0d330f08aacb8c948e6f412d1520c4e0"
 
 
@@ -59,17 +58,6 @@ class ReadBuildLayout:
     merchant_uid_accessor_pins: tuple[tuple[int, str], ...]
 
 
-_OLD_SLOTS = MappingProxyType(
-    {
-        "head": 0xBD8,
-        "necklace": 0xBE8,
-        "armor": 0xBF8,
-        "bow": 0xC08,
-        "arrows": 0xC18,
-        "ring": 0xC28,
-        "boots": 0xC48,
-    }
-)
 _NEW_SLOTS = MappingProxyType(
     {
         "head": 0xC00,
@@ -82,74 +70,6 @@ _NEW_SLOTS = MappingProxyType(
     }
 )
 READ_LAYOUTS = {
-    CLIENT_SHA256_1074: ReadBuildLayout(
-        CLIENT_SHA256_1074,
-        "classic-1074-player-candidate.yaml",
-        "classic-1074-health-candidate.yaml",
-        "classic-1074-inventory-candidate.yaml",
-        0x5CF220,
-        _OLD_SLOTS,
-        0x6966F0,
-        0x6986C0,
-        0x69C730,
-        0x1008,
-        0x1030,
-        0x1044,
-        0x16,
-        0x5CBA68,
-        0x69A740,
-        0x5D0088,
-        0x1060,
-        0x699564,
-        0x30,
-        0xC0,
-        0xAE8,
-        False,
-        0x699370,
-        (0x18, 8, 0),
-        0x5CCC90,
-        0x5C5E20,
-        0x978,
-        0x6994D8,
-        0x5CCC08,
-        0x5CDAF0,
-        0x1968,
-        (0x1980, 0x19B0),
-        0x1998,
-        0x3CC,
-        0xC08,
-        0x5CFF78,
-        0x5C5A38,
-        (
-            (
-                0x9ACC2,
-                314,
-                "0da14be41a59bd653ed11d0f576ebebfeb477d3a5aa9679fa5f0b30046b2ab5a",
-            ),
-            (
-                0x1097A5,
-                19,
-                "213a60b72ae5bd5566a3c7af1e7106d80ce2291a7134c87584c03d5653d35075",
-            ),
-            (
-                0x109845,
-                190,
-                "8db295b764220983700cdc0e9d6f69c95fef86c22a191d7e3a8800a5ecd44527",
-            ),
-            (
-                0x10995C,
-                19,
-                "7e6b636f9cbe2d438fe2b3737dd4fe941c7098ba4e38ef75eba0df8bd3d96366",
-            ),
-        ),
-        0x697860,
-        0x3468,
-        0x3258,
-        0x5CB328,
-        0x5C4F30,
-        0x5C27F8,
-        ((0x8DC8, "e8638d17008b486841394f10"), (0x97BC, "e86f8317008b4868394e687520")),
-    ),
     CLIENT_SHA256_1078: ReadBuildLayout(
         CLIENT_SHA256_1078,
         "classic-1078-player-candidate.yaml",

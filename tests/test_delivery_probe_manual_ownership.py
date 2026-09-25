@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from conquest.memory_life import CLIENT_SHA256
+from conquest.memory_build_layout import CLIENT_SHA256_1078
 from conquest.merchants import delivery_probe as probe
 from conquest.merchants.delivery_probe_ownership import ownership
 from conquest.merchants.manual_operator import status_text
@@ -58,9 +58,9 @@ def supervised(rig, monkeypatch, tmp_path):
         lock=threading.RLock(),
         adapter=NS(
             identity=deepcopy(x.farmer["identity"]),
-            # Pre-1078 client: manual_farmer.observe selects the read layout
-            # by exact hash, so an unknown placeholder is now a reader error.
-            expected_sha256=CLIENT_SHA256,
+            # manual_farmer.observe selects the read layout by exact hash, so
+            # an unknown placeholder would be a reader error.
+            expected_sha256=CLIENT_SHA256_1078,
             assert_identity=lambda: None,
         ),
     )
@@ -74,11 +74,18 @@ def supervised(rig, monkeypatch, tmp_path):
             assert farmer_preflight
             return x.farmer_read()
 
-    monkeypatch.setattr("conquest.merchants.memory.MerchantMemory", Memory)
-    monkeypatch.setattr("conquest.merchants.manual_farmer.MerchantMemory", Memory)
-    # Peer farmer reads now go through delivery_bridge.source_memory, which
-    # binds MerchantMemory at import (the legacy hash keeps the non-1078 path).
-    monkeypatch.setattr("conquest.merchants.delivery_bridge.MerchantMemory", Memory)
+    # Peer farmer reads go through delivery_bridge.source_memory, which reads
+    # a 1078 farmer with TradeMemory1078.
+    monkeypatch.setattr("conquest.merchants.trade_reader_1078.TradeMemory1078", Memory)
+
+    def manual_ownership(adapter, character):
+        assert adapter is x.source.adapter and character == x.source.character
+        return x.farmer_read()
+
+    # manual_farmer.observe reads a 1078 farmer's modal ownership directly.
+    monkeypatch.setattr(
+        "conquest.merchants.trade_reader_1078.manual_ownership", manual_ownership
+    )
     monkeypatch.setattr(
         "conquest.merchants.unrelated_request.decline_unrelated_request",
         lambda *a, **kw: pytest.fail("Probe routing must never send decline input"),
@@ -251,9 +258,8 @@ def test_unresolved_exact_probe_structurally_suppresses_manual_admission_on_tran
             def read(self, **_kwargs):
                 raise OSError("observer temporarily busy")
 
-        monkeypatch.setattr("conquest.merchants.memory.MerchantMemory", FailingMemory)
         monkeypatch.setattr(
-            "conquest.merchants.delivery_bridge.MerchantMemory", FailingMemory
+            "conquest.merchants.trade_reader_1078.TradeMemory1078", FailingMemory
         )
     for _ in range(3):
         assert x.runtime.process_manual(

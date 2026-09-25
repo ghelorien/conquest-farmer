@@ -77,12 +77,12 @@ def test_revive_tracks_memory_control_bar_without_stretching_coordinates(monkeyp
 
 def test_player_anchor_and_jump_projection_use_new_viewport():
     from conquest.scene_input import memory_player_anchor
-    from conquest.memory_life import CLIENT_SHA256
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
     from conquest.navigation import native_movement_delta
 
     raw = struct.pack("<6i", 214, 259, 0, 0, 1100, 820)
     adapter = NS(
-        expected_sha256=CLIENT_SHA256,
+        expected_sha256=CLIENT_SHA256_1078,
         viewport_size=lambda: (1420, 1009),
         read_block=lambda a, n: raw,
     )

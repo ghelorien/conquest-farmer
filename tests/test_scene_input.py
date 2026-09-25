@@ -168,11 +168,11 @@ def test_memory_anchor_tracks_map_edge_and_rejects_stale_projection():
     import struct
     from types import SimpleNamespace
     from conquest.scene_input import memory_player_anchor
-    from conquest.memory_life import CLIENT_SHA256
+    from conquest.memory_build_layout import CLIENT_SHA256_1078
 
     raw = struct.pack("<6i", 953, 557, 0, 0, 524, 457)
     adapter = SimpleNamespace(
-        expected_sha256=CLIENT_SHA256, read_block=lambda a, n: raw
+        expected_sha256=CLIENT_SHA256_1078, read_block=lambda a, n: raw
     )
     life = SimpleNamespace(position=(953, 557), object_address=100000)
     observer = SimpleNamespace(adapter=adapter)

@@ -20,6 +20,7 @@ from conquest.merchants.coordination import InputAcquisitionBusy, InputCoordinat
 from conquest.overnight import OvernightLoop, OvernightStopped
 from conquest.travel_care import TravelCare, TravelStateChanged
 from test_town_input_acquisition import held_by_peer, release_peer
+from test_xp_skill import CHARGE as XP_CHARGE, STATUS as XP_STATUS
 from test_xp_skill import fixture as xp_memory
 
 
@@ -143,9 +144,9 @@ def test_real_mutex_http_xp_denial_exits_care_then_requalifies_changed_popup(rig
 def test_busy_then_changed_authority_never_activates_old_xp_point(rig, mutation):
     busy_pass(rig)
     if mutation == "not_ready":
-        rig.blobs[0x1003CC] = struct.pack("<I", 99)
+        rig.blobs[XP_CHARGE] = struct.pack("<I", 99)
     elif mutation == "flying":
-        rig.blobs[0x100030] = struct.pack("<Q", 0x8000010)
+        rig.blobs[XP_STATUS] = struct.pack("<Q", 0x8000010)
     elif mutation == "popup":
         rig.popup.size = (112.0, 56.0)
     elif mutation == "dead":
@@ -267,7 +268,7 @@ def test_outer_route_replans_fresh_position_and_terrain_after_busy(rig, monkeypa
                 assert isinstance(error.__cause__, InputAcquisitionBusy)
                 release_peer(release, rig.owner)
                 rig.life["position"] = [11, 11]
-                rig.blobs[0x1003CC] = struct.pack("<I", 99)
+                rig.blobs[XP_CHARGE] = struct.pack("<I", 99)
                 rig.care.check = original
                 raise
 

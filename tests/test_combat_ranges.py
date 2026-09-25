@@ -2,7 +2,10 @@ import struct
 from types import SimpleNamespace as NS
 import pytest
 from conquest import combat_ranges
-from conquest.memory_life import CLIENT_SHA256
+from conquest.memory_build_layout import CLIENT_SHA256_1078, READ_LAYOUTS
+
+LAYOUT = READ_LAYOUTS[CLIENT_SHA256_1078]
+SKILLS = LAYOUT.learned_skills_offset
 
 
 def fixture(monkeypatch):
@@ -12,32 +15,33 @@ def fixture(monkeypatch):
     array = 0x300000
     skill_address = 0x400000
     bow = bytearray(0x74)
-    struct.pack_into("<Q", bow, 0, base + 0x5CF220)
+    struct.pack_into("<Q", bow, 0, base + LAYOUT.item_vtable_rva)
     struct.pack_into("<II", bow, 8, 123, 0)
     struct.pack_into("<I", bow, 0x10, 500035)
     struct.pack_into("<H", bow, 0x70, 12)
     skill = bytearray(0x68)
-    struct.pack_into("<Q", skill, 0, base + 0x5CFF78)
+    struct.pack_into("<Q", skill, 0, base + LAYOUT.skill_vtable_rva)
     struct.pack_into("<I", skill, 0x10, 8001)
     skill[0x18:0x20] = b"Scatter\0"
     struct.pack_into("<QQ", skill, 0x28, 7, 15)
     struct.pack_into("<II", skill, 0x60, 8, 15)
     blobs = {
-        actor + 0xC08: struct.pack("<Q", bow_address),
+        actor + LAYOUT.bow_offset: struct.pack("<Q", bow_address),
         bow_address: bow,
-        actor + 0x1968: struct.pack("<3Q", array, array + 16, array + 16),
+        actor + SKILLS: struct.pack("<3Q", array, array + 16, array + 16),
         array: struct.pack("<2Q", skill_address, skill_address - 16),
         skill_address: skill,
     }
     session = NS(
-        expected_sha256=CLIENT_SHA256,
+        expected_sha256=CLIENT_SHA256_1078,
         modules=[{"name": "ImConquer.exe", "base": base}],
         read_block=lambda address, size: bytes(blobs[address][:size]),
         assert_identity=lambda: None,
     )
     life = NS(object_address=actor, dead_candidate=False)
-    monkeypatch.setattr(combat_ranges, "read_life", lambda *a: life)
-    return NS(adapter=session, health_layout=None, character="Parasite"), blobs, skill
+    # A 1078 observer supplies its own exact-build life read.
+    observer = NS(adapter=session, character="Parasite", read_life=lambda: life)
+    return observer, blobs, skill
 
 
 def test_range_and_aim_distance_are_separate_learned_memory_fields(monkeypatch):
@@ -73,7 +77,7 @@ def test_out_of_bounds_bow_range_is_rejected(monkeypatch):
 @pytest.mark.parametrize("header", [(0, 0, 0), (0x300000, 0x300000, 0x300010)])
 def test_empty_learned_skills_allow_only_single_bow_attacks(monkeypatch, header):
     observer, blobs, _ = fixture(monkeypatch)
-    blobs[0x100000 + 0x1968] = struct.pack("<3Q", *header)
+    blobs[0x100000 + SKILLS] = struct.pack("<3Q", *header)
     ranges = combat_ranges.read_combat_ranges(observer, require_scatter=False)
     assert ranges["scatter"] is None and ranges["bow"]["range"] == 12
     with pytest.raises(ValueError, match="learned Scatter"):
@@ -112,14 +116,14 @@ def test_existing_scatter_route_settings_are_preserved(monkeypatch):
 )
 def test_bad_empty_vector_is_not_treated_as_an_unlearned_skill(monkeypatch, header):
     observer, blobs, _ = fixture(monkeypatch)
-    blobs[0x100000 + 0x1968] = struct.pack("<3Q", *header)
+    blobs[0x100000 + SKILLS] = struct.pack("<3Q", *header)
     with pytest.raises(ValueError, match="vector is invalid"):
         combat_ranges.read_combat_ranges(observer, require_scatter=False)
 
 
 def test_skill_learned_during_empty_observation_requires_retry(monkeypatch):
     observer, blobs, _ = fixture(monkeypatch)
-    header = 0x100000 + 0x1968
+    header = 0x100000 + SKILLS
     blobs[header] = bytes(24)
     read = observer.adapter.read_block
     calls = [0]

@@ -77,8 +77,11 @@ def test_dialog_reader_copies_and_rechecks_deque_and_strings(monkeypatch):
         0x400000,
         0x500000,
     )
+    from conquest.memory_build_layout import CLIENT_SHA256_1078, READ_LAYOUTS
+
+    dialog_offset = READ_LAYOUTS[CLIENT_SHA256_1078].dialog_records_offset
     memory = {
-        actor + 0x1060: struct.pack("<4Q", table, 1, 0, 1),
+        actor + dialog_offset: struct.pack("<4Q", table, 1, 0, 1),
         table: struct.pack("<Q", shared),
         shared: struct.pack("<2Q", record, 0),
     }
@@ -92,21 +95,16 @@ def test_dialog_reader_copies_and_rechecks_deque_and_strings(monkeypatch):
     struct.pack_into("<f", dc, 16, 398)
     struct.pack_into("<f", dc, 52, 88)
     memory[window + 0xE0] = bytes(dc)
-    from conquest.memory_life import CLIENT_SHA256
-
-    # The observer wrapper selects its read layout from the 1074 client build.
+    # The observer wrapper selects its read layout from the 1078 client build.
     adapter = SimpleNamespace(
         read_block=lambda a, n: memory[a][:n],
-        expected_sha256=CLIENT_SHA256,
+        expected_sha256=CLIENT_SHA256_1078,
         assert_identity=lambda: None,
     )
     observer = SimpleNamespace(
-        adapter=adapter, health_layout=None, character="Parasite"
-    )
-    monkeypatch.setattr(
-        c,
-        "read_life",
-        lambda *a: SimpleNamespace(object_address=actor, dead_candidate=False),
+        adapter=adapter,
+        character="Parasite",
+        read_life=lambda: SimpleNamespace(object_address=actor, dead_candidate=False),
     )
     monkeypatch.setattr(
         c,

@@ -6,7 +6,7 @@ import time
 import pytest
 
 from conquest.capture import CaptureUnavailable
-from conquest.memory_build_layout import CLIENT_SHA256_1074
+from conquest.memory_build_layout import CLIENT_SHA256_1078
 from conquest.merchants import manual_farmer
 from conquest.merchants.coordination import check_input, input_scope
 from test_manual_runtime import rig, snapshot
@@ -24,7 +24,7 @@ def farmer(rig, monkeypatch):
     x.observer = NS(
         character="Parasite",
         lock=threading.RLock(),
-        adapter=NS(expected_sha256=CLIENT_SHA256_1074, assert_identity=lambda: None),
+        adapter=NS(expected_sha256=CLIENT_SHA256_1078, assert_identity=lambda: None),
     )
     x.runtime.configure_manual_farmer(lambda: x.observer, lambda: {"enabled": True})
     x.runtime.farmer_bot_owned = lambda: False
@@ -44,9 +44,17 @@ def farmer(rig, monkeypatch):
         "presence",
         lambda observer: bool(x.state["request"] or x.state["trade"]),
     )
-    monkeypatch.setattr(manual_farmer, "MerchantMemory", Memory)
-    monkeypatch.setattr("conquest.merchants.memory.MerchantMemory", Memory)
     monkeypatch.setattr("conquest.merchants.delivery_bridge.source_memory", Memory)
+    x.ownership_reader = Memory
+
+    def manual_ownership(adapter, character):
+        # A 1078 farmer's modal ownership comes from trade_reader_1078.
+        assert adapter is x.observer.adapter and character == "Parasite"
+        return x.ownership_reader(x.observer).read(farmer_preflight=True)
+
+    monkeypatch.setattr(
+        "conquest.merchants.trade_reader_1078.manual_ownership", manual_ownership
+    )
     monkeypatch.setattr(
         manual_farmer,
         "controller",
@@ -146,7 +154,7 @@ def test_unsupported_farmer_full_memory_persists_qualification_blocker(
         def read(self, **kw):
             raise ValueError("Merchant must be alive on the Market map")
 
-    monkeypatch.setattr(manual_farmer, "MerchantMemory", MissingMemory)
+    x.ownership_reader = MissingMemory
     assert x.runtime.observe_manual_farmer()
     status = x.runtime.manual_farmer_status()
     assert (

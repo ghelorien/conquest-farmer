@@ -2,41 +2,48 @@ import struct
 from types import SimpleNamespace as NS
 import pytest
 from conquest import xp_skill as xp
-from conquest.memory_life import CLIENT_SHA256
+from conquest.memory_build_layout import CLIENT_SHA256_1078, READ_LAYOUTS
+
+LAYOUT = READ_LAYOUTS[CLIENT_SHA256_1078]
+ACTOR = 0x100000
+CHARGE = ACTOR + LAYOUT.xp_charge_offset
+STATUS = ACTOR + LAYOUT.life_status_offset
+XP_SKILLS = ACTOR + LAYOUT.xp_skills_offset
 
 
 def fixture(monkeypatch):
-    actor = 0x100000
+    actor = ACTOR
     array = 0x200000
     pointer = 0x300000
     base = 0x140000000
     skill = bytearray(0x68)
-    struct.pack_into("<Q", skill, 0, base + 0x5CFF78)
+    struct.pack_into("<Q", skill, 0, base + LAYOUT.skill_vtable_rva)
     struct.pack_into("<I", skill, 8, 1)
     struct.pack_into("<I", skill, 0x10, 8002)
     skill[0x18:0x1C] = b"Fly\0"
     struct.pack_into("<QQ", skill, 0x28, 3, 15)
     struct.pack_into("<I", skill, 0x44, 2)
     blobs = {
-        actor + 0x3CC: struct.pack("<I", 100),
-        actor + 0x30: struct.pack("<Q", 0x10),
-        actor + 0x1998: struct.pack("<3Q", array, array + 16, array + 16),
+        CHARGE: struct.pack("<I", 100),
+        STATUS: struct.pack("<Q", 0x10),
+        XP_SKILLS: struct.pack("<3Q", array, array + 16, array + 16),
         array: struct.pack("<2Q", pointer, 0),
         pointer: skill,
     }
     session = NS(
-        expected_sha256=CLIENT_SHA256,
+        expected_sha256=CLIENT_SHA256_1078,
         modules=[{"name": "ImConquer.exe", "base": base}],
         read_block=lambda address, size: bytes(blobs[address][:size]),
         assert_identity=lambda: None,
     )
     life = NS(object_address=actor, dead_candidate=False)
-    monkeypatch.setattr(xp, "read_life", lambda *args: life)
     window = NS(position=(490.0, 613.0), size=(56.0, 56.0), scroll=(0.0, 0.0))
     monkeypatch.setattr(
         xp, "MemoryGui", lambda s, layout=None: NS(read=lambda name: window)
     )
-    return NS(adapter=session, health_layout=None, character="Parasite"), blobs, window
+    # A 1078 observer supplies its own exact-build life read.
+    observer = NS(adapter=session, character="Parasite", read_life=lambda: life)
+    return observer, blobs, window
 
 
 def test_charge_read_separate_from_experience_and_verified_flight(monkeypatch):
@@ -46,8 +53,8 @@ def test_charge_read_separate_from_experience_and_verified_flight(monkeypatch):
     runner = xp.XpSkill(observer, lambda *args: events.append(args))
     assert runner.step(clicks.append)
     assert clicks == [(518, 641)] and events[-1][0] == "xp_fly_attempt"
-    blobs[0x100030] = struct.pack("<Q", 0x8000000)
-    blobs[0x1003CC] = struct.pack("<I", 0)
+    blobs[STATUS] = struct.pack("<Q", 0x8000000)
+    blobs[CHARGE] = struct.pack("<I", 0)
     assert not runner.step(clicks.append)
     assert events[-1][0] == "xp_fly_verified" and len(clicks) == 1
 
@@ -57,8 +64,8 @@ def test_charge_read_separate_from_experience_and_verified_flight(monkeypatch):
 )
 def test_not_ready_or_already_flying_never_clicks(monkeypatch, charge, status):
     observer, blobs, _ = fixture(monkeypatch)
-    blobs[0x1003CC] = struct.pack("<I", charge)
-    blobs[0x100030] = struct.pack("<Q", status)
+    blobs[CHARGE] = struct.pack("<I", charge)
+    blobs[STATUS] = struct.pack("<Q", status)
     assert not xp.XpSkill(observer, lambda *args: None).step(
         lambda p: pytest.fail("Unexpected click")
     )
@@ -97,7 +104,7 @@ def two_skills(monkeypatch, *, fly_first=True):
     struct.pack_into("<I", arrow, 0x44, 0)
     blobs[0x400000] = arrow
     pointers = [0x300000, 0x400000] if fly_first else [0x400000, 0x300000]
-    blobs[0x100000 + 0x1998] = struct.pack("<3Q", 0x200000, 0x200020, 0x200020)
+    blobs[XP_SKILLS] = struct.pack("<3Q", 0x200000, 0x200020, 0x200020)
     blobs[0x200000] = struct.pack("<4Q", pointers[0], 0, pointers[1], 0)
     window.size = (104.0, 56.0)
     return observer, blobs, window

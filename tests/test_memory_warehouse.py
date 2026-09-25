@@ -102,8 +102,9 @@ def test_warehouse_reads_exact_uid_and_type(monkeypatch):
 
 def test_warehouse_reader_fails_closed_off_1078(monkeypatch):
     reader, data, owner = reader_fixture(monkeypatch)
+    # Any non-1078 build (the retired 1074 build has no read layout at all).
     reader.session.expected_sha256 = CLIENT_SHA256
-    with pytest.raises(ValueError, match="not qualified"):
+    with pytest.raises(ValueError, match="No qualified read layout"):
         MemoryWarehouseReader(reader.session)
 
 

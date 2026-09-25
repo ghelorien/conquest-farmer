@@ -150,8 +150,10 @@ def managed_midpoint(midpoint, monkeypatch, tmp_path):
         "conquest.merchants.memory.MerchantMemory",
         lambda source: NS(read=lambda **kw: x.farmer_read()),
     )
+    # The supervised farmer is a 1078 client, so the real bridge reads it
+    # through TradeMemory1078.
     monkeypatch.setattr(
-        "conquest.merchants.delivery_bridge.MerchantMemory",
+        "conquest.merchants.trade_reader_1078.TradeMemory1078",
         lambda source: NS(read=lambda **kw: x.farmer_read()),
     )
     monkeypatch.setattr(confirm, "pair", read_pair)
