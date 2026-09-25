@@ -894,7 +894,7 @@ def resume_pre_admission_tail(loop):
     receipts = meteor.get("receipts") or []
     stored = {r.get("stored") for r in receipts}
     original_items = {i["uid"]: i for i in claim["bag"]["items"]}
-    # Only a captured override proved with Dutch's verified receipt resolves
+    # Only a captured override proved with the merchant's verified receipt resolves
     # the scroll without a Market deposit; market_bank recorded that proof.
     proofs = claim.get("delivery_proofs") or []
     overridden = (
