@@ -14,6 +14,11 @@ class TravelStateChanged(ValueError):
     pass
 
 
+# Consecutive display-panel closes that proved no button was pressed (hover
+# race, busy input) before the original error is raised again.
+CLOSE_NOT_READY_LIMIT = 3
+
+
 class PanelTravelChanged(TravelStateChanged):
     code = "panel_intercepted"
 
@@ -102,6 +107,23 @@ class TravelCare:
             or "no button pressed" in message
             or "no input sent" in message
         )
+
+    def close_not_ready(self, error):
+        """Defer one unsent panel close to the next care pass, within a bound.
+
+        True: the caller raises TravelStateChanged; the next pass runs the
+        panel-clearing pass before any route input.  False: the bound is spent
+        (or the failure is not provably unsent) and the error stays fatal.
+        """
+        from conquest.panel_events import panel_close_not_ready
+
+        if not panel_close_not_ready(error):
+            return False
+        self.close_not_ready_count = getattr(self, "close_not_ready_count", 0) + 1
+        if self.close_not_ready_count >= CLOSE_NOT_READY_LIMIT:
+            return False
+        self.next_panel_check = 0
+        return True
 
     def check(self, health):
         if health["embedded_controls"].get("manual_mouse") or health[
@@ -219,6 +241,11 @@ class TravelCare:
             except ValueError as error:
                 from conquest.panel_events import panel_close_unverified
 
+                if self.close_not_ready(error):
+                    raise TravelStateChanged(
+                        "Panel close was not ready (no button pressed); "
+                        "retrying it before moving"
+                    ) from error
                 if not panel_close_unverified(error):
                     raise
                 # The close may have been submitted. Do not issue the same
@@ -228,6 +255,7 @@ class TravelCare:
                     "Rechecking an unconfirmed town panel close"
                 ) from error
             self.panel_close_uncertain = False
+            self.close_not_ready_count = 0
             if result.get("closed_panel"):
                 self.notify(
                     {
@@ -286,6 +314,8 @@ class TravelCare:
         potion = next(
             i for i in inventory.items if i.type_id == 1000020 and i.amount > 0
         )
+        masked = False
+        deferred = None
         try:
             receipt = request(
                 self.info,
@@ -318,8 +348,9 @@ class TravelCare:
                         "activity": "Potion consumed; continuing toward safety while checking HP",
                     }
                 )
-                return
-            raise
+                masked = True
+            else:
+                raise
         finally:
             import sys
 
@@ -334,18 +365,38 @@ class TravelCare:
                         "expires_at": time.time() + 4,
                     },
                 )
-            except (ValueError, OSError):
+            except (ValueError, OSError) as error:
+                # The heal itself succeeded here.  A close proved unsent (e.g.
+                # the pre-press hover race) leaves only an open Inventory:
+                # retry it through the panel pass, never the potion.
                 if not failed:
-                    raise
-        self.last_heal = now
-        if receipt["consumed"]:
+                    if not self.close_not_ready(error):
+                        raise
+                    deferred = error
+            else:
+                self.close_not_ready_count = 0
+        if not masked:
+            self.last_heal = now
+            if receipt["consumed"]:
+                self.notify(
+                    {
+                        "event": "travel_heal_verified",
+                        "hp": receipt["hp_after"],
+                        "potions": receipt["remaining"],
+                    }
+                )
+        if deferred is not None:
             self.notify(
                 {
-                    "event": "travel_heal_verified",
-                    "hp": receipt["hp_after"],
-                    "potions": receipt["remaining"],
+                    "event": "travel_heal_close_deferred",
+                    "detail": str(deferred),
+                    "activity": "Healed; Inventory close was not ready, retrying it before moving",
                 }
             )
+            raise TravelStateChanged(
+                "Inventory close after healing was not ready (no button pressed); "
+                "retrying it before moving"
+            ) from deferred
 
     def xp_step(self, health):
         # Normal travel uses the same memory-qualified popup as combat.
