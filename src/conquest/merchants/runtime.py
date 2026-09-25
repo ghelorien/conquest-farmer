@@ -657,6 +657,8 @@ class MerchantRuntime(ManualRuntime):
             with self.lock:
                 self.latest.pop(character, None)
             self.attachments[character].observation_ready = False
+            # Loading after the single login is bounded; it is never retried.
+            return_1078.observe_gap(self, character)
             if "ownership differs from the configured profile" in str(error):
                 with self.lock:
                     self.observers.pop(character, None)

@@ -45,6 +45,7 @@ class InputCoordinator:
         self._booth_probe_capability = None
         self._booth_listing_once_capability = None
         self._owned_panel_capability = None
+        self._native_return1078_capability = None
         self.native_trade1078_policy = None
 
     def native_trade1078_authorized(self, character):
@@ -185,6 +186,66 @@ class InputCoordinator:
         return True
 
     @contextmanager
+    def native_return1078_scope(self, character, validate):
+        """One thread's exact-1078 disconnect-recovery login capability.
+
+        The purpose string "merchant_return_1078" grants nothing by itself:
+        only the thread inside this scope, for this character, whose validator
+        (return_1078.policy) passes at every check may use it. It does not
+        clear surface blocks, change saved intent or authorize other purposes.
+        """
+        if not self.lock.acquire(blocking=False):
+            raise CaptureUnavailable("Waiting for input owner")
+        try:
+            if (
+                self.owner is not None
+                or self._native_return1078_capability is not None
+                or self._booth_probe_capability is not None
+                or self._booth_listing_once_capability is not None
+                or self._owned_panel_capability is not None
+                or self._probe_abort_capability is not None
+            ):
+                raise CaptureUnavailable(
+                    "Another input owner or native capability is active"
+                )
+            self._native_return1078_capability = (
+                threading.get_ident(),
+                character,
+                validate,
+            )
+            try:
+                yield
+            finally:
+                self._native_return1078_capability = None
+        finally:
+            self.lock.release()
+
+    def native_return1078_bound(self, character=None):
+        """Thread/purpose binding only; never runs the validator (no recursion)."""
+        capability = self._native_return1078_capability
+        return (
+            self.purpose == "merchant_return_1078"
+            and capability is not None
+            and capability[0] == threading.get_ident()
+            and (character is None or capability[1] == character)
+        )
+
+    def native_return1078_authorized(self, character):
+        if not self.native_return1078_bound(character):
+            return False
+        try:
+            return self._native_return1078_capability[2]() is True
+        except (
+            ValueError,
+            OSError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            CaptureUnavailable,
+        ):
+            return False
+
+    @contextmanager
     def probe_abort_scope(self, validate):
         """Ephemeral close-only worker scope; a purpose string grants nothing.
 
@@ -275,6 +336,7 @@ class InputCoordinator:
             and not self.booth_listing_once_authorized(self.owner)
             and not self.owned_panel_authorized(self.owner)
             and not self.native_trade1078_authorized(self.owner)
+            and not self.native_return1078_authorized(self.owner)
         ):
             raise CaptureUnavailable(
                 "Client surface needs reattachment and input qualification"
@@ -324,6 +386,7 @@ class InputCoordinator:
                 self.booth_listing_once_authorized(character)
                 or self.owned_panel_authorized(character)
                 or self.native_trade1078_authorized(character)
+                or self.native_return1078_authorized(character)
             ):
                 prepared = True
                 self.on_native_acquire(character)

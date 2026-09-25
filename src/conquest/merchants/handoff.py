@@ -112,10 +112,38 @@ def resumable(health, proof, revision):
     )
 
 
+def native_login_pending(character):
+    """An exact-1078 incident still awaiting its single automatic login."""
+    native = character.get("native_return_1078") or {}
+    return bool(
+        native.get("phase") == "login"
+        and native.get("login_attempted") is False
+        and native.get("authorization") == "automatic_1078_disconnect_recovery"
+    )
+
+
+def native_recovery_request(status):
+    """The exact pending native login that made this handoff request, if any.
+
+    Submitted, blocked or foreign requests never qualify, so the hunting
+    farmer is interrupted only for a login the merchant side has proven ready.
+    """
+    request = str(status.get("handoff_requested") or "")
+    parts = request.split(":")
+    if len(parts) != 3 or parts[0] != "merchant-recovery" or not parts[2].isdigit():
+        return None
+    state = status.get("characters", {}).get(parts[1]) or {}
+    native = state.get("native_return_1078") or {}
+    if native_login_pending(state) and native.get("handoff_request") == request:
+        return parts[1]
+    return None
+
+
 def service_candidate(character):
     """Recovery needs an input window before it can produce a fresh snapshot."""
     return bool(
-        character.get("connected")
+        native_login_pending(character)
+        or character.get("connected")
         or (
             character.get("enabled")
             and character.get("credentials_saved")
@@ -288,9 +316,13 @@ def service_window(loop, *, town=False):
             for c in status.get("characters", {}).values()
         )
     )
+    # An exact pending 1078 disconnect login is recovery, not delivery: like
+    # the native refill above it keeps the park/grant/revision checks below.
+    native_recovery = bool(native_recovery_request(status))
     if (
         not host_request
         and not native_refill
+        and not native_recovery
         and (
             (not permitted and not (town and trial_permitted(loop)))
             or (not town and not policy.get("hunting_handoffs_enabled"))
@@ -599,6 +631,8 @@ def service_window(loop, *, town=False):
 
 
 def urgent_recovery(status):
+    if native_recovery_request(status):
+        return True
     request = str(status.get("handoff_requested", ""))
     if not request.startswith(("merchant-recovery:", "merchant-return:")):
         return False

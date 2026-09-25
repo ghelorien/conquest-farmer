@@ -290,6 +290,12 @@ class UnifiedUI:
                     "owned_booth_panel_1078",
                 ):
                     return False
+            if self.coordinator.purpose == "merchant_return_1078":
+                # Only return_1078.policy through the thread-bound capability;
+                # never the farmer shortcut or the generic merchant policy.
+                return not is_farmer_owner(
+                    character
+                ) and self.coordinator.native_return1078_authorized(character)
             if is_farmer_owner(character):
                 return True
             # A disabled merchant may perform only the single receipt-bound

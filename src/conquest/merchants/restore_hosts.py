@@ -396,6 +396,7 @@ def present_native(ui, character, expected):
                 "delivery_confirm_probe",
                 "empty_delivery_cancel",
                 "delivery_empty_recovery",
+                "merchant_return_1078",
             )
             or not ui.safe_to_yield()
             or character in ui.released_clients

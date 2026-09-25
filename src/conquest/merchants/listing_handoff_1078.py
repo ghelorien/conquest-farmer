@@ -361,8 +361,13 @@ def scope_allows(
 def farmer_safe(ui, expected_target=None, *, deadline=None):
     """Observe safe stopped input ownership; never change farming intent."""
     grant = getattr(ui, "grant", None)
+    recovery = ui.coordinator.purpose == "merchant_return_1078"
+    if recovery and not ui.coordinator.native_return1078_bound():
+        # The disconnect-recovery purpose is honoured only for the thread
+        # holding its capability (return_1078.policy); never by name alone.
+        raise CaptureUnavailable("Native recovery input capability is not bound")
     if not grant:
-        if ui.coordinator.purpose in (
+        if recovery or ui.coordinator.purpose in (
             None,
             "booth_listing_1078_once",
             "owned_booth_panel_1078",

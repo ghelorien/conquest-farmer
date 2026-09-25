@@ -6,7 +6,6 @@ import json
 import threading
 import time
 import uuid
-from types import SimpleNamespace
 
 from conquest.capture import CaptureUnavailable
 from conquest.memory_build_layout import CLIENT_SHA256_1078
@@ -24,6 +23,23 @@ AUTHORIZATION = "automatic_1078_disconnect_recovery"
 STAGE_LIMIT = "login"
 LOGIN_PHASES = ("login", "login_submitted")
 TRAVEL_PHASES = ("returning", "fare_submitted")
+# A login frame must persist this long after arming before any input.
+LOGIN_SETTLE_SECONDS = 5
+# Still at login this long after the single submission: stop for attention.
+LOGIN_OUTCOME_SECONDS = 90
+# Neither at login nor readable in world this long after submission.
+LOADING_SECONDS = 180
+# A failed login proof (error text, layout, credentials) this long escalates.
+BLOCKED_ESCALATE_SECONDS = 120
+# Farmer handoff requests per incident; a hunting farmer is never thrashed.
+MAX_HANDOFF_REQUESTS = 3
+# The submission itself may use its lease only this long after journaling.
+SUBMISSION_SECONDS = 30
+# Two in-world readings verify a login: at least 1 s and at most 30 s apart.
+VERIFY_MIN_SECONDS = 1
+VERIFY_MAX_SECONDS = 30
+
+_clock = time.time
 
 
 def digest(value):
@@ -133,7 +149,7 @@ def record_baseline(runtime, character, snapshot, *, now=None):
         return False
     if runtime.journal.pending(character):
         return False
-    now = time.time() if now is None else now
+    now = _clock() if now is None else now
     content = digest(
         {
             key: snapshot.get(key)
@@ -284,7 +300,7 @@ def begin_loss(runtime, character, before, identity):
         "identity": copy.deepcopy(identity),
         "before": copy.deepcopy(before),
         "before_sha256": digest(before),
-        "started_at": time.time(),
+        "started_at": _clock(),
         "login_attempted": False,
         "moves": 0,
         # Recorded only. Recovery runs regardless of trading/refill toggles;
@@ -343,7 +359,7 @@ def needs_attention(runtime, character, state, note, *, now=None):
         "needs_attention",
         note=note,
         previous_phase=state.get("phase"),
-        needs_attention_at=time.time() if now is None else now,
+        needs_attention_at=_clock() if now is None else now,
     )
     runtime.journal.event(
         character, "native_return_needs_attention", incident=state["id"], note=note
@@ -352,14 +368,271 @@ def needs_attention(runtime, character, state, note, *, now=None):
     return state
 
 
+def _credentials(character):
+    from conquest.merchants.recovery import credential_path
+
+    return credential_path(character)
+
+
+def _login_form_proof(adapter):
+    """Recognised disconnect error (or none) and the pinned login form.
+
+    LoginErrorReader rejects any error text other than the qualified
+    "connection interrupted" message and any changed modal/button layout;
+    form_points rejects a changed Login form. Both run before credentials are
+    read from disk, and submit_login repeats them immediately before input.
+    """
+    from conquest import login_1078
+    from conquest.memory_shop import MemoryGui
+    from conquest.reconnect import LoginErrorReader
+
+    error = LoginErrorReader(adapter).read()
+    if error is None:
+        login_1078.form_points(adapter, MemoryGui.for_session(adapter).read("Login"))
+    return error
+
+
+def _login_ready(runtime, character, observer, state, *, leased=False):
+    """Every merchant-side gate for the single login; no input, no secrets."""
+    coordinator = runtime.coordinator
+    if coordinator.stopped or runtime.stop_event.is_set():
+        raise CaptureUnavailable("Native recovery login waits: Stop is active")
+    if coordinator.manual_active():
+        raise CaptureUnavailable("Native recovery login waits: mouse control is yours")
+    if (
+        runtime.manual_handoff_status() is not None
+        or coordinator.manual_session_blocked(character)
+        or coordinator.manual_session_blocked("Farmer")
+    ):
+        raise CaptureUnavailable(
+            "Native recovery login waits for manual ownership to end"
+        )
+    if runtime.journal.get(character, "connect_hold", False):
+        raise CaptureUnavailable("Native recovery login is held by connect hold")
+    if runtime.journal.pending(character):
+        raise CaptureUnavailable(
+            "Native recovery login waits for the pending merchant transaction"
+        )
+    if (
+        getattr(runtime, "delivery_window", None)
+        or getattr(runtime, "refill_window", None)
+        or getattr(runtime, "connecting", None)
+        or getattr(runtime, "refilling", None)
+    ):
+        raise CaptureUnavailable(
+            "Native recovery login waits for the current merchant work window"
+        )
+    if not leased and coordinator.owner is not None:
+        raise CaptureUnavailable("Waiting for input owner")
+    if runtime.native1078_farmer_check is None:
+        raise CaptureUnavailable(
+            "Native recovery login waits for the farmer safety observation"
+        )
+    if (
+        state.get("phase") != "login"
+        or state.get("login_attempted") is not False
+        or state.get("authorization") != AUTHORIZATION
+        or state.get("stage_limit") != STAGE_LIMIT
+    ):
+        raise ValueError("Native recovery incident is not awaiting its single login")
+    observer.adapter.assert_identity()
+    if (
+        observer.adapter.expected_sha256 != CLIENT_SHA256_1078
+        or observer.adapter.identity != state.get("identity")
+    ):
+        raise ValueError(
+            "Native recovery process identity changed; reconciliation required"
+        )
+    if not at_login(observer):
+        raise CaptureUnavailable(
+            "Merchant client is not at a memory-proven login screen"
+        )
+    _login_form_proof(observer.adapter)
+    if not _credentials(character).exists():
+        raise ValueError("Merchant encrypted credentials are unavailable")
+
+
+def _blocked(runtime, character, state, error, now):
+    """Record why login waits; a persistent failed proof stops for attention."""
+    note = str(error)[:200]
+    values = {}
+    if state.get("blocker") != note:
+        values["blocker"] = note
+    if not isinstance(error, CaptureUnavailable):
+        since = state.get("proof_blocked_since")
+        if since is None:
+            values["proof_blocked_since"] = since = now
+        if now - since >= BLOCKED_ESCALATE_SECONDS:
+            return needs_attention(
+                runtime,
+                character,
+                state,
+                "Automatic login cannot proceed safely: " + note,
+                now=now,
+            )
+    if values:
+        save(runtime, character, state, **values)
+    raise error
+
+
+def _request_handoff(runtime, character, state, now):
+    """Ask the farmer to park once per request; bounded per incident."""
+    key = state.get("handoff_request")
+    count = int(state.get("handoff_requests") or 0)
+    with runtime.lock:
+        current = runtime.handoff
+        if key and current == key:
+            outcome = "pending"
+        elif current is not None:
+            outcome = "other"
+        elif count >= MAX_HANDOFF_REQUESTS:
+            outcome = "exhausted"
+        else:
+            key = f"merchant-recovery:{character}:{time.time_ns()}"
+            runtime.handoff = key
+            outcome = "requested"
+    if outcome == "exhausted":
+        return needs_attention(
+            runtime,
+            character,
+            state,
+            "The farmer did not grant a safe login handoff after "
+            f"{MAX_HANDOFF_REQUESTS} requests; no automatic retry",
+            now=now,
+        )
+    if outcome == "requested":
+        save(
+            runtime,
+            character,
+            state,
+            handoff_request=key,
+            handoff_requests=count + 1,
+            handoff_requested_at=now,
+        )
+        runtime.journal.event(
+            character,
+            "native_return_handoff_requested",
+            incident=state["id"],
+            request_id=key,
+        )
+    if outcome == "other":
+        raise CaptureUnavailable(
+            "Native recovery login waits for the current farmer handoff"
+        )
+    raise CaptureUnavailable("Native recovery login waits for a safe farmer handoff")
+
+
+def _submit_once(runtime, character, observer, state):
+    """The single journaled login under a thread-bound native input capability."""
+    coordinator = runtime.coordinator
+    workers = runtime.__dict__.setdefault("native_return_workers", {})
+    workers[character] = (threading.get_ident(), state["id"])
+    try:
+        with coordinator.native_return1078_scope(
+            character, lambda: policy(runtime, character)
+        ):
+            with coordinator.lease(character, purpose=PURPOSE):
+
+                def check():
+                    coordinator.check()
+                    if not policy(runtime, character):
+                        raise CaptureUnavailable("Native recovery authority changed")
+
+                check()
+                current = runtime.journal.get(character, KEY)
+                if current != state:
+                    raise CaptureUnavailable(
+                        "Native recovery incident changed before login"
+                    )
+                _login_ready(runtime, character, observer, current, leased=True)
+                from conquest.focus_recovery import activate_client
+
+                # Focus is not game input. Failing here consumes no attempt.
+                if not activate_client(observer.hwnd, observer.adapter.identity):
+                    raise CaptureUnavailable(
+                        "Login client did not receive verified focus; nothing was submitted"
+                    )
+                check()
+                # Durable before any input: an interrupted or crashed
+                # submission is uncertain and is never replayed.
+                save(
+                    runtime,
+                    character,
+                    current,
+                    "login_submitted",
+                    login_attempted=True,
+                    submitted_at=_clock(),
+                    blocker=None,
+                )
+                runtime.journal.event(
+                    character, "native_return_login_submitted", incident=current["id"]
+                )
+                from conquest.reconnect import submit_login
+
+                try:
+                    submit_login(
+                        observer.operations.target,
+                        _credentials(character),
+                        session=observer.adapter,
+                    )
+                except Exception as error:
+                    # Never persist exception text: login code can hold secrets.
+                    save(
+                        runtime,
+                        character,
+                        current,
+                        login_submit_outcome="interrupted_uncertain",
+                        login_submit_error=type(error).__name__,
+                    )
+                    raise CaptureUnavailable(
+                        "Login submission was interrupted; its outcome is uncertain "
+                        "and it will not be replayed"
+                    ) from None
+                save(runtime, character, current, login_submit_outcome="returned")
+                return current
+    finally:
+        workers.pop(character, None)
+        _release_handoff(runtime, runtime.journal.get(character, KEY) or state)
+
+
 def _attempt_login(runtime, character, observer, state, now):
-    """Milestone 1 login submission stage (separately gated)."""
+    """Milestone 1 login stage: at most one journaled submission per incident."""
+    if now - state.get("started_at", now) < LOGIN_SETTLE_SECONDS:
+        return state
+    try:
+        _login_ready(runtime, character, observer, state)
+    except ValueError as error:  # Includes CaptureUnavailable waits.
+        return _blocked(runtime, character, state, error, now)
+    if state.get("proof_blocked_since") is not None or state.get("blocker"):
+        save(runtime, character, state, proof_blocked_since=None, blocker=None)
+    if not runtime.coordinator.safe_to_yield():
+        return _request_handoff(runtime, character, state, now)
+    return _submit_once(runtime, character, observer, state)
+
+
+def observe_gap(runtime, character, *, now=None):
+    """Neither at login nor readable in world: bounded wait after submission."""
+    now = _clock() if now is None else now
+    state = unresolved(runtime, character)
+    if (
+        state is not None
+        and state.get("phase") == "login_submitted"
+        and now - state.get("submitted_at", now) >= LOADING_SECONDS
+    ):
+        return needs_attention(
+            runtime,
+            character,
+            state,
+            "The single automatic login was submitted but the merchant is not "
+            "readable in world; no automatic retry",
+            now=now,
+        )
     return state
 
 
 def on_login(runtime, character, observer, *, now=None):
     """Called only after at_login(): arm once, then run the bounded login stage."""
-    now = time.time() if now is None else now
+    now = _clock() if now is None else now
     identity = dict(observer.adapter.identity)
     status = {"at_login": True, "identity": identity, "observed_at": now}
     _login_statuses(runtime)[character] = status
@@ -397,6 +670,15 @@ def on_login(runtime, character, observer, *, now=None):
         _release_handoff(runtime, state)
         return state
     if phase == "login_submitted":
+        if now - state.get("submitted_at", now) >= LOGIN_OUTCOME_SECONDS:
+            return needs_attention(
+                runtime,
+                character,
+                state,
+                "The single automatic login did not leave the login screen; "
+                "no automatic retry",
+                now=now,
+            )
         return state
     return needs_attention(
         runtime,
@@ -467,22 +749,39 @@ class ReturnDriver1078(ReturnDriver):
 
 
 def policy(runtime, character):
-    """A purpose string alone cannot authorize a native recovery lease."""
+    """A purpose string alone cannot authorize a native recovery lease.
+
+    Milestone 1 authorizes only the single login stage: the incident must be
+    awaiting its one login, or inside the bounded window of that journaled
+    submission, on this exact thread and process. Trading/refill toggles are
+    deliberately not consulted: recovery always runs, and never enables them.
+    """
     coordinator = runtime.coordinator
     state = runtime.journal.get(character, KEY) or {}
     observer = runtime.observers.get(character)
     binding = getattr(runtime, "native_return_workers", {}).get(character)
+    phase = state.get("phase")
+    login_stage = (
+        phase == "login"
+        and state.get("login_attempted") is False
+        or phase == "login_submitted"
+        and state.get("login_attempted") is True
+        and 0 <= _clock() - state.get("submitted_at", 0) <= SUBMISSION_SECONDS
+    )
     if (
         not binding
         or binding != (threading.get_ident(), state.get("id"))
         or coordinator.purpose != PURPOSE
+        or not coordinator.native_return1078_bound(character)
         or observer is None
         or observer.adapter.expected_sha256 != CLIENT_SHA256_1078
         or observer.adapter.identity != state.get("identity")
-        or state.get("phase") in TERMINAL + ("needs_attention",)
-        or state.get("authorization") != "explicit_one_time_relog_to_market"
+        or not login_stage
+        or state.get("authorization") != AUTHORIZATION
+        or state.get("stage_limit") != STAGE_LIMIT
         or coordinator.stopped
         or runtime.stop_event.is_set()
+        or coordinator.manual_active()
         or runtime.manual_handoff_status() is not None
         or coordinator.manual_session_blocked(character)
         or coordinator.manual_session_blocked("Farmer")
@@ -490,13 +789,9 @@ def policy(runtime, character):
         or runtime.journal.pending(character)
         or getattr(runtime, "delivery_window", None)
         or getattr(runtime, "refill_window", None)
+        or runtime.native1078_farmer_check is None
         or not coordinator.safe_to_yield()
     ):
-        return False
-    if state.get("intent") != {
-        "operations": runtime.journal.get(character, "enabled", False),
-        "refill": runtime.journal.get(character, "refill_enabled", True),
-    }:
         return False
     observer.adapter.assert_identity()
     runtime.native1078_farmer_check()
@@ -506,7 +801,7 @@ def policy(runtime, character):
 def save(runtime, character, state, phase=None, **values):
     if phase:
         state["phase"] = phase
-    state.update(values, updated_at=time.time())
+    state.update(values, updated_at=_clock())
     runtime.journal.set(character, KEY, state)
 
 
@@ -563,26 +858,8 @@ def step(runtime, character):
 
             check()
             if at_login:
-                if state.get("login_attempted"):
-                    raise ValueError(
-                        "Submitted native login requires observation; no credential replay"
-                    )
-                from conquest.login_1078 import assert_code
-                from conquest.reconnect import submit_login
-                from conquest.merchants.recovery import credential_path
-                from conquest.merchants.recovery_safety import submitted
-
-                assert_code(observer.adapter)
-                if not credential_path(character).exists():
-                    raise ValueError("Merchant encrypted credentials are unavailable")
-                save(runtime, character, state, login_attempted=True)
-                submitted(runtime, character)
-                submit_login(
-                    observer.operations.target,
-                    credential_path(character),
-                    session=observer.adapter,
-                )
-                return True
+                # The single journaled login belongs to on_login(); never here.
+                return False
             travel = ReturnDriver1078(runtime.controllers[character].driver)
             current = travel.read()
             from conquest.merchants.controller import identities
@@ -601,7 +878,7 @@ def step(runtime, character):
                     and state["silver_before"] - current["silver"] == 100
                 ):
                     save(runtime, character, state, "market", fare_verified=current)
-                elif time.time() - state["submitted_at"] <= 10:
+                elif _clock() - state["submitted_at"] <= 10:
                     return True
                 else:
                     raise ValueError(
@@ -634,7 +911,7 @@ def step(runtime, character):
                     state,
                     "fare_submitted",
                     silver_before=before["silver"],
-                    submitted_at=time.time(),
+                    submitted_at=_clock(),
                     fare_before=before,
                     fare_records=records,
                 )
@@ -648,7 +925,7 @@ def step(runtime, character):
                 state,
                 "complete",
                 market_snapshot=current,
-                completed_at=time.time(),
+                completed_at=_clock(),
                 market_arrival_verified=True,
                 shop_restored=False,
             )
