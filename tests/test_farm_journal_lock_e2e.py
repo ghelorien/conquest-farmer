@@ -43,16 +43,15 @@ import queue
 import sqlite3
 import threading
 import time
-from pathlib import Path
 from types import SimpleNamespace
 
-import yaml
 
 from conquest import desktop_app, discord_notify, native_farm, trial
 from conquest.control import FarmingControl
 from conquest.farmer_profile import CombatSpeed
 from conquest.memory_inventory import InventorySnapshot, Item
 from conquest.session_kills import SessionKills
+from trial_template import trial_template
 
 # Longer than sqlite3's old default 5 s busy timeout, with margin for Windows
 # sleep granularity stretching the busy handler's counted wait.
@@ -239,7 +238,7 @@ def run_scenario(root, monkeypatch):
             finish_target=lambda *a: None,
         ),
     )
-    config = yaml.safe_load(Path("profiles/pheasant-foreground-trial.yaml").read_text())
+    config = trial_template("pheasant-foreground-trial.yaml")
     config.update(
         character="LockTest",
         observation_mode="memory_only",

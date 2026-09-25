@@ -101,6 +101,9 @@ def test_j1_lock_queues_without_blocking_combat_and_flushes_in_order(tmp_path):
         assert events.pending == 20
         assert [r[2] for r in rows(tmp_path)] == ["before"]
         assert len(sidecars(tmp_path)) == 1
+    # Windows time.time() can tick only every ~15.6 ms; let it advance so a
+    # re-stamped flush would be distinguishable from the kills' own times.
+    time.sleep(0.05)
     events.record("after", "{}")
     assert events.close() == 0
     written = rows(tmp_path)
@@ -285,7 +288,7 @@ def runner(tmp_path, monkeypatch, outcomes):
     app.output = tmp_path
     app.messages = queue.Queue()
     config = SimpleNamespace(
-        player_profile="profiles/classic-1074-player-candidate.yaml",
+        player_profile="profiles/classic-1078-player-candidate.yaml",
         client_size=(1036, 793),
     )
     app.run_embedded_farm(config)
