@@ -453,7 +453,7 @@ class MerchantRuntime(ManualRuntime):
                         or uid == context.profile.character_uid
                     )
                 ):
-                    matches.append(client)
+                    matches.append((client, uid))
             if not matches and login_clients:
                 from conquest.merchants.return_1078 import pinned_identity
 
@@ -469,7 +469,7 @@ class MerchantRuntime(ManualRuntime):
                 raise ValueError(
                     f"{character}: expected one memory-identified 1078 window, found {len(matches)}"
                 )
-            client = matches[0]
+            client, discovered_uid = matches[0]
             status.enter(
                 "access",
                 pid=client.identity["pid"],
@@ -494,6 +494,7 @@ class MerchantRuntime(ManualRuntime):
                     snapshot["character"] != context.profile.name
                     or snapshot["identity"] != client.identity
                     or snapshot["server"] != context.profile.server
+                    or snapshot["character_uid"] != discovered_uid
                     or (
                         context.profile.character_uid is not None
                         and snapshot["character_uid"] != context.profile.character_uid
@@ -502,6 +503,29 @@ class MerchantRuntime(ManualRuntime):
                     raise ValueError(
                         "1078 merchant ownership differs from the configured profile"
                     )
+                if context.profile.character_uid is None:
+                    # First verified in-world sight of a fresh profile: record
+                    # its UID once, then pin the live observer to it.
+                    from conquest.character_profiles import ProfileRegistry
+                    from conquest.merchants.observe_1078 import (
+                        record_first_sight_uid,
+                    )
+
+                    record_first_sight_uid(
+                        ProfileRegistry(context.root),
+                        context.profile,
+                        snapshot,
+                        discovered_uid,
+                    )
+                    context = merchant_context(character)
+                    if (
+                        context is None
+                        or context.profile.character_uid != discovered_uid
+                    ):
+                        raise ValueError(
+                            "1078 merchant ownership differs from the configured profile"
+                        )
+                    observer.character_context = context
                 with self.lock:
                     self.observers[character] = observer
                     self.latest[character] = snapshot

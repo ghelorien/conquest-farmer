@@ -1,5 +1,10 @@
-"""On-demand, app-owned merchant memory evidence; no input or saved state."""
+"""On-demand, app-owned merchant memory evidence; no input.
 
+The only state it saves is a missing profile UID, recorded once from the first
+verified in-world observation of that exact character (never rebound).
+"""
+
+from dataclasses import replace
 import time
 from types import SimpleNamespace
 
@@ -45,6 +50,33 @@ def _actor_identity(session):
         raise ValueError("Merchant identity changed during discovery")
     session.assert_identity()
     return name, uid, server.split(b"\0", 1)[0]
+
+
+def record_first_sight_uid(profiles, profile, snapshot, uid):
+    """Record an unbound profile's UID from one verified in-world observation.
+
+    Callers pass only an ownership snapshot already matched to the exact
+    process, profile name and server, and the UID read during discovery.
+    A profile with a UID is returned unchanged: it is never rebound, and a
+    mismatch stays the caller's fail-closed error. ``ProfileRegistry.bind``
+    re-checks name/server and refuses a UID recorded concurrently by another
+    app; the rebound profile must differ from the observed one only by UID.
+    """
+    if profile.character_uid is not None:
+        return profile
+    if (
+        snapshot["character"] != profile.name
+        or snapshot["server"] != profile.server
+        or snapshot["character_uid"] != uid
+        or type(uid) is not int
+        or uid <= 0
+    ):
+        raise ValueError("Merchant identity is not verified; its UID was not recorded")
+    profiles.bind(profile.id, profile.name, profile.server, uid)
+    bound = profiles.resolve(profile.id, role="Merchant", server=profile.server)
+    if bound.character_uid != uid or replace(bound, character_uid=None) != profile:
+        raise ValueError("Merchant profile changed while recording its UID")
+    return bound
 
 
 def _processes(catalog):
@@ -113,6 +145,9 @@ def observe(
             raise ValueError(
                 "Merchant identity or capacity changed before stock observation"
             )
+        # First verified sight of an unbound profile records its UID, so a
+        # fresh PC's merchant becomes UID-pinned like a migrated one.
+        profile = record_first_sight_uid(profiles, profile, snapshot, uid)
         owned = len(snapshot["inventory"]) + len(snapshot["booth"])
         if owned > capacity:
             raise ValueError("Merchant stock exceeds qualified combined capacity")
