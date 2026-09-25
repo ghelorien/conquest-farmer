@@ -128,6 +128,17 @@ class MerchantController:
             raise CaptureUnavailable("Merchant is paused")
         self.coordinator.check()
 
+    def check_verification(self):
+        """Read-only guard once delivery input has finished.
+
+        Verification only reads memory, so it must not depend on input
+        ownership or on the farmer's reservation, which the farmer side may
+        settle first. Stop/Pause and a changed process still abort.
+        """
+        if not self.active():
+            raise CaptureUnavailable("Merchant stopped before delivery verification")
+        self.driver.observer.adapter.assert_identity()
+
     def check_listing(self):
         self.check()
         from conquest.merchants.delivery_reservation import active
@@ -302,7 +313,12 @@ class MerchantController:
                 self.check()
                 self.driver.accept_trade(fresh)
                 self.journal.transition(key, "submitted")
-                after = self.driver.wait_for(lambda s: received(before, s), self.check)
+                after = self.driver.wait_for(
+                    lambda s: (
+                        s["identity"] == before["identity"] and received(before, s)
+                    ),
+                    self.check_verification,
+                )
                 self.journal.transition(
                     key,
                     "verified",

@@ -508,6 +508,9 @@ def test_scan_duplicate_coalescing_and_pause_persist(journal):
 class Driver:
     def __init__(self, states):
         self.states, self.inputs = states, []
+        self.observer = SimpleNamespace(
+            adapter=SimpleNamespace(assert_identity=lambda: None)
+        )
 
     def require_qualified(self, capability):
         pass

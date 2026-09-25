@@ -728,6 +728,17 @@ class MerchantRuntime(ManualRuntime):
             or not self.can_start_work()
         ):
             return
+        pending = self.journal.pending(character)
+        if pending and all(
+            row["kind"] == "delivery" and row["phase"] == "uncertain" for row in pending
+        ):
+            # The farmer may settle its reservation before this merchant's
+            # verification; settle from fresh memory exactly as operator
+            # Recheck does. No input; inexact evidence stays uncertain.
+            try:
+                controller.reconcile(current)
+            except (ValueError, KeyError, TypeError):
+                pass
         from conquest.merchants.delivery_reservation import active
 
         reservation = active(self.journal, character)
