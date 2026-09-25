@@ -247,7 +247,15 @@ def _delivery_proof(row, meteor, market, failure, target):
     return expected, proofs
 
 
-def capture(loop, row, meteor, *, no_transfer=False, operator_warehouse=False):
+def capture(
+    loop,
+    row,
+    meteor,
+    *,
+    no_transfer=False,
+    operator_warehouse=False,
+    operator_delivery=False,
+):
     from conquest import restock_town_recovery as recovery
     from conquest.merchants.service_visit import MarketVisit
     from conquest.merchants.bridge import request
@@ -324,6 +332,7 @@ def capture(loop, row, meteor, *, no_transfer=False, operator_warehouse=False):
                 "restock_town_recovery.py",
                 "settled_delivery_town_recovery.py",
                 "no_transfer_town_recovery.py",
+                "overridden_delivery_town_recovery.py",
             )
             and last.get("function")
             in ("capture_pre_admission_tail", "capture", "_delivery_proof", "proof")
@@ -354,15 +363,19 @@ def capture(loop, row, meteor, *, no_transfer=False, operator_warehouse=False):
             failure,
             target,
             operator_warehouse=operator_warehouse,
+            operator_delivery=operator_delivery,
         )
     recovery._native_tail_safe(loop, target, 1036)
-    expected, proofs = (
-        no_transfer_proof(
+    if operator_delivery:
+        from conquest.overridden_delivery_town_recovery import proof as overridden
+
+        expected, proofs = overridden(row, meteor, market, failure, target)
+    elif no_transfer:
+        expected, proofs = no_transfer_proof(
             row, meteor, market, failure, target, operator_warehouse=operator_warehouse
         )
-        if no_transfer
-        else _delivery_proof(row, meteor, market, failure, target)
-    )
+    else:
+        expected, proofs = _delivery_proof(row, meteor, market, failure, target)
     status = request({"action": "status"})
     manual = request({"action": "manual-status"}).get("farmer") or {}
     observation = manual.get("observation") or {}
@@ -389,7 +402,9 @@ def capture(loop, row, meteor, *, no_transfer=False, operator_warehouse=False):
     recovery._native_tail_safe(loop, target, 1036)
     row["pre_admission_restock_tail"] = {
         "capture_kind": (
-            "operator_warehouse"
+            "operator_delivery"
+            if operator_delivery
+            else "operator_warehouse"
             if operator_warehouse
             else "no_transfer"
             if no_transfer

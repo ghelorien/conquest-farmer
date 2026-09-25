@@ -770,7 +770,8 @@ def market_bank(loop, state):
     )
     from conquest.no_transfer_town_recovery import warehouse_fallback_only
 
-    if not warehouse_fallback_only(loop, state):
+    fallback = warehouse_fallback_only(loop, state)
+    if not fallback:
         market_storage(loop)
     approach_market_warehouse(
         loop, "Storing valuables in Market before returning to Phoenix"
@@ -814,11 +815,20 @@ def market_bank(loop, state):
         and not any(i["uid"] == scroll for i in loop.town("supplies")["items"])
     )
     delivered = receipt_for(scroll, SCROLL) if scroll else None
+    overridden = None
+    if scroll and fallback and not delivered:
+        # Only the captured override claim that warehouse_fallback_only just
+        # re-proved against the merchant's verified receipt; never the bare
+        # operator_overridden disposition.
+        from conquest.overridden_delivery_town_recovery import delivered_scroll
+
+        overridden = delivered_scroll(loop, state, stored)
     if (
         scroll
         and not manually_used
         and not manually_moved
         and not delivered
+        and not overridden
         and not any(
             i["uid"] == scroll and i["type_id"] == SCROLL for i in stored["items"]
         )
@@ -830,6 +840,10 @@ def market_bank(loop, state):
         # Operator testimony resolves this historical trip only. It is not a
         # merchant receipt or proof of the other character's current inventory.
         state["scroll_resolution"] = "operator_reported_external_transfer"
+    elif overridden:
+        from conquest.overridden_delivery_town_recovery import SCROLL_RESOLUTION
+
+        state.update(scroll_resolution=SCROLL_RESOLUTION, scroll_delivery=overridden)
     save(state, "stored_in_market", market_verified_at=time.time())
     close_warehouse(loop)
 

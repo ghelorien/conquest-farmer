@@ -357,9 +357,17 @@ def proof(
 
 
 def settle_before_capture(
-    loop, row, meteor, market, failure, target, *, operator_warehouse=False
+    loop,
+    row,
+    meteor,
+    market,
+    failure,
+    target,
+    *,
+    operator_warehouse=False,
+    operator_delivery=False,
 ):
-    """Consume only an already proved no-transfer route; never start/cleanup."""
+    """Consume only an already proved terminal route; never start/cleanup."""
     from conquest.merchants import delivery_route
     from conquest.merchants.bridge import request
     from conquest.restock_town_recovery import _ownership
@@ -367,15 +375,22 @@ def settle_before_capture(
     state = read_json(delivery_route.STATE)
     if not state.get("active"):
         return
-    expected, _ = proof(
-        row,
-        meteor,
-        market,
-        failure,
-        target,
-        allow_terminal_active=True,
-        operator_warehouse=operator_warehouse,
-    )
+    if operator_delivery:
+        from conquest.overridden_delivery_town_recovery import proof as overridden
+
+        expected, _ = overridden(
+            row, meteor, market, failure, target, allow_terminal_active=True
+        )
+    else:
+        expected, _ = proof(
+            row,
+            meteor,
+            market,
+            failure,
+            target,
+            allow_terminal_active=True,
+            operator_warehouse=operator_warehouse,
+        )
     loop.check_stop()
     health = loop.health()
     data = health.get("embedded_controls") or {}
@@ -420,7 +435,9 @@ def warehouse_fallback_only(loop, meteor):
         from conquest.restock_town_recovery import approach_stall_fallback
 
         return approach_stall_fallback(loop, row, claim, meteor)
-    if claim.get("capture_kind") not in ("no_transfer", "operator_warehouse"):
+    from conquest.overridden_delivery_town_recovery import KIND, proof as overridden
+
+    if claim.get("capture_kind") not in ("no_transfer", "operator_warehouse", KIND):
         return False
     market = read_json(MarketVisit().path)
     if (
@@ -445,14 +462,19 @@ def warehouse_fallback_only(loop, meteor):
         or market.get("phase") != "active"
     ):
         raise ValueError("Captured no-transfer warehouse fallback changed")
-    expected, records = proof(
-        row,
-        meteor,
-        market,
-        claim["failure"],
-        claim["target"],
-        operator_warehouse=claim["capture_kind"] == "operator_warehouse",
-    )
+    if claim["capture_kind"] == KIND:
+        expected, records = overridden(
+            row, meteor, market, claim["failure"], claim["target"]
+        )
+    else:
+        expected, records = proof(
+            row,
+            meteor,
+            market,
+            claim["failure"],
+            claim["target"],
+            operator_warehouse=claim["capture_kind"] == "operator_warehouse",
+        )
     _native_tail_safe(loop, claim["target"], 1036)
     if (
         records != claim.get("delivery_proofs")

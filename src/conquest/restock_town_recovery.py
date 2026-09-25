@@ -126,9 +126,11 @@ def capture_pre_admission_tail(loop):
             "settled_delivery",
             "no_transfer",
             "operator_warehouse",
+            "operator_delivery",
         ):
             from conquest.settled_delivery_town_recovery import _delivery_proof
             from conquest.no_transfer_town_recovery import proof as no_transfer_proof
+            from conquest.overridden_delivery_town_recovery import proof as overridden
 
             args = (
                 row,
@@ -138,7 +140,9 @@ def capture_pre_admission_tail(loop):
                 prior["target"],
             )
             expected, proofs = (
-                no_transfer_proof(
+                overridden(*args)
+                if prior["capture_kind"] == "operator_delivery"
+                else no_transfer_proof(
                     *args,
                     operator_warehouse=prior["capture_kind"] == "operator_warehouse",
                 )
@@ -172,13 +176,19 @@ def capture_pre_admission_tail(loop):
         for e in _rows(EVENTS)
     ):
         from conquest.no_transfer_town_recovery import operator_warehouse_requested
+        from conquest.overridden_delivery_town_recovery import requested
 
+        # Selection only; each kind's own proof decides.  An override whose
+        # fresh evidence shows nothing offered left on the farmer can only be
+        # accepted with the merchant's verified receipt.
+        delivered = requested(row)
         return capture(
             loop,
             row,
             meteor,
             no_transfer=True,
-            operator_warehouse=operator_warehouse_requested(row),
+            operator_warehouse=not delivered and operator_warehouse_requested(row),
+            operator_delivery=delivered,
         )
     if any(
         e.get("town_visit_id") == row["town_visit_id"]
@@ -884,9 +894,21 @@ def resume_pre_admission_tail(loop):
     receipts = meteor.get("receipts") or []
     stored = {r.get("stored") for r in receipts}
     original_items = {i["uid"]: i for i in claim["bag"]["items"]}
+    # Only a captured override proved with Dutch's verified receipt resolves
+    # the scroll without a Market deposit; market_bank recorded that proof.
+    proofs = claim.get("delivery_proofs") or []
+    overridden = (
+        claim.get("capture_kind") == "operator_delivery"
+        and meteor.get("scroll_resolution") == "merchant_verified_operator_override"
+        and len(proofs) == 1
+        and meteor.get("scroll_delivery") == proofs[0]
+        and original["scroll_uid"] in proofs[0]["uids"]
+        and original["scroll_uid"] not in stored
+    )
     if (
         len(stored) != len(receipts)
         or original["scroll_uid"] not in stored
+        and not overridden
         or any(
             r.get("verified_in_warehouse") is not True
             or r.get("stored") not in original_items
@@ -955,7 +977,7 @@ def resume_pre_admission_tail(loop):
     _save_tail(visit, row)
     banking.close_warehouse(loop)
     loop.town("close", window="Shop")
-    if claim.get("capture_kind") != "operator_warehouse":
+    if claim.get("capture_kind") not in ("operator_warehouse", "operator_delivery"):
         service_window(loop, town=True)
     _native_tail_safe(loop, claim["target"], loop.route.restock_map_id)
     bag = loop.town("supplies")
