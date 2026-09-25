@@ -69,11 +69,20 @@ class ProfileMap(dict):
         return super().get(self.key(key), default)
 
 
+def _unregistered_merchants():
+    """Merchants configured without a profile registry: none.
+
+    Merchant identities come only from local profiles.  A PC without a registry
+    has no owned merchants, so no seller is ever trusted by name alone.
+    """
+    return ()
+
+
 class MerchantNames(Sequence):
     def values(self):
         r = registry()
         if r is None:
-            return ("Spiritual", "Dutch")
+            return tuple(_unregistered_merchants())
         return tuple(
             ProfileName(p.name, p.id)
             for p in r.profiles()
@@ -100,7 +109,7 @@ class OwnedMerchants(Set):
                 if p.role == "Merchant" and p.server == "America"
             )
             if r
-            else frozenset(("spiritual", "dutch"))
+            else frozenset(str(name).casefold() for name in _unregistered_merchants())
         )
 
     def __iter__(self):

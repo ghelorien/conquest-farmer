@@ -1,8 +1,10 @@
-"""One old Spiritual refill cursor, reconciled without merchant input.
+"""One old legacy refill cursor, reconciled without merchant input.
 
 This is an explicit authenticated operation, never a scheduler action.  The
 1078 input fence stays in place.  Absence of a journaled listing attempt is
 checked again inside the transaction which archives the pending cursor.
+It applies to whichever merchant's journal actually holds that exact legacy
+cursor; any other merchant receives an inert blocker before any game read.
 """
 
 import hashlib
@@ -82,13 +84,28 @@ def _qualified(snapshot, profile_id):
     )
 
 
+def _holds_legacy_cursor(refill):
+    cursor = refill.get("cursor")
+    return (
+        refill.get("pending") is True
+        and isinstance(cursor, list)
+        and len(cursor) == len(_CURSOR)
+        and all(type(uid) is int for uid in cursor)
+        and set(cursor) == _CURSOR
+    )
+
+
 def reconcile(runtime, character):
     """Archive only this cursor after two exact, matching memory observations."""
     try:
         target = resolve_merchant(character)
-        if str(target) != "Spiritual":
-            return _blocker("only_old_spiritual_cursor_is_supported")
         profile_id = target.profile_id
+        # Evidence, not a character name, selects the merchant.  Without the
+        # exact legacy cursor nothing is read from the game or the fence.
+        if not _holds_legacy_cursor(
+            _journal_image(runtime.journal.path, profile_id).get("refill") or {}
+        ):
+            return _blocker("no_legacy_refill_cursor")
         owner = character_name(target)
         if not runtime.read_only_1078(target, force=True):
             return _blocker("1078_input_fence_not_active")

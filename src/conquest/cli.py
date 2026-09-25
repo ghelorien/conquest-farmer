@@ -96,7 +96,9 @@ def main(argv=None) -> int:
         type=Path,
         help="Entity profile for the same client build; required with --health-profile",
     )
-    dashboard.add_argument("--character", default="Parasite")
+    dashboard.add_argument(
+        "--character", help="In-game character name; defaults to the active farmer"
+    )
     dashboard.add_argument(
         "--control-settings",
         type=Path,
@@ -221,6 +223,10 @@ def main(argv=None) -> int:
     player.add_argument("--profile", required=True, type=Path)
     player.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
+    if args.command == "dashboard" and args.character is None:
+        from conquest.character_context import farmer_name
+
+        args.character = farmer_name()
 
     logger = logging.getLogger("conquest")
     logger.setLevel(logging.INFO)

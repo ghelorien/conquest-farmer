@@ -62,11 +62,9 @@ def _profile(character):
     profile = profiles.resolve(
         getattr(character, "profile_id", character), role="Merchant", server="America"
     )
-    if (
-        not profile.local_enabled
-        or profile.name not in ("Dutch", "Spiritual")
-        or not profile.character_uid
-    ):
+    # Any configured America merchant qualifies by profile, never by its name;
+    # the exact memory identity is still pinned through its recorded UID.
+    if not profile.local_enabled or not profile.character_uid:
         raise ValueError("A configured, UID-pinned local merchant is required")
     return profile
 

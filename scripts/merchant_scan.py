@@ -9,6 +9,21 @@ from conquest.character_context import state_path
 from conquest.merchants.market import import_snapshot, browser_pages
 
 
+def merchant_argument(value, registry=None):
+    """Resolve a merchant from this PC's local profiles, never a built-in list."""
+    from conquest.character_profiles import ProfileRegistry
+
+    try:
+        profile = (registry or ProfileRegistry()).resolve(
+            value, role="Merchant", server="America"
+        )
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from None
+    if not profile.local_enabled:
+        raise argparse.ArgumentTypeError("This merchant is not enabled on this PC")
+    return profile.name
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -31,7 +46,8 @@ def main():
     )
     parser.add_argument(
         "--verify-booth",
-        choices=("Spiritual", "Dutch"),
+        type=merchant_argument,
+        metavar="MERCHANT",
         help="Embed one merchant and verify price entry/cancellation without submitting a listing",
     )
     args = parser.parse_args()

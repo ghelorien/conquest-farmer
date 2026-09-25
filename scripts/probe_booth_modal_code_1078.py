@@ -18,6 +18,7 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[2] / "Conquest-diagnostic-python")
 )
 from capstone import Cs, CS_ARCH_X86, CS_MODE_64
+from conquest.character_profiles import ProfileRegistry
 from conquest.memory import MemorySession
 from conquest.memory_build_layout import CLIENT_SHA256_1078
 from conquest.merchants.observe_1078 import _actor_identity
@@ -38,7 +39,15 @@ def main(args):
         module = modules[0]
         base = module["base"]
         character, uid, server = _actor_identity(session)
-        if character not in ("Dutch", "Spiritual") or server != b"Classic_US":
+        # Owned merchants come from this PC's local profiles, never a name list.
+        profile = ProfileRegistry(args.data_root).resolve(
+            character, role="Merchant", server="America"
+        )
+        if (
+            profile.name != character
+            or not profile.local_enabled
+            or server != b"Classic_US"
+        ):
             raise ValueError("Not a selected merchant")
         reader = open_read_only_1078(session, character)
         before = reader.read_manual_ownership()
@@ -209,6 +218,11 @@ if __name__ == "__main__":
     parser.add_argument("--created", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--rva", action="append", default=[])
+    parser.add_argument(
+        "--data-root",
+        help="Managed data root holding this PC's merchant profiles "
+        "(default: CONQUEST_DATA_ROOT or %%LOCALAPPDATA%%\\Conquest)",
+    )
     arguments = parser.parse_args()
     try:
         main(arguments)

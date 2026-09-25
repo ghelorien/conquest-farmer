@@ -1,7 +1,8 @@
 """Explicit one-item, no-submission native 1078 calibration, never scheduled.
 
-This first probe is restricted to the manually observed Dutch BreastPlate and
-an empty, already-open owned booth. A receipt is diagnostic evidence only: it
+This first probe is restricted to one manually observed BreastPlate (its exact
+UID is pinned below), a configured UID-pinned local merchant profile and an
+empty, already-open owned booth. A receipt is diagnostic evidence only: it
 never writes a qualification file or enables MerchantDriver/refill/recovery.
 Every request ID is consumed once, including an interrupted or rejected run.
 """
@@ -88,12 +89,8 @@ def _profile(character):
     profile = profiles.resolve(
         getattr(character, "profile_id", character), role="Merchant", server="America"
     )
-    if (
-        not profile.local_enabled
-        or profile.name != "Dutch"
-        or not profile.character_uid
-    ):
-        raise ValueError("This probe requires the configured, UID-pinned Dutch profile")
+    if not profile.local_enabled or not profile.character_uid:
+        raise ValueError("This probe requires a configured, UID-pinned local merchant")
     return profile
 
 
@@ -494,7 +491,7 @@ def dispatch(ui, body):
         or native["minimized"]
     ):
         raise ValueError(
-            "Probe requires Dutch already foreground in a standalone native window"
+            f"Probe requires {profile.name} already foreground in a standalone native window"
         )
     _policy(ui, character, profile, control, farmer_target=farmer_target)
     fence = ui.coordinator.fence

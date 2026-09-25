@@ -22,13 +22,17 @@ def toggle(ui, character):
 
 
 def current_refill_blocker(state):
+    from conquest.merchants.pricing import OWNED
+
     current = state.get("foreground_refill_1078") or {}
+    peer = current.get("unavailable_peer")
     if (
         (state.get("refill") or {}).get("enabled")
         and state.get("connected")
         and current.get("state") == "waiting"
         and current.get("blocker") == "owned_peer_observation_unavailable"
-        and current.get("unavailable_peer") in ("Spiritual", "Dutch")
+        and isinstance(peer, str)
+        and peer.casefold() in OWNED
     ):
         return (
             f"Auto-refill waiting: {current['unavailable_peer']} owned booth memory "

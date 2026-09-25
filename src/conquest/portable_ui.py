@@ -178,9 +178,13 @@ def install(ui):
             ui.root.after(1000, refresh)
 
         ui.root.after(1000, refresh)
-    ui.root.title(
-        "Conquest — "
-        + " · ".join(p.label or p.name for p in r.profiles() if p.local_enabled)
+    ui.root.title(controller_title(r))
+
+
+def controller_title(profiles):
+    """The desktop controller window title, derived from this PC's profiles."""
+    return "Conquest — " + " · ".join(
+        p.label or p.name for p in profiles.profiles() if p.local_enabled
     )
 
 

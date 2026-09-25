@@ -13,14 +13,28 @@ class FILETIME(ctypes.Structure):
     _fields_ = [("low", wintypes.DWORD), ("high", wintypes.DWORD)]
 
 
+def expected_title(data_root=None):
+    """The title the desktop app derives from this PC's local profiles."""
+    from conquest.character_profiles import ProfileRegistry
+    from conquest.portable_ui import controller_title
+
+    return controller_title(ProfileRegistry(data_root))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pid", type=int, required=True)
     parser.add_argument("--created", type=int, required=True)
     parser.add_argument("--hwnd", type=int, required=True)
+    parser.add_argument(
+        "--data-root",
+        help="Managed data root whose profiles titled the controller "
+        "(default: CONQUEST_DATA_ROOT or %%LOCALAPPDATA%%\\Conquest)",
+    )
     args = parser.parse_args()
     if min(args.pid, args.created, args.hwnd) <= 0:
         raise ValueError("Positive controller identity is required")
+    title_expected = expected_title(args.data_root)
 
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     user = ctypes.WinDLL("user32", use_last_error=True)
@@ -79,9 +93,9 @@ def main():
             or owner.value != args.pid
         ):
             raise ValueError("Controller window owner changed")
-        title = ctypes.create_unicode_buffer(128)
+        title = ctypes.create_unicode_buffer(max(128, len(title_expected) + 2))
         user.GetWindowTextW(args.hwnd, title, len(title))
-        if title.value != "Conquest — Parasite · Spiritual · Dutch":
+        if title.value != title_expected:
             raise ValueError("Controller window title changed")
         if not user.PostMessageW(args.hwnd, 0x0010, 0, 0):
             raise OSError(

@@ -1,6 +1,6 @@
 """Read-only exact-1078 Trade header Close target; never sends input.
 
-Loaded code observed on Dutch PID 635124 / creation 134345856693697656.
+Loaded code observed on a merchant client, PID 635124 / creation 134345856693697656.
 113805 passes p_open to 744D0. Its window-seeded #CLOSE widget clears
 p_open; 114A15 then invokes native cancellation 18A280 and model slot +70.
 The protected cancellation implementation is not a transaction receipt.

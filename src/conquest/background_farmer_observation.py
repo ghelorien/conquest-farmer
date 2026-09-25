@@ -27,8 +27,9 @@ def snapshot(ui):
     observer = getattr(app, "observer", None)
     if observer is None:
         return _unavailable("Farmer has no attached memory observer")
-    if getattr(observer, "character", None) != farmer_name():
-        return _unavailable("Attached farmer observer is not Parasite")
+    expected = farmer_name()
+    if getattr(observer, "character", None) != expected:
+        return _unavailable(f"Attached farmer observer is not {expected}")
     if not observer.lock.acquire(timeout=0.1):
         return _unavailable("Farmer memory observer is busy")
     try:

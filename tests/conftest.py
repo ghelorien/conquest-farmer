@@ -1,5 +1,49 @@
 import pytest
 
+# The historical merchants of the original PC.  They are test data only: the
+# application itself has no built-in merchant names (no registry => none).
+LEGACY_TEST_MERCHANTS = ("Spiritual", "Dutch")
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "no_merchant_roster: run without the explicit legacy test merchant roster",
+    )
+
+
+@pytest.fixture(scope="session")
+def legacy_roster_registry(tmp_path_factory):
+    """A real ProfileRegistry holding the legacy test merchants."""
+    from conquest.character_profiles import ProfileRegistry
+    from conquest.managed_security import provision_new
+
+    root = tmp_path_factory.mktemp("legacy-merchant-roster")
+    provision_new(root, directory=True)
+    registry = ProfileRegistry(root)
+    for name in LEGACY_TEST_MERCHANTS:
+        registry.add(name, role="Merchant")
+    return registry
+
+
+@pytest.fixture(autouse=True)
+def legacy_merchant_roster(request, monkeypatch):
+    """Engines exercised without CONQUEST_DATA_ROOT see the registry roster above.
+
+    Production returns no merchants when no profile registry is configured.
+    Many older engine tests address merchants by name without a registry, so
+    they receive this explicit roster (read from a real ProfileRegistry)
+    instead of a hard-coded application fallback.  Tests that activate their
+    own registry are unaffected: the roster only applies without one.
+    """
+    if request.node.get_closest_marker("no_merchant_roster"):
+        return
+    registry = request.getfixturevalue("legacy_roster_registry")
+    names = tuple(p.name for p in registry.profiles() if p.role == "Merchant")
+    from conquest import character_context
+
+    monkeypatch.setattr(character_context, "_unregistered_merchants", lambda: names)
+
 
 @pytest.fixture(autouse=True)
 def isolate_live_session_plan(tmp_path, monkeypatch):

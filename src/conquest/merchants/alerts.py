@@ -12,6 +12,7 @@ import uuid
 
 from conquest.discord_notify import DeliveryError, deliver, read_json, write_json
 from conquest.merchants.bridge import request
+from conquest.merchants.pricing import OWNED
 from conquest.merchants.sales_report import SECRET, load_webhook
 
 STATE = Path(state_path(".runtime/merchants/shops-alerts.json"))
@@ -50,7 +51,8 @@ def unavailable_owned_peer(state):
         and state.get("connected") is True
         and current.get("state") == "waiting"
         and current.get("blocker") == "owned_peer_observation_unavailable"
-        and peer in ("Spiritual", "Dutch")
+        and isinstance(peer, str)
+        and peer.casefold() in OWNED
     ):
         return peer
     return None

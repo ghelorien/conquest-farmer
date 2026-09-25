@@ -160,7 +160,7 @@ def price_item(key, listings, *, quantity=1):
         # Never apply the discount to our own floor. Unequal stack sizes may
         # require rounding UP one silver to avoid undercutting our unit price.
         price = math.ceil(reference * quantity)
-        reason = "Match lowest Spiritual/Dutch price; already lowest valid offer"
+        reason = "Match lowest owned merchant price; already lowest valid offer"
     else:
         price = math.floor(reference * quantity * Fraction(99, 100))
     if price < 1 or price > MAX_BOOTH_PRICE:
