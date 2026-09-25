@@ -22,7 +22,6 @@ import yaml
 from conquest.addressing import PlayerLayout
 from conquest.desktop_runtime import (
     LocalSession,
-    NormalizedFrames,
     WindowGeometry,
     physical_coordinates,
 )
@@ -1383,98 +1382,20 @@ class DesktopApp:
             self.start_button.state(["!disabled"])
 
     def run(self, config, calibration):
-        session = None
-        try:
-            import win32gui
-            import cv2
-            from conquest.vision import health_ratio
-            from conquest.memory_health import HealthLayout, MemoryHealthReader
-
-            with physical_coordinates():
-                pid, hwnd, identity = self.client
-                self.host.api.assert_owner(hwnd, identity)
-                physical_size = tuple(win32gui.GetClientRect(hwnd)[2:])
-                self.messages.put(
-                    (
-                        "window_geometry",
-                        {
-                            "physical_size": physical_size,
-                            "logical_size": config.client_size,
-                        },
-                    )
-                )
-                sx, sy = (
-                    actual / logical
-                    for actual, logical in zip(physical_size, config.client_size)
-                )
-                if abs(sx - sy) > 0.005 or not 0.75 <= sx <= 2:
-                    raise ValueError("Client aspect or scale differs from calibration")
-                layout = PlayerLayout.model_validate(
-                    yaml.safe_load(Path(config.player_profile).read_text())
-                )
-                session = LocalSession(
-                    pid, hwnd, layout.expected_sha256, config.client_size, physical_size
-                )
-                factory = lambda h, s, o, p: NormalizedFrames(
-                    h, s, o, p, physical_size=physical_size
-                )
-                camera = factory(
-                    hwnd,
-                    config.client_size,
-                    config.capture_output,
-                    config.capture_origin,
-                )
-                try:
-                    frame = camera.read()
-                    cv2.imwrite(str(self.output / "calibration.png"), frame.image)
-                    visual_hp = health_ratio(frame.image, config.client_size)
-                    health_layout = HealthLayout.model_validate(
-                        yaml.safe_load(
-                            Path(
-                                "profiles/classic-1074-health-candidate.yaml"
-                            ).read_text()
-                        )
-                    )
-                    reading = MemoryHealthReader(
-                        session, health_layout, config.character
-                    ).read()
-                    if abs(visual_hp - reading.current_hp / reading.max_hp) > 0.03:
-                        raise ValueError("Visual HP and the memory candidate disagree")
-                    self.messages.put(
-                        (
-                            "calibration_verified",
-                            {
-                                "health_ratio": visual_hp,
-                                "hp_candidate": reading.current_hp,
-                                "max_hp_candidate": reading.max_hp,
-                                "physical_size": physical_size,
-                                "logical_size": config.client_size,
-                            },
-                        )
-                    )
-                finally:
-                    camera.close()
-                if not calibration:
-                    logger = logging.getLogger("desktop-farmer")
-                    logger.handlers = [EventQueue(self.messages)]
-                    logger.setLevel(logging.INFO)
-                    result = run_trial(
-                        self.profile,
-                        None,
-                        self.output,
-                        1800,
-                        logger,
-                        session_override=session,
-                        camera_factory=factory,
-                    )
-                    self.messages.put(("finished", result))
-                else:
-                    self.messages.put(("finished", {"reason": "calibration_complete"}))
-        except Exception as error:
-            self.messages.put(("failed", {"detail": str(error)}))
-        finally:
-            if session:
-                session.close()
+        # The legacy visual start path cross-checked the on-screen HP bar
+        # against the 1074 health profile before every run, with or without
+        # farming. Build 1074 is retired and no other build has a qualified
+        # visual calibration, so fail closed before capturing a frame,
+        # reading memory or starting the trial loop.
+        self.messages.put(
+            (
+                "failed",
+                {
+                    "detail": "Legacy visual calibration was qualified only for "
+                    "the retired 1074 client; use the embedded memory-only farm"
+                },
+            )
+        )
 
     def stop(self, *, preserve_merchant_controls=False):
         self._recovery_epoch = getattr(self, "_recovery_epoch", 0) + 1
@@ -1711,23 +1632,22 @@ class DesktopApp:
         if self.client is not None and self.client[0] != pid:
             raise ValueError("Observer PID differs from the selected client")
         digest = fingerprint(Path(identity["path"]))["sha256"]
-        layout = READ_LAYOUTS.get(digest)
-        if layout is None:
+        if digest != CLIENT_SHA256_1078:
             from conquest.memory import UnsupportedClientBuildError
 
             raise UnsupportedClientBuildError(
                 "Unsupported game version; its memory layout has not been qualified"
             )
+        layout = READ_LAYOUTS[digest]
         health = HealthLayout.model_validate(
             yaml.safe_load(Path("profiles").joinpath(layout.health_profile).read_text())
         )
-        entities_profile = (
-            "classic-1078-entities-candidate.yaml"
-            if digest == CLIENT_SHA256_1078
-            else "classic-1074-entities-candidate.yaml"
-        )
         entities = EntityLayout.model_validate(
-            yaml.safe_load(Path("profiles").joinpath(entities_profile).read_text())
+            yaml.safe_load(
+                Path("profiles")
+                .joinpath("classic-1078-entities-candidate.yaml")
+                .read_text()
+            )
         )
         return EmbeddedObserver(
             pid, hwnd, health, entities, farmer_name(), context=self.character_context
