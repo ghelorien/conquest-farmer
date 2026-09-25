@@ -23,20 +23,20 @@ PROFILE = Path(state_path(".runtime/merchants/farmer-delivery-qualified.json"))
 def targeting_state(session):
     from conquest.memory_build_layout import CLIENT_SHA256_1078
 
-    if session.expected_sha256 == CLIENT_SHA256_1078:
-        from conquest.merchants.trade_driver_1078 import targeting_state as read
-    else:
-        from conquest.merchants.trade_controls import targeting_state as read
+    if session.expected_sha256 != CLIENT_SHA256_1078:
+        raise ValueError("Trade targeting client fingerprint is not qualified")
+    from conquest.merchants.trade_driver_1078 import targeting_state as read
+
     return read(session)
 
 
 def trade_button(gui):
     from conquest.memory_build_layout import CLIENT_SHA256_1078
 
-    if gui.session.expected_sha256 == CLIENT_SHA256_1078:
-        from conquest.merchants.trade_driver_1078 import trade_button as locate
-    else:
-        from conquest.merchants.trade_controls import trade_button as locate
+    if gui.session.expected_sha256 != CLIENT_SHA256_1078:
+        raise ValueError("Trade targeting client fingerprint is not qualified")
+    from conquest.merchants.trade_driver_1078 import trade_button as locate
+
     return locate(gui)
 
 

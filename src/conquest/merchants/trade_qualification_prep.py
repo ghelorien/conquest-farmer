@@ -331,14 +331,13 @@ def _candidate_profile(observer):
         raise ValueError("Trade layout candidate schema changed")
     target = profile.get("target_mode")
     recipient = profile.get("recipient")
-    from conquest.merchants.trade_controls import TRADE_MODE_RVA, TRADE_MODE_VALUE
     from conquest.memory_build_layout import CLIENT_SHA256_1078
 
-    if observer.adapter.expected_sha256 == CLIENT_SHA256_1078:
-        from conquest.merchants.trade_driver_1078 import (
-            TRADE_MODE_RVA,
-            TRADE_MODE_VALUE,
-        )
+    if observer.adapter.expected_sha256 != CLIENT_SHA256_1078:
+        # Only 1078 has a qualified native trade-targeting mode.
+        raise ValueError("Trade layout build changed")
+    from conquest.merchants.trade_driver_1078 import TRADE_MODE_RVA, TRADE_MODE_VALUE
+
     if (
         type(profile.get("at")) not in (int, float)
         or not math.isfinite(profile["at"])

@@ -8,7 +8,7 @@ import pytest
 
 from conquest.capture import CaptureUnavailable
 from conquest.merchants import delivery_probe as probe, farmer_trade, farmer_preferences
-from conquest.merchants import memory, driver, trade_controls
+from conquest.merchants import memory, driver
 from conquest import foreground, desktop_runtime, memory_shop
 
 

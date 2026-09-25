@@ -6,7 +6,9 @@ import time
 
 import pytest
 
+from conquest.memory_build_layout import CLIENT_SHA256_1078
 from conquest.merchants import trade_qualification_prep as prep
+from conquest.merchants.trade_driver_1078 import TRADE_MODE_RVA, TRADE_MODE_VALUE
 
 
 def item(uid, kind=410008, *, plus=1, slot=0, **fields):
@@ -1036,11 +1038,11 @@ def test_guard_blocks_farming_while_prep_is_nonterminal(tmp_path, monkeypatch):
         delivery_operation.guard_protected_assets()
 
 
-def projection_candidate(build="build"):
+def projection_candidate(build=CLIENT_SHA256_1078):
     return {
         "at": time.time(),
         "client_sha256": build,
-        "target_mode": {"rva": 0x699290, "value": 19},
+        "target_mode": {"rva": TRADE_MODE_RVA, "value": TRADE_MODE_VALUE},
         "recipient": {
             "vtable_rva": 20,
             "uid_offset": 120,
@@ -1078,7 +1080,7 @@ def projection_rig(tmp_path, monkeypatch, *, phase="market", scroll=False):
         __import__("json").dumps(projection_candidate()), encoding="utf-8"
     )
     observer = SimpleNamespace(
-        adapter=SimpleNamespace(expected_sha256="build"),
+        adapter=SimpleNamespace(expected_sha256=CLIENT_SHA256_1078),
         health_layout=object(),
         character="Parasite",
         operations=SimpleNamespace(

@@ -11,7 +11,6 @@ import pytest
 from conquest.character_context import merchant_directory, resolve_merchant, state_path
 from conquest.character_profiles import ProfileRegistry
 from conquest.memory_build_layout import CLIENT_SHA256_1078
-from conquest.memory_life import CLIENT_SHA256
 from conquest.merchants import (
     delivery_promotion as module,
     delivery_probe,
@@ -702,11 +701,11 @@ def test_candidate_validation_uses_live_memory_reader_and_pinned_native_mode(
 ):
     # No actionability or input is required: Inventory may still obscure the
     # completed trade target while its exact scene object remains readable.
-    from conquest.merchants import farmer_trade, memory, trade_controls
+    from conquest.merchants import farmer_trade, memory, trade_driver_1078
 
     observer = NS(
-        # The pinned 1074 client selects the trade_controls native accessor.
-        adapter=NS(expected_sha256=CLIENT_SHA256),
+        # The 1078 client selects the trade_driver_1078 native accessor.
+        adapter=NS(expected_sha256=CLIENT_SHA256_1078),
         operations=NS(target=NS(snapshot=lambda: {"client_size": [800, 600]})),
     )
     actor = {
@@ -739,7 +738,7 @@ def test_candidate_validation_uses_live_memory_reader_and_pinned_native_mode(
 
     monkeypatch.setattr(farmer_trade, "_recipient_record", read)
     monkeypatch.setattr(
-        trade_controls, "targeting_state", lambda _: {"rva": 123, "value": 19}
+        trade_driver_1078, "targeting_state", lambda _: {"rva": 123, "value": 19}
     )
     candidate = {
         "recipient": {"proven": "layout"},

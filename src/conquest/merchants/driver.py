@@ -227,16 +227,15 @@ class MerchantDriver:
             ):
                 raise ValueError("Unqualified native HUD control")
             from conquest.memory_shop import MemoryGui
-            from conquest.discard_loot import inventory_button
-            from conquest.merchants.trade_controls import trade_button
 
-            if getattr(self, "trade1078", False):
-                from conquest.merchants.trade_driver_1078 import trade_button
-                from conquest.merchants.trade_hud_1078 import inventory_button
+            if not getattr(self, "trade1078", False):
+                # Only 1078 has a qualified native HUD reader; any other
+                # build fails where the unlayouted GUI reader used to.
+                raise ValueError("GUI profile differs from client")
+            from conquest.merchants.trade_driver_1078 import trade_button
+            from conquest.merchants.trade_hud_1078 import inventory_button
 
-                gui = MemoryGui.for_session(self.observer.adapter)
-            else:
-                gui = MemoryGui(self.observer.adapter)
+            gui = MemoryGui.for_session(self.observer.adapter)
             px, py = (trade_button if spec["label"] == "Trade" else inventory_button)(
                 gui
             )
