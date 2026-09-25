@@ -4,7 +4,6 @@ from conquest.character_context import installation_path
 from dataclasses import asdict
 import time
 
-from conquest.memory_life import read_life
 from conquest.route_recovery import EmbeddedRecoveryInput
 
 
@@ -26,11 +25,7 @@ class RouteJumpInput:
         ):
             raise ValueError("Route coordinates must be integer tile pairs")
         observer = self.observer
-        life = (
-            observer.read_life()
-            if hasattr(observer, "read_life")
-            else read_life(observer.adapter, observer.health_layout, observer.character)
-        )
+        life = observer.read_life()
         if (
             type(body["map_id"]) is not int
             or life.map_id != body["map_id"]
@@ -77,11 +72,7 @@ class RouteJumpInput:
             segment = line_tiles(source, destination)
         if not all(self.terrain.walkable(p) for p in segment):
             raise ValueError("Route jump crosses blocked terrain")
-        life = (
-            observer.read_life()
-            if hasattr(observer, "read_life")
-            else read_life(observer.adapter, observer.health_layout, observer.character)
-        )
+        life = observer.read_life()
         if list(life.position) != source or life.map_id != body["map_id"]:
             raise ValueError("Player left the planned route segment")
         movement = "jump" if distance >= 8 else "run"

@@ -73,12 +73,14 @@ def test_selection_waits_for_memory_confirmation(monkeypatch):
     )
     monkeypatch.setattr(s, "SelectionReader", NS(for_session=lambda adapter: reader))
     monkeypatch.setattr(s.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(
-        "conquest.memory_life.read_life",
-        lambda *args: NS(dead_candidate=False, object_address=7),
-    )
     state = s.ScatterSelection(
-        NS(adapter=None, health_layout=None, character="Parasite"),
+        NS(
+            adapter=None,
+            health_layout=None,
+            character="Parasite",
+            # A 1078 observer supplies its own exact-build life read.
+            read_life=lambda: NS(dead_candidate=False, object_address=7),
+        ),
         lambda e, p: events.append(e),
     )
     assert state.step(clicks.append) and clicks == [(1148, 979)]

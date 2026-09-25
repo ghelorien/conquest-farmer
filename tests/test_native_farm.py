@@ -27,7 +27,6 @@ def setup(monkeypatch):
     monkeypatch.setattr(monster_health, "read_monster_health", lambda *args: 81)
     life = Life()
     monkeypatch.setattr(native_farm, "logical_coordinates", nullcontext)
-    monkeypatch.setattr(native_farm, "read_life", lambda *args: life)
     monkeypatch.setattr(
         "conquest.scene_input.memory_player_anchor", lambda *args: (518, 396)
     )
@@ -36,6 +35,8 @@ def setup(monkeypatch):
         adapter=None,
         health_layout=None,
         character="Parasite",
+        # A 1078 observer supplies its own exact-build life read.
+        read_life=lambda: life,
         town_trade=object(),
         operations=SimpleNamespace(
             target=SimpleNamespace(
@@ -255,7 +256,7 @@ def test_moving_during_memory_sample_retries_without_input_or_switching_off(
     def moving(*args):
         raise ValueError("Life state changed during observation")
 
-    monkeypatch.setattr(native_farm, "read_life", moving)
+    supervisor.observer.read_life = moving
     with pytest.raises(CaptureUnavailable):
         if operation == "observe":
             supervisor.observe()
@@ -390,7 +391,7 @@ def test_health_table_race_is_recoverable(monkeypatch):
     def changed(*args):
         raise ValueError("Health fields or pointer topology changed during sampling")
 
-    monkeypatch.setattr(native_farm, "read_life", changed)
+    supervisor.observer.read_life = changed
     with pytest.raises(CaptureUnavailable):
         supervisor.observe()
     assert control.snapshot()["enabled"]
@@ -1299,7 +1300,7 @@ def test_fast_torn_life_retry_is_parasite_only(monkeypatch, character, expected)
             raise ValueError("Life state changed during observation")
         return life
 
-    monkeypatch.setattr(native_farm, "read_life", read)
+    supervisor.observer.read_life = read
     if character == "Parasite":
         assert supervisor.read_life() is life
     else:

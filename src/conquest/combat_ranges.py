@@ -2,7 +2,6 @@
 
 import struct
 from conquest.addressing import checked_address
-from conquest.memory_life import CLIENT_SHA256, read_life
 
 
 def _read_combat_ranges(s, life, layout, *, require_scatter=True):
@@ -82,21 +81,13 @@ def _read_combat_ranges(s, life, layout, *, require_scatter=True):
 
 def read_combat_ranges(observer, *, require_scatter=True):
     s = observer.adapter
-    life = (
-        observer.read_life()
-        if hasattr(observer, "read_life")
-        else read_life(s, observer.health_layout, observer.character)
-    )
+    life = observer.read_life()
     from conquest.memory_build_layout import read_build_layout
 
     result = _read_combat_ranges(
         s, life, read_build_layout(s), require_scatter=require_scatter
     )
-    latest = (
-        observer.read_life()
-        if hasattr(observer, "read_life")
-        else read_life(s, observer.health_layout, observer.character)
-    )
+    latest = observer.read_life()
     if latest.object_address != life.object_address or latest.dead_candidate:
         raise ValueError("Character changed during range observation")
     return result

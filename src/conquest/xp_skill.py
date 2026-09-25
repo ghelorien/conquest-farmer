@@ -3,7 +3,6 @@
 import struct
 import time
 from conquest.addressing import checked_address
-from conquest.memory_life import CLIENT_SHA256, read_life
 from conquest.memory_shop import MemoryGui
 
 
@@ -34,21 +33,13 @@ def _read_xp(session, life, layout):
 
 def read_xp(observer):
     s = observer.adapter
-    life = (
-        observer.read_life()
-        if hasattr(observer, "read_life")
-        else read_life(s, observer.health_layout, observer.character)
-    )
+    life = observer.read_life()
     if life.dead_candidate:
         raise ValueError("Living character required for XP skill")
     from conquest.memory_build_layout import read_build_layout
 
     result = _read_xp(s, life, read_build_layout(s))
-    latest = (
-        observer.read_life()
-        if hasattr(observer, "read_life")
-        else read_life(s, observer.health_layout, observer.character)
-    )
+    latest = observer.read_life()
     if latest.object_address != life.object_address or latest.dead_candidate:
         raise ValueError("XP state changed during observation")
     return result

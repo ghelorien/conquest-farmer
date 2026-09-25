@@ -13,7 +13,6 @@ from conquest.merchants.memory import HoverNotReady
 from conquest.addressing import PlayerLayout
 from conquest.foreground import foreground_click, foreground_drag
 from conquest.memory_inventory import MemoryInventoryReader, InventoryLayout
-from conquest.memory_life import read_life
 from conquest.memory_npcs import MemoryNpcReader, interaction_point
 from conquest.memory_shop import MemoryShopReader
 from conquest.memory_warehouse import MemoryWarehouseReader, deposit_received
@@ -223,11 +222,7 @@ class TownTrade:
         o = self.observer
         if login_screen(o.operations.target.hwnd):
             raise CaptureUnavailable("Reconnect before town actions")
-        life = (
-            o.read_life()
-            if hasattr(o, "read_life")
-            else read_life(o.adapter, o.health_layout, o.character)
-        )
+        life = o.read_life()
         if (
             life.dead_candidate
             or (life.map_id not in (1002, 1011, 1020) and not any_map)

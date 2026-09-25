@@ -180,7 +180,6 @@ def test_town_input_accepts_checked_diagonal_jumps_and_rejects_walls(monkeypatch
         map_id: int = 1002
         dead_candidate: bool = False
 
-    monkeypatch.setattr(route_input, "read_life", lambda *args: Life())
     calls = []
     monkeypatch.setattr(
         route_input.EmbeddedRecoveryInput,
@@ -188,7 +187,12 @@ def test_town_input_accepts_checked_diagonal_jumps_and_rejects_walls(monkeypatch
         lambda self, *args: calls.append(args),
     )
     terrain = TerrainMap(1002, 40, 40, np.zeros((40, 40), dtype=bool), "", (), ())
-    observer = SimpleNamespace(adapter=None, health_layout=None, character="Parasite")
+    observer = SimpleNamespace(
+        adapter=None,
+        health_layout=None,
+        character="Parasite",
+        read_life=lambda: Life(),
+    )
     send = route_input.RouteJumpInput(observer, terrain)
     body = {
         "source": [10, 10],
@@ -223,7 +227,6 @@ def test_recovery_input_dispatches_bounded_corner_runs_with_life_and_focus_guard
         max_hp=100,
         status=512,
     )
-    monkeypatch.setattr(memory_life, "read_life", lambda *args: life)
     monkeypatch.setattr(desktop_runtime, "physical_coordinates", nullcontext)
     monkeypatch.setattr(scene_input, "memory_player_anchor", lambda *args: (524, 457))
     calls = []
@@ -255,6 +258,7 @@ def test_recovery_input_dispatches_bounded_corner_runs_with_life_and_focus_guard
         character="Parasite",
         bridge=SimpleNamespace(operations=SimpleNamespace(target=target)),
         focus_client=lambda: None,
+        read_life=lambda: life,
     )
     terrain = TerrainMap(1002, 40, 40, np.zeros((40, 40), dtype=bool), "", (), ())
     send = EmbeddedRecoveryInput(observer, None, terrain=terrain, layout=layout)
@@ -304,7 +308,6 @@ def test_recovery_input_rechecks_layout_life_and_projection_at_final_press(
     if race == "position":
         fresh.position = (11, 10)
     reads = [initial, fresh]
-    monkeypatch.setattr(memory_life, "read_life", lambda *args: reads.pop(0))
     monkeypatch.setattr(desktop_runtime, "physical_coordinates", nullcontext)
     anchors = [(524, 457), (525, 457) if race == "projection" else (524, 457)]
     if race == "anchor_transient":
@@ -348,6 +351,7 @@ def test_recovery_input_rechecks_layout_life_and_projection_at_final_press(
         character="Parasite",
         bridge=SimpleNamespace(operations=SimpleNamespace(target=target)),
         focus_client=lambda: None,
+        read_life=lambda: reads.pop(0),
     )
     pressed = []
 

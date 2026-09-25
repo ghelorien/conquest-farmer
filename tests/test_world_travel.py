@@ -30,7 +30,6 @@ def test_portal_guard_is_only_entered_by_an_explicit_known_portal_action(monkeyp
         map_id: int = 1002
         dead_candidate: bool = False
 
-    monkeypatch.setattr(route_input, "read_life", lambda *args: Life())
     calls = []
     monkeypatch.setattr(
         route_input.EmbeddedRecoveryInput,
@@ -42,7 +41,13 @@ def test_portal_guard_is_only_entered_by_an_explicit_known_portal_action(monkeyp
     )
     terrain.blocked[9:12, 9:12] = True
     send = route_input.RouteJumpInput(
-        SimpleNamespace(adapter=None, health_layout=None, character="Parasite"), terrain
+        SimpleNamespace(
+            adapter=None,
+            health_layout=None,
+            character="Parasite",
+            read_life=lambda: Life(),
+        ),
+        terrain,
     )
     body = {
         "source": [7, 10],

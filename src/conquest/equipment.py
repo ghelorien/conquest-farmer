@@ -5,7 +5,6 @@ import struct
 from dataclasses import asdict
 from conquest.addressing import checked_address
 from conquest.memory_build_layout import read_build_layout
-from conquest.memory_life import CLIENT_SHA256
 
 SLOTS = {
     "head": 0xBD8,
@@ -38,8 +37,7 @@ def category(kind):
 def slots_for(session):
     """Return immutable exact-build slot offsets for raw read primitives.
 
-    ``read_equipment`` itself deliberately remains 1074-only until the
-    normal life/control path is separately qualified for 1078.
+    ``read_equipment`` reads life through the observer's exact-build reader.
     """
     return read_build_layout(session).equipment_slots
 
@@ -97,13 +95,7 @@ def item_details(session, address, base):
 
 
 def read_equipment(observer):
-    from conquest.memory_life import read_life
-
-    life = (
-        observer.read_life()
-        if hasattr(observer, "read_life")
-        else read_life(observer.adapter, observer.health_layout, observer.character)
-    )
+    life = observer.read_life()
     s = observer.adapter
     from conquest.memory_build_layout import actual_player_layout
 
@@ -133,11 +125,7 @@ def read_equipment(observer):
         raise ValueError("Equipped slots changed during observation")
     if s.read_block(actor + player.level_offset, 4) != struct.pack("<I", level):
         raise ValueError("Level changed during equipment observation")
-    fresh = (
-        observer.read_life()
-        if hasattr(observer, "read_life")
-        else read_life(s, observer.health_layout, observer.character)
-    )
+    fresh = observer.read_life()
     if fresh.object_address != actor or fresh.dead_candidate:
         raise ValueError("Character changed during equipment observation")
     s.assert_identity()

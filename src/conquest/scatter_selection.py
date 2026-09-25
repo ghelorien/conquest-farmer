@@ -281,17 +281,7 @@ class ScatterSelection:
             return False
         if time.monotonic() < self.next_attempt:
             return True
-        from conquest.memory_life import read_life
-
-        life = (
-            self.observer.read_life()
-            if hasattr(self.observer, "read_life")
-            else read_life(
-                self.observer.adapter,
-                self.observer.health_layout,
-                self.observer.character,
-            )
-        )
+        life = self.observer.read_life()
         if life.dead_candidate:
             raise ValueError("Living character required for skill selection")
         try:

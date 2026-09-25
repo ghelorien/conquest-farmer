@@ -1,7 +1,6 @@
 """The live, memory-identified Twin City Conductress."""
 
 from conquest.memory_npcs import MemoryNpcReader, VendorIdentity
-from conquest.memory_life import read_life
 from conquest.addressing import checked_address, resolve_player
 from conquest.memory_build_layout import actual_player_layout, read_build_layout
 from conquest.memory_shop import MemoryGui
@@ -76,11 +75,7 @@ TWIN_CONDUCTRESS = VendorIdentity(1002, 0, "Conductress", 280, (435, 440))
 
 
 def read_conductress(observer):
-    life = (
-        observer.read_life()
-        if hasattr(observer, "read_life")
-        else read_life(observer.adapter, observer.health_layout, observer.character)
-    )
+    life = observer.read_life()
     if life.dead_candidate:
         raise ValueError("Living character required for Conductress travel")
     found = (
@@ -99,8 +94,7 @@ def read_conductress(observer):
 def read_dialog_records(session, actor, *, layout=None):
     """Decode one stable dialog deque without any life or input decision.
 
-    The normal observer wrapper below retains its 1074 life gate. Exact-build
-    callers may supply a selected read layout for isolated observation only.
+    Callers supply the exact build's selected read layout.
     """
     s = session
     dialog_offset = layout.dialog_records_offset if layout is not None else 0x1060
@@ -185,11 +179,7 @@ class MemoryDialogReader:
 
 def read_dialog(observer):
     s = observer.adapter
-    life = (
-        observer.read_life()
-        if hasattr(observer, "read_life")
-        else read_life(s, observer.health_layout, observer.character)
-    )
+    life = observer.read_life()
     if life.dead_candidate:
         raise ValueError("Living character required for NPC dialog")
     actor = life.object_address

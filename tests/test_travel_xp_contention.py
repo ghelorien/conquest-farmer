@@ -294,9 +294,14 @@ def test_new_route_request_rejects_stale_map_position_or_blocked_terrain(
 
     terrain = TerrainMap(1011, 40, 40, np.zeros((40, 40), dtype=bool), "", (), ())
     life = NS(map_id=1011, position=(10, 10), dead_candidate=False)
-    monkeypatch.setattr(route_input, "read_life", lambda *_: life)
     sender = route_input.RouteJumpInput(
-        NS(adapter=None, health_layout=None, character="Parasite"), terrain
+        NS(
+            adapter=None,
+            health_layout=None,
+            character="Parasite",
+            read_life=lambda: life,
+        ),
+        terrain,
     )
     sender.recovery_input.send = lambda *args: pytest.fail("Stale movement dispatched")
     if changed == "map":

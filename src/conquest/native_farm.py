@@ -7,7 +7,6 @@ import ctypes
 import time
 
 from conquest.capture import CaptureUnavailable
-from conquest.memory_life import read_life
 from conquest.viewport import size_for, clear_scene
 from conquest.valuables import SPECIAL_LOOT_TYPES
 
@@ -338,15 +337,7 @@ class NativeFarmSupervisor:
             )
             for attempt in range(attempts):
                 try:
-                    return (
-                        self.observer.read_life()
-                        if hasattr(self.observer, "read_life")
-                        else read_life(
-                            self.observer.adapter,
-                            self.observer.health_layout,
-                            self.observer.character,
-                        )
-                    )
+                    return self.observer.read_life()
                 except ValueError as error:
                     if (
                         str(error) != "Life state changed during observation"
