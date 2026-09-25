@@ -553,23 +553,19 @@ def promote_current(ui):
             )
         candidate = read_json(paths["candidate"])
         from conquest.memory_build_layout import CLIENT_SHA256_1078
+        from conquest.merchants.trade_driver_1078 import validate_receipt
 
         build = candidate.get("client_sha256")
-        if build not in (CLIENT_SHA256, CLIENT_SHA256_1078):
+        if build != CLIENT_SHA256_1078:
             raise ValueError("Trade layout build differs from the verified delivery")
-        if build == CLIENT_SHA256_1078:
-            from conquest.merchants.trade_driver_1078 import validate_receipt
-
-            validate_receipt(state)
+        validate_receipt(state)
         candidate_digest = evidence_digest(candidate)
 
         def merchant_profile_bytes():
             try:
                 return paths["merchant"].read_bytes()
             except FileNotFoundError:
-                if build == CLIENT_SHA256_1078:
-                    return None
-                raise
+                return None
 
         merchant_before = merchant_profile_bytes()
         if merchant_before is not None:
@@ -579,6 +575,10 @@ def promote_current(ui):
                 raise ValueError(
                     "Existing merchant qualification is unreadable; preserve it for reconciliation"
                 ) from error
+            # A merchant file still stamped with the retired 1074 hash
+            # (CLIENT_SHA256) is let through only so delivery_qualification can
+            # archive it as previous_build_qualification and write a fresh
+            # 1078 record; it is never accepted as 1078 evidence.
             if (
                 not isinstance(peer, dict)
                 or peer.get("character") != state["intent"]["merchant"]["character"]

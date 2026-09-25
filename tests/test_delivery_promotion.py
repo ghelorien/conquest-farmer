@@ -10,6 +10,7 @@ import pytest
 
 from conquest.character_context import merchant_directory, resolve_merchant, state_path
 from conquest.character_profiles import ProfileRegistry
+from conquest.memory_build_layout import CLIENT_SHA256_1078
 from conquest.memory_life import CLIENT_SHA256
 from conquest.merchants import (
     delivery_promotion as module,
@@ -22,6 +23,7 @@ from conquest.merchants.farmer_qualification import qualification_path
 from conquest.merchants.coordination import InputCoordinator
 from conquest.merchants.journal import Journal
 from conquest.merchants.runtime import MerchantRuntime
+from conquest.merchants.trade_driver_1078 import TRADE_MODE_RVA, TRADE_MODE_VALUE
 from conquest.merchants.ui import UnifiedUI
 from test_delivery_qualification import evidence
 
@@ -54,6 +56,8 @@ def rig(tmp_path, monkeypatch):
                 own_booth_uid=102612
                 if role == "merchant"
                 else snapshot["character_uid"],
+                client_sha256=CLIENT_SHA256_1078,
+                reader_build="1078-canonical-trade",
             )
     receipt = Path(state_path("reports/merchants/delivery-request-probe.json"))
     receipt.parent.mkdir(parents=True, exist_ok=True)
@@ -63,9 +67,9 @@ def rig(tmp_path, monkeypatch):
     candidate.write_text(
         json.dumps(
             {
-                "client_sha256": CLIENT_SHA256,
+                "client_sha256": CLIENT_SHA256_1078,
                 "recipient": {"draw_format": "i32"},
-                "target_mode": {"rva": 0x699290, "value": 19},
+                "target_mode": {"rva": TRADE_MODE_RVA, "value": TRADE_MODE_VALUE},
             }
         )
     )
@@ -74,7 +78,7 @@ def rig(tmp_path, monkeypatch):
     peer = {
         "character": "Spiritual",
         "server": "America",
-        "client_sha256": CLIENT_SHA256,
+        "client_sha256": CLIENT_SHA256_1078,
         "capabilities": {
             cap: cap not in ("trade", "trade_request") for cap in RECEIVER_CAPABILITIES
         },
@@ -90,7 +94,7 @@ def rig(tmp_path, monkeypatch):
             lock=threading.RLock(),
             adapter=NS(
                 identity=deepcopy(account["identity"]),
-                expected_sha256=CLIENT_SHA256,
+                expected_sha256=CLIENT_SHA256_1078,
                 assert_identity=lambda: None,
             ),
             operations=NS(target=NS(snapshot=lambda: {"client_size": [800, 600]})),
