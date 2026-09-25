@@ -1,14 +1,9 @@
-"""One memory-qualified walking edge missing from the Phoenix terrain graph."""
+"""One memory-qualified walking edge missing from the Phoenix terrain graph.
 
-import struct
-import time
-from pathlib import Path
-import yaml
-from conquest.addressing import PlayerLayout, resolve_player
-from conquest.memory_health import HealthWorkerSession
-from conquest.memory_life import CLIENT_SHA256
-from conquest.viewport import clear_scene
-from conquest.worker import request
+The corner exit (its player profile, object projection offset and click) was
+qualified only on the retired 1074 client. No build has a qualified exit, so
+once the corner state is confirmed the recovery fails closed without input.
+"""
 
 TERRAIN_SHA256 = "433b3163a38d068e978fa6609c2d8e32f48bd27b188e15cddc3b3583ca9e9921"
 SOURCE = (195, 227)
@@ -56,72 +51,4 @@ def recover_corner(loop, goal):
         or health["embedded_controls"]["control"]["enabled"]
     ):
         raise ValueError("Qualified corner departure state changed")
-    session = HealthWorkerSession(loop.info, CLIENT_SHA256)
-    layout = PlayerLayout.model_validate(
-        yaml.safe_load(
-            Path("profiles/classic-1074-player-candidate.yaml").read_text(
-                encoding="utf-8"
-            )
-        )
-    )
-    addresses = resolve_player(session, layout)
-    address = life["object_address"] + 0xD8
-    raw = session.read_block(address, 24)
-    position = struct.unpack_from("<II", raw)
-    anchor = struct.unpack_from("<ii", raw, 16)
-    if position != SOURCE or session.read_block(address, 24) != raw:
-        raise ValueError("Qualified corner projection changed")
-    point = (anchor[0], anchor[1] + 32)
-    if not clear_scene(point, tuple(health["window"]["client_size"])):
-        raise ValueError("Qualified corner exit is outside the clear input area")
-    loop.check_stop()
-    loop.record(
-        "town_corner_recovery",
-        source=SOURCE,
-        destination=DESTINATION,
-        activity="Leaving the verified Blacksmith corner before continuing town travel",
-    )
-    request(
-        loop.info,
-        "foreground-click",
-        {
-            "guard": {
-                "name_address": hex(addresses["name"]),
-                "name": "Parasite",
-                "hp_address": hex(addresses["max_hp"]),
-                "max_hp": life["max_hp"],
-            },
-            "point": list(point),
-            "button": "left",
-            "control": False,
-            "require_foreground": True,
-            "expected_size": health["window"]["client_size"],
-            "expires_at": time.time() + 4,
-        },
-    )
-    deadline = time.monotonic() + 3
-    consecutive = 0
-    previous = None
-    while time.monotonic() < deadline:
-        fresh = loop.living()["embedded_controls"]["life"]
-        if (
-            fresh["character"] != "Parasite"
-            or fresh["map_id"] != 1011
-            or fresh["dead_candidate"]
-        ):
-            raise ValueError("Life or map changed during corner recovery")
-        if fresh["timestamp"] != previous:
-            previous = fresh["timestamp"]
-            consecutive = (
-                consecutive + 1 if tuple(fresh["position"]) == DESTINATION else 0
-            )
-            if consecutive >= 2:
-                loop.record(
-                    "town_corner_recovered",
-                    source=SOURCE,
-                    destination=DESTINATION,
-                    activity="Blacksmith corner cleared; resuming town travel",
-                )
-                return True
-        time.sleep(0.05)
-    raise ValueError("Qualified Blacksmith corner exit was not verified")
+    raise ValueError("Blacksmith corner exit is not qualified for this client build")
