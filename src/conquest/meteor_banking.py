@@ -342,7 +342,14 @@ def trip(loop, plan, *, before_submit=None):
             and 0 <= time.time() - data.get("observed_at", 0) <= 1
         ):
             after = loop.town("supplies")
-            if before["silver"] - after["silver"] != plan["fare"]:
+            paid = before["silver"] - after["silver"]
+            if paid == 0 and plan["fare"]:
+                # 2026-09-24 22:12: the client published the Market map
+                # before the fare debit. Keep observing within the deadline;
+                # nothing is resubmitted.
+                time.sleep(0.1)
+                continue
+            if paid != plan["fare"]:
                 raise ValueError("Meteor route fare was not verified")
             loop.terrain = read_terrain(
                 installation_path(r"C:\Program Files\Classic Conquer 2.0"),

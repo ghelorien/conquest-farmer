@@ -1094,3 +1094,86 @@ def test_market_return_leaves_northeast_booths_via_clear_aisle(start, uses_aisle
     if uses_aisle:
         assert calls[0][0] == (225, 206) and calls[0][1]["arrival_radius"] == 2
     assert calls[-1][0] == (300, 250)
+
+
+def fare_trip(monkeypatch, silvers, fare=100):
+    """Drive trip() to its arrival check with a scripted silver sequence."""
+    import conquest.navigation as navigation
+    from conquest.merchants import service_visit
+
+    clock = [0.0]
+    monkeypatch.setattr(m.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        m.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    monkeypatch.setattr(m, "open_saved_service", lambda *a: None)
+    submitted = []
+    monkeypatch.setattr(m, "select_saved_dialog", lambda *a: submitted.append(a))
+    monkeypatch.setattr(
+        navigation, "read_terrain", lambda path, map_id: NS(map_id=map_id)
+    )
+    departed = []
+    monkeypatch.setattr(
+        service_visit.MarketVisit,
+        "departed",
+        lambda self, map_id: departed.append(map_id),
+    )
+    identity = {"name": "Conductress"}
+    plan = {
+        "source_map": 1011,
+        "destination_map": 1036,
+        "approach": [228, 249],
+        "npc": "Conductress",
+        "identity": identity,
+        "fare": fare,
+        "activity": "Heading to Phoenix Conductress",
+        "dialogs": [{"option": "Market"}],
+    }
+    life = {"map_id": 1011, "position": [228, 249], "object_address": 7}
+    reads = iter(silvers)
+    arrived = {"map_id": 1036, "dead_candidate": False, "object_address": 7}
+    loop = NS(
+        terrain=NS(map_id=1011),
+        living=lambda: {"embedded_controls": {"life": life}},
+        travel=lambda *a, **kw: None,
+        record=lambda *a, **kw: None,
+        town=lambda action, **kw: (
+            {"identity": identity}
+            if action == "service-locate"
+            else {"items": [], "silver": next(reads)}
+        ),
+        health=lambda: {
+            "embedded_controls": {"life": arrived, "observed_at": m.time.time()}
+        },
+    )
+    return loop, plan, submitted, departed
+
+
+def test_market_arrival_waits_for_late_fare_debit_without_resubmitting(monkeypatch):
+    # 22:12:37 live: map 1036 was published before the 100-silver debit.
+    loop, plan, submitted, departed = fare_trip(
+        monkeypatch, [21895, 21895, 21895, 21795]
+    )
+    m.trip(loop, plan)
+    assert len(submitted) == 1 and departed == [1036]
+
+
+@pytest.mark.parametrize("silvers", [[21895, 21845], [21895, 21695]])
+def test_market_arrival_wrong_fare_still_fails_closed(monkeypatch, silvers):
+    loop, plan, submitted, departed = fare_trip(monkeypatch, silvers)
+    with pytest.raises(ValueError, match="fare was not verified"):
+        m.trip(loop, plan)
+    assert len(submitted) == 1 and not departed
+
+
+def test_market_arrival_without_any_debit_stays_unverified(monkeypatch):
+    loop, plan, submitted, departed = fare_trip(monkeypatch, [21895] + [21895] * 200)
+    with pytest.raises(ValueError, match="arrival unverified; no repeat payment"):
+        m.trip(loop, plan)
+    assert len(submitted) == 1 and not departed
+
+
+def test_free_route_accepts_unchanged_silver_immediately(monkeypatch):
+    loop, plan, submitted, departed = fare_trip(monkeypatch, [500, 500], fare=0)
+    m.trip(loop, plan)
+    assert departed == [1036]
