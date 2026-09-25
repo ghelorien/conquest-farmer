@@ -69,10 +69,13 @@ from conquest.merchants.journal import Journal
 from conquest.merchants.runtime import MerchantRuntime
 
 NAMES = ("Spiritual", "Dutch")
-HOLD = 0.25  # Spiritual's heavy failing check, per tick
+HOLD = 1.0  # Spiritual's heavy failing check, per tick
 DUTCH_GAP = 0.05  # Dutch's short tick between attempts
-BOUND = 2.0  # generous bound on any refusal streak (expected ~HOLD + DUTCH_GAP)
-PHASE_DEADLINE = 8.0
+BOUND = 4.0  # generous bound on any refusal streak (expected ~HOLD + DUTCH_GAP)
+# A refusal must return while the holder still owns the lock. Full-suite CPU
+# load can delay a thread by >0.2 s, so the margin is taken from a long hold.
+NONBLOCKING = 0.5 * HOLD
+PHASE_DEADLINE = 20.0
 TURNS = 3
 REFUSED = ("other_refill_check_active", "refill_turn_yielded")
 LIVE_ERROR = "Pre-disconnect merchant ownership differs from current stock"
@@ -299,7 +302,7 @@ def starvation_phase(root, monkeypatch):
             "refused_at_least_once": any(refused(result) for _, _, result in log),
             "blocked_since_consistent": blocked_since_consistent(log),
             "refusals_nonblocking": all(
-                duration < 0.2 for _, duration, result in log if refused(result)
+                duration < NONBLOCKING for _, duration, result in log if refused(result)
             ),
         }
     return {
