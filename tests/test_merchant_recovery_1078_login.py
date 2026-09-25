@@ -55,6 +55,15 @@ Login verification and stage limit (part e)
   V12 The login-verified #shops notice missing or repeated.
   V13 The pre-loss baseline overwritten while the incident is unresolved.
 
+Detached process during an incident (found while building part e;
+written before its code)
+  D1  The merchant process exits or is replaced during an unresolved
+      incident: the incident waits silently forever with no attention notice.
+  D2  A brief detach (app restart and pinned rebind) wrongly escalating, or
+      a detach time persisted across an app restart escalating on startup.
+  D3  A stale "at the login screen" observation reported after the process
+      is gone.
+
 End to end
   E1  Healthy Market -> login detected -> incident armed -> one login
       submitted -> in-world verified -> stage limit reached, recorded as a
@@ -904,3 +913,80 @@ def test_e2e_market_to_verified_login_stops_at_stage_limit(x, tmp_path, monkeypa
     assert shops[0] == ["failure", "Spiritual"]
     assert ["notice", "Spiritual recovery"] in shops
     assert [kind for kind, _ in shops].count("notice") == 1
+
+
+# --- D: detached process during an incident (failure modes first) -------------
+
+detached_pending = pytest.mark.xfail(
+    strict=True, reason="Failure modes written first; detach handling not built yet"
+)
+
+
+def process_gone(x):
+    """The exact merchant process exited: its identity can no longer be proven."""
+
+    def gone():
+        raise OSError("Merchant process identity changed or exited")
+
+    x.rt.observers[x.character].adapter.assert_identity = gone
+
+
+@detached_pending
+def test_detached_process_during_an_incident_stops_for_attention(x):
+    """D1"""
+    disconnect(x)
+    process_gone(x)
+    assert "found 0" in tick(x, 1)
+    assert x.character not in x.rt.observers
+    tick(x, return_1078.LOADING_SECONDS - 10)
+    assert state(x)["phase"] == "login"
+    tick(x, 20)
+    assert state(x)["phase"] == "needs_attention"
+    assert "no longer observable" in state(x)["note"]
+    assert x.game.submits == []
+
+
+@detached_pending
+def test_brief_detach_or_app_restart_does_not_escalate(x):
+    """D2"""
+    disconnect(x)
+    process_gone(x)
+    tick(x, 1)
+    tick(x, 30)
+    x.rt.observers[x.character] = make_observer(x.game)  # Pinned rebind.
+    tick(x, 1)
+    assert state(x)["phase"] == "login_submitted" and len(x.game.submits) == 1
+    tick(x, 1)
+    tick(x, 2)
+    assert state(x)["phase"] == "logged_in_awaiting_return"
+    # A detach before an app restart is not carried into the new process.
+    process_gone(x)
+    tick(x, 1)
+    restarted = MerchantRuntime(
+        SimpleNamespace(identities=lambda: [], windows=lambda **_: []),
+        x.coordinator,
+        journal=x.journal,
+        market_path=x.rt.market_path,
+    )
+    restarted.native1078_farmer_check = x.rt.native1078_farmer_check
+    x.rt = restarted
+    x.clock.advance(return_1078.LOADING_SECONDS * 3)
+    tick(x, 1)
+    assert state(x)["phase"] == "logged_in_awaiting_return"
+    tick(x, return_1078.LOADING_SECONDS + 1)
+    assert state(x)["phase"] == "needs_attention"
+
+
+@detached_pending
+def test_login_observation_is_dropped_with_the_process(x):
+    """D3"""
+    assert tick(x) is None
+    x.journal.set(x.character, return_1078.BASELINE, None)
+    x.game.screen = "login"
+    tick(x, 1)
+    assert x.rt.login1078_status[x.character]["reason"]
+    assert x.rt.status()[x.character]["login_1078"]["at_login"] is True
+    process_gone(x)
+    tick(x, 1)
+    assert x.character not in x.rt.login1078_status
+    assert x.rt.status()[x.character]["login_1078"] is None
