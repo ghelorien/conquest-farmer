@@ -6,7 +6,7 @@ import threading
 import time
 from conquest.merchants.journal import CHARACTERS, character_name
 from conquest.merchants.market import MarketSnapshot
-from conquest.merchants.collector import collect_market
+from conquest.merchants.collector import MarketSetupRequired, collect_market
 
 
 class MarketRefreshWorker:
@@ -49,7 +49,13 @@ class MarketRefreshWorker:
         # Pending requests survive restart, including the old Scan now button.
         for character in CHARACTERS:
             scan = self.journal.get(character, "scan", {})
-            if scan.get("pending") and market is None:
+            # A missing browser/add-on is reported once; only an explicit
+            # refresh (or new batch) request tries again after setup.
+            if (
+                scan.get("pending")
+                and market is None
+                and self.state(character).get("phase") != "needs_setup"
+            ):
                 self.request(
                     character,
                     "scan:" + scan["request_id"] + ":" + str(int(self.clock() // 120)),
@@ -74,6 +80,25 @@ class MarketRefreshWorker:
         try:
             data = self.collect(destination=str(self.path), stop=self.stop)
             MarketSnapshot(data, now=self.clock())
+        except MarketSetupRequired as error:
+            # Not transient: no 60-second retry loop. One clear message with
+            # the exact install command; prices stay unchanged.
+            note = str(error)
+            with self.lock:
+                for c, state in waiting.items():
+                    self.journal.set(
+                        c,
+                        "market_refresh",
+                        {
+                            **state,
+                            "pending": False,
+                            "phase": "needs_setup",
+                            "error": note,
+                            "retry_at": 0,
+                        },
+                    )
+                    self.journal.event(c, "market_browser_setup_required", note=note)
+            return
         except Exception as error:
             # Browser exceptions can contain session data; never expose them.
             import traceback

@@ -100,7 +100,12 @@ def test_build_uses_release_local_venv_and_noneditable_pip(tmp_path):
             executable.write_text("fake", encoding="utf-8")
 
     result = release.build_release(
-        source, tmp_path / "releases", "r1", runner=runner, python="build-python"
+        source,
+        tmp_path / "releases",
+        "r1",
+        runner=runner,
+        python="build-python",
+        state_root=tmp_path / "state",
     )
     assert result["release_id"] == "r1"
     assert (tmp_path / "releases" / "r1" / "profiles" / "route.yaml").exists()
@@ -108,7 +113,7 @@ def test_build_uses_release_local_venv_and_noneditable_pip(tmp_path):
     assert Path(commands[0][0][3]).parents[1] == tmp_path / "releases"
     pip = commands[1][0]
     assert pip[1:4] == ["-m", "pip", "install"]
-    assert "-e" not in pip and "." == pip[-1]
+    assert "-e" not in pip and ".[market]" == pip[-1]
     assert commands[1][1]["cwd"] != str(source)
 
 
@@ -253,7 +258,11 @@ def test_build_selects_only_release_payload_and_excludes_worktree_state(tmp_path
             executable.write_text("fake", encoding="utf-8")
 
     result = release.build_release(
-        source, tmp_path / "releases", "payload", runner=runner
+        source,
+        tmp_path / "releases",
+        "payload",
+        runner=runner,
+        state_root=tmp_path / "state",
     )
     output = Path(result["root"])
     assert (output / "profiles" / "public.yaml").exists()

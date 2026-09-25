@@ -2,8 +2,10 @@
 
 from conquest.character_context import installation_path, state_path
 import json
+import os
 from pathlib import Path
 import re
+import sys
 import time
 
 from conquest.discord_notify import write_json
@@ -15,6 +17,51 @@ from conquest.merchants.market import (
 )
 from conquest.merchants.price_history import PriceHistory
 from conquest.merchants.public_market import collect_public
+
+
+class MarketSetupRequired(ValueError):
+    """The market add-on or its browser is missing on this PC.
+
+    Retrying cannot help; the operator must install it once and refresh.
+    """
+
+
+def market_browsers():
+    """The Playwright browser folder, pinned for this process before launch.
+
+    Launchers set PLAYWRIGHT_BROWSERS_PATH to the managed data root's folder;
+    a process started without it uses the same folder, never the per-account
+    default cache that differs between launch hosts.
+    """
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if configured:
+        return Path(configured)
+    from conquest.character_profiles import data_root
+    from conquest.release import playwright_browsers
+
+    path = playwright_browsers(data_root())
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(path)
+    return path
+
+
+def _console_python():
+    path = Path(sys.executable)
+    console = path.with_name("python.exe")
+    if path.name.casefold() == "pythonw.exe" and console.is_file():
+        return console
+    return path
+
+
+def browser_setup_message(browsers, python=None):
+    from conquest.release import chromium_install_command
+
+    return (
+        "Market browser (Playwright Chromium) is not installed in "
+        + str(browsers)
+        + ". Prices are unchanged and no automatic retry is scheduled. "
+        "Install it once in PowerShell, then refresh market prices: "
+        + chromium_install_command(python or _console_python(), browsers)
+    )
 
 
 def browser_launch_options(settings=state_path(".runtime/merchants/browser.json")):
@@ -160,9 +207,13 @@ def collect_market(
     try:
         from playwright.sync_api import sync_playwright, Error
     except ImportError:
-        raise ValueError(
-            "Install the market extra and Playwright Chromium before collecting"
+        raise MarketSetupRequired(
+            "The market add-on (Playwright) is not installed in this Python. "
+            'Rebuild the release (it installs ".[market]") or run from the '
+            f"Conquest source folder: & '{_console_python()}' -m pip install "
+            '".[market]"'
         ) from None
+    browsers = market_browsers()
     deadline = time.monotonic() + timeout
 
     def check():
@@ -205,9 +256,7 @@ def collect_market(
         # Browser exception text may contain page/session data. Do not log it.
         detail = str(error)
         if "Executable doesn't exist" in detail:
-            raise ValueError(
-                "Market browser is not installed for this Windows account. Install Playwright Chromium."
-            ) from None
+            raise MarketSetupRequired(browser_setup_message(browsers)) from None
         if "BrowserType.launch" in detail:
             raise ValueError(
                 "Market browser could not start in the desktop app."

@@ -7,6 +7,8 @@ build/
 dist/
 reports/
 .runtime/
+# Playwright's Chromium belongs to managed machine state, never to git.
+ms-playwright/
 .env
 .env.*
 !.env.example

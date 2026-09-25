@@ -43,6 +43,26 @@ _BUILD_IGNORES = frozenset(
 # other entries are retained support/documentation artifacts, not live state.
 _RELEASE_FILES = ("pyproject.toml", "README.md", "AGENTS.md")
 _RELEASE_DIRECTORIES = ("src", "scripts", "profiles", "docs", "data")
+# Every release installs the market add-on (Playwright) into its own venv.
+MARKET_REQUIREMENT = ".[market]"
+# Playwright's Chromium is machine state, not release content: it lives in the
+# managed data root, outside every release and its manifest, is shared by all
+# releases, and is found through PLAYWRIGHT_BROWSERS_PATH regardless of the
+# launch host's LOCALAPPDATA.
+PLAYWRIGHT_BROWSERS = "ms-playwright"
+
+
+def playwright_browsers(state_root) -> Path:
+    """The managed Playwright browser folder for one data root."""
+    return _absolute(state_root) / PLAYWRIGHT_BROWSERS
+
+
+def chromium_install_command(python, browsers) -> str:
+    """The exact PowerShell command which installs the market browser."""
+    return (
+        f"$env:PLAYWRIGHT_BROWSERS_PATH='{browsers}'; "
+        f"& '{python}' -m playwright install chromium"
+    )
 
 
 class ReleaseError(ValueError):
@@ -267,6 +287,41 @@ def _default_run(command, **kwargs):
     return subprocess.run(command, check=True, **kwargs)
 
 
+def _install_chromium(runner, stage, target, state_root, browsers) -> list[str]:
+    """Install Playwright Chromium into managed state; failure is a warning."""
+    try:
+        from conquest.managed_security import ensure_managed_directory
+
+        # Create (or validate) the managed root exactly as activation does,
+        # rather than letting the browser download create it unprotected.
+        ensure_managed_directory(state_root)
+        environment = dict(os.environ)
+        environment["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers)
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        runner(
+            [
+                str(_venv_python(stage)),
+                "-B",
+                "-m",
+                "playwright",
+                "install",
+                "chromium",
+            ],
+            cwd=str(stage),
+            env=environment,
+        )
+    except (subprocess.CalledProcessError, OSError, ValueError):
+        # Downloader output can be long and environment specific; the
+        # actionable message is the folder and the exact command.
+        return [
+            "WARNING: Playwright Chromium was not installed in "
+            + str(browsers)
+            + ". Market price collection stays unavailable until you run: "
+            + chromium_install_command(_venv_python(target), browsers)
+        ]
+    return []
+
+
 def build_release(
     source,
     releases_root,
@@ -275,12 +330,18 @@ def build_release(
     runner=_default_run,
     python=None,
     crash_hook=None,
+    state_root=None,
 ) -> dict:
     """Stage a release, install it non-editably, verify it, then publish atomically.
 
     ``runner`` exists solely for offline tests; normal builds invoke the local
-    interpreter and pip and may download declared production dependencies.
+    interpreter and pip and may download declared production dependencies,
+    including the market add-on, and Playwright's Chromium.  Chromium goes to
+    the managed data root (``state_root``), never into the release, so the
+    manifest is unaffected.  A failed browser download is reported as a
+    warning with the exact install command; it does not fail the build.
     """
+    state_root = _state_root(state_root)
     source = _absolute(source)
     _assert_source_payload(source)
     releases_root = _absolute(releases_root)
@@ -295,6 +356,10 @@ def build_release(
         raise ReleaseError(
             "Release destination already exists or is inside the source tree"
         )
+    # A release inside managed state could never be activated, and the
+    # browser folder must never become release content.
+    _require_separate_roots(state_root, target)
+    browsers = playwright_browsers(state_root)
     releases_root.mkdir(parents=True, exist_ok=True)
     stage = releases_root / ("." + release_id + ".staging-" + uuid.uuid4().hex)
     try:
@@ -303,18 +368,35 @@ def build_release(
         executable = str(python or sys.executable)
         runner([executable, "-m", "venv", str(stage / ".venv")])
         venv_python = _venv_python(stage)
-        # Deliberately no ``-e``: code and production dependencies are installed
-        # into the release-local venv, never borrowed from a developer checkout.
+        # Deliberately no ``-e``: code and production dependencies, including
+        # the market add-on, are installed into the release-local venv, never
+        # borrowed from a developer checkout.
         runner(
-            [str(venv_python), "-m", "pip", "install", "--no-input", "."],
+            [
+                str(venv_python),
+                "-m",
+                "pip",
+                "install",
+                "--no-input",
+                MARKET_REQUIREMENT,
+            ],
             cwd=str(stage),
         )
+        warnings = _install_chromium(runner, stage, target, state_root, browsers)
+        # The manifest is written after every step that runs release code, so
+        # anything those steps might add to the tree is hashed and verified.
         write_manifest(stage)
         verified = verify_release(stage)
         if crash_hook:
             crash_hook("verified")
         os.replace(stage, target)
-        return {**verified, "root": str(target), "release_id": release_id}
+        return {
+            **verified,
+            "root": str(target),
+            "release_id": release_id,
+            "browsers_path": str(browsers),
+            "warnings": warnings,
+        }
     except Exception:
         if stage.exists():
             shutil.rmtree(stage, ignore_errors=True)
@@ -468,6 +550,9 @@ def launch_active_release(arguments=(), *, state_root=None, popen=subprocess.Pop
     environment["CONQUEST_DATA_ROOT"] = str(state_root)
     environment["CONQUEST_APP_ROOT"] = str(root)
     environment["CONQUEST_RELEASE_MANIFEST_SHA256"] = receipt["manifest_sha256"]
+    # The market browser installed by build_release, whatever LOCALAPPDATA
+    # or inherited Playwright setting the launch host has.
+    environment["PLAYWRIGHT_BROWSERS_PATH"] = str(playwright_browsers(state_root))
     # Imports must not create __pycache__ files inside the verified release.
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     # Preserve the selected state namespace through the launcher bootstrap as
@@ -487,6 +572,11 @@ def main(argv=None) -> int:
     build.add_argument("source", type=Path)
     build.add_argument("releases_root", type=Path)
     build.add_argument("release_id")
+    build.add_argument(
+        "--data-root",
+        type=Path,
+        help="Managed state root that receives Playwright Chromium",
+    )
     activate = commands.add_parser("activate")
     activate.add_argument("release", type=Path)
     activate.add_argument("--data-root", type=Path)
@@ -499,7 +589,14 @@ def main(argv=None) -> int:
     launch.add_argument("arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if args.command == "build":
-        value = build_release(args.source, args.releases_root, args.release_id)
+        value = build_release(
+            args.source,
+            args.releases_root,
+            args.release_id,
+            state_root=args.data_root,
+        )
+        for warning in value["warnings"]:
+            print(warning, file=sys.stderr)
     elif args.command == "activate":
         value = activate_release(args.release, state_root=args.data_root)
     elif args.command == "verify":

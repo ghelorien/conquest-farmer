@@ -156,6 +156,12 @@ class RuntimeLayout:
         # Windows Store LocalCache) if its ambient environment changes.
         if self.state_root is not None:
             environment["CONQUEST_DATA_ROOT"] = str(self.state_root)
+            # The same managed market browser as the launcher and the build.
+            from conquest.release import playwright_browsers
+
+            environment["PLAYWRIGHT_BROWSERS_PATH"] = str(
+                playwright_browsers(self.state_root)
+            )
         if self.immutable:
             environment["PYTHONDONTWRITEBYTECODE"] = "1"
         return environment

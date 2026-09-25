@@ -51,6 +51,9 @@ def merchant_text(state, *, now, waiting_items=None, global_stopped=False):
                 if scan.get("pending")
                 else "Downloading price data only. Your shop listings stay unchanged."
             )
+    elif market.get("phase") == "needs_setup":
+        batch = "Market prices unavailable: browser setup needed"
+        action = market.get("error", "Install the market browser, then refresh.")
     elif scan.get("pending"):
         if not state.get("enabled"):
             batch = "Shop update paused"
