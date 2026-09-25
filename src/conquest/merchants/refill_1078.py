@@ -422,6 +422,12 @@ def step(ui, character, snapshot):
             journal.set(character, "new_stock", False)
             release_completed_refill(ui, character)
             return {"state": "unknown_prices_deferred", "deferred": len(queue)}
+        # Read-only backlog for the route controller: reliably priced items
+        # (unknown prices stay deferred) that fit the current free booth slots.
+        backlog = {
+            "eligible_backlog": min(len(eligible), max(0, 32 - len(snapshot["booth"]))),
+            "backlog_observed_at": time.time(),
+        }
         if control.get("enabled") or not ui.safe_to_yield():
             from conquest.merchants.listing_handoff_1078 import request_handoff
 
@@ -431,6 +437,7 @@ def step(ui, character, snapshot):
                     "waiting_farmer_handoff",
                     "Existing route controller must grant a fresh memory-verified safe input window",
                 ),
+                **backlog,
                 "handoff_request_id": key,
             }
         profile = _profile(character)
@@ -456,10 +463,13 @@ def step(ui, character, snapshot):
                 "Listing requires the identity-verified native top-level client surface",
             )
         if not runtime.can_start_work(38):
-            return _blocked(
-                "listing_work_budget_insufficient",
-                "Wait for a fresh safe listing grant with thirty-eight seconds remaining",
-            )
+            return {
+                **_blocked(
+                    "listing_work_budget_insufficient",
+                    "Wait for a fresh safe listing grant with thirty-eight seconds remaining",
+                ),
+                **backlog,
+            }
         selected = eligible[0]
         item = next(
             item for item in snapshot["inventory"] if item["uid"] == selected["uid"]
