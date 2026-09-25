@@ -60,8 +60,28 @@ NON_TRANSACTIONAL = frozenset(
         "xp_fly_attempt",
         "xp_fly_verified",
         "town_observation_retry",
+        "manual_request_wait",
+        "manual_request_cleared",
     )
 )
+# Town actions that only read memory (embedded_bridge's read-only set).
+READ_ONLY_TOWN_ACTIONS = frozenset(
+    (
+        "supplies",
+        "shop",
+        "gear",
+        "vendor-status",
+        "ground-items",
+        "service-locate",
+        "service-dialog",
+        "warehouse-items",
+    )
+)
+# The manual-trade fence refuses in TownTrade.__call__ before execute(): a
+# provable pre-input failure, but only for a read-only action, with the exact
+# fence detail and the original failure of the same type and detail.
+FENCE_REFUSALS = frozenset(("town_action_failed", "manual_request_wait_expired"))
+FENCE_ERROR_TYPE = "conquest.town_trade.TownObservationUnavailable"
 READ_ONLY_RETRIES = frozenset(
     (
         "supplies",
@@ -183,8 +203,18 @@ def _event_proof(row):
     events = _visit_events(row["town_visit_id"])
     if any(not _number(e.get("time")) for e in events):
         raise ValueError("Restock event audit has an invalid time")
+    from conquest.town_trade import MANUAL_TRADE_FENCE
+
+    fenced = []
     for event in events:
         name = event.get("event")
+        if (
+            name in FENCE_REFUSALS
+            and event.get("action") in READ_ONLY_TOWN_ACTIONS
+            and event.get("detail") == MANUAL_TRADE_FENCE
+        ):
+            fenced.append(event)
+            continue
         if name not in NON_TRANSACTIONAL:
             raise ValueError(
                 f"Restock visit recorded {name!r}; it may have transacted, reconcile it"
@@ -207,6 +237,15 @@ def _event_proof(row):
         )
     if any(not _restart_refusal(_frames(e)) for e in failures[1:]):
         raise ValueError("A later restock failure needs reconciliation")
+    if fenced and (
+        len(fenced) != 1
+        or fenced[0]["time"] > original["time"]
+        or original.get("error_type") != FENCE_ERROR_TYPE
+        or original.get("detail") != MANUAL_TRADE_FENCE
+    ):
+        raise ValueError(
+            "Restock town failure is not one provable manual-trade fence refusal"
+        )
     return original
 
 

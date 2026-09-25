@@ -920,3 +920,127 @@ def test_e2e_live_incident_revives_restarts_restock_once(tmp_path, monkeypatch):
     assert saved["ledger_after_required"] == []
     # The second start refuses the replay without any worker operation.
     assert saved["second_start_ops"] == []
+
+
+# FM16 (live 2026-09-25 15:28, visit 0ac53ca9...): while walking to the
+# Warehouseman, _travel's read-only vendor-status was refused before input by
+# the manual-trade fence (TownTrade.__call__ raises before execute) until the
+# route gave up.  Only that provable pre-input refusal is non-transactional:
+# a read-only town action, the exact fence detail, paired with the original
+# failure of type TownObservationUnavailable carrying the same detail.
+FENCE = "Manual trade observation requires a fresh read before town actions"
+FENCE_TYPE = "conquest.town_trade.TownObservationUnavailable"
+FENCE_FAILURE = trace(
+    ("overnight.py", "_run_route"),
+    ("overnight.py", "restock"),
+    ("banking.py", "fund_restock"),
+    ("banking.py", "open_warehouse"),
+    ("overnight.py", "travel"),
+    ("overnight.py", "_travel"),
+    ("overnight.py", "town"),
+    ("worker.py", "request"),
+)
+RESTART_REFUSAL = trace(
+    ("overnight.py", "run"),
+    ("overnight.py", "_run_route"),
+    ("restock_restart.py", "resume"),
+    ("restock_restart.py", "_event_proof"),
+)
+
+
+def fence_incident(
+    x,
+    *,
+    action="vendor-status",
+    detail=FENCE,
+    error_type=FENCE_TYPE,
+    failed_detail=FENCE,
+    refusal="town_action_failed",
+    refusals=1,
+    extra=(),
+):
+    x.events = [
+        ev(R + 0.7, "travel", phase="restocking", destination=[230, 250]),
+        ev(R + 6.6, "town_movement_stalled", phase="restocking"),
+        *[
+            ev(R + 9.8 + i, "town_observation_retry", action=action, detail=detail)
+            for i in range(4)
+        ],
+        *extra,
+        *[
+            ev(FAILED - 0.03 + i * 0.001, refusal, action=action, detail=detail)
+            for i in range(refusals)
+        ],
+        ev(FAILED - 0.01, "runback_finished", phase="restocking"),
+        ev(
+            FAILED,
+            "failed",
+            phase="needs_attention",
+            detail=failed_detail,
+            error_type=error_type,
+            failure_trace=FENCE_FAILURE,
+        ),
+        ev(RESTART, "started", phase="starting"),
+        ev(
+            REFUSED,
+            "failed",
+            phase="needs_attention",
+            detail="Restock visit recorded 'town_action_failed'; it may have "
+            "transacted, reconcile it",
+            error_type="builtins.ValueError",
+            failure_trace=RESTART_REFUSAL,
+        ),
+    ]
+    x.write_events()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        (),
+        (
+            ev(R + 9.0, "manual_request_wait", action="vendor-status"),
+            ev(R + 9.5, "manual_request_cleared", action="vendor-status"),
+        ),
+    ],
+)
+def test_manual_fence_refusal_of_read_only_action_restarts_once(rig, extra):
+    x = rig
+    fence_incident(x, extra=extra)
+    assert restart.resume(x.loop) is True
+    assert x.visit.state()[restart.MARKER]["failure"]["detail"] == FENCE
+    assert x.calls.count("restock") == 1
+
+
+def test_expired_manual_request_wait_of_read_only_action_restarts_once(rig):
+    x = rig
+    fence_incident(x, refusal="manual_request_wait_expired")
+    assert restart.resume(x.loop) is True
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"action": "buy"},
+        {"action": "sell"},
+        {"action": "warehouse-deposit"},
+        {"action": "warehouse-withdraw"},
+        {"action": "silver-withdraw"},
+        {"action": "open-bank"},
+        {"action": "close"},
+        {"action": "consume-healing"},
+        {"action": "buy", "refusal": "manual_request_wait_expired"},
+        {"detail": "Town input permission changed; reobserve before continuing"},
+        {"detail": FENCE + " "},
+        {"error_type": "builtins.ValueError"},
+        {"failed_detail": "Vendor is not in the current scene"},
+        {"refusals": 2},
+    ],
+)
+def test_other_town_action_failures_still_refuse(rig, change):
+    x = rig
+    fence_incident(x, **change)
+    with pytest.raises(ValueError):
+        restart.resume(x.loop)
+    assert_untouched(x)
+    assert "stop_farm" not in x.calls and "living" not in x.calls
