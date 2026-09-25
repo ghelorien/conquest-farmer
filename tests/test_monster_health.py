@@ -11,17 +11,17 @@ from conquest.monster_health import read_monster_health
 
 def fixture(hp):
     layout = EntityLayout.model_validate(
-        yaml.safe_load(open("profiles/classic-1074-entities-candidate.yaml"))
+        yaml.safe_load(open("profiles/classic-1078-entities-candidate.yaml"))
     )
     obj, header, table = 0x100000, 0x200000, 0x300000
-    record = bytearray(0x988)
+    record = bytearray(max(0x988, layout.attribute_pointer_offset + 8))
     struct.pack_into("<Q", record, 0, 0x400000 + layout.monster_vtable_rva)
     struct.pack_into("<I", record, layout.id_offset, 25)
     struct.pack_into("<I", record, layout.kind_offset, 2)
     struct.pack_into("<II", record, layout.position_offset, 680, 570)
     struct.pack_into("<ii", record, layout.draw_position_offset, 650, 400)
     struct.pack_into("<I", record, layout.max_hp_offset, 81)
-    struct.pack_into("<Q", record, 0x978, header)
+    struct.pack_into("<Q", record, layout.attribute_pointer_offset, header)
     h = bytearray(24)
     struct.pack_into("<IIQ", h, 8, 0, 16, table)
     t = bytearray(64)
@@ -67,7 +67,9 @@ def test_pointer_swap_during_read_cannot_reuse_old_health():
     def read(address, size):
         value = original(address, size)
         if address == 0x300000:
-            struct.pack_into("<Q", blocks[0x100000], 0x978, 0x400000)
+            struct.pack_into(
+                "<Q", blocks[0x100000], layout.attribute_pointer_offset, 0x400000
+            )
         return value
 
     session.read_block = read

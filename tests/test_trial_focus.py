@@ -8,6 +8,7 @@ from conquest import trial
 from conquest.capture import CaptureUnavailable, Frame
 from conquest.memory_inventory import InventorySnapshot, Item
 from conquest.vision import Target
+from trial_template import trial_template
 
 
 def test_manual_mouse_kills_are_excluded_without_stopping_farming(
@@ -16,7 +17,7 @@ def test_manual_mouse_kills_are_excluded_without_stopping_farming(
     import win32api
 
     now, samples = [10.0], [0]
-    profile = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    profile = trial_template("pheasant-foreground-trial.yaml")
     profile.update(
         observation_mode="memory_only",
         route=[],
@@ -126,7 +127,7 @@ def test_focus_loss_at_dispatch_reobserves_but_geometry_failure_stops(
     import win32api
 
     now, calls, seen = [10.0], [], []
-    profile = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    profile = trial_template("pheasant-foreground-trial.yaml")
     profile.update(
         monster=monster,
         observation_mode="memory_only" if memory_only else "legacy_visual",
@@ -277,7 +278,7 @@ def test_three_failed_moves_replan_and_combat_continues_without_switching_off(
     now = [10.0]
     failures = []
     clicks = []
-    profile = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    profile = trial_template("pheasant-foreground-trial.yaml")
     profile.update(
         observation_mode="memory_only",
         route=[[435, 455]],
@@ -391,7 +392,7 @@ def test_restarted_native_session_replans_from_memory_not_old_approach(
 
     now = [10.0]
     clicks = []
-    profile = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    profile = trial_template("pheasant-foreground-trial.yaml")
     profile.update(
         observation_mode="memory_only",
         route=[[632, 558]],

@@ -132,6 +132,8 @@ class CombinedMonitor:
 
 
 def from_profile(config, info):
+    if not config.player_profile:
+        raise ValueError("Select the client's exact-build player profile")
     layout = PlayerLayout.model_validate(
         yaml.safe_load(Path(config.player_profile).read_text())
     )

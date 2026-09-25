@@ -8,6 +8,7 @@ import yaml
 
 from conquest import trial
 from conquest.memory_inventory import InventorySnapshot, Item
+from trial_template import trial_template
 
 
 @pytest.mark.parametrize("scan_delay", [0.01, 0.4])
@@ -19,7 +20,7 @@ def test_native_targets_use_their_own_age_after_slow_skill_checks(
 
     now = [10.0]
     clicks = []
-    config = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    config = trial_template("pheasant-foreground-trial.yaml")
     config.update(
         observation_mode="memory_only",
         route=[],
@@ -115,7 +116,7 @@ def test_slow_native_samples_keep_recovery_alive_then_heal(
     observations = []
     revived = []
     output = tmp_path / "output"
-    profile = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    profile = trial_template("pheasant-foreground-trial.yaml")
     profile.update(observation_mode="memory_only", route=[])
     path = tmp_path / "profile.yaml"
     path.write_text(yaml.safe_dump(profile))

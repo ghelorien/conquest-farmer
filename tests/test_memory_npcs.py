@@ -75,7 +75,7 @@ class Replay:
     def __init__(self):
         self.layout = EntityLayout.model_validate(
             yaml.safe_load(
-                Path("profiles/classic-1074-entities-candidate.yaml").read_text()
+                Path("profiles/classic-1078-entities-candidate.yaml").read_text()
             )
         )
         self.expected_sha256 = self.layout.expected_sha256
@@ -88,6 +88,13 @@ class Replay:
         self.blocks = {
             r["address"]: bytearray(base64.b64decode(r["data_base64"])) for r in rows
         }
+        # The recorded payload (UID, type, species, model, name, tile, draw)
+        # sits at offsets the 1078 entity profile shares. Each record is a
+        # 1078 scene actor, so its vtable comes from that profile.
+        for block in self.blocks.values():
+            struct.pack_into(
+                "<Q", block, 0, 0x140000000 + self.layout.monster_vtable_rva
+            )
         self.pointers = {
             0x140000000 + self.layout.root_rva: 0x200000,
             0x200018: 0x300000,

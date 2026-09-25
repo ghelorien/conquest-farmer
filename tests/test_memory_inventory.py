@@ -46,7 +46,7 @@ def populated():
         yaml.safe_load(
             (
                 Path(__file__).parents[1]
-                / "profiles/classic-1074-inventory-candidate.yaml"
+                / "profiles/classic-1078-inventory-candidate.yaml"
             ).read_text()
         )
     )

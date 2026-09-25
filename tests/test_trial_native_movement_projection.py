@@ -10,6 +10,7 @@ import yaml
 from conquest import trial
 from conquest.memory_inventory import InventorySnapshot, Item
 from conquest.navigation import TerrainMap
+from trial_template import trial_template
 
 
 @pytest.mark.parametrize("obstruction", ["none", "failed_landing", "solid_corner"])
@@ -27,9 +28,7 @@ def test_scatter_landing_keeps_actual_anchor_and_refuses_unchecked_segment(
     if obstruction == "solid_corner":
         ground.blocked[455, 422] = True
     blocked = {(1002, (422, 454)): 100.0} if obstruction == "failed_landing" else {}
-    config = yaml.safe_load(
-        open("profiles/pheasant-foreground-trial.yaml", encoding="utf-8")
-    )
+    config = trial_template("pheasant-foreground-trial.yaml")
     config.update(
         observation_mode="memory_only",
         adaptive_scatter=False,

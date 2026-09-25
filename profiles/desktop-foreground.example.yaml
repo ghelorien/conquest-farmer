@@ -1,7 +1,5 @@
 character: Parasite
 observation_mode: memory_only
-player_profile: profiles/classic-1074-player-candidate.yaml
-inventory_profile: profiles/classic-1074-inventory-candidate.yaml
 capture_output: 0
 capture_origin:
 - 0

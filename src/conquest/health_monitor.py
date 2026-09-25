@@ -102,6 +102,8 @@ def from_profile(profile_path, worker_info):
         return CombinedMonitor(
             UnavailableMemoryHealth(), level_monitor(config, worker_info)
         )
+    if not config.player_profile:
+        raise ValueError("Select the client's exact-build player profile")
     identity = request(worker_info, "health")
     player = yaml.safe_load(Path(config.player_profile).read_text())
     if identity["expected_sha256"] != player["expected_sha256"]:

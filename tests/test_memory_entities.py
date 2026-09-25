@@ -7,7 +7,7 @@ from conquest.memory_entities import EntityLayout, MemoryEntityReader
 
 
 class Memory:
-    expected_sha256 = "c2b53437ef68d687a1ef0f70c74bcf2df6027bf82b558e93330c839eb5e1c396"
+    expected_sha256 = "be9dd723cad8eb9068da792b5cb8ceec0d330f08aacb8c948e6f412d1520c4e0"
     modules = [{"name": "ImConquer.exe", "base": 0x140000000, "size": 0x3000000}]
     identity = {"pid": 123, "creation_time_100ns": 456}
 
@@ -72,7 +72,7 @@ class Memory:
 
 @pytest.fixture
 def setup():
-    path = Path(__file__).parents[1] / "profiles/classic-1074-entities-candidate.yaml"
+    path = Path(__file__).parents[1] / "profiles/classic-1078-entities-candidate.yaml"
     layout = EntityLayout.model_validate(yaml.safe_load(path.read_text()))
     memory = Memory(layout)
     return memory, layout, MemoryEntityReader(memory, layout)

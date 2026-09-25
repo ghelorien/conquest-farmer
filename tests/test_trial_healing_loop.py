@@ -7,6 +7,7 @@ import yaml
 from conquest.capture import Frame
 from conquest.memory_inventory import InventorySnapshot, Item
 from conquest import trial
+from trial_template import trial_template
 
 
 @pytest.mark.parametrize("level_up", [False, True])
@@ -19,7 +20,7 @@ def test_f1_priority_and_repeat_until_above_threshold(
     now, keys = [10.0], []
     if level_up and expected_keys:
         expected_keys = 1
-    profile = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    profile = trial_template("pheasant-foreground-trial.yaml")
     profile["observation_mode"] = (
         "memory_only" if level_up else "legacy_visual"
     )  # Exercise the historical loop with fakes.

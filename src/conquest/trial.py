@@ -47,8 +47,10 @@ class TrialConfig(BaseModel):
     observation_mode: Literal["memory_only", "legacy_visual"] = "memory_only"
     character: str
     combat_speed: CombatSpeed | None = None
-    player_profile: str
-    inventory_profile: str
+    # Exact-build memory profiles. Templates name none: the desktop app sets
+    # them from the attached client's build, and other callers fail closed.
+    player_profile: str | None = None
+    inventory_profile: str | None = None
     template: str
     kite_when_surrounded: bool = False
     attack_button: Literal["left", "right"] = "left"
@@ -253,6 +255,10 @@ def run_trial(
             and config.boundary[1] <= ay <= config.boundary[3]
         ):
             raise ValueError("Approach must end inside the farming boundary")
+    if not config.player_profile or not config.inventory_profile:
+        raise ValueError(
+            "Select the client's exact-build player and inventory profiles"
+        )
     layout = PlayerLayout.model_validate(
         yaml.safe_load(Path(config.player_profile).read_text())
     )

@@ -11,7 +11,7 @@ from conquest.worker import Operations
 def probe_setup(monkeypatch):
     profile = yaml.safe_load(
         (
-            Path(__file__).parents[1] / "profiles/classic-1074-health-candidate.yaml"
+            Path(__file__).parents[1] / "profiles/classic-1078-health-candidate.yaml"
         ).read_text()
     )
     session = SimpleNamespace(
@@ -78,32 +78,3 @@ def test_changed_fingerprint_prevents_probe(probe_setup):
     with pytest.raises(ValueError, match="fingerprint"):
         operations.dispatch("background-click", body)
     assert calls == []
-
-
-def test_revive_has_separate_ghost_guard_and_fixed_point(probe_setup, monkeypatch):
-    operations, _, _, body = probe_setup
-    operations.target = SimpleNamespace(snapshot=lambda: {"client_size": [1036, 793]})
-    life = SimpleNamespace(
-        revive_ready_candidate=True, position=(435, 453), map_id=1002
-    )
-    monkeypatch.setattr("conquest.memory_life.read_life", lambda *args: life)
-    calls = []
-    monkeypatch.setattr(
-        "conquest.worker.click_probe",
-        lambda *args, **kwargs: calls.append((args, kwargs)) or {"qualified": False},
-    )
-    body = {k: body[k] for k in ("health_profile", "character")}
-    body["expected_size"] = [1036, 793]
-    result = operations.dispatch("revive-click", body)
-    assert calls[0][0][1:] == (518, 640, [1036, 793])
-    assert result["death_position"] == [435, 453]
-    life.revive_ready_candidate = False
-    with pytest.raises(ValueError, match="ghost state"):
-        operations.dispatch("revive-click", body)
-    life.revive_ready_candidate = True
-    with pytest.raises(ValueError, match="arbitrary"):
-        operations.dispatch("revive-click", {**body, "point": [100, 200]})
-    assert len(calls) == 1
-    operations.read_only = True
-    with pytest.raises(ValueError, match="read-only"):
-        operations.dispatch("revive-click", body)

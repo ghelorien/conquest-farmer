@@ -5,6 +5,7 @@ import yaml
 from conquest import trial
 from conquest.memory_inventory import InventorySnapshot, Item
 from conquest.vision import Target
+from trial_template import trial_template
 
 
 def _open_terrain():
@@ -27,7 +28,7 @@ def test_surround_interrupts_unfinished_attack_without_waiting_for_damage_or_tim
     calls = []
     position = [423, 455]
     jumped = [None]
-    config = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    config = trial_template("pheasant-foreground-trial.yaml")
     config.update(
         observation_mode="memory_only",
         kite_when_surrounded=True,
@@ -144,7 +145,7 @@ def test_scatter_keeps_casting_on_survivors_before_looting_or_patrolling(
     now = [10.0]
     calls = []
     counter = [0]
-    config = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    config = trial_template("pheasant-foreground-trial.yaml")
     config.update(
         observation_mode="memory_only",
         kite_when_surrounded=True,
@@ -303,7 +304,7 @@ def test_defense_without_attackable_target_keeps_patrol_movement(tmp_path, monke
 
     now = [10.0]
     calls = []
-    config = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    config = trial_template("pheasant-foreground-trial.yaml")
     config.update(
         observation_mode="memory_only",
         route=[[435, 455]],
@@ -397,7 +398,7 @@ def test_jump_scatter_repositions_then_casts_again(
     jumped = [None]
     failed = [False]
     flight = [None]
-    config = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    config = trial_template("pheasant-foreground-trial.yaml")
     config.update(
         character=character,
         observation_mode="memory_only",

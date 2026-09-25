@@ -9,6 +9,7 @@ import yaml
 from conquest import trial
 from conquest.capture import Frame
 from conquest.memory_inventory import InventorySnapshot, Item
+from trial_template import trial_template
 
 
 @pytest.mark.parametrize("has_supplies", [True, False])
@@ -19,7 +20,7 @@ def test_live_loop_revives_before_supply_stop_and_returns_without_combat(
 
     now, clicks = [0.0], []
     state = {"health": 0, "position": [425, 450]}
-    profile = yaml.safe_load(open("profiles/pheasant-foreground-trial.yaml"))
+    profile = trial_template("pheasant-foreground-trial.yaml")
     profile["route"] = []
     image_path = tmp_path / "button.png"
     cv2.imwrite(

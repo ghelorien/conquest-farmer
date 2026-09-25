@@ -8,6 +8,7 @@ import yaml
 from conquest import trial
 from conquest.farmer_profile import CombatSpeed
 from conquest.memory_inventory import InventorySnapshot, Item
+from trial_template import trial_template
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -21,7 +22,7 @@ def test_counter_gap_is_excluded_without_losing_verified_totals(
     index = [0]
     current = [100]
     checks = [0]
-    config = yaml.safe_load(Path("profiles/pheasant-foreground-trial.yaml").read_text())
+    config = trial_template("pheasant-foreground-trial.yaml")
     config.update(
         character="CounterTest",
         observation_mode="memory_only",

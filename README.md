@@ -111,12 +111,8 @@ changes, and monster life state remain unqualified, so On currently reports
 blocked or waiting rather than performing attacks. Focus independence of the
 control setting does not establish that the client accepts background attacks.
 
-The memory launcher checks for a compatible running worker before starting one.
-An existing elevated worker needs no additional UAC approval. A new worker may
-still require Windows approval after its one-hour lifetime, F12 stop, or exit.
-
-`scripts/start_input_probe_worker.py` starts a bounded four-hour diagnostic
-worker. It sends no input on startup. A revision-7 input worker supports one
+The 1074-only memory and input-probe worker launchers were removed with the
+retired 1074 profiles. A revision-7 input worker supports one
 `background-click` request, using the freshly decoded HP candidate instead of
 the old maximum-HP guard. `scripts/probe_background_worker.py` records player
 state before and after one calibrated click and never retries. The existing

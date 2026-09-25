@@ -1,5 +1,6 @@
 import pytest
 from conquest.trial import scatter_receipt_ready
+from trial_template import trial_template
 
 
 @pytest.mark.parametrize(
@@ -51,7 +52,7 @@ def test_fresh_target_timing_does_not_inherit_earlier_work_or_accept_slow_scans(
     calls = []
     stages = []
     projections = [0]
-    config = yaml.safe_load(Path("profiles/pheasant-foreground-trial.yaml").read_text())
+    config = trial_template("pheasant-foreground-trial.yaml")
     config.update(
         character="TimingTest",
         observation_mode="memory_only",
