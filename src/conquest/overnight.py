@@ -904,6 +904,23 @@ class OvernightLoop:
                     activity="Preserving silver; buying only affordable essential supplies",
                 )
                 return False
+        elif (
+            type_id in NORMAL_ARROWS
+            and before["arrows"] >= self.route.supplies.arrows_return_below
+        ):
+            # A usable pack below the level-best tier is used up first; its
+            # replacement is the level-best tier once it runs out.
+            from conquest.arrow_upgrades import lower_tier_in_use
+
+            level = self.town("gear").get("level")
+            held = lower_tier_in_use(snapshot, level) if type(level) is int else None
+            if held:
+                self.record(
+                    "arrow_purchase_deferred",
+                    arrow_packs=arrow_pack_count(snapshot),
+                    activity=f"Using remaining {NORMAL_ARROWS[held]} before buying more arrows",
+                )
+                return False
         if (
             type_id in (1050001, 1050002)
             and before["arrows"] >= self.route.supplies.arrows_return_below
@@ -1453,12 +1470,16 @@ class OvernightLoop:
             ARROW_REFILL_AMOUNTS,
         )
 
+        from conquest.savings import savings_plan
+
         state = state or self.town("gear")
         supplies = self.town("supplies")
         reserves = [i["type_id"] for i in supplies["items"] if i["amount"] >= 3]
+        # With nothing usable, refill the level-best tier. Only savings mode
+        # keeps its configured tier (Lucky, or user-authorized Iron).
         kind = current_arrow(
             state,
-            self.route.supplies.arrow_type,
+            self.route.supplies.arrow_type if savings_plan() else None,
             reserves,
             equipped_ammo=supplies.get("equipped_ammo"),
         )

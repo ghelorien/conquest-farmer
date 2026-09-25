@@ -15,12 +15,47 @@ def preferred_arrow(level):
     )
 
 
+def _snapshot(snapshot):
+    if isinstance(snapshot, dict):
+        return snapshot
+    from dataclasses import asdict
+
+    return asdict(snapshot)
+
+
+def usable_arrow_tiers(snapshot, level):
+    """Level-eligible normal tiers carried in a Scatter-usable (>= 3) stack."""
+    snapshot = _snapshot(snapshot)
+    stacks = list(snapshot["items"])
+    if snapshot.get("equipped_ammo"):
+        stacks.append(snapshot["equipped_ammo"])
+    return {
+        s["type_id"]
+        for s in stacks
+        if s["type_id"] in NORMAL_ARROWS
+        and s["amount"] >= 3
+        and ARROW_LEVELS[s["type_id"]] <= level
+    }
+
+
+def lower_tier_in_use(snapshot, level):
+    """Return the usable tier being used up before the level-best tier is bought.
+
+    Owned usable packs are spent first. While the best usable tier is below the
+    best tier for the level, no arrow is bought: neither a lower-tier spare nor
+    an early upgrade. Returns None when a best-tier pack is usable or nothing
+    usable is carried (a required refill then buys the level-best tier).
+    """
+    usable = usable_arrow_tiers(snapshot, level)
+    if not usable:
+        return None
+    best = max(usable, key=ARROW_LEVELS.get)
+    return best if ARROW_LEVELS[best] < ARROW_LEVELS[preferred_arrow(level)] else None
+
+
 def arrow_pack_count(snapshot):
     """Count physical arrow packs, including partial packs and equipped ammo."""
-    if not isinstance(snapshot, dict):
-        from dataclasses import asdict
-
-        snapshot = asdict(snapshot)
+    snapshot = _snapshot(snapshot)
     items = [
         i
         for i in snapshot["items"]
@@ -57,12 +92,17 @@ def eligible_arrow(product, state):
     )
 
 
-def current_arrow(state, default=1050000, reserves=(), *, equipped_ammo=None):
+def current_arrow(state, default=None, reserves=(), *, equipped_ammo=None):
     """Choose a Scatter-usable tier from freshly observed carried ammunition.
 
     Equipment metadata identifies the arrow tier but does not contain its live
     remaining count. Only a matching inventory observation can qualify the
     equipped stack; an empty SpeedArrow must not hide a usable IronArrow pack.
+
+    With nothing usable, the refill buys the best tier eligible for the level,
+    not a route's saved tier (live 2026-09-25: a level-95 SpeedArrow remnant
+    fell back to the saved IronArrow). An explicit default is only for savings
+    mode, whose configured tier is the one it is allowed to buy.
     """
     item = state["equipment"].get("arrows")
     usable = [
@@ -87,7 +127,9 @@ def current_arrow(state, default=1050000, reserves=(), *, equipped_ammo=None):
             and (observed.get("amount") or 0) >= 3
         ):
             usable.append(item["type_id"])
-    return max(usable, key=ARROW_LEVELS.get) if usable else default
+    if usable:
+        return max(usable, key=ARROW_LEVELS.get)
+    return preferred_arrow(state["level"]) if default is None else default
 
 
 def choose_arrow_upgrade(products, state, silver, reserve=3000, *, carried=()):
@@ -126,6 +168,15 @@ def review_arrows(loop, products, state, silver):
                 loop.record(
                     "arrow_upgrade_deferred",
                     activity="Using existing ammunition; two-pack purchase cap reached",
+                )
+                if hasattr(loop, "adopt_ammunition"):
+                    loop.adopt_ammunition(state)
+                return state
+            held = lower_tier_in_use(bag, state["level"])
+            if held:
+                loop.record(
+                    "arrow_upgrade_deferred",
+                    activity=f"Using remaining {NORMAL_ARROWS[held]} before buying {product['name']}",
                 )
                 if hasattr(loop, "adopt_ammunition"):
                     loop.adopt_ammunition(state)
