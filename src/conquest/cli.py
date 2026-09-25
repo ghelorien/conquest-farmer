@@ -94,7 +94,7 @@ def main(argv=None) -> int:
     dashboard.add_argument(
         "--entity-profile",
         type=Path,
-        default=Path("profiles/classic-1074-entities-candidate.yaml"),
+        help="Entity profile for the same client build; required with --health-profile",
     )
     dashboard.add_argument("--character", default="Parasite")
     dashboard.add_argument(
@@ -324,6 +324,8 @@ def main(argv=None) -> int:
                 parser.error("Dashboard live health requires --worker-info")
             if args.health_profile and not args.worker_info:
                 parser.error("Dashboard controls require --worker-info")
+            if args.health_profile and not args.entity_profile:
+                parser.error("Dashboard controls require --entity-profile")
             monitor = None
             if args.profile:
                 from conquest.health_monitor import from_profile

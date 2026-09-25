@@ -94,8 +94,12 @@ can display the separately labeled, unqualified HP candidate.
 ## Local controls
 
 ```powershell
-.\.venv\Scripts\python.exe -m conquest dashboard --database reports/live-grind/trial.sqlite3 --worker-info .runtime/memory-worker.json --health-profile profiles/classic-1074-health-candidate.yaml --port 8765
+.\.venv\Scripts\python.exe -m conquest dashboard --database reports/live-grind/trial.sqlite3 --worker-info .runtime/memory-worker.json --port 8765
 ```
+
+Live control observations also need `--health-profile` and
+`--entity-profile`, both for the running client's exact build. There is no
+default entity profile; the retired 1074 profiles are no longer suggested.
 
 Open `http://127.0.0.1:8765/`. Add individual monster IDs or select them from
 the observed scene. IDs and input mode are saved locally; On/Off survives browser
