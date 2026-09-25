@@ -304,14 +304,33 @@ def step(ui, character, snapshot):
         _item_fingerprint,
     )
 
-    if not runtime.listing1078_lock.acquire(blocking=False):
-        return _blocked("other_refill_check_active")
+    from conquest.merchants.refill_turns_1078 import turns
+
+    # The single lock still admits every check; the gate only makes the last
+    # holder yield one turn to a merchant it refused, so a slow or always-
+    # failing check cannot starve the other. Refusals return immediately.
+    gate = turns(runtime)
+    refused = gate.enter(
+        character, grant_character=(getattr(ui, "grant", None) or {}).get("character")
+    )
+    if refused is not None:
+        return {
+            **_blocked(refused["blocker"]),
+            "blocked_since": refused["blocked_since"],
+            "lock_holder": refused["lock_holder"],
+        }
+
+    def stage(label):
+        gate.stage(character, label)
+
     try:
         schedule = runtime.refills[character]
         state = schedule.state()
         from conquest.merchants.listing_handoff_1078 import release_completed_refill
 
+        stage("release_completed_refill")
         release_completed_refill(ui, character)
+        stage("schedule")
         request = state.get("listing1078_request")
         if request:
             row = _row(journal, request["request_id"])
@@ -321,15 +340,18 @@ def step(ui, character, snapshot):
                 "operator_overridden",
             ):
                 # Reconciliation is read-only, even during Stop/Pause.
+                stage("reconcile")
                 reconcile(ui, request["request_id"], character)
                 row = _row(journal, request["request_id"])
             if row and row["phase"] == "verified":
+                stage("settle_cursor")
                 _settle_cursor(journal, character, request["request_id"])
                 return {
                     "state": "listing_verified",
                     "request_id": request["request_id"],
                 }
             if row and row["phase"] == "aborted":
+                stage("settle_cancelled")
                 try:
                     _settle_cancelled(journal, character, request["request_id"])
                 except (ValueError, KeyError, TypeError) as error:
@@ -344,6 +366,7 @@ def step(ui, character, snapshot):
                 # An unproven abort or operator override is never authority
                 # to start another automatic request for that same item.
                 if row["phase"] in ("prepared", "uncertain"):
+                    stage("recover_pending")
                     try:
                         return _recover_pending(ui, character, snapshot)
                     except (
@@ -370,6 +393,7 @@ def step(ui, character, snapshot):
         )
 
         if panel_pending(journal, character):
+            stage("owned_panel")
             panel_result = panel_step(ui, character, snapshot)
             if panel_result is not None:
                 return {"state": "owned_panel_probe", **panel_result}
@@ -383,6 +407,7 @@ def step(ui, character, snapshot):
         if not snapshot["booth_open"]:
             from conquest.merchants.owned_booth_panel_1078 import prepare_due
 
+            stage("prepare_panel")
             panel_result = prepare_due(ui, character, snapshot)
             if panel_result is not None:
                 return panel_result
@@ -410,6 +435,7 @@ def step(ui, character, snapshot):
             journal.set(character, "new_stock", False)
             release_completed_refill(ui, character)
             return {"state": "capacity_checked"}
+        stage("require")
         try:
             require(journal, character, snapshot)
         except (ValueError, KeyError, TypeError) as error:
@@ -419,7 +445,9 @@ def step(ui, character, snapshot):
             return _blocked("farmer_paused")
         from conquest.merchants.listing_plan_1078 import plan
 
+        stage("plan")
         queue = plan(runtime, character, snapshot)
+        stage("queue")
         journal.set(character, "inventory_queue", [row["uid"] for row in queue])
         eligible = [row for row in queue if row["price"] is not None]
         if not eligible:
@@ -440,6 +468,7 @@ def step(ui, character, snapshot):
         if control.get("enabled") or not ui.safe_to_yield():
             from conquest.merchants.listing_handoff_1078 import request_handoff
 
+            stage("request_handoff")
             key = request_handoff(runtime, character)
             return {
                 **_blocked(
@@ -450,7 +479,9 @@ def step(ui, character, snapshot):
                 "handoff_request_id": key,
             }
         profile = _profile(character)
+        stage("farmer_safe")
         farmer = _farmer_safe_market(ui)
+        stage("policy")
         _policy(
             ui,
             character,
@@ -462,6 +493,7 @@ def step(ui, character, snapshot):
         )
         from conquest.input_probe import MessageTarget
 
+        stage("native_target")
         observer = runtime.observers.get(character)
         if observer is None or observer.adapter.identity != snapshot["identity"]:
             return _blocked("merchant_attachment_changed")
@@ -501,6 +533,7 @@ def step(ui, character, snapshot):
         state = schedule.state()
         state.update(listing1078_engine=1, listing1078_request=request)
         journal.set(character, "refill", state)
+        stage("dispatch")
         receipt = dispatch(ui, request, scheduled_refill=True)
         return {
             "state": "listing_pending",
@@ -512,6 +545,7 @@ def step(ui, character, snapshot):
             release_ungranted_unavailable_peer,
         )
 
+        stage("release_unavailable_peer")
         released = release_ungranted_unavailable_peer(ui, error.character)
         return {
             **_blocked("owned_peer_observation_unavailable", str(error)),
@@ -521,4 +555,4 @@ def step(ui, character, snapshot):
     except (ValueError, OSError, KeyError, TypeError, CaptureUnavailable) as error:
         return _blocked("refill_precondition_unavailable", str(error))
     finally:
-        runtime.listing1078_lock.release()
+        gate.leave(character)

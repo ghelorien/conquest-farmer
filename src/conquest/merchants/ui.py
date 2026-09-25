@@ -1085,6 +1085,7 @@ class UnifiedUI:
                 "handoff_requested": self.runtime.handoff,
                 "handoff_granted": bool(self.grant and self.safe_to_yield()),
                 "handoff_active": bool(self.grant or self.grant_fence.active),
+                "refill1078_lock": self.runtime.refill1078_lock_status(),
                 "calibration": dict(self.calibration_results),
                 "layout": dict(self.layout_status),
                 "ui_health": {

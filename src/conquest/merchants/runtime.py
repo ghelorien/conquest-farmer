@@ -84,6 +84,10 @@ class MerchantRuntime(ManualRuntime):
         self.refilling, self.refill_revisions = {}, {}
         self.refill_threads = {}
         self.listing1078_lock = threading.Lock()
+        from conquest.merchants.refill_turns_1078 import RefillTurns
+
+        # Fair admission and read-only holder diagnostics for that one lock.
+        self.refill1078_turns = RefillTurns(self.listing1078_lock)
         self.refill1078_step = None
         self.refill1078_status = {}
         self.native1078_farmer_check = None
@@ -106,6 +110,12 @@ class MerchantRuntime(ManualRuntime):
 
         self.manual_1078_registry = ManualReaderRegistry1078(self.catalog)
         self.manual_1078_registry.activate_if_present()
+
+    def refill1078_lock_status(self):
+        """Read-only: who holds the refill check lock, where, and who waits."""
+        from conquest.merchants.refill_turns_1078 import turns
+
+        return turns(self).status()
 
     def can_start_work(self, minimum_seconds=0):
         return (
