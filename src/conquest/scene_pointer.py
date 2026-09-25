@@ -4,21 +4,13 @@ import struct
 import time
 
 from conquest.capture import CaptureUnavailable
-from conquest.memory_build_layout import CLIENT_SHA256_1074, CLIENT_SHA256_1078
+from conquest.memory_build_layout import CLIENT_SHA256_1078
 
 
 # Each address is tied to the exact executable fingerprint.  The 1078 fields
 # were traced from WM_MOUSEMOVE storage to Actor::hit_test and cross-checked
 # against the native client cursor in the live, unpacked module.
 _SCENE_POINTERS = {
-    CLIENT_SHA256_1074: (
-        0x6985A8,
-        0x6985B0,
-        (
-            (0x19FCB1, bytes.fromhex("8b2df5884f00")),
-            (0x19FCBC, bytes.fromhex("8b35e6884f00")),
-        ),
-    ),
     CLIENT_SHA256_1078: (
         0x6B8D20,
         0x6B8D28,
