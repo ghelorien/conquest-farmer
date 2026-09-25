@@ -155,6 +155,12 @@ Verify deposits, preserve overflow/Market protections and manual Stop, then
 return to monsters. This banking obligation is separate from empty-supply
 restocking; do not shop during a stocked urgent bank trip.
 
+Merchants may sell Dragonballs (all kinds) held in their own inventory during
+refill, highest value first like other stock. Never list a bound item, never
+below the lowest live comparable, and never from a comparable older than the
+last market refresh; otherwise keep it queued. The farmer still banks carried
+Dragonballs urgently. Meteors are sold only as MeteorScrolls, never loose.
+
 # Region rotation comparison
 
 The user requests a north -> center -> south -> north rotation, advancing when
