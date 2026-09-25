@@ -108,7 +108,10 @@ def _settle_cancelled(journal, character, request_id):
         before = json.loads(row["before_json"])
         result = json.loads(row["result_json"] or "{}")
         first, second = result.get("first"), result.get("second")
-        from conquest.merchants.booth_listing_cancel_1078 import purchase_adjusted
+        from conquest.merchants.booth_listing_cancel_1078 import (
+            pre_dialog_only,
+            purchase_adjusted,
+        )
 
         # Only provable player purchases from our booth may differ from the
         # original baseline; recompute them rather than trusting the receipt.
@@ -117,29 +120,58 @@ def _settle_cancelled(journal, character, request_id):
             if isinstance(second, dict)
             else (before["snapshot"], None)
         )
-        markers = {
-            step["stage"]
+        steps = [
+            {"stage": step["stage"], "status": step["status"]}
             for step in db.execute(
-                "SELECT stage FROM transaction_steps WHERE transaction_id=? "
-                "AND stage IN ('confirm_press','cancel_press')",
+                "SELECT stage,status FROM transaction_steps WHERE transaction_id=?",
                 (request_id,),
             )
+        ]
+        markers = {
+            step["stage"]
+            for step in steps
+            if step["stage"] in ("confirm_press", "cancel_press")
         }
+        # A drag that never produced the price dialog is settled read-only
+        # (settle_without_dialog): no Cancel press, no later listing step.
+        no_dialog = result.get("no_dialog_abort_verified") is True
+        if no_dialog:
+            proven = (
+                before.get("scheduled_foreground_refill") is True
+                and not markers
+                and pre_dialog_only(steps)
+                and isinstance(first, dict)
+                and isinstance(second, dict)
+                and all(
+                    snapshot.get(key, 0) is None
+                    for snapshot in (first, second)
+                    for key in ("trade", "request")
+                )
+            )
+            flags = (
+                ("no_dialog_abort_verified", True),
+                ("dialog_observed", False),
+                ("stock_unchanged", True),
+                ("listing_submitted", False),
+                ("confirmation_attempted", False),
+                ("cancellation_attempted", False),
+                ("replay_allowed", False),
+            )
+        else:
+            proven = markers == {"cancel_press"}
+            flags = (
+                ("cancel_verified", True),
+                ("stock_unchanged", True),
+                ("listing_submitted", False),
+                ("confirmation_attempted", False),
+                ("cancellation_attempted", True),
+                ("replay_allowed", False),
+            )
         if (
             before.get("request") != request
             or result.get("uid") != request.get("item_uid")
-            or markers != {"cancel_press"}
-            or any(
-                result.get(key) is not expected
-                for key, expected in (
-                    ("cancel_verified", True),
-                    ("stock_unchanged", True),
-                    ("listing_submitted", False),
-                    ("confirmation_attempted", False),
-                    ("cancellation_attempted", True),
-                    ("replay_allowed", False),
-                )
-            )
+            or not proven
+            or any(result.get(key) is not expected for key, expected in flags)
             or result.get("player_purchases") != purchases
             or not isinstance(first, dict)
             or not isinstance(second, dict)
@@ -270,6 +302,16 @@ def pending_cancel(runtime, character, snapshot, *, preflight=False):
 def _recover_pending(ui, character, snapshot):
     runtime = ui.runtime
     request = pending_cancel(runtime, character, snapshot)
+    from conquest.merchants.booth_listing_cancel_1078 import price_dialogs
+
+    # Cancel needs exactly one live price dialog. Without one, admission would
+    # only park the farmer and take merchant input to fail at
+    # native_cancel_binding again on every tick.
+    if price_dialogs(request["expected_identity"]) != 1:
+        return _blocked(
+            "listing_cancel_dialog_absent",
+            "No single live Add Item to Booth panel; Cancel is not dispatched",
+        )
     control = ui.app.control.snapshot()
     if control.get("paused"):
         return _blocked("farmer_paused")
@@ -343,6 +385,25 @@ def step(ui, character, snapshot):
                 stage("reconcile")
                 reconcile(ui, request["request_id"], character)
                 row = _row(journal, request["request_id"])
+            if row and row["phase"] == "uncertain":
+                # A drag that never produced the price dialog cannot have
+                # listed; prove it read-only instead of admitting Cancel.
+                from conquest.merchants.booth_listing_cancel_1078 import (
+                    settle_without_dialog,
+                )
+
+                stage("settle_without_dialog")
+                try:
+                    if settle_without_dialog(ui, request["request_id"], character):
+                        row = _row(journal, request["request_id"])
+                except (
+                    ValueError,
+                    OSError,
+                    KeyError,
+                    TypeError,
+                    CaptureUnavailable,
+                ) as error:
+                    return _blocked("listing_receipt_needs_reconciliation", str(error))
             if row and row["phase"] == "verified":
                 stage("settle_cursor")
                 _settle_cursor(journal, character, request["request_id"])

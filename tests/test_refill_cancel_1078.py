@@ -40,6 +40,9 @@ def pending(receipt, monkeypatch):
         ),
     )
     monkeypatch.setattr(refill, "require", lambda *args: None)
+    # The exact price dialog is open (see price_modal below); Cancel
+    # admission reads that read-only before any handoff or dispatch.
+    monkeypatch.setattr(cancel, "price_dialogs", lambda identity: 1)
     x.snapshot = {
         **deepcopy(x.before),
         "closed_modal": True,

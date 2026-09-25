@@ -31,7 +31,9 @@ F9  A purchase lands between admission and the Cancel mouse-down: the worker
     re-verifies with the same tolerance and still presses once; an added booth
     item landing there prevents the press.
 F10 Dialog closed after drag_press (the drag never landed) with sales: no
-    Cancel press, the hold stays unresolved, and no sale is invented.
+    Cancel press and no input. Superseded by the 7cafde4b incident rule
+    (test_refill_drag_no_dialog_1078.py): the hold settles read-only as
+    aborted with the same purchase proof and one verified sale.
 F11 Pre-press pointer-only failure (no input at all) with sales: aborted with
     the same purchase proof, and the sale is journaled exactly once.
 F12 Restart after the durable Cancel marker but before mouse-down: Cancel is
@@ -846,15 +848,16 @@ def test_closed_dialog_after_drag_press_with_sales_never_cancels_or_invents(
     game = Game(dialog=False)
     x = setup(tmp_path, monkeypatch, game)
     game.buy(*INCIDENT_SALES)
-    for _ in range(2):
-        result = tick(x)
-        assert result.get("blocker") == "listing_receipt_needs_reconciliation" or (
-            result.get("state") == "listing_cancel_pending"
-        )
+    assert tick(x)["state"] == "listing_pending"
     assert not clicks(game) and markers(x.j) == []
-    assert phase(x.j) == "uncertain"
-    assert sale_rows(x.j) == [] and x.dispatched == []
-    assert x.ui.runtime.refills["Dutch"].state()["listing1078_request"] == REQUEST
+    assert not any(row["event"] == "native_focus" for row in game.trace)
+    assert phase(x.j) == "aborted"
+    result = json.loads(listing._row(x.j, KEY)["result_json"])
+    assert result["no_dialog_abort_verified"] is True
+    assert result["player_purchases"]["silver"] == NET_INCIDENT
+    rows = sale_rows(x.j)
+    assert len(rows) == 1 and rows[0]["silver"] == NET_INCIDENT
+    assert len(x.dispatched) == 1 and x.dispatched[0]["request_id"] != KEY
 
 
 # F11: pre-press pointer-only failure + sales ------------------------------

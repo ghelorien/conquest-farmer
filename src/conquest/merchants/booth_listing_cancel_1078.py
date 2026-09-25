@@ -81,6 +81,177 @@ def _unchanged(snapshot, before, profile):
     return purchases
 
 
+# booth_listing_once_1078._run journals only these stages before its drag can
+# have produced the price dialog: drag_release precedes the destination
+# mouse-up, native_dialog follows the observed dialog, and amount/price/OK all
+# need that dialog. cancel_requested and cancel_failed(before_press) are Cancel
+# admissions that never reached a Cancel mouse-down.
+PRE_DIALOG_STAGES = frozenset(
+    (
+        "transaction",
+        "foreground",
+        "baseline",
+        "drag_pointer",
+        "drag_press",
+        "cancel_requested",
+        "cancel_failed",
+    )
+)
+
+
+def pre_dialog_only(steps):
+    """True when no journaled step can follow a price dialog or Cancel press."""
+    return all(
+        step["stage"] in PRE_DIALOG_STAGES
+        and (step["stage"] != "cancel_failed" or step["status"] == "before_press")
+        for step in steps
+    )
+
+
+def price_dialogs(identity):
+    """Read-only count of live "Add Item to Booth" windows in the exact process."""
+    with MemorySession(identity["pid"], CLIENT_SHA256_1078) as session:
+        if session.identity != identity:
+            raise ValueError("Pending listing process identity changed")
+        count = sum(
+            window["name"] == "Add Item to Booth"
+            for window in GuiReader.for_session(session).windows()
+        )
+        session.assert_identity()
+        return count
+
+
+def settle_without_dialog(ui, request_id, character):
+    """Abort a scheduled refill whose drag never produced the price dialog.
+
+    Applies only to an uncertain scheduled-refill receipt written by the
+    listing worker (so foreground_drag's finally mouse-up already ran) whose
+    steps stop at drag_press. Without the dialog no listing could have been
+    submitted. Two fresh exact reads of the same process, at least 0.25 s
+    apart, with no "Add Item to Booth" window and no trade/request open, must
+    equal the baseline, or the purchase-adjusted baseline (d9571bb), whose
+    purchases are then journaled exactly once with the terminal receipt.
+
+    Read-only: never input, a handoff or a replay. Returns False when this
+    path does not apply (the caller keeps the exact Cancel path, e.g. for an
+    open dialog), True once aborted; raises while the proof is incomplete.
+    """
+    from conquest.merchants.booth_listing_once_1078 import (
+        KIND,
+        OWNERSHIP_FIELDS,
+        WORKER_LOCK,
+        WORKERS,
+        _profile,
+        _row,
+        _validate_snapshot,
+    )
+
+    journal = ui.runtime.journal
+    with WORKER_LOCK:
+        worker = WORKERS.get(request_id)
+        if worker and worker.is_alive():
+            return False
+    row = _row(journal, request_id)
+    if (
+        not row
+        or row["kind"] != KIND
+        or row["character"] != character
+        or row["phase"] != "uncertain"
+    ):
+        return False
+    before = json.loads(row["before_json"])
+    prior = json.loads(row["result_json"] or "{}")
+    request = before.get("request") or {}
+    if (
+        before.get("scheduled_foreground_refill") is not True
+        or before.get("client_sha256") != CLIENT_SHA256_1078
+        # Only the listing worker's own failure receipt proves the drag's
+        # finally mouse-up ran before the hold became uncertain.
+        or type(prior.get("input_attempted")) is not bool
+        or prior.get("confirmation_attempted") is not False
+        or prior.get("replay_allowed") is not False
+        or not pre_dialog_only(journal.trace(request_id))
+    ):
+        return False
+    profile = _profile(character)
+    if before.get("profile_id") != profile.id:
+        return False
+    identity = request["expected_identity"]
+    with MemorySession(identity["pid"], CLIENT_SHA256_1078) as session:
+        if session.identity != identity:
+            raise ValueError("Pending listing process identity changed")
+        reader = open_read_only_1078(session, profile.name)
+        gui = GuiReader.for_session(session)
+
+        def observe():
+            snapshot = reader.read_manual_ownership()
+            dialog = any(w["name"] == "Add Item to Booth" for w in gui.windows())
+            return snapshot, dialog
+
+        first, dialog = observe()
+        if dialog:
+            return False  # The exact Cancel path owns an open dialog.
+        _validate_snapshot(first, profile, request)
+        earliest = time.monotonic() + 0.25
+        while time.monotonic() < earliest:
+            time.sleep(max(0.0, earliest - time.monotonic()))
+        second, dialog = observe()
+        if dialog:
+            return False
+        _validate_snapshot(second, profile, request)
+        session.assert_identity()
+        if any(first[key] != second[key] for key in OWNERSHIP_FIELDS):
+            raise ValueError("Merchant ownership changed between the two observations")
+        old, purchases = purchase_adjusted(before["snapshot"], second, before)
+        if any(second[key] != old[key] for key in OWNERSHIP_FIELDS if key in old):
+            raise ValueError(
+                "Ownership differs from the listing baseline; the hold stays"
+            )
+    result = {
+        "uid": request["item_uid"],
+        "no_dialog_abort_verified": True,
+        "dialog_observed": False,
+        "stock_unchanged": True,
+        "listing_submitted": False,
+        "confirmation_attempted": False,
+        "cancellation_attempted": False,
+        "first": first,
+        "second": second,
+        "prior_result": prior,
+        "replay_allowed": False,
+        "foreground_listing_qualified": False,
+    }
+    if purchases:
+        result["player_purchases"] = purchases
+
+    def within(db, row):
+        # Re-check inside the terminal transaction: no later step may have
+        # been journaled since the trace was read.
+        steps = db.execute(
+            "SELECT stage,status FROM transaction_steps WHERE transaction_id=?",
+            (request_id,),
+        ).fetchall()
+        if not pre_dialog_only(
+            {"stage": step["stage"], "status": step["status"]} for step in steps
+        ):
+            raise ValueError("Listing journal changed before no-dialog settlement")
+        if purchases:
+            from conquest.merchants.sales import record_hold_purchases
+
+            record_hold_purchases(
+                db, row["character"], request_id, before["snapshot"], second, purchases
+            )
+
+    # expected= refuses a second settlement racing this one.
+    journal.transition(
+        request_id, "aborted", result, expected="uncertain", within=within
+    )
+    attention = journal.get(character, "attention") or {}
+    if attention.get("kind") == KIND and attention.get("transaction_id") == request_id:
+        journal.set(character, "attention", None)
+    return True
+
+
 def _cancel_marker(journal, request_id, character, payload):
     """Atomic once-only marker before any Cancel mouse-down."""
     from conquest.merchants.booth_listing_once_1078 import KIND
