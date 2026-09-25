@@ -98,6 +98,11 @@ class TownObservationUnavailable(ValueError):
     code = "town_observation_unavailable"
 
 
+MANUAL_TRADE_FENCE = (
+    "Manual trade observation requires a fresh read before town actions"
+)
+
+
 class WarehouseHoverCovered(HoverNotReady):
     """The deposit drag source stayed covered before mouse-down.
 
@@ -692,9 +697,7 @@ class TownTrade:
 
         observer = getattr(self, "observer", None)
         if observer is not None and observe_manual_farmer(observer):
-            raise TownObservationUnavailable(
-                "Manual trade observation requires a fresh read before town actions"
-            )
+            raise TownObservationUnavailable(MANUAL_TRADE_FENCE)
         try:
             return self.execute(body)
         except ValueError as error:

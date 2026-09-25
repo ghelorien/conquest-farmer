@@ -198,6 +198,23 @@ def _request_control(driver, snapshot):
     return w, point, "Accept", None
 
 
+def decline_control(driver, snapshot):
+    """Cancel on the exact incoming 1078 Trade request; sends no input.
+
+    Same native proof as the Accept locator (request model 0x5E0148 and its
+    Trade###Confirm/message/Accept/Cancel strings, native geometry, button
+    layout). Cancel is the dialog's second button, one 22-pixel row below
+    Accept. The caller must still prove the pointer hovers the
+    memory-labelled Cancel control before pressing.
+    """
+    w, accept, _, _ = _request_control(driver, snapshot)
+    x, y, width, height = w["geometry"]
+    point = (accept[0], accept[1] + 22)
+    if not x < point[0] < x + width or not y < point[1] < y + height:
+        raise ValueError("1078 request decline is clipped")
+    return w, point
+
+
 def locate(driver, snapshot, mode):
     gui = driver.memory.gui
     assert_trade_code(gui.session)

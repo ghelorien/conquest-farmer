@@ -164,7 +164,28 @@ def requester_identity(observer, name):
     return matches[0]
 
 
+def _requester(driver, name, request):
+    """Exact requester identity for the decline binding.
+
+    1078 reads the request's participant UID natively with the modal, so the
+    decline binds to that UID and needs no scene lookup (the requester may
+    have walked out of view while its request stays displayed).
+    """
+    if getattr(driver, "trade1078", False):
+        uid = request.get("participant_uid")
+        if type(uid) is not int or uid <= 0:
+            raise ValueError("1078 incoming request lacks its native requester UID")
+        return {"uid": uid, "name": name}
+    return requester_identity(driver.observer, name)
+
+
 def _cancel_control(driver, snapshot, name):
+    if getattr(driver, "trade1078", False):
+        from conquest.merchants.trade_driver_1078 import decline_control
+
+        if (snapshot.get("request") or {}).get("participant") != name:
+            raise ValueError("Incoming request dialog identity changed")
+        return decline_control(driver, snapshot)
     # The qualified native request layout/handler is shared; temporarily use
     # the generic geometry reader, while checking this exact message ourselves.
     s = driver.observer.adapter
@@ -231,13 +252,21 @@ def decline_unrelated_request(
         controller.character, name, require_uid=False
     ):
         return False
-    identity = requester_identity(controller.driver.observer, name)
+    driver = controller.driver
+    identity = _requester(driver, name, request)
     if manual_session is None and trusted_delivery(
         controller.character, name, identity["uid"]
     ):
         return False
-    driver = controller.driver
-    driver.require_qualified("trade_request")
+    # On 1078 the farmer's own native trade qualification (a verified
+    # bilateral receipt bound to this farmer, native window-owned controls)
+    # covers its request dialog; merchants keep the unqualified capability.
+    driver.require_qualified(
+        "farmer_delivery"
+        if getattr(driver, "trade1078", False)
+        and getattr(controller, "manual_farmer", False)
+        else "trade_request"
+    )
     from conquest.desktop_runtime import physical_coordinates
     from conquest.focus_recovery import activate_client
     from conquest.foreground import foreground_click
@@ -261,7 +290,7 @@ def decline_unrelated_request(
             or fresh.get("request") != request
         ):
             raise ValueError("Incoming request changed before decline")
-        if requester_identity(driver.observer, name) != identity:
+        if _requester(driver, name, request) != identity:
             raise ValueError("Incoming requester changed before decline")
         _cancel_control(driver, fresh, name)
         if not activate_client(driver.target.hwnd, fresh["identity"]):
@@ -280,7 +309,7 @@ def decline_unrelated_request(
             or fresh.get("request") != request
         ):
             raise ValueError("Incoming request changed before decline")
-        if requester_identity(driver.observer, name) != identity:
+        if _requester(driver, name, request) != identity:
             raise ValueError("Incoming requester changed before decline")
         window, logical_point = _cancel_control(driver, fresh, name)
         revision = layout.assert_current(revision)
@@ -301,7 +330,7 @@ def decline_unrelated_request(
                 or current.get("request") != request
             ):
                 raise ValueError("Incoming request changed before decline press")
-            if requester_identity(driver.observer, name) != identity or _cancel_control(
+            if _requester(driver, name, request) != identity or _cancel_control(
                 driver, current, name
             ) != (window, logical_point):
                 raise ValueError("Incoming requester or decline control changed")

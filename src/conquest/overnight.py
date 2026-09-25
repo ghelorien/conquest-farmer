@@ -16,6 +16,9 @@ from conquest.worker import request
 from conquest.capture import CaptureUnavailable
 
 RECOVERY_CHECKPOINT = Path(state_path(".runtime/death-return.json"))
+# Approval timeout (5 s) + one decline + settlement (5 s) with margin; an
+# uncertain decline is never replayed, so the route then needs attention.
+MANUAL_REQUEST_WAIT_SECONDS = 60
 
 
 class OvernightStopped(Exception):
@@ -32,6 +35,24 @@ def read_status(path):
             if attempt == 19:
                 raise
             time.sleep(0.025)
+
+
+def manual_request_fence(loop, error):
+    """The pre-input refusal is only an unapproved-request fence.
+
+    Approved sessions, reader holds and other refusals keep the ordinary
+    bounded retry/failure path. The app's projection grants no input.
+    """
+    from conquest.town_trade import MANUAL_TRADE_FENCE
+
+    if not isinstance(error, TownObservationUnavailable) or (
+        str(error) != MANUAL_TRADE_FENCE
+    ):
+        return False
+    controls = loop.health()["embedded_controls"]
+    return bool(
+        controls.get("manual_input_fence") and controls.get("manual_request_pending")
+    )
 
 
 def supply_counts(snapshot, route):
@@ -271,7 +292,9 @@ class OvernightLoop:
         }
         if action in activity:
             self.record("town_activity", activity=activity[action])
-        for attempt in range(80):
+        attempt, waiting_since = -1, None
+        while attempt < 79:
+            attempt += 1
             self.living()
             body = {"action": action, **fields}
             if action not in (
@@ -285,11 +308,40 @@ class OvernightLoop:
             ):
                 body["expires_at"] = time.time() + 4
             try:
-                return request(self.info, "town", body)
+                result = request(self.info, "town", body)
+                if waiting_since is not None:
+                    self.record("manual_request_cleared", action=action)
+                return result
             except ValueError as error:
                 if action == "service-locate" and str(error).startswith(
                     "One memory-identified "
                 ):
+                    raise
+                if manual_request_fence(self, error):
+                    # An unapproved incoming request is declined by the app's
+                    # exact-request path about five seconds after it appears.
+                    # Hold position (living() keeps survival reads) and retry
+                    # the refused pre-input action without spending attempts.
+                    now = time.monotonic()
+                    if waiting_since is None:
+                        waiting_since = now
+                        self.record(
+                            "manual_request_wait",
+                            action=action,
+                            activity="Holding while an unapproved trade request is declined",
+                        )
+                    if now - waiting_since < MANUAL_REQUEST_WAIT_SECONDS:
+                        attempt -= 1
+                        time.sleep(0.25)
+                        continue
+                    # Pre-input refusal only: never a town_action_failed that
+                    # restart reconciliation must treat as possibly transacted.
+                    self.record(
+                        "manual_request_wait_expired",
+                        action=action,
+                        detail=str(error),
+                        waited_seconds=round(now - waiting_since, 2),
+                    )
                     raise
                 # Typed pre-input failures are safe to retry even for trades.
                 # An uncertain purchase/sale must never be blindly repeated.

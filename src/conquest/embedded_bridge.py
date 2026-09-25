@@ -389,11 +389,9 @@ class EmbeddedBridge:
             if cursor_gap:
                 mark_observation_gap()
             result["embedded_controls"]["manual_mouse"] = mouse_busy or cursor_gap
-            from conquest.merchants.coordination import manual_session_blocked
+            from conquest.merchants.coordination import farmer_fence_projection
 
-            result["embedded_controls"]["manual_input_fence"] = manual_session_blocked(
-                "Farmer"
-            )
+            result["embedded_controls"].update(farmer_fence_projection())
             result["window_mode"] = getattr(self, "window_mode", "unknown")
             return result
 

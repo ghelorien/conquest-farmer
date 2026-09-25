@@ -1,5 +1,6 @@
 """Observe manual farmer trades using the existing pinned native memory reader."""
 
+import json
 from types import SimpleNamespace
 import time
 
@@ -45,6 +46,65 @@ class FarmerJournal:
         return [{"kind": "farmer_delivery"}] if self.runtime.farmer_bot_owned() else []
 
 
+ROUTE_PHASES = ("starting", "hunting", "restocking", "recovering_route")
+ROUTE_STATUS_SECONDS = 30
+
+
+def route_owns_farmer():
+    """A live route process that the user has not stopped owns the farmer.
+
+    The route turns the Farming control Off itself for every town action
+    (stop_farm; town input requires it), so that flag alone is not the
+    user's intent. Only the user's Off writes the overnight.stop marker.
+    """
+    from pathlib import Path
+
+    from conquest.character_context import state_path
+    from conquest.discord_notify import process_alive
+
+    if Path(state_path(".runtime/overnight.stop")).exists():
+        return False
+    try:
+        status = json.loads(
+            Path(state_path("reports/overnight/status.json")).read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, ValueError):
+        return False
+    updated = status.get("updated_at")
+    return bool(
+        isinstance(status, dict)
+        and status.get("phase") in ROUTE_PHASES
+        and type(updated) in (int, float)
+        and 0 <= time.time() - updated <= ROUTE_STATUS_SECONDS
+        and process_alive(status.get("pid"))
+    )
+
+
+def decline_permission(runtime):
+    """(allowed, blocker) for the native decline of an unapproved request.
+
+    Never changes saved intent. Global Stop and a user Off always win; a
+    route-owned Off (town action, route start) does not block the decline.
+    F11/F12 and the coordinator fence are still checked at input time.
+    """
+    from pathlib import Path
+
+    from conquest.character_context import state_path
+
+    intent = runtime.manual_farmer_control()
+    if runtime.coordinator.stopped:
+        return False, "Global Stop holds farmer decline input"
+    if intent.get("paused"):
+        return False, "Farmer is paused"
+    if Path(state_path(".runtime/overnight.stop")).exists():
+        return False, "Farming Off by user; the unapproved request awaits the operator"
+    if intent.get("enabled") or route_owns_farmer():
+        return True, None
+    return False, "Farming is Off; the unapproved request awaits the operator"
+
+
 def controller(runtime, observer):
     from conquest.merchants.driver import MerchantDriver
     from conquest.merchants.farmer_qualification import qualification_path
@@ -54,16 +114,12 @@ def controller(runtime, observer):
     driver.read = lambda: driver.memory.read(farmer_preflight=True)
 
     def active():
-        intent = runtime.manual_farmer_control()
-        return bool(
-            intent.get("enabled")
-            and not intent.get("paused")
-            and not runtime.coordinator.stopped
-        )
+        return decline_permission(runtime)[0]
 
     def check():
-        if not active():
-            raise CaptureUnavailable("Farmer is paused")
+        allowed, blocker = decline_permission(runtime)
+        if not allowed:
+            raise CaptureUnavailable(blocker)
         import ctypes
 
         if any(
@@ -201,17 +257,14 @@ def observe(runtime, observer=None):
             runtime.manual_farmer_controller = controller(runtime, observer)
         except (ValueError, OSError) as error:
             runtime.manual_farmer_observation["decline_blocker"] = str(error)
-    intent = runtime.manual_farmer_control()
+    allowed, blocker = decline_permission(runtime)
+    if blocker and snapshot.get("request"):
+        runtime.manual_farmer_observation["decline_blocker"] = blocker
     try:
         runtime.process_manual(
             "Farmer",
             snapshot,
-            decline_enabled=bool(
-                runtime.manual_farmer_controller
-                and intent.get("enabled")
-                and not intent.get("paused")
-                and not runtime.coordinator.stopped
-            ),
+            decline_enabled=bool(runtime.manual_farmer_controller and allowed),
         )
     except (ValueError, OSError, CaptureUnavailable) as error:
         runtime.manual_farmer_observation["decline_blocker"] = str(error)

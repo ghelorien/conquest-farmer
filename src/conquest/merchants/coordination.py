@@ -275,13 +275,7 @@ class InputCoordinator:
     def set_manual_sessions(self, sessions):
         self.manual_sessions = {row["target_profile_id"]: row for row in sessions}
 
-    def manual_session_blocked(self, character=None, *, purpose=None):
-        rows = self.manual_sessions
-        if any(
-            row.get("ever_approved") and row.get("holds_automation")
-            for row in rows.values()
-        ):
-            return True
+    def _manual_key(self, character):
         key = getattr(character, "profile_id", character)
         if is_farmer_owner(character):
             from conquest.character_context import current
@@ -292,6 +286,38 @@ class InputCoordinator:
                 if context and context.profile.role == "Farmer"
                 else self.manual_farmer_target
             )
+        return key
+
+    def manual_request_pending(self, character=None):
+        """True only while an unapproved incoming request alone fences the target.
+
+        The exact-request decline path is what clears such a fence, followed
+        by its closed-window settlement. Approved sessions, reader holds,
+        rebaselines, needs_attention and operator handoffs never count.
+        This is a projection for waiting callers; it grants no input.
+        """
+        rows = self.manual_sessions
+        if any(
+            row.get("ever_approved") and row.get("holds_automation")
+            for row in rows.values()
+        ):
+            return False
+        row = rows.get(self._manual_key(character))
+        return bool(
+            row
+            and row.get("holds_automation")
+            and not row.get("ever_approved")
+            and row.get("phase") in ("approval_pending", "settlement_observed")
+        )
+
+    def manual_session_blocked(self, character=None, *, purpose=None):
+        rows = self.manual_sessions
+        if any(
+            row.get("ever_approved") and row.get("holds_automation")
+            for row in rows.values()
+        ):
+            return True
+        key = self._manual_key(character)
         row = rows.get(key)
         if not row or not row.get("holds_automation"):
             return False
@@ -520,6 +546,16 @@ def coordinated_input(function):
 
 def manual_session_blocked(character=None):
     return bool(_coordinator and _coordinator.manual_session_blocked(character))
+
+
+def farmer_fence_projection():
+    """Farmer fence fields for the route's health read (no input authority)."""
+    return {
+        "manual_input_fence": manual_session_blocked("Farmer"),
+        "manual_request_pending": bool(
+            _coordinator and _coordinator.manual_request_pending("Farmer")
+        ),
+    }
 
 
 def manual_replan_journal():
