@@ -78,6 +78,71 @@ def test_failed_qualification_blocks_live_input_before_runtime_access(mode):
         run_probe(object(), "Dutch", mode, threading.Event())
 
 
+# Failure modes, written first, for the read-only probe now that its 1074
+# evidence reader is gone:
+# - a read-only mode still takes the diagnostic lease and reads the merchant,
+#   then stops as an unqualified client instead of reading GUI memory;
+# - an open trade still stops it first, with its own message;
+# - either way the input lease is released and no GUI memory is read.
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows input lock")
+@pytest.mark.parametrize("trade", [False, True])
+def test_read_only_probe_stops_as_unqualified_after_its_lease(
+    monkeypatch, tmp_path, trade
+):
+    import win32gui
+    import win32process
+    from conquest.merchants.background_probe import run_probe
+
+    monkeypatch.setattr(
+        win32gui, "EnumWindows", lambda callback, extra: callback(99, extra)
+    )
+    monkeypatch.setattr(win32gui, "GetClassName", lambda hwnd: "TkTopLevel")
+    monkeypatch.setattr(win32gui, "GetWindowText", lambda hwnd: "Conquest")
+    monkeypatch.setattr(win32gui, "GetWindow", lambda hwnd, kind: 0)
+    import os
+
+    monkeypatch.setattr(
+        win32process, "GetWindowThreadProcessId", lambda hwnd: (1, os.getpid())
+    )
+    reads = []
+    driver = SimpleNamespace(
+        read=lambda: reads.append(True) or {"trade": {"open": True} if trade else None},
+        target=SimpleNamespace(hwnd=20, snapshot=lambda: {"client_size": [800, 600]}),
+    )
+    observer = SimpleNamespace(
+        lock=threading.RLock(),
+        adapter=SimpleNamespace(
+            identity={"pid": 1},
+            read_block=Mock(side_effect=AssertionError("No GUI memory read")),
+        ),
+    )
+    coordinator = SimpleNamespace(
+        lock=threading.RLock(),
+        owner=None,
+        thread=None,
+        stopped=False,
+        path=tmp_path / "input.lock",
+    )
+    ui = SimpleNamespace(
+        coordinator=coordinator,
+        safe_to_yield=lambda: True,
+        calibrating=set(),
+        runtime=SimpleNamespace(
+            refilling={},
+            observers={"Dutch": observer},
+            controllers={"Dutch": SimpleNamespace(driver=driver)},
+            enabled=lambda c: False,
+            journal=SimpleNamespace(pending=lambda c: []),
+        ),
+    )
+    message = "Trade must finish" if trade else "Unqualified merchant client"
+    with pytest.raises(ValueError, match=message):
+        run_probe(ui, "Dutch", "observe", threading.Event())
+    assert reads == [True]
+    assert coordinator.owner is coordinator.thread is None
+    observer.adapter.read_block.assert_not_called()
+
+
 def test_running_probe_cannot_be_replaced():
     with pytest.raises(ValueError, match="already running"):
         start_probe(
