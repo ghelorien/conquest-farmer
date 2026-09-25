@@ -5,8 +5,7 @@ import struct
 
 from conquest.addressing import checked_address
 from conquest.memory_inventory import Item
-from conquest.memory_build_layout import warehouse_read_layout
-from conquest.memory_life import CLIENT_SHA256
+from conquest.memory_build_layout import CLIENT_SHA256_1078, warehouse_read_layout
 from conquest.memory_shop import MemoryGui
 
 
@@ -21,8 +20,9 @@ class MemoryWarehouseReader:
     def __init__(self, session):
         self.session = session
         self.layout = warehouse_read_layout(session)
-        # Supplying the layout is the sole 1078 GUI opt-in. MemoryGui's normal
-        # callers remain pinned to 1074 and cannot inherit this capability.
+        # The warehouse model topology below is qualified only on 1078.
+        if self.layout.expected_sha256 != CLIENT_SHA256_1078:
+            raise ValueError("Warehouse reader is not qualified for this client build")
         self.gui = MemoryGui(session, layout=self.layout)
 
     def _warehouse_model(self, block):
@@ -71,10 +71,8 @@ class MemoryWarehouseReader:
             observed.append((address, data))
             return data
 
-        if self.layout.expected_sha256 != CLIENT_SHA256:
-            self._warehouse_model(block)
-        # Both selected layouts retain the observed module->holder->actor
-        # indirection; only their exact RVAs/field offsets differ.
+        self._warehouse_model(block)
+        # The observed module->holder->actor indirection.
         shared = struct.unpack("<Q", block(base + self.layout.warehouse_root_rva, 8))[0]
         owner = struct.unpack("<Q", block(shared, 8))[0]
         table, size, start, count = struct.unpack(
@@ -198,9 +196,12 @@ def normalized_money_amount(value):
 
 
 class WarehouseMoneyReader:
-    """Pinned renderer 1169e0: owner+1044 bank silver, controller+48 amount."""
+    """Exact-layout bank silver and the money controller's +0x48 amount."""
 
-    def __init__(self, session, *, layout=None):
+    def __init__(self, session, *, layout):
+        # The exact build layout is required; there is no pinned default.
+        if layout is None:
+            raise ValueError("Warehouse money reader requires an exact build layout")
         self.session = session
         self.layout = layout
         self.gui = MemoryGui(session, layout=layout)
@@ -237,12 +238,10 @@ class WarehouseMoneyReader:
 
         window = self.gui.read("Warehouse")
         grid = self.gui.read("Warehouse/ScrollingRegion_")
-        root = layout.warehouse_root_rva if layout is not None else 0x69C730
-        silver_offset = layout.warehouse_silver_offset if layout is not None else 0x1044
-        registry = layout.gui_registry_rva if layout is not None else 0x6986C0
-        controller_vtable = (
-            layout.warehouse_model_vtable_rva if layout is not None else 0x5CBA68
-        )
+        root = layout.warehouse_root_rva
+        silver_offset = layout.warehouse_silver_offset
+        registry = layout.gui_registry_rva
+        controller_vtable = layout.warehouse_model_vtable_rva
         shared = struct.unpack("<Q", read(base + root, 8))[0]
         owner = struct.unpack("<Q", read(shared, 8))[0]
         silver = struct.unpack("<I", read(owner + silver_offset, 4))[0]
@@ -265,13 +264,13 @@ class WarehouseMoneyReader:
         else:
             raise ValueError("Warehouse controller lookup exceeded bounds")
         controller = struct.unpack_from("<Q", raw, 0x28)[0]
-        identity = read(controller, 13 if layout is not None else 12)
+        identity = read(controller, 13)
         if (
             struct.unpack_from("<Q", identity)[0] != base + controller_vtable
             or struct.unpack_from("<I", identity, 8)[0] != 0x16
         ):
             raise ValueError("Warehouse money controller identity changed")
-        if layout is not None and not identity[12]:
+        if not identity[12]:
             raise ValueError("Warehouse money controller is inactive")
         value = read(controller + 0x48, 12)
         if b"\0" not in value:

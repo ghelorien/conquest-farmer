@@ -3,12 +3,31 @@ from dataclasses import replace
 import struct
 import pytest
 from conquest.memory_inventory import Item
+from conquest.memory_build_layout import CLIENT_SHA256_1078, READ_LAYOUTS
 from conquest.memory_life import CLIENT_SHA256
 from conquest.memory_warehouse import (
     MemoryWarehouseReader,
     WarehouseSnapshot,
     deposit_received,
 )
+
+LAYOUT = READ_LAYOUTS[CLIENT_SHA256_1078]
+BASE = 0x140000000
+
+
+def put_model_registry(put):
+    """One-node GUI registry holding the active 1078 warehouse model."""
+    head, node, model = 0x400000, 0x400100, 0x400200
+    put(BASE + LAYOUT.gui_registry_rva, struct.pack("<QQ", head, 1))
+    put(head + 8, struct.pack("<Q", node))
+    raw = bytearray(56)
+    struct.pack_into("<I", raw, 32, LAYOUT.warehouse_model_key)
+    struct.pack_into("<Q", raw, 40, model)
+    put(node, bytes(raw))
+    put(
+        model,
+        struct.pack("<Q", BASE + LAYOUT.warehouse_model_vtable_rva) + bytes(4) + b"\1",
+    )
 
 
 def test_deposit_receipt_requires_exact_item_in_warehouse_without_other_losses():
@@ -42,30 +61,31 @@ def test_deposit_receipt_requires_exact_item_in_warehouse_without_other_losses()
 def reader_fixture(monkeypatch, count=1):
     from conquest import memory_warehouse as module
 
-    base = 0x140000000
+    base = BASE
     shared = 0x500000
     owner = 0x600000
     table = 0x700000
     entry = 0x800000
     item = 0x900000
     data = {
-        base + 0x69C730: struct.pack("<Q", shared),
+        base + LAYOUT.warehouse_root_rva: struct.pack("<Q", shared),
         shared: struct.pack("<Q", owner),
-        owner + 0x1008: struct.pack("<4Q", table, 8, 0, count),
-        owner + 0x1030: struct.pack("<I", 20),
-        owner + 0x1044: struct.pack("<I", 500),
+        owner + LAYOUT.warehouse_deque_offset: struct.pack("<4Q", table, 8, 0, count),
+        owner + LAYOUT.warehouse_capacity_offset: struct.pack("<I", 20),
+        owner + LAYOUT.warehouse_silver_offset: struct.pack("<I", 500),
         table: struct.pack("<Q", entry),
         entry: struct.pack("<Q", item),
-        item: struct.pack("<Q", base + 0x5CF220),
+        item: struct.pack("<Q", base + LAYOUT.item_vtable_rva),
         item + 8: struct.pack("<I", 42),
         item + 0x10: struct.pack("<I", 1088001),
         item + 0x62: struct.pack("<HH", 1, 1),
         item + 0x6B: b"\0",
     }
+    put_model_registry(data.__setitem__)
     s = NS(
         read_block=lambda address, size: data[address],
         assert_identity=lambda: None,
-        expected_sha256=CLIENT_SHA256,
+        expected_sha256=CLIENT_SHA256_1078,
     )
     monkeypatch.setattr(
         module,
@@ -80,6 +100,20 @@ def test_warehouse_reads_exact_uid_and_type(monkeypatch):
     assert reader.read() == WarehouseSnapshot((Item(42, 1088001, 1, 1, 0, 0),), 20, 500)
 
 
+def test_warehouse_reader_fails_closed_off_1078(monkeypatch):
+    reader, data, owner = reader_fixture(monkeypatch)
+    reader.session.expected_sha256 = CLIENT_SHA256
+    with pytest.raises(ValueError, match="not qualified"):
+        MemoryWarehouseReader(reader.session)
+
+
+def test_warehouse_requires_active_1078_model(monkeypatch):
+    reader, data, owner = reader_fixture(monkeypatch)
+    data[0x400200] = data[0x400200][:12] + b"\0"
+    with pytest.raises(ValueError, match="model is not active"):
+        reader.read()
+
+
 def test_warehouse_rejects_invalid_count(monkeypatch):
     reader, data, owner = reader_fixture(monkeypatch, 21)
     with pytest.raises(ValueError, match="deque"):
@@ -92,7 +126,7 @@ def test_warehouse_rejects_changed_topology(monkeypatch):
     calls = []
 
     def read(address, size):
-        if address == owner + 0x1008:
+        if address == owner + LAYOUT.warehouse_deque_offset:
             calls.append(1)
             if len(calls) > 1:
                 return bytes(32)
@@ -106,7 +140,7 @@ def test_warehouse_rejects_changed_topology(monkeypatch):
 def test_rich_warehouse_fences_first_row_gems_while_later_row_is_decoded(monkeypatch):
     from conquest import memory_warehouse as module
 
-    base = 0x140000000
+    base = BASE
     shared = 0x500000
     owner = 0x600000
     table = 0x700000
@@ -118,16 +152,17 @@ def test_rich_warehouse_fences_first_row_gems_while_later_row_is_decoded(monkeyp
         for offset, value in enumerate(data):
             memory[address + offset] = value
 
-    put(base + 0x69C730, struct.pack("<Q", shared))
+    put_model_registry(put)
+    put(base + LAYOUT.warehouse_root_rva, struct.pack("<Q", shared))
     put(shared, struct.pack("<Q", owner))
-    put(owner + 0x1008, struct.pack("<4Q", table, 8, 0, 2))
-    put(owner + 0x1030, struct.pack("<I", 20))
-    put(owner + 0x1044, struct.pack("<I", 500))
+    put(owner + LAYOUT.warehouse_deque_offset, struct.pack("<4Q", table, 8, 0, 2))
+    put(owner + LAYOUT.warehouse_capacity_offset, struct.pack("<I", 20))
+    put(owner + LAYOUT.warehouse_silver_offset, struct.pack("<I", 500))
     put(table, struct.pack("<2Q", *entries) + bytes(48))
     for index, (entry, pointer) in enumerate(zip(entries, items), 1):
         put(entry, struct.pack("<Q", pointer))
         raw = bytearray(0xA0)
-        struct.pack_into("<Q", raw, 0, base + 0x5CF220)
+        struct.pack_into("<Q", raw, 0, base + LAYOUT.item_vtable_rva)
         struct.pack_into("<I", raw, 8, 40 + index)
         struct.pack_into("<I", raw, 0x10, 114643)
         struct.pack_into("<HH", raw, 0x62, 31, 40)
@@ -139,7 +174,7 @@ def test_rich_warehouse_fences_first_row_gems_while_later_row_is_decoded(monkeyp
             memory[address + i] for i in range(size)
         ),
         assert_identity=lambda: None,
-        expected_sha256=CLIENT_SHA256,
+        expected_sha256=CLIENT_SHA256_1078,
     )
     monkeypatch.setattr(
         module,
