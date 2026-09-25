@@ -15,47 +15,12 @@ def preferred_arrow(level):
     )
 
 
-def _snapshot(snapshot):
-    if isinstance(snapshot, dict):
-        return snapshot
-    from dataclasses import asdict
-
-    return asdict(snapshot)
-
-
-def usable_arrow_tiers(snapshot, level):
-    """Level-eligible normal tiers carried in a Scatter-usable (>= 3) stack."""
-    snapshot = _snapshot(snapshot)
-    stacks = list(snapshot["items"])
-    if snapshot.get("equipped_ammo"):
-        stacks.append(snapshot["equipped_ammo"])
-    return {
-        s["type_id"]
-        for s in stacks
-        if s["type_id"] in NORMAL_ARROWS
-        and s["amount"] >= 3
-        and ARROW_LEVELS[s["type_id"]] <= level
-    }
-
-
-def lower_tier_in_use(snapshot, level):
-    """Return the usable tier being used up before the level-best tier is bought.
-
-    Owned usable packs are spent first. While the best usable tier is below the
-    best tier for the level, no arrow is bought: neither a lower-tier spare nor
-    an early upgrade. Returns None when a best-tier pack is usable or nothing
-    usable is carried (a required refill then buys the level-best tier).
-    """
-    usable = usable_arrow_tiers(snapshot, level)
-    if not usable:
-        return None
-    best = max(usable, key=ARROW_LEVELS.get)
-    return best if ARROW_LEVELS[best] < ARROW_LEVELS[preferred_arrow(level)] else None
-
-
 def arrow_pack_count(snapshot):
     """Count physical arrow packs, including partial packs and equipped ammo."""
-    snapshot = _snapshot(snapshot)
+    if not isinstance(snapshot, dict):
+        from dataclasses import asdict
+
+        snapshot = asdict(snapshot)
     items = [
         i
         for i in snapshot["items"]
@@ -132,6 +97,29 @@ def current_arrow(state, default=None, reserves=(), *, equipped_ammo=None):
     return preferred_arrow(state["level"]) if default is None else default
 
 
+def fallback_arrow(products, level, kind, silver):
+    """Next lower level-eligible normal tier the wallet can pay for, or None.
+
+    Prices come only from the live shop reader. A required refill that cannot
+    pay for the selected tier buys the best affordable lower tier instead
+    (SpeedArrow -> IronArrow -> LuckyArrow) rather than stranding in town.
+    """
+    lower = sorted(
+        (
+            p
+            for p in products
+            if p["type_id"] in NORMAL_ARROWS
+            and ARROW_LEVELS[p["type_id"]] < ARROW_LEVELS.get(kind, 0)
+            and ARROW_LEVELS[p["type_id"]] <= level
+            and 1 <= p.get("level", 0) <= level
+            and 0 < p.get("price", 0) <= silver
+        ),
+        key=lambda p: ARROW_LEVELS[p["type_id"]],
+        reverse=True,
+    )
+    return lower[0] if lower else None
+
+
 def choose_arrow_upgrade(products, state, silver, reserve=3000, *, carried=()):
     old = state["equipment"].get("arrows", {})
     candidates = [
@@ -168,15 +156,6 @@ def review_arrows(loop, products, state, silver):
                 loop.record(
                     "arrow_upgrade_deferred",
                     activity="Using existing ammunition; two-pack purchase cap reached",
-                )
-                if hasattr(loop, "adopt_ammunition"):
-                    loop.adopt_ammunition(state)
-                return state
-            held = lower_tier_in_use(bag, state["level"])
-            if held:
-                loop.record(
-                    "arrow_upgrade_deferred",
-                    activity=f"Using remaining {NORMAL_ARROWS[held]} before buying {product['name']}",
                 )
                 if hasattr(loop, "adopt_ammunition"):
                     loop.adopt_ammunition(state)

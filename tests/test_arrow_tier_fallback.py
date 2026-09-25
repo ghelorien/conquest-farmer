@@ -7,10 +7,13 @@ cover the pure rules the E2E cannot reach cheaply. Failure modes, written first:
  T2  A usable (>= 3, level-eligible) carried stack loses to the level-best tier.
  T3  Savings mode: with nothing usable, adopt_ammunition leaves the
      savings-configured tier for a SpeedArrow that savings will not buy.
- T4  The restock budget funds an Iron spare or a Speed upgrade while a usable
-     lower-tier pack is carried (level 95, Iron pack equipped).
- T5  The restock budget for the selected tier is not priced from the recorded
+ T4  The restock budget for the selected tier is not priced from the recorded
      live-shop quote of that tier.
+ T5  Affordable fallback: when the selected tier cannot be paid for, the
+     fallback is not the next lower level-eligible tier the wallet covers
+     (Speed -> Iron -> Lucky), picks a tier above the selection or the level,
+     uses a price the live shop did not quote, or invents a tier when nothing
+     is affordable.
 """
 
 import pytest
@@ -121,22 +124,6 @@ def potions():
     ]
 
 
-def test_usable_lower_tier_pack_funds_no_arrows(monkeypatch):
-    from conquest import banking as b
-
-    monkeypatch.setattr(b, "transport_reserve", lambda: 200)
-    bag = {
-        "items": potions(),
-        "equipped_ammo": {"uid": 8, "type_id": IRON, "amount": 1000, "limit": 1000},
-        "capacity": 40,
-        "silver": 200,
-    }
-    route = budget_route(IRON, 2000)
-    assert b.shopping_budget(route, bag, level=95) == 200  # T4
-    # Iron is the level-best tier at 72: its one-pack spare is still funded.
-    assert b.shopping_budget(route, bag, level=72) == 200 + 4800 + 3000
-
-
 def test_selected_speed_tier_is_funded_from_its_recorded_shop_price(monkeypatch):
     from conquest import banking as b
 
@@ -149,7 +136,42 @@ def test_selected_speed_tier_is_funded_from_its_recorded_shop_price(monkeypatch)
     }
     # The recorded Phoenix Blacksmith quote is 34,000 per 5,000-arrow pack.
     route = budget_route(SPEED, 10000)
-    assert b.shopping_budget(route, bag, level=95) == 200 + 2 * 34000 + 3000  # T5
+    assert b.shopping_budget(route, bag, level=95) == 200 + 2 * 34000 + 3000  # T4
     monkeypatch.setattr("conquest.archer_shop_catalog.catalog", lambda: {"cities": {}})
     with pytest.raises(ValueError, match="not qualified"):
         b.shopping_budget(route, bag, level=95)
+
+
+def shop(*kinds):
+    quotes = {
+        LUCKY: {"price": 200, "level": 1},
+        IRON: {"price": 4800, "level": 32},
+        SPEED: {"price": 34000, "level": 73},
+    }
+    return [{"type_id": k, "profession": 40, **quotes[k]} for k in kinds]
+
+
+@pytest.mark.parametrize(
+    "level,kind,silver,expected",
+    [
+        (95, SPEED, 11200, IRON),  # Speed unaffordable: Iron.
+        (95, SPEED, 4799, LUCKY),  # Iron unaffordable too: Lucky.
+        (95, SPEED, 199, None),  # Nothing affordable: no invented tier.
+        (40, IRON, 3200, LUCKY),
+        (95, IRON, 100000, LUCKY),  # Never above the selected tier.
+        (20, LUCKY, 100000, None),  # Nothing below Lucky.
+    ],
+)
+def test_affordable_fallback_is_next_lower_eligible_tier(level, kind, silver, expected):
+    from conquest.arrow_upgrades import fallback_arrow
+
+    product = fallback_arrow(shop(LUCKY, IRON, SPEED), level, kind, silver)  # T5
+    assert (product and product["type_id"]) == (expected or None)
+
+
+def test_affordable_fallback_uses_only_live_shop_quotes():
+    from conquest.arrow_upgrades import fallback_arrow
+
+    # Iron is not listed by this Blacksmith: no guessed Iron price.
+    assert fallback_arrow(shop(LUCKY, SPEED), 95, SPEED, 11200)["type_id"] == LUCKY
+    assert fallback_arrow(shop(SPEED), 95, SPEED, 11200) is None

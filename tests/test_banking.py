@@ -405,21 +405,9 @@ def test_level_73_budget_funds_speed_upgrade_only_when_pack_room_exists(monkeypa
         "silver": 200,
     }
     assert b.shopping_budget(route, bag, level=72) == 8000
-    # A usable Iron pack is used up before SpeedArrow is bought (2026-09-25).
-    assert b.shopping_budget(route, bag, level=73) == 200
-    bag["items"][0]["amount"] = 2  # Spent: fund the SpeedArrow upgrade.
     assert b.shopping_budget(route, bag, level=73) == 37200
-    # No pack room: two usable SpeedArrow packs need no arrow funds at all.
-    bag["items"][0] = {"uid": 1, "type_id": 1050002, "amount": 5000, "limit": 5000}
-    bag["equipped_ammo"] = {"uid": 3, "type_id": 1050002, "amount": 900, "limit": 5000}
-    speed = route.model_copy(
-        update={
-            "supplies": route.supplies.model_copy(
-                update={"arrow_type": 1050002, "arrows_restock_to": 10000}
-            )
-        }
-    )
-    assert b.shopping_budget(speed, bag, level=73) == 200
+    bag["items"].append({"uid": 3, "type_id": 1050001, "amount": 1000, "limit": 1000})
+    assert b.shopping_budget(route, bag, level=73) == 200
 
 
 def test_two_speed_packs_require_no_refill_funds_when_equipped_is_partial(monkeypatch):

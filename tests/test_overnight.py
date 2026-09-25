@@ -442,8 +442,6 @@ def test_unconfirmed_topup_only_defers_when_supplies_and_money_stay_unchanged(
         calls.append(action)
         if action == "buy":
             raise ValueError("Purchase was not verified; no repeat purchase issued")
-        if action == "gear":  # Tier check before a top-up; Lucky is level-best.
-            return {"level": 10, "equipment": {}}
         reads.append(1)
         amount = 1204 if change != "shortage" else 0
         silver = 14005

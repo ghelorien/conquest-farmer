@@ -904,23 +904,6 @@ class OvernightLoop:
                     activity="Preserving silver; buying only affordable essential supplies",
                 )
                 return False
-        elif (
-            type_id in NORMAL_ARROWS
-            and before["arrows"] >= self.route.supplies.arrows_return_below
-        ):
-            # A usable pack below the level-best tier is used up first; its
-            # replacement is the level-best tier once it runs out.
-            from conquest.arrow_upgrades import lower_tier_in_use
-
-            level = self.town("gear").get("level")
-            held = lower_tier_in_use(snapshot, level) if type(level) is int else None
-            if held:
-                self.record(
-                    "arrow_purchase_deferred",
-                    arrow_packs=arrow_pack_count(snapshot),
-                    activity=f"Using remaining {NORMAL_ARROWS[held]} before buying more arrows",
-                )
-                return False
         if (
             type_id in (1050001, 1050002)
             and before["arrows"] >= self.route.supplies.arrows_return_below
@@ -960,6 +943,69 @@ class OvernightLoop:
             return False
         self.record("purchase", receipt=receipt)
         return True
+
+    def buy_refill_arrows(self):
+        """Buy the selected tier, or the next affordable lower tier.
+
+        The worker refuses an unaffordable purchase before any input. A
+        required refill must not strand in town because the level-best tier
+        (SpeedArrow at 73+) costs more than the wallet holds after funding,
+        which already withdrew every stored silver it could.
+        """
+        kind = self.route.supplies.arrow_type
+        try:
+            return self.buy_supply(5, kind)
+        except ValueError as error:
+            if str(error) != "Insufficient funds or inventory room to restock":
+                raise
+            from conquest.arrow_upgrades import (
+                ARROW_REFILL_AMOUNTS,
+                NORMAL_ARROWS,
+                fallback_arrow,
+            )
+
+            bag = self.town("supplies")
+            products = self.town("shop", vendor_type=5).get("products") or []
+            quote = next((p for p in products if p["type_id"] == kind), None)
+            if (
+                len(bag["items"]) >= bag["capacity"]
+                or quote is None
+                or quote["price"] <= bag["silver"]
+            ):
+                raise  # Bag room, or not a verified shortfall of silver.
+            level = self.town("gear").get("level")
+            product = (
+                fallback_arrow(products, level, kind, bag["silver"])
+                if type(level) is int
+                else None
+            )
+            if product is None:
+                raise
+            fallback = product["type_id"]
+            self.route = self.route.model_copy(
+                update={
+                    "supplies": self.route.supplies.model_copy(
+                        update={
+                            "arrow_type": fallback,
+                            "arrows_restock_to": ARROW_REFILL_AMOUNTS[fallback],
+                        }
+                    )
+                }
+            )
+            self.record(
+                "arrow_tier_fallback",
+                arrow_type=fallback,
+                previous_arrow_type=kind,
+                price=product["price"],
+                unaffordable_price=quote["price"],
+                silver=bag["silver"],
+                activity=(
+                    f"{NORMAL_ARROWS[kind]} costs {quote['price']:,} with "
+                    f"{bag['silver']:,} silver available; buying "
+                    f"{NORMAL_ARROWS[fallback]}"
+                ),
+            )
+            return self.buy_supply(5, fallback)
 
     def open_arrow_refill(self):
         before = self.town("supplies")
@@ -1072,7 +1118,7 @@ class OvernightLoop:
                 # again before the required refill's price read or purchase.
                 if not self.open_arrow_refill():
                     break
-                if not self.buy_supply(5, self.route.supplies.arrow_type):
+                if not self.buy_refill_arrows():
                     break
         self.town("close", window="Shop")
         self.town("close", window="Inventory")

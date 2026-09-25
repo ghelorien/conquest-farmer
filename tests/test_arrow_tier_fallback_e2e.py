@@ -32,17 +32,18 @@ Failure modes, written before the fix:
      IronArrow at level 20, where Iron is not even level-eligible).
  F3  Level 40 with nothing usable does not select IronArrow.
  F4  Level 20 with nothing usable selects anything but LuckyArrow.
- F5  Level 95 with a usable IronArrow pack: Iron is not adopted, the Iron pack
-     is sold or discarded, or any further arrow (an Iron spare or a SpeedArrow
-     upgrade) is funded or bought while Iron is still usable.
+ F5  Level 95 with a usable IronArrow pack: the Iron pack is sold or
+     discarded. (Buying/funding a SpeedArrow upgrade on a required visit when
+     there is pack room is the existing, unchanged behaviour.)
  F6  Carrying two or more packs (live aftermath: Iron 1000 in the bag plus the
      equipped Speed remnant): any arrow purchase.
  F7  The withdrawal budget is priced from the route default instead of the
      selected tier, so the selected pack is unaffordable at the shop.
- F8  Insufficient silver for the selected best tier: a lower tier is silently
-     bought, or a purchase input is issued. The existing rules decide: all
-     stored silver is withdrawn, the worker refuses before input and the
-     restock stops with that error.
+ F8  The level-best tier is unaffordable (wallet plus stored silver below its
+     price; the worker refuses before input): the restock stops in town
+     instead of buying the next lower affordable eligible tier (Speed -> Iron
+     -> Lucky), or the fallback is not recorded as an event.
+ F8b The level-best tier is affordable: a fallback tier is bought instead.
  F9  Remnants: the equipped remnant is sold, a bag remnant survives a required
      visit, or a usable pack is recycled.
  F10 The artifact is not repeatable.
@@ -353,7 +354,8 @@ SCENARIOS = {
         "stored": 200000,
     },
     # F5/F9: after the reload the Iron pack is equipped and the remnant is in
-    # the bag; a potion-triggered visit with ample silver for an upgrade.
+    # the bag; a potion-triggered visit with ample silver for the (existing)
+    # SpeedArrow upgrade.
     "usable_iron_equipped_l95": {
         "route": "bandit",
         "map_id": 1011,
@@ -406,6 +408,17 @@ SCENARIOS = {
         "silver": 1200,
         "stored": 50000,
     },
+    # F8: level 40 cannot pay for IronArrow either: LuckyArrow.
+    "insufficient_silver_for_iron_l40": {
+        "route": "turtledove",
+        "map_id": 1002,
+        "level": 40,
+        "equipped": {"uid": 8, "type_id": IRON, "amount": 2, "limit": 1000},
+        "bag": [],
+        "potions": 5,
+        "silver": 1200,
+        "stored": 2000,
+    },
     # F8: not enough silver anywhere for a SpeedArrow pack.
     "insufficient_silver_for_speed_l95": {
         "route": "bandit",
@@ -425,6 +438,7 @@ KEPT_EVENTS = (
     "arrow_upgrade_deferred",
     "arrow_upgrade_buying",
     "arrows_upgraded",
+    "arrow_tier_fallback",
     "optional_purchase_deferred",
     "silver_withdraw",
     "silver_deposit",
@@ -519,7 +533,14 @@ def run_scenario(root, monkeypatch, name):
                 "event": row["event"],
                 **{
                     key: row[key]
-                    for key in ("activity", "arrow_type", "arrow_packs", "amount")
+                    for key in (
+                        "activity",
+                        "arrow_type",
+                        "arrow_packs",
+                        "amount",
+                        "price",
+                        "silver",
+                    )
                     if key in row
                 },
             }
@@ -551,7 +572,7 @@ def arrow_buys(trace):
 
 
 @pytest.mark.parametrize("name", list(SCENARIOS))
-def test_required_visit_buys_the_level_best_tier_only_when_nothing_is_usable(
+def test_required_visit_buys_level_best_or_next_affordable_tier(
     tmp_path, monkeypatch, name
 ):
     first = run_scenario(tmp_path / "first", monkeypatch, name)
@@ -571,8 +592,13 @@ def test_required_visit_buys_the_level_best_tier_only_when_nothing_is_usable(
         row["amount"] for row in trace if row["kind"] == "warehouse-money-withdraw"
     )
     selected = [e["arrow_type"] for e in events if e["event"] == "ammunition_selected"]
+    fallbacks = [e for e in events if e["event"] == "arrow_tier_fallback"]
     # F9: nothing usable is ever recycled; only 1-2 arrow bag remnants.
     assert all(row["amount"] < 3 for row in sold)
+    # F8: every required visit completes with usable arrows.
+    assert artifact["error"] is None and final["cycles"] == 1
+    # F8b: a fallback happens only in the unaffordable scenarios.
+    assert bool(fallbacks) == name.startswith("insufficient_silver")
 
     if name == "live_speed_remnant_l95":
         # F1: SpeedArrow, never the route's saved IronArrow.
@@ -593,17 +619,15 @@ def test_required_visit_buys_the_level_best_tier_only_when_nothing_is_usable(
         assert final["arrows"] == artifact["inputs"]["carried_arrows"]
         assert artifact["error"] is None and final["cycles"] == 1
     elif name == "usable_iron_equipped_l95":
-        # F5: Iron is used first; neither an Iron spare nor a Speed upgrade is
-        # bought (or funded) while it is usable. F9: bag remnant recycled.
-        assert final["selected_arrow"] == "IronArrow"
-        assert buys == []
+        # F5: the usable Iron pack is kept (moved to the bag as the spare) when
+        # the existing upgrade buys and equips SpeedArrow. F9: remnant recycled.
+        assert selected[0] == IRON and final["selected_arrow"] == "SpeedArrow"
+        assert buys == ["SpeedArrow"]
         assert [(r["type"], r["amount"]) for r in sold] == [("SpeedArrow", 1)]
         assert final["arrows"] == {
-            "bag": [],
-            "equipped": {"type_id": IRON, "amount": 1000},
+            "bag": [{"type_id": IRON, "amount": 1000}],
+            "equipped": {"type_id": SPEED, "amount": 5000},
         }
-        assert withdrawn == 0
-        assert artifact["error"] is None and final["cycles"] == 1
     elif name == "iron_spent_l95":
         assert final["selected_arrow"] == "SpeedArrow"
         assert buys == ["SpeedArrow"]
@@ -620,15 +644,22 @@ def test_required_visit_buys_the_level_best_tier_only_when_nothing_is_usable(
         assert buys == ["LuckyArrow"]
         assert artifact["error"] is None and final["cycles"] == 1
     elif name == "insufficient_silver_for_speed_l95":
-        # F8: all stored silver is withdrawn, the worker refuses the SpeedArrow
-        # before input, no cheaper tier is substituted and the visit stops.
-        assert final["selected_arrow"] == "SpeedArrow"
-        assert buys == [] and withdrawn == 10000
+        # F8: all stored silver is withdrawn, the worker refuses SpeedArrow
+        # before input, and the visit buys IronArrow as the old code did.
+        assert selected == [SPEED] and withdrawn == 10000
         assert [r["type"] for r in trace if r["kind"] == "buy_refused"] == [
             "SpeedArrow"
         ]
-        assert artifact["error"] == "Insufficient funds or inventory room to restock"
-        assert final["cycles"] == 0
+        assert buys == ["IronArrow"]
+        assert [(f["arrow_type"], f["price"]) for f in fallbacks] == [(IRON, 4800)]
+        assert final["selected_arrow"] == "IronArrow"
+        assert final["arrows_restock_to"] == 2000
+    elif name == "insufficient_silver_for_iron_l40":
+        # F8: Iron unaffordable at level 40: LuckyArrow.
+        assert selected == [IRON] and withdrawn == 2000
+        assert buys == ["LuckyArrow"]
+        assert [(f["arrow_type"], f["price"]) for f in fallbacks] == [(LUCKY, 200)]
+        assert final["selected_arrow"] == "LuckyArrow"
     else:  # pragma: no cover
         raise AssertionError(name)
     # No scenario ever buys a tier above the character's level.

@@ -68,16 +68,8 @@ def shopping_budget(route, bag, level=None):
     )
     if not pack:
         raise ValueError("Arrow refill budget is not qualified")
-    from conquest.arrow_upgrades import (
-        MAX_ARROW_PACKS,
-        arrow_pack_count,
-        NORMAL_ARROWS,
-        lower_tier_in_use,
-    )
+    from conquest.arrow_upgrades import MAX_ARROW_PACKS, arrow_pack_count, NORMAL_ARROWS
 
-    # A usable pack below the level-best tier is used up before any arrow is
-    # bought, so it needs neither a spare nor an upgrade budget.
-    held = level is not None and lower_tier_in_use(bag, level)
     # One/two-arrow remnants will be recycled on this required shop visit.
     # They must not consume the budget for the replacement pack. The actual
     # purchase cap still counts every carried pack until recycling is verified.
@@ -91,15 +83,9 @@ def shopping_budget(route, bag, level=None):
     }
     if ammo and ammo["type_id"] in NORMAL_ARROWS and ammo["amount"] < 3:
         usable_bag["equipped_ammo"] = None
-    packs = (
-        0
-        if held
-        else min(
-            math.ceil(
-                max(0, route.supplies.arrows_restock_to - counts["arrows"]) / pack
-            ),
-            max(0, MAX_ARROW_PACKS - arrow_pack_count(usable_bag)),
-        )
+    packs = min(
+        math.ceil(max(0, route.supplies.arrows_restock_to - counts["arrows"]) / pack),
+        max(0, MAX_ARROW_PACKS - arrow_pack_count(usable_bag)),
     )
     # A full two-pack bag cannot buy another pack. Do not require a catalog
     # price for a purchase that the inventory cap already rules out.
@@ -121,7 +107,7 @@ def shopping_budget(route, bag, level=None):
         + scrolls
         + (3000 if route.supplies.arrow_type != 1050000 and arrows else 0)
     )
-    if level is not None and not held and arrow_pack_count(bag) < MAX_ARROW_PACKS:
+    if level is not None and arrow_pack_count(bag) < MAX_ARROW_PACKS:
         from conquest.arrow_upgrades import preferred_arrow, ARROW_LEVELS
 
         best = preferred_arrow(level)
