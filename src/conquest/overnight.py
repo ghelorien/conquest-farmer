@@ -1564,6 +1564,11 @@ class OvernightLoop:
         from conquest.restock_town_recovery import resume_pre_admission_tail
 
         resume_pre_admission_tail(self)
+        from conquest.restock_cash_tail import resume as resume_restock_cash_tail
+
+        # Only a proved restock whose Meteor batch completed on restart, with no
+        # recorded or possible transfer since it began; claimed once, never replayed.
+        resume_restock_cash_tail(self)
         # Never leave town merely because a restarted worker sees stocked
         # supplies. The previous process may have stopped before banking or
         # may have submitted a transfer whose result needs reconciliation.
