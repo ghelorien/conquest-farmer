@@ -123,6 +123,20 @@ def backlogs(status, *, now=None):
     }
 
 
+def _earlier_process(shop_return, character):
+    """True only when the record provably belongs to a different game process.
+
+    Ordinary refill already lists past such historical records; anything that
+    cannot be compared (missing identity fields) stays a blocker.
+    """
+    keys = ("pid", "creation_time_100ns", "path")
+    old = (shop_return.get("before") or {}).get("identity") or {}
+    current = (character.get("snapshot") or {}).get("identity") or {}
+    if not all(old.get(k) for k in keys) or not all(current.get(k) for k in keys):
+        return False
+    return any(old[k] != current[k] for k in keys)
+
+
 def merchant_blockers(status):
     """Merchant-side reasons that forbid starting or continuing a batch."""
     from conquest.merchants.handoff import urgent_recovery
@@ -156,7 +170,11 @@ def merchant_blockers(status):
             reasons.append(f"{name}:manual_input")
         if (character.get("recovery_safety") or {}).get("active"):
             reasons.append(f"{name}:recovery")
-        if shop_return.get("phase") not in (None, "complete", "operator_overridden"):
+        if shop_return.get("phase") not in (
+            None,
+            "complete",
+            "operator_overridden",
+        ) and not _earlier_process(shop_return, character):
             reasons.append(f"{name}:shop_return")
         if refill.get("listing1078_request") or work.get("blocker") in UNRECONCILED:
             # An in-flight or uncertain listing is reconciled by the merchant
