@@ -37,15 +37,21 @@ Failure modes, written before the implementation (each is a test below):
       meteor_loop_complete or consolidation start, missing events audit, or
       a changed route -> refuse.
  FM11 cash_attempted without cash_verified on a later start (transfer raised,
-      unverified or missing receipt, warehouse open failed, bank changed) ->
-      refuse; the transfer is never replayed.  cash_verified without
-      completion (crash in the panel tail) also refuses.
+      unverified or missing receipt) -> refuse; the transfer is never
+      replayed.  cash_verified without completion (crash in the panel tail)
+      also refuses.
  FM12 Manual Stop before the claim -> nothing written, no input.
  FM13 Other continuation kinds (pre-admission capture, operator claim,
       verified tail, urgent/acceptance visits, completed visits) are left
       untouched: resume() returns False without reading the game.
- FM14 The claim is durable before the warehouse is opened, and the transfer
-      happens at most once; a completed visit is idempotent.
+ FM14 The claim is durable before the only money input (after the warehouse
+      is open and re-verified), and the transfer happens at most once; a
+      completed visit is idempotent.
+ FM15 The walk to the Warehouseman or the warehouse open fails (movement
+      stall, unverified open) or the opened bank differs from the proof ->
+      no claim is written and no money input happens, so a later start
+      re-proves everything and may retry. (Added after review: a claim
+      written before movement stranded a visit although no money moved.)
 """
 
 import json
@@ -400,8 +406,8 @@ def rig(tmp_path, monkeypatch):
     )
 
     def open_warehouse(loop):
-        # The durable claim exists before the first warehouse input.
-        assert claim_phase() == "cash_attempted"
+        # Movement and the non-monetary open stay retryable: no claim yet.
+        assert claim_phase() is None
         x.calls.append(("open",))
         return town("warehouse-money")
 
@@ -842,8 +848,6 @@ def test_manual_stop_prevents_claim_and_input(rig):
         "transfer_raises",
         "receipt_unverified",
         "receipt_missing",
-        "open_fails",
-        "bank_differs",
         "post_cash_crash",
     ],
 )
@@ -862,23 +866,6 @@ def test_attempted_cash_is_never_replayed(rig, monkeypatch, outcome):
             banking,
             "transfer",
             lambda loop, direction, amount: x.calls.append((direction, amount)),
-        )
-    if outcome == "open_fails":
-
-        def open_fails(loop):
-            assert x.claim_phase() == "cash_attempted"
-            x.calls.append(("open",))
-            raise ValueError("Warehouse opening unverified; no repeat input issued")
-
-        monkeypatch.setattr(banking, "open_warehouse", open_fails)
-    if outcome == "bank_differs":
-        x.stored = STORED
-        monkeypatch.setattr(
-            banking,
-            "open_warehouse",
-            lambda loop: (
-                x.calls.append(("open",)) or {"silver": 200, "stored_silver": STORED}
-            ),
         )
     if outcome == "post_cash_crash":
         monkeypatch.setattr(
@@ -901,6 +888,41 @@ def test_attempted_cash_is_never_replayed(rig, monkeypatch, outcome):
     assert "town_work_completed_at" not in x.visit.state()
     with pytest.raises(ValueError, match="Unfinished town work"):
         x.visit.require_town_work_complete()
+
+
+@pytest.mark.parametrize("outcome", ["open_fails", "bank_differs"])
+def test_warehouse_failure_before_money_leaves_no_claim_and_retries(
+    rig, monkeypatch, outcome
+):
+    # FM15: movement and the non-monetary open are retryable.
+    x = rig
+    original = banking.open_warehouse
+    if outcome == "open_fails":
+
+        def failing(loop):
+            assert x.claim_phase() is None
+            x.calls.append(("open",))
+            raise ValueError("Route made no improving progress after bounded recovery")
+
+    else:
+
+        def failing(loop):
+            x.calls.append(("open",))
+            return {"silver": x.bag["silver"] + 1, "stored_silver": x.stored}
+
+    monkeypatch.setattr(banking, "open_warehouse", failing)
+    rows = len(ledger())
+    with pytest.raises(ValueError):
+        tail.resume(x.loop)
+    assert tail.CLAIM not in x.visit.state()
+    assert not any(c[0] in ("deposit", "withdraw") for c in x.calls)
+    assert len(ledger()) == rows
+    monkeypatch.setattr(banking, "open_warehouse", original)
+    assert tail.resume(x.loop) is True
+    state = x.visit.state()
+    assert state["town_work_completed_at"]
+    assert state[tail.CLAIM]["phase"] == "cash_verified"
+    assert sum(c[0] in ("deposit", "withdraw") for c in x.calls) == 1
 
 
 # --------------------------------------------------------------------------

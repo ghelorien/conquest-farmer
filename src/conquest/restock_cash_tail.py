@@ -331,6 +331,18 @@ def resume(loop):
     recovery._native_tail_safe(loop, target, loop.route.restock_map_id)
     if visit.state() != row:
         raise ValueError("Restock visit changed during cash-tail proof")
+    # Walking to the Warehouseman and opening its panel move no money, so a
+    # stall or failed open here stays retryable: no claim is written yet.
+    bank = banking.open_warehouse(loop)
+    recovery._native_tail_safe(loop, target, loop.route.restock_map_id)
+    if (
+        visit.state() != row
+        or recovery._ownership(loop.town("supplies")) != recovery._ownership(expected)
+        or not isinstance(bank, dict)
+        or bank.get("silver") != expected["silver"]
+        or type(bank.get("stored_silver")) is not int
+    ):
+        raise ValueError("Cash tail ownership changed before money input")
     claim = {
         "phase": "cash_attempted",
         "target": deepcopy(target),
@@ -340,21 +352,11 @@ def resume(loop):
         },
         "expected": expected,
         "bag": bag,
+        "cash_before": bank,
         "attempted_at": time.time(),
     }
     row[CLAIM] = claim
-    recovery._save_tail(visit, row)  # Durable before the warehouse or money input.
-    bank = banking.open_warehouse(loop)
-    recovery._native_tail_safe(loop, target, loop.route.restock_map_id)
-    if (
-        recovery._ownership(loop.town("supplies")) != recovery._ownership(expected)
-        or not isinstance(bank, dict)
-        or bank.get("silver") != expected["silver"]
-        or type(bank.get("stored_silver")) is not int
-    ):
-        raise ValueError("Cash tail ownership changed before money input")
-    claim["cash_before"] = bank
-    recovery._save_tail(visit, row)
+    recovery._save_tail(visit, row)  # Durable immediately before the money input.
     excess = bank["silver"] - banking.transport_reserve()
     moved = excess > 0 or excess < 0 and bank["stored_silver"] > 0
     receipt = None
