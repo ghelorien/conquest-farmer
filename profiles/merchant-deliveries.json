@@ -9,9 +9,9 @@
   "warehouse_fallback": true,
   "town_batch_refill": {
     "enabled": true,
-    "backlog_threshold": 5,
+    "backlog_threshold": 1,
     "drain_below": 1,
-    "max_seconds": 600,
+    "max_seconds": 1800,
     "city_parking_seconds": 240,
     "cooldown_seconds": 900,
     "max_grants_without_listing": 2
