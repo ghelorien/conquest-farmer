@@ -19,21 +19,25 @@ DELIVERY_RETRY_SECONDS = 900
 # Warehouse withdrawals can only click the first 48 positions (six columns by
 # eight rows, scroll offset 0). A queued scroll found beyond them stays banked
 # and is skipped for this long instead of stopping the route on every visit.
-HIDDEN = Path(state_path("reports/banking/hidden-stored-scrolls.json"))
 HIDDEN_RETRY_SECONDS = 24 * 3600
+
+
+def _hidden_path():
+    # Next to the consolidation journal (reports/banking), resolved per call.
+    return Path(JOURNAL).parent / "hidden-stored-scrolls.json"
 
 
 def hide_stored_scroll(uid, position):
     """Remember a banked scroll the withdrawal grid cannot reach; no input."""
     if type(uid) is not int or uid <= 0:
         raise ValueError("Hidden scroll UID is invalid")
-    rows = read_json(HIDDEN) or {}
+    rows = read_json(_hidden_path()) or {}
     rows[str(uid)] = {"hidden_at": time.time(), "position": position}
-    write_json(HIDDEN, rows)
+    write_json(_hidden_path(), rows)
 
 
 def _hidden(uid):
-    row = (read_json(HIDDEN) or {}).get(str(uid)) or {}
+    row = (read_json(_hidden_path()) or {}).get(str(uid)) or {}
     at = row.get("hidden_at")
     return type(at) in (int, float) and time.time() - at < HIDDEN_RETRY_SECONDS
 

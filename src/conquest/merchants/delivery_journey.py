@@ -885,9 +885,36 @@ def prepare_market_scroll(loop, state, *, send=request):
         ]
         if not choices or len(bag["items"]) >= bag["capacity"]:
             if requested is not None:
-                raise ValueError(
-                    "Requested MeteorScroll is not freshly verified in storage with free bag capacity"
+                # Optional work: the requested scroll is not withdrawable from
+                # this fresh read (not listed, or no bag room). Nothing is
+                # withdrawn; it stays queued for a later visit.
+                from conquest.meteor_banking import (
+                    defer_stored_scroll,
+                    hide_stored_scroll,
                 )
+
+                if not choices:
+                    hide_stored_scroll(requested, None)
+                else:
+                    defer_stored_scroll(requested)
+                close_warehouse(loop)
+                save(
+                    state,
+                    scroll_preparation_done=True,
+                    scroll_disposition={
+                        "outcome": "deferred_stored",
+                        "reason": "not_listed" if not choices else "no_bag_room",
+                        "withdrawal_not_attempted": True,
+                        "verified_at": time.time(),
+                    },
+                )
+                loop.record(
+                    "stored_scroll_deferred",
+                    uid=requested,
+                    reason="not_listed" if not choices else "no_bag_room",
+                    activity="Stored MeteorScroll not withdrawable now; leaving it banked",
+                )
+                return False
             save(state, scroll_preparation_done=True)
             close_warehouse(loop)
             return False
