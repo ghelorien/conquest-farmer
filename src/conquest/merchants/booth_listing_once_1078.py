@@ -803,7 +803,9 @@ def _run(ui, character, profile, before, token):
         grant = before.get("farmer_grant") or {}
         # Scheduled safe-Off and Market refill perform the same native checks
         # as a listing grant. Keep their allowance equal, reserving three
-        # seconds inside an existing grant for reconciliation.
+        # seconds inside an existing grant for reconciliation. An operator
+        # listing with the farmer stopped runs the same steps: 20 seconds
+        # ended at the fifth price digit (live 09-26, OxhideBoots, Dutch).
         seconds = (
             min(35, grant["expires_at"] - time.time() - 3)
             if (
@@ -812,7 +814,7 @@ def _run(ui, character, profile, before, token):
                 and grant.get("scope") == "market_visit"
             )
             else 35
-            if before.get("scheduled_foreground_refill") and not grant
+            if not grant
             else 20
         )
         deadline = time.monotonic() + seconds
