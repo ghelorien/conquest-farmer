@@ -45,6 +45,7 @@ NON_TRANSACTIONAL = frozenset(
         "town_movement_stalled",
         "town_movement_recovery",
         "market_movement_recovery",
+        "route_click_rerouted",
         "travel_progress_recovery",
         "route_movement_retry",
         "town_corner_recovery",

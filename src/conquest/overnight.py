@@ -756,6 +756,31 @@ class OvernightLoop:
                             target = visible[-1]
                     else:
                         target = (source[0] + shorter[0], source[1] + shorter[1])
+                from conquest.route_crowd import Crowd
+
+                # A click on a player, booth or NPC does not move the farmer.
+                crowd = Crowd.observe(self.care.session, anchor)
+                dx, dy = target[0] - source[0], target[1] - source[1]
+                if crowd.covers(
+                    (anchor[0] + (dx - dy) * 32, anchor[1] + (dx + dy) * 16)
+                ):
+                    landing = crowd.open_landing(
+                        self.terrain,
+                        source,
+                        tuple(destination),
+                        anchor,
+                        avoid=blocked | market_failed,
+                        bounds=bounds,
+                    )
+                    if landing is not None:
+                        self.record(
+                            "route_click_rerouted",
+                            source=source,
+                            covered=target,
+                            destination=landing,
+                            activity="Route click was on a player or NPC; clicking open ground",
+                        )
+                        target = landing
                 from conquest.navigation import clear_segment
 
                 if hasattr(self.terrain, "travel_path") and not clear_segment(
