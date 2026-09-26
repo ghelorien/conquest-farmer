@@ -7,7 +7,11 @@ import uuid
 from conquest.character_context import state_path, farmer_name, current
 from conquest.discord_notify import read_json, write_json
 
-MARKET_SECONDS = 60
+# One Market visit's merchant-service budget. A verified 5-item trade takes
+# about 25 s (09-26: 19 s to offer, then accept and verification); 60 s cut
+# the second trade off mid-accept and left it uncertain. The farmer is safe in
+# Market, so a longer visit costs no farming safety.
+MARKET_SECONDS = 240
 
 
 def farmer_id():

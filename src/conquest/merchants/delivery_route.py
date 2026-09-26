@@ -728,7 +728,8 @@ def _market_storage(loop, *, send=request, items=None, on_admitted=None):
         ):
             plans = fresh
             continue
-        if deadline - time.time() < 5 + 3 * len(current["items"]):
+        # Measured 09-26: ~3.7 s per offered item plus ~6 s accept/verify.
+        if deadline - time.time() < 10 + 5 * len(current["items"]):
             loop.record(
                 "merchant_service_deferred",
                 visit_id=visit["visit_id"],
