@@ -722,6 +722,40 @@ def defer_unavailable_stored_scroll(loop, state, send):
     return True
 
 
+def _withdrawal_never_started(old):
+    """A journey scroll withdrawal that provably sent no input.
+
+    The withdrawal writes its durable operation row before any click, so a
+    missing row means no click happened. It could only still arrive if the
+    controller that received the request is still running; require that the
+    controller started after this journey was last written.
+    """
+    import sqlite3
+    from conquest.protected_withdrawal import JOURNAL as WITHDRAWALS
+
+    try:
+        if WITHDRAWALS.exists():
+            db = sqlite3.connect(
+                WITHDRAWALS.resolve().as_uri() + "?mode=ro", uri=True, timeout=2
+            )
+            try:
+                seen = db.execute(
+                    "SELECT 1 FROM operations WHERE operation_id=? UNION ALL "
+                    "SELECT 1 FROM history WHERE operation_id=? LIMIT 1",
+                    (old["operation_id"], old["operation_id"]),
+                ).fetchone()
+            finally:
+                db.close()
+            if seen:
+                return False
+        app = read_json(state_path("reports/desktop-farming/app-state.json"))
+        started = app.get("app_started_at")
+        written = JOURNAL.stat().st_mtime
+        return type(started) in (int, float) and started > written
+    except (OSError, ValueError, sqlite3.Error):
+        return False
+
+
 def prepare_market_scroll(loop, state, *, send=request):
     """Retrieve at most one freshly observed stored scroll for this journey.
 
@@ -740,6 +774,18 @@ def prepare_market_scroll(loop, state, *, send=request):
             "Reconcile the submitted merchant delivery before any scroll withdrawal"
         )
     old = state.get("scroll_withdrawal")
+    if old and _withdrawal_never_started(old):
+        # No durable operation row and a restarted controller: nothing was
+        # sent, so the admission closes without needing the warehouse panel.
+        state.setdefault("scroll_admissions", []).append(
+            {
+                "operation": old,
+                "no_input_proven": True,
+                "reason": "no_operation_row_before_controller_restart",
+            }
+        )
+        save(state, scroll_withdrawal=None)
+        old = None
     if old:
         # A possibly submitted warehouse click is settled before any movement
         # or reopening input. Never invoke the withdrawal endpoint again.
