@@ -150,6 +150,7 @@ def foreground_click(
     before_press=None,
     layout_guard=None,
     before_mouse_down=None,
+    hold_seconds=None,
 ):
     if button not in ("left", "right"):
         raise ValueError("Unsupported mouse button")
@@ -289,7 +290,13 @@ def foreground_click(
             if before_mouse_down:
                 before_mouse_down()
             mouse(down)
-            time.sleep(0.04 if require_foreground else 0.1)
+            time.sleep(
+                hold_seconds
+                if hold_seconds is not None
+                else 0.04
+                if require_foreground
+                else 0.1
+            )
         finally:
             mouse(up)
     finally:

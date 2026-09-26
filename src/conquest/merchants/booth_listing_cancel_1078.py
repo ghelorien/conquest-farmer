@@ -624,6 +624,10 @@ def _run_cancel(
                         marked = True
 
                     stage = "native_cancel_hover_and_press"
+                    from conquest.merchants.booth_listing_once_1078 import (
+                        DIALOG_CLICK_HOLD,
+                    )
+
                     foreground_click(
                         target,
                         *point,
@@ -632,6 +636,7 @@ def _run_cancel(
                         before_press=hover,
                         before_mouse_down=press,
                         layout_guard=lambda: (check(), layout.assert_current(revision)),
+                        hold_seconds=DIALOG_CLICK_HOLD,
                     )
                     stage = "cancel_reconciliation"
                     until = time.monotonic() + 3

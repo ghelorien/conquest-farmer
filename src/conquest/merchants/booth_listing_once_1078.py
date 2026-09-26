@@ -33,6 +33,13 @@ from conquest.merchants.listing_handoff_1078 import farmer_safe as _farmer_safe_
 
 
 KIND = "booth_listing_1078_once"
+# The client samples its mouse button once per frame. A 40 ms press can fall
+# between frames, leaving the price field inactive so typed digits are lost
+# (live 09-26: nine dialogs ended with an empty price buffer). Hold a price
+# dialog click long enough for several frames to see it.
+DIALOG_CLICK_HOLD = 0.15
+# A typed digit appears on the client's next frame; wait for it, never retype.
+DIGIT_RENDER_SECONDS = 1.0
 WORKERS = {}
 WORKER_LOCK = threading.RLock()
 ITEM_FIELDS = ("uid", "type_id", "name", "plus", "gem1", "gem2", "bound", "quantity")
@@ -762,6 +769,15 @@ def _type_price(target, price, guard, stage):
     digits = str(price)
     for index, digit in enumerate(digits):
         entered = guard()
+        until = time.monotonic() + DIGIT_RENDER_SECONDS
+        while (
+            index
+            and entered.replace(",", "") == digits[: index - 1]
+            and time.monotonic() < until
+        ):
+            # Only the previous digit is not rendered yet: re-read, no input.
+            time.sleep(0.05)
+            entered = guard()
         if entered.replace(",", "") != digits[:index]:
             raise CaptureUnavailable(
                 "Native amount differs from the exact already-entered price prefix"
@@ -1133,6 +1149,7 @@ def _run(ui, character, profile, before, token):
                         before_press=amount_hover,
                         before_mouse_down=amount_press,
                         layout_guard=lambda: layout.assert_current(revision),
+                        hold_seconds=DIALOG_CLICK_HOLD,
                     )
 
                     def typing_guard():
@@ -1206,6 +1223,7 @@ def _run(ui, character, profile, before, token):
                         before_press=confirm_guard,
                         before_mouse_down=confirm_press,
                         layout_guard=lambda: layout.assert_current(revision),
+                        hold_seconds=DIALOG_CLICK_HOLD,
                     )
                     journal.transition(
                         request_id, "submitted", {"confirmation_attempted": True}
