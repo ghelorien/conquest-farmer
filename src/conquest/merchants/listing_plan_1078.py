@@ -16,6 +16,9 @@ from conquest.memory_build_layout import CLIENT_SHA256_1078
 # rule read this plan. Three verified-unchanged aborts skip it for a day.
 STUCK_ABORTS = 3
 STUCK_SECONDS = 24 * 3600
+# Aborts before the 150 ms price-dialog clicks went live (r64, 09-26 13:20)
+# were the lost-click defect, not the item; they never mark an item stuck.
+STUCK_SINCE = 1790443240.0
 
 
 def _stuck_items(journal, character):
@@ -29,7 +32,11 @@ def _stuck_items(journal, character):
         for row in db.execute(
             "SELECT before_json FROM transactions WHERE kind=? AND character=? "
             "AND phase='aborted' AND created > ?",
-            (KIND, character_name(character), time.time() - STUCK_SECONDS),
+            (
+                KIND,
+                character_name(character),
+                max(time.time() - STUCK_SECONDS, STUCK_SINCE),
+            ),
         ):
             uid = (json.loads(row["before_json"] or "{}").get("request") or {}).get(
                 "item_uid"

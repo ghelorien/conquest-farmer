@@ -333,6 +333,36 @@ def refill_remainder(loop, send, key, deadline, proof, revision):
     return True
 
 
+# Where the farmer last stood when a merchant's delivery probe was ready, per
+# merchant and booth position. Live 09-26: the Market crowd stalled most short
+# approach legs (31 stalls against 39 deliveries), while the ready tiles for a
+# booth repeat (Dutch at (239,205): (227,197) and (227,198)).
+# A crowd reroute can take several seconds; 4 s legs counted it as a stall.
+APPROACH_LEG_SECONDS = 10
+SPOT_TRAVEL_SECONDS = 20
+
+
+def _spots_path():
+    # Next to the route journal, resolved per call.
+    return Path(STATE).parent / "merchant-trade-spots.json"
+
+
+def _spot_key(merchant, position):
+    return f"{merchant}@{position[0]},{position[1]}"
+
+
+def remembered_spot(merchant, position):
+    row = (read_json(_spots_path()) or {}).get(_spot_key(merchant, position)) or {}
+    spot = row.get("farmer")
+    return tuple(spot) if isinstance(spot, list) and len(spot) == 2 else None
+
+
+def remember_spot(merchant, position, farmer):
+    rows = read_json(_spots_path()) or {}
+    rows[_spot_key(merchant, position)] = {"farmer": list(farmer), "at": time.time()}
+    write_json(_spots_path(), rows)
+
+
 def approach_merchant(loop, plan, send, *, deadline=None):
     """World distance ranks candidates; the driver shares the arrival proof."""
     from conquest.merchants.approach import (
@@ -358,6 +388,7 @@ def approach_merchant(loop, plan, send, *, deadline=None):
     # than walking back to a stale intermediate standing tile.
     moves = 0
     previous_leg_source = None
+    spot_tried = False
     # Scene-control observations are read-only volatility, not movement
     # attempts.  Keep their count finite while limiting actual repositioning.
     for observation in range(48):
@@ -382,9 +413,52 @@ def approach_merchant(loop, plan, send, *, deadline=None):
         if probe.get("ready") and within_delivery_probe_range(
             probe.get("farmer_position"), probe.get("merchant_position")
         ):
+            remember_spot(plan["merchant"], plan["position"], source)
             return True
         if moves >= 12:
             return False
+        spot = None if spot_tried else remembered_spot(plan["merchant"], plan["position"])
+        if (
+            spot is not None
+            and spot != source
+            and spot != tuple(plan["position"])
+            and loop.terrain.walkable(spot)
+        ):
+            # Walk straight to the tile a fresh probe accepted last time, with
+            # the ordinary crowd-aware travel; the probe still decides arrival.
+            spot_tried = True
+            loop.record(
+                "merchant_repositioning",
+                merchant=plan["merchant"],
+                attempt=observation + 1,
+                reason="remembered_trade_spot",
+                destination=spot,
+                activity=f"Heading to the last working trade spot for {plan['merchant']}",
+            )
+            previous = getattr(loop, "market_service_deadline", None)
+            leg_deadline = min(correction_deadline, time.time() + SPOT_TRAVEL_SECONDS)
+            loop.market_service_deadline = (
+                min(previous, leg_deadline)
+                if isinstance(previous, (int, float))
+                else leg_deadline
+            )
+            try:
+                loop.travel(
+                    spot,
+                    arrival_radius=1,
+                    avoid={tuple(plan["position"])},
+                    activity=f"Approaching verified trade view of {plan['merchant']}",
+                )
+            except TravelStalled:
+                loop.record(
+                    "merchant_approach_deferred",
+                    merchant=plan["merchant"],
+                    activity="Trade spot not reached; reobserving a safe destination",
+                )
+            finally:
+                loop.market_service_deadline = previous
+            previous_leg_source = source
+            continue
         if probe.get("reason") == "recipient_scene_changed":
             # A delivery-target probe is read-only.  Do not route or submit
             # input from a scene that changed during that observation; give a
@@ -445,7 +519,7 @@ def approach_merchant(loop, plan, send, *, deadline=None):
             activity=f"Repositioning for a visible trade target: {plan['merchant']}",
         )
         previous = getattr(loop, "market_service_deadline", None)
-        leg_deadline = min(correction_deadline, time.time() + 4)
+        leg_deadline = min(correction_deadline, time.time() + APPROACH_LEG_SECONDS)
         loop.market_service_deadline = (
             min(previous, leg_deadline)
             if isinstance(previous, (int, float))
