@@ -6,6 +6,11 @@ import time
 from conquest.character_profiles import write_json
 
 STAGES = ("discovery", "identity", "access", "attachment", "memory", "behavior")
+# Server name in client memory -> the profile server it qualifies. Back2Classic
+# is qualified for farming only: merchant work (market prices, booth listing,
+# sales, deliveries) is built on America market data and stays America-only.
+QUALIFIED_SERVERS = {b"Classic_US": "America", b"Classic_B2C": "Back2Classic"}
+FARMING_ONLY_SERVERS = frozenset({"Back2Classic"})
 
 
 class ViewportTooSmall(ValueError):
@@ -164,20 +169,26 @@ def verify_observer(context, observer):
     base = GuiReader.for_session(session).base
     server_rva = layout.merchant_server_rva
     server = session.read_block(base + server_rva, 64).split(b"\0")[0]
-    if server != b"Classic_US":
-        raise ValueError("This engine supports the qualified America client only")
+    profile_server = QUALIFIED_SERVERS.get(server)
+    if profile_server is None:
+        raise ValueError(
+            "This engine supports the qualified America and Back2Classic clients only"
+        )
     uid = character_uid(session, base, life.object_address, layout=layout)
     evidence = {
         "character": context.profile.name,
-        "server": "America",
+        "server": profile_server,
         "character_uid": uid,
     }
+    # A profile only matches a client on its own server.
     context.verify(evidence)
+    if profile_server in FARMING_ONLY_SERVERS and context.profile.role != "Farmer":
+        raise ValueError(profile_server + " is qualified for farming only")
     session.assert_identity()
     if context.profile.character_uid is None:
         from conquest.character_profiles import ProfileRegistry
 
         ProfileRegistry(context.root).bind(
-            context.profile.id, context.profile.name, "America", uid
+            context.profile.id, context.profile.name, profile_server, uid
         )
     return evidence

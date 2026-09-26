@@ -38,6 +38,20 @@ def new_character_role(value):
     return role
 
 
+def new_character_server(value, role):
+    """Use a qualified server's exact label; Back2Classic is farming only."""
+    from conquest.client_attachment import FARMING_ONLY_SERVERS, QUALIFIED_SERVERS
+
+    text = value.strip() if isinstance(value, str) else ""
+    server = next(
+        (s for s in QUALIFIED_SERVERS.values() if s.casefold() == text.casefold()),
+        text,
+    )
+    if server in FARMING_ONLY_SERVERS and role != "Farmer":
+        raise ValueError(server + " is qualified for farming only")
+    return server
+
+
 def open_on_profile_double_click(event, tree, action):
     """Only activate a profile when the double-click hit a real chooser row."""
     if tree.identify_row(event.y):
@@ -248,7 +262,7 @@ def manage_profiles(registry, selected=None):
             return
         server = simpledialog.askstring(
             "Server",
-            "Server (the current engine supports America):",
+            "Server: America, or Back2Classic (farming only):",
             initialvalue="America",
             parent=root,
         )
@@ -262,7 +276,8 @@ def manage_profiles(registry, selected=None):
         )
         if requested_role is None:
             return
-        p = registry.add(name, server, new_character_role(requested_role))
+        role_value = new_character_role(requested_role)
+        p = registry.add(name, new_character_server(server, role_value), role_value)
         refresh(p.id)
 
     def save():
