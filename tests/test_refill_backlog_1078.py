@@ -304,7 +304,8 @@ def test_completed_refill_never_releases_live_or_uncertain_work(
         ("market_visit", False, 60, 20),
         ("listing_1078", True, 45, 35),
         (None, True, 0, 35),
-        (None, False, 0, 20),
+        # A stopped-farmer operator listing runs the same ~30 s steps.
+        (None, False, 0, 35),
     ],
 )
 def test_worker_budget_obeys_grant_and_keeps_unrelated_operations_at_twenty(
