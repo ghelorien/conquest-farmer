@@ -11,6 +11,42 @@ from conquest.merchants.restoration_preview_1078 import _preview
 from conquest.memory_build_layout import CLIENT_SHA256_1078
 
 
+# An item whose listing keeps aborting before its OK must not hold the rest of
+# the queue: both the refill's choice and the one-shot "highest-valued item"
+# rule read this plan. Three verified-unchanged aborts skip it for a day.
+STUCK_ABORTS = 3
+STUCK_SECONDS = 24 * 3600
+
+
+def _stuck_items(journal, character):
+    import json
+    import time
+    from conquest.merchants.booth_listing_once_1078 import KIND
+    from conquest.merchants.journal import character_name
+
+    counts = {}
+    with journal.db() as db:
+        for row in db.execute(
+            "SELECT before_json FROM transactions WHERE kind=? AND character=? "
+            "AND phase='aborted' AND created > ?",
+            (KIND, character_name(character), time.time() - STUCK_SECONDS),
+        ):
+            uid = (json.loads(row["before_json"] or "{}").get("request") or {}).get(
+                "item_uid"
+            )
+            counts[uid] = counts.get(uid, 0) + 1
+    return {uid for uid, count in counts.items() if count >= STUCK_ABORTS}
+
+
+def _deferred(item, stuck):
+    """Why an item cannot be listed now, or None."""
+    # Live 09-26: a DragonBall's price dialog never took the price key in eight
+    # attempts; each aborted with unchanged stock while it blocked the queue.
+    if item["uid"] in stuck:
+        return "repeated_pre_confirmation_aborts"
+    return None
+
+
 class OwnedPeerUnavailable(ValueError):
     """A named owned peer could not supply the fresh price-floor proof."""
 
@@ -102,10 +138,14 @@ def plan(runtime, character, snapshot):
     ):
         raise ValueError("Owned profiles, saved prices, or restoration intent changed")
     items = {item["uid"]: item for item in snapshot["inventory"]}
+    stuck = _stuck_items(runtime.journal, character)
     return [
         {
             **row,
-            "price": row["total_listing_price"],
+            "price": None
+            if _deferred(items[row["uid"]], stuck)
+            else row["total_listing_price"],
+            "deferred_reason": _deferred(items[row["uid"]], stuck),
             "attributes": _item_fingerprint(items[row["uid"]]),
             "reference": row["source"],
         }

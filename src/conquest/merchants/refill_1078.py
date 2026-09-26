@@ -14,31 +14,6 @@ from conquest.merchants.listing_capability_1078 import require
 from conquest.merchants.listing_plan_1078 import OwnedPeerUnavailable
 
 
-# An item whose listing keeps aborting before its OK (the stackable DragonBall
-# dialog, live 09-26: eight clean aborts in three minutes) must not hold the
-# rest of the queue. Skip it for a day after three verified-unchanged aborts.
-STUCK_ABORTS = 3
-STUCK_SECONDS = 24 * 3600
-
-
-def _stuck_items(journal, character):
-    from conquest.merchants.booth_listing_once_1078 import KIND
-    from conquest.merchants.journal import character_name
-
-    counts = {}
-    with journal.db() as db:
-        for row in db.execute(
-            "SELECT before_json FROM transactions WHERE kind=? AND character=? "
-            "AND phase='aborted' AND created > ?",
-            (KIND, character_name(character), time.time() - STUCK_SECONDS),
-        ):
-            uid = (json.loads(row["before_json"] or "{}").get("request") or {}).get(
-                "item_uid"
-            )
-            counts[uid] = counts.get(uid, 0) + 1
-    return {uid for uid, count in counts.items() if count >= STUCK_ABORTS}
-
-
 def _blocked(code, note=None):
     return {
         "state": "waiting",
@@ -535,12 +510,7 @@ def step(ui, character, snapshot):
         queue = plan(runtime, character, snapshot)
         stage("queue")
         journal.set(character, "inventory_queue", [row["uid"] for row in queue])
-        stuck = _stuck_items(journal, character)
-        eligible = [
-            row
-            for row in queue
-            if row["price"] is not None and row["uid"] not in stuck
-        ]
+        eligible = [row for row in queue if row["price"] is not None]
         if not eligible:
             schedule.complete(
                 "completed",
