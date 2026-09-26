@@ -12,7 +12,7 @@
     "backlog_threshold": 1,
     "drain_below": 1,
     "max_seconds": 1800,
-    "city_parking_seconds": 240,
+    "city_parking_seconds": 1500,
     "cooldown_seconds": 900,
     "max_grants_without_listing": 2
   },

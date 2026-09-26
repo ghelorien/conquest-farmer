@@ -34,7 +34,10 @@ LIMITS = {
     "backlog_threshold": (1, 32),
     "drain_below": (1, 32),
     "max_seconds": (60, 1800),
-    "city_parking_seconds": (30, 600),
+    # park() finishes the walk before checking its deadline; from the far
+    # hunting field the walk alone took 700 s (live 09-26 16:56), so a budget
+    # capped at 600 s always failed on arrival and wasted both walks.
+    "city_parking_seconds": (30, 1800),
     "cooldown_seconds": (0, 3600),
     "max_grants_without_listing": (1, 10),
 }
