@@ -84,10 +84,16 @@ class Crowd:
         return False
 
     def open_landing(self, terrain, source, goal, anchor, *, avoid=(), bounds):
-        """Nearest-to-goal checked landing within jump range on open ground."""
+        """Nearest-to-goal checked landing within jump range on open ground.
+
+        Only a landing strictly closer to the goal qualifies: a sidestep lets
+        the next reroute step straight back (live 09-26 10:21, (200,197) and
+        (200,199) alternated until the travel stalled).
+        """
         from conquest.navigation import clear_segment
         from conquest.scene_input import clear_route_point
 
+        current = max(abs(source[0] - goal[0]), abs(source[1] - goal[1]))
         candidates = []
         for dx in range(-12, 13):
             for dy in range(-12, 13):
@@ -105,7 +111,8 @@ class Crowd:
                 ):
                     continue
                 remaining = max(abs(point[0] - goal[0]), abs(point[1] - goal[1]))
-                candidates.append((remaining, distance, point))
+                if remaining < current:
+                    candidates.append((remaining, distance, point))
         for _, _, point in sorted(candidates):
             if hasattr(terrain, "travel_path"):
                 try:

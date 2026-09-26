@@ -875,6 +875,16 @@ def prepare_market_scroll(loop, state, *, send=request):
                 raise ValueError(
                     "Leftover Meteor deposit receipt is unverified; reconcile before delivery"
                 )
+        # Every scroll banked beyond the reachable grid stays banked. Remember
+        # all of them from this one read so later journeys do not come back to
+        # Market for each in turn (live 09-26: one wasted trip per scroll).
+        from conquest.meteor_banking import hide_stored_scroll
+
+        for item in stored["items"]:
+            if item["type_id"] == 720027 and not (
+                type(item.get("slot")) is int and 0 <= item["slot"] < 48
+            ):
+                hide_stored_scroll(item["uid"], item.get("slot"))
         requested = state.get("stored_scroll_uid")
         choices = [
             i
