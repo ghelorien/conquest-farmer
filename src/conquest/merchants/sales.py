@@ -419,6 +419,12 @@ def qualified_delivery_receipts(journal, intent, merchant):
     ended = merchant["timestamp"]
     if ended < started:
         return []
+    if not intent["merchant"].get("booth") and not merchant.get("booth"):
+        # Nothing was listed at either end, so no sale can fall in this
+        # interval; an observation gap (e.g. a controller restart) hides
+        # nothing. Any listing sold in between would still change the
+        # merchant's inventory or silver, which the caller's exact checks see.
+        return []
     with journal.db() as db:
         if db.execute(
             "SELECT 1 FROM events WHERE character=? AND event='sales_observation_gap' AND timestamp>? AND timestamp<=? LIMIT 1",
