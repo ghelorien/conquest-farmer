@@ -11,7 +11,9 @@ per-build addresses and refuses to run on an unrecognised client build.
 The only live client build is **1078**. Build 1074 is dead. Future game
 updates will obsolete 1078 too, so layouts stay keyed per build.
 
-Working branch: `codex/reliable-1078-cycle` (main is not the working base).
+Working branch: `main`. On 09-26 the smooth-running branch
+(`smooth/release-1`) was fast-forwarded into it at `0bb66ad`.
+**Current status, open problems and how to operate: docs/handoff-2026-09-26.md.**
 `r38-baseline` tags `1c8a1ff`, the last live-verified 1078 cycle before cleanup.
 
 ## Ground rules on this machine
@@ -27,7 +29,11 @@ Working branch: `codex/reliable-1078-cycle` (main is not the working base).
   that were never live-verified on 1078. Delete or fail closed instead.
 - One commit per logical change. Run the full suite before and after each.
 
-## Cleanup status (plan steps 1-2)
+## Cleanup status (plan steps 1-2) — historical
+
+The 1074 strip below is done and on `main` (`d9571bb`); these two sections
+are kept for history. The test baseline paragraph is out of date; see
+docs/handoff-2026-09-26.md for the known failures.
 
 Done (commits after d937e88):
 - `4aeeec6` ruff format of src/tests/scripts (no behaviour change)
