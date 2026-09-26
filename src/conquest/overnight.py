@@ -19,6 +19,10 @@ RECOVERY_CHECKPOINT = Path(state_path(".runtime/death-return.json"))
 # Approval timeout (5 s) + one decline + settlement (5 s) with margin; an
 # uncertain decline is never replayed, so the route then needs attention.
 MANUAL_REQUEST_WAIT_SECONDS = 60
+# Unexpected route failures restart in-process this many times per rolling
+# hour (after a short protected pause) before the route stops for attention.
+AUTO_RESTARTS = 3
+AUTO_RESTART_PAUSE_SECONDS = 20
 
 
 class OvernightStopped(Exception):
@@ -1210,9 +1214,7 @@ class OvernightLoop:
             raise ValueError(
                 "Supplies or inventory room remain insufficient after restocking and storage"
             )
-        from conquest.merchants.handoff import service_window
-
-        service_window(self, town=True)
+        self.optional_town_service()
         if visits is not None:
             from conquest.town_visit import checkpoint_verified_tail
 
@@ -1220,6 +1222,88 @@ class OvernightLoop:
             visits.complete_town_work("restock")
         self.cycles += 1
         self.record("restock_complete", supplies=counts)
+
+    def resume_settled_town_work(self):
+        """Re-run unfinished town work when no transaction is left open.
+
+        Every town step re-reads memory before acting (buy up to the target,
+        deposit what is still carried, move silver to a target balance), so a
+        fresh run cannot double anything. Open journals (merchant trade,
+        delivery journey, Meteor, overflow, withdrawal, storage halt) still
+        block: their own reconciliation paths decide. Town work bound to a
+        game process that no longer exists (client restart) is superseded.
+        """
+        visits = getattr(self, "town_visit", None)
+        if visits is None:
+            return False
+        row = visits.state()
+        if row.get("phase") != "town_work" or row.get("town_work_completed_at"):
+            return False
+        from conquest.urgent_town_recovery import transaction_holds
+
+        if transaction_holds():
+            return False
+        target = self.identity
+        stale = [
+            field
+            for field in (
+                "restock_target",
+                "restock_recovery_target",
+                "urgent_target",
+                "return_target",
+            )
+            if row.get(field) is not None and row[field] != target
+        ]
+        if stale:
+            visits.supersede("game_process_restarted", target=target)
+        self.record(
+            "town_work_resumed",
+            resumed_visit_id=row.get("town_visit_id"),
+            reasons=row.get("reasons"),
+            superseded=bool(stale),
+            activity="Finishing interrupted town work from fresh memory reads",
+        )
+        self.stop_farm()
+        self.living()
+        from conquest.banking import urgent_valuables
+
+        if urgent_valuables(self.town("supplies")["items"]):
+            self.bank_urgent_valuables()
+            if visits.state().get("town_work_completed_at"):
+                return True
+        self.restock()
+        return True
+
+    def optional_town_service(self):
+        """Merchant refill at a town visit is optional work: a failure after the
+        merchant has provably released input is skipped, never a route stop."""
+        from conquest.merchants.handoff import service_window
+
+        try:
+            service_window(self, town=True)
+        except OvernightStopped:
+            raise
+        except Exception as error:
+            if "did not release" in str(error):
+                raise
+            from conquest.merchants.bridge import request as merchant
+
+            try:
+                status = merchant({"action": "status"})
+            except Exception:
+                raise error from None
+            if (
+                status.get("input_owner") is not None
+                or status.get("handoff_active")
+                or status.get("handoff_granted")
+            ):
+                raise
+            self.record(
+                "merchant_refill_skipped",
+                detail=str(error)[:300],
+                error_type=type(error).__module__ + "." + type(error).__qualname__,
+                activity="Merchant refill skipped at this town visit; continuing",
+            )
 
     def bank_urgent_valuables(self):
         from conquest.banking import urgent_valuables, after_shopping
@@ -1265,9 +1349,7 @@ class OvernightLoop:
         else:
             # Valuables are already verified in storage. Use this required
             # safe town visit for the bounded refill window without shopping.
-            from conquest.merchants.handoff import service_window
-
-            service_window(self, town=True)
+            self.optional_town_service()
         if visits is not None:
             visits.record_urgent_tail("followup", target=self.identity)
             from conquest.town_visit import checkpoint_verified_tail
@@ -1672,6 +1754,7 @@ class OvernightLoop:
         from conquest.town_visit import resume_verified_tail
 
         resume_verified_tail(self)
+        self.resume_settled_town_work()
         from conquest.urgent_town_recovery import resume_claimed
 
         resume_claimed(self)
@@ -1802,13 +1885,108 @@ class OvernightLoop:
             raise error
         self.protect_during_movement_retry()
 
+    def _run_route_once(self):
+        from conquest.travel_progress import TravelStalled
+
+        while True:
+            try:
+                self._run_route()
+                return
+            except CaptureUnavailable as error:
+                # This loop runs in its own process. Read the app's fresh
+                # authenticated control projection rather than its empty
+                # local coordinator singleton.
+                try:
+                    fenced = bool(
+                        self.health()["embedded_controls"].get("manual_input_fence")
+                    )
+                except (
+                    CaptureUnavailable,
+                    ValueError,
+                    OSError,
+                    KeyError,
+                    TypeError,
+                ):
+                    fenced = False
+                if not fenced and str(error) not in (
+                    "Manual visitor session holds farmer input",
+                    "Manual visitor session holds automation input",
+                ):
+                    raise
+                # A user-owned global manual handoff is a normal wait,
+                # not a failed town/route action.  The next fresh memory
+                # loop replans after the durable settlement signal.
+                self.record(
+                    "manual_handoff_wait",
+                    activity="Waiting for operator manual handoff to settle",
+                )
+                time.sleep(0.2)
+            except TravelStalled as error:
+                self.recover_travel_stall(error)
+            except ValueError as error:
+                if str(error) not in (
+                    "Town route remains obstructed",
+                    "Town travel has made no position progress for 90 seconds",
+                ):
+                    raise
+                self.protect_during_movement_retry()
+
+    def failure_record(self, error):
+        # Preserve the failing boundary without retaining locals or other
+        # process data.  A generic message is not enough to distinguish a
+        # pre-input acquisition denial from an uncertain submitted action.
+        import traceback
+
+        frames = traceback.extract_tb(error.__traceback__)[-8:]
+        return {
+            "detail": str(error),
+            "error_type": type(error).__module__ + "." + type(error).__qualname__,
+            "failure_trace": [
+                {"file": frame.filename, "line": frame.lineno, "function": frame.name}
+                for frame in frames
+            ],
+        }
+
+    def auto_restart(self, error):
+        """Bounded self-restart after an unexpected route failure.
+
+        At most AUTO_RESTARTS per rolling hour. The failure is recorded as
+        'recovered_failure' (so history stays visible), the farmer is kept
+        alive for a short pause, then the route replans from fresh reads.
+        Returns False when the budget is spent, so the caller stops as before.
+        """
+        now = time.monotonic()
+        recent = [t for t in getattr(self, "auto_restarts", []) if now - t < 3600]
+        if len(recent) >= AUTO_RESTARTS:
+            return False
+        recent.append(now)
+        self.auto_restarts = recent
+        self.record(
+            "recovered_failure",
+            attempt=len(recent),
+            activity="Unexpected stop; restarting the route automatically",
+            **self.failure_record(error),
+        )
+        self.phase = "recovering_route"
+        until = time.monotonic() + AUTO_RESTART_PAUSE_SECONDS
+        while time.monotonic() < until:
+            self.check_stop()
+            try:
+                health = self.living()
+                self.care.check(health)
+            except OvernightStopped:
+                raise
+            except Exception:
+                pass
+            time.sleep(0.5)
+        self.refresh()
+        return True
+
     def run(self):
         self.check_stop()
         self.refresh()
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000003)
         self.record("started")
-        from conquest.travel_progress import TravelStalled
-
         try:
             # A pending acceptance recovery checks the exact live controller
             # identity before it reaches the ordinary route/life loop.
@@ -1817,70 +1995,21 @@ class OvernightLoop:
             self.health()
             while True:
                 try:
-                    self._run_route()
+                    self._run_route_once()
                     return
-                except CaptureUnavailable as error:
-                    # This loop runs in its own process. Read the app's fresh
-                    # authenticated control projection rather than its empty
-                    # local coordinator singleton.
-                    try:
-                        fenced = bool(
-                            self.health()["embedded_controls"].get("manual_input_fence")
-                        )
-                    except (
-                        CaptureUnavailable,
-                        ValueError,
-                        OSError,
-                        KeyError,
-                        TypeError,
-                    ):
-                        fenced = False
-                    if not fenced and str(error) not in (
-                        "Manual visitor session holds farmer input",
-                        "Manual visitor session holds automation input",
-                    ):
+                except OvernightStopped:
+                    raise
+                except Exception as error:
+                    # Open journals keep their own reconciliation gates, so a
+                    # restart can never replay an uncertain transaction.
+                    if not self.auto_restart(error):
                         raise
-                    # A user-owned global manual handoff is a normal wait,
-                    # not a failed town/route action.  The next fresh memory
-                    # loop replans after the durable settlement signal.
-                    self.record(
-                        "manual_handoff_wait",
-                        activity="Waiting for operator manual handoff to settle",
-                    )
-                    time.sleep(0.2)
-                except TravelStalled as error:
-                    self.recover_travel_stall(error)
-                except ValueError as error:
-                    if str(error) not in (
-                        "Town route remains obstructed",
-                        "Town travel has made no position progress for 90 seconds",
-                    ):
-                        raise
-                    self.protect_during_movement_retry()
         except OvernightStopped as error:
             self.phase = "stopped"
             self.record("stopped", detail=str(error))
         except Exception as error:
             self.phase = "needs_attention"
-            # Preserve the failing boundary without retaining locals or other
-            # process data.  A generic message is not enough to distinguish a
-            # pre-input acquisition denial from an uncertain submitted action.
-            import traceback
-
-            frames = traceback.extract_tb(error.__traceback__)[-8:]
-            self.record(
-                "failed",
-                detail=str(error),
-                error_type=type(error).__module__ + "." + type(error).__qualname__,
-                failure_trace=[
-                    {
-                        "file": frame.filename,
-                        "line": frame.lineno,
-                        "function": frame.name,
-                    }
-                    for frame in frames
-                ],
-            )
+            self.record("failed", **self.failure_record(error))
         finally:
             try:
                 # The desktop app removes the authenticated bridge receipt as

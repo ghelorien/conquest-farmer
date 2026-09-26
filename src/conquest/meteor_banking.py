@@ -16,6 +16,26 @@ AUDIT = Path(state_path("reports/banking/meteor-consolidation-audit.jsonl"))
 METEOR = 1088001
 SCROLL = 720027
 DELIVERY_RETRY_SECONDS = 900
+# Warehouse withdrawals can only click the first 48 positions (six columns by
+# eight rows, scroll offset 0). A queued scroll found beyond them stays banked
+# and is skipped for this long instead of stopping the route on every visit.
+HIDDEN = Path(state_path("reports/banking/hidden-stored-scrolls.json"))
+HIDDEN_RETRY_SECONDS = 24 * 3600
+
+
+def hide_stored_scroll(uid, position):
+    """Remember a banked scroll the withdrawal grid cannot reach; no input."""
+    if type(uid) is not int or uid <= 0:
+        raise ValueError("Hidden scroll UID is invalid")
+    rows = read_json(HIDDEN) or {}
+    rows[str(uid)] = {"hidden_at": time.time(), "position": position}
+    write_json(HIDDEN, rows)
+
+
+def _hidden(uid):
+    row = (read_json(HIDDEN) or {}).get(str(uid)) or {}
+    at = row.get("hidden_at")
+    return type(at) in (int, float) and time.time() - at < HIDDEN_RETRY_SECONDS
 
 
 def _promoted_scroll_delivery(consolidation, uid, *, evidence=False):
@@ -140,6 +160,8 @@ def completed_stored_scroll():
             row["deferred_at"] is not None
             and time.time() - row["deferred_at"] < DELIVERY_RETRY_SECONDS
         ):
+            continue
+        if _hidden(uid):
             continue
         return uid
     return None
@@ -764,7 +786,7 @@ def market_bank(loop, state):
     from conquest.banking import open_warehouse, close_warehouse
     from conquest.storage_halt import request_stop
     from conquest.merchants.delivery_route import (
-        market_storage,
+        market_storage_or_defer,
         receipt_for,
         warehouse_exhausted,
     )
@@ -772,7 +794,8 @@ def market_bank(loop, state):
 
     fallback = warehouse_fallback_only(loop, state)
     if not fallback:
-        market_storage(loop)
+        # Optional: an unsubmitted delivery failure falls through to storage.
+        market_storage_or_defer(loop)
     approach_market_warehouse(
         loop, "Storing valuables in Market before returning to Phoenix"
     )

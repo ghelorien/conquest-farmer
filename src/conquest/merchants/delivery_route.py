@@ -485,6 +485,49 @@ def market_storage(loop, *, send=request, items=None, on_admitted=None):
         loop.market_service_deadline = previous
 
 
+def market_storage_or_defer(loop, *, send=request, items=None, on_admitted=None):
+    """Merchant delivery is optional: a failure before any trade was submitted
+    falls back to the caller's warehouse storage instead of stopping the route.
+
+    A submitted or ambiguous trade (route state or farmer delivery journal still
+    open) re-raises exactly as before; it must be reconciled, never skipped.
+    The farmer waits until no merchant holds input before continuing.
+    """
+    from conquest.merchants import delivery_operation
+
+    try:
+        return market_storage(loop, send=send, items=items, on_admitted=on_admitted)
+    except Exception as error:
+        if type(error).__name__ == "OvernightStopped":
+            raise
+        if pending() or delivery_operation.pending():
+            raise
+        until = time.monotonic() + 60
+        while True:
+            try:
+                status = send({"action": "status"})
+            except Exception:
+                status = None
+            if (
+                isinstance(status, dict)
+                and status.get("input_owner") is None
+                and not status.get("handoff_active")
+                and not status.get("handoff_granted")
+            ):
+                break
+            if time.monotonic() >= until:
+                raise error
+            loop.check_stop()
+            time.sleep(0.5)
+        loop.record(
+            "merchant_delivery_skipped",
+            detail=str(error)[:300],
+            error_type=type(error).__module__ + "." + type(error).__qualname__,
+            activity="Merchant delivery skipped before any trade; storing valuables safely",
+        )
+        return None
+
+
 def _preadmission_health(loop, deadline, visit_id):
     """Reobserve unavailable safety evidence before any delivery reservation.
 

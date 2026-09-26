@@ -634,6 +634,24 @@ class TownVisit:
         self.complete_town_work("urgent_banking")
         return True
 
+    def supersede(self, reason, *, target):
+        """Close unfinished town work whose game process no longer exists.
+
+        Only called when no transaction journal is open; the next restock()
+        begins a fresh visit (this one stays in its history) from fresh reads.
+        """
+        row = self.state()
+        if row.get("phase") != "town_work" or row.get("town_work_completed_at"):
+            raise ValueError("Only unfinished town work can be superseded")
+        row.update(
+            phase="superseded",
+            superseded_at=self.clock(),
+            superseded_reason=reason,
+            superseded_by_target=deepcopy(target),
+        )
+        write_json(self.path, row)
+        return row
+
     def complete_town_work(self, kind):
         """Persist the successful end of native town work before return begins.
 

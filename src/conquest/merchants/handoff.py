@@ -364,6 +364,11 @@ def service_window(loop, *, town=False):
         from conquest.merchants import town_batch
 
         batch = town_batch.admission(loop, status, before, policy)
+    if not town and not host_request and not urgent and batch is None:
+        # Single 45-second field listing stops cost hunting time for almost no
+        # listings (18 stops -> 2 listings on 09-25). Hunting is only
+        # interrupted for a city batch; ordinary listing happens at town visits.
+        return False
     visit = None
     if (
         not host_request
@@ -469,7 +474,11 @@ def service_window(loop, *, town=False):
                 raise
             if outcome is not town_batch.FALLBACK:
                 return outcome
-            # City parking did not qualify: keep the existing field window.
+            if not town:
+                # City parking did not qualify: return to hunting instead of a
+                # low-yield single field window.
+                windows.finish("unsafe_deferred")
+                return False
         loop.record(
             "merchant_safe_spot", activity="Finding a safe spot for merchant refill"
         )

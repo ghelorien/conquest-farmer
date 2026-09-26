@@ -845,6 +845,42 @@ def prepare_market_scroll(loop, state, *, send=request):
             save(state, scroll_preparation_done=True)
             close_warehouse(loop)
             return False
+        # Withdrawal can only click the first 48 warehouse positions. A scroll
+        # banked beyond them stays banked: record it, skip it, and let this
+        # journey finish its ordinary delivery and return. No input is sent.
+        reachable = [
+            i for i in choices if type(i.get("slot")) is int and 0 <= i["slot"] < 48
+        ]
+        if requested is not None and not reachable:
+            from conquest.meteor_banking import hide_stored_scroll
+
+            position = choices[0].get("slot")
+            hide_stored_scroll(requested, position)
+            close_warehouse(loop)
+            save(
+                state,
+                scroll_preparation_done=True,
+                scroll_disposition={
+                    "outcome": "deferred_stored",
+                    "item": choices[0],
+                    "reason": "outside_reachable_warehouse_grid",
+                    "position": position,
+                    "withdrawal_not_attempted": True,
+                    "verified_at": time.time(),
+                },
+            )
+            loop.record(
+                "stored_scroll_deferred",
+                uid=requested,
+                position=position,
+                activity="Stored MeteorScroll is beyond the reachable warehouse grid; leaving it banked",
+            )
+            return False
+        if not reachable:
+            save(state, scroll_preparation_done=True)
+            close_warehouse(loop)
+            return False
+        choices = reachable
         if not preflight(loop, send, require_inventory=False):
             if not defer_unavailable_stored_scroll(loop, state, send):
                 close_warehouse(loop)
@@ -945,19 +981,42 @@ def resume(loop, *, send=request):
                     i["type_id"] == 1088001 for i in loop.town("supplies")["items"]
                 )
             ):
-                delivery_route.market_storage(loop, send=send)
+                delivery_route.market_storage_or_defer(loop, send=send)
                 delivered_before = True
             prepared = prepare_market_scroll(loop, state, send=send)
             if state.get("stored_scroll_uid") is not None and not state.get(
                 "scroll_preparation_done"
             ):
-                raise ValueError(
-                    "Requested stored scroll preparation is deferred; journey remains pending"
+                if state.get("scroll_withdrawal") or state.get(
+                    "scroll_withdrawal_receipt"
+                ):
+                    raise ValueError(
+                        "Requested stored scroll preparation is deferred; journey remains pending"
+                    )
+                # Nothing was withdrawn: the scroll stays banked for a later
+                # visit and this journey finishes its ordinary delivery.
+                from conquest.meteor_banking import defer_stored_scroll
+
+                defer_stored_scroll(state["stored_scroll_uid"])
+                save(
+                    state,
+                    scroll_preparation_done=True,
+                    scroll_disposition={
+                        "outcome": "deferred_stored",
+                        "reason": "preparation_unavailable",
+                        "withdrawal_not_attempted": True,
+                        "verified_at": time.time(),
+                    },
+                )
+                loop.record(
+                    "stored_scroll_deferred",
+                    uid=state["stored_scroll_uid"],
+                    activity="Stored MeteorScroll retrieval unavailable; leaving it banked",
                 )
             if state.get("scroll_withdrawal_receipt"):
                 disposition, _ = scroll_ownership(state, send)
                 if disposition == "carried":
-                    receipts = delivery_route.market_storage(
+                    receipts = delivery_route.market_storage_or_defer(
                         loop,
                         send=send,
                         items=[state["scroll_withdrawal_receipt"]["item"]],
@@ -969,7 +1028,7 @@ def resume(loop, *, send=request):
                     save(state)
                     scroll_ownership(state, send)
             elif prepared or not delivered_before:
-                delivery_route.market_storage(loop, send=send)
+                delivery_route.market_storage_or_defer(loop, send=send)
         warehouse_fallback(loop, state, send=send)
         if state.get("stored_scroll_uid") is not None and not state.get(
             "scroll_disposition"

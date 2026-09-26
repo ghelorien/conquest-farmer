@@ -1,5 +1,6 @@
 """One durable merchant-service budget for an entire required Market visit."""
 
+import os
 from pathlib import Path
 import time
 import uuid
@@ -75,9 +76,23 @@ class MarketVisit:
         if old.get("phase") == "active":
             if old.get("farmer_profile_id") != profile:
                 raise ValueError("Market visit belongs to another farmer profile")
-            if parent is not None and old.get("parent_visit_id") not in (None, parent):
-                raise ValueError("Previous Market visit needs departure reconciliation")
-            return old
+            # A route process that restarted after its budget ran out gets a
+            # fresh budget; otherwise every restart mid-Market banks all
+            # deliverables. The expired visit cannot grant input any more.
+            expired = not now < old.get("deadline", 0)
+            restarted = (
+                old.get("route_pid") != os.getpid()
+                or now - old.get("started_at", now) > 300
+            )
+            if not (expired and restarted):
+                if parent is not None and old.get("parent_visit_id") not in (
+                    None,
+                    parent,
+                ):
+                    raise ValueError(
+                        "Previous Market visit needs departure reconciliation"
+                    )
+                return old
         row = {
             "version": 1,
             "visit_id": uuid.uuid4().hex,
@@ -87,6 +102,7 @@ class MarketVisit:
             "started_at": now,
             "deadline": now + MARKET_SECONDS,
             "attempts": [],
+            "route_pid": os.getpid(),
         }
         from conquest.town_visit import TownVisit
 
