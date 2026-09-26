@@ -759,9 +759,11 @@ class OvernightLoop:
                 from conquest.route_crowd import Crowd
 
                 # A click on a player, booth or NPC does not move the farmer.
+                # The destination itself stays the click target: service and
+                # exit tiles stand beside their NPC (Market Controller, 09-26).
                 crowd = Crowd.observe(self.care.session, anchor)
                 dx, dy = target[0] - source[0], target[1] - source[1]
-                if crowd.covers(
+                if tuple(target) != tuple(destination) and crowd.covers(
                     (anchor[0] + (dx - dy) * 32, anchor[1] + (dx + dy) * 16)
                 ):
                     landing = crowd.open_landing(
