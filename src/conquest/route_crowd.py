@@ -22,6 +22,43 @@ NPC_BOX = (-64, -176, 64, 24)
 FIRST_PLAYER_UID = 1_000_000
 
 
+def _objects(session, addresses, span):
+    """Each scene object's first `span` bytes, or None when unreadable.
+
+    A worker session reads the whole scene in one request. A worker without
+    that operation, or a direct session, falls back to one read per object.
+    """
+    valid = []
+    for address in addresses:
+        try:
+            valid.append(checked_address(address, span))
+        except ValueError:
+            valid.append(None)
+    wanted = [a for a in valid if a is not None]
+    batch = getattr(session, "read_blocks", None)
+    found = None
+    if batch is not None and wanted:
+        try:
+            found = {}
+            for start in range(0, len(wanted), 1000):
+                part = wanted[start : start + 1000]
+                found.update(zip(part, batch(part, span)))
+        except (OSError, ValueError):
+            found = None  # Older worker: read one object at a time.
+    result = []
+    for address in valid:
+        if address is None:
+            result.append(None)
+        elif found is not None:
+            result.append(found.get(address))
+        else:
+            try:
+                result.append(session.read_block(address, span))
+            except (OSError, ValueError):
+                result.append(None)
+    return result
+
+
 def _roles(session):
     from conquest.memory_entities import MemoryEntityReader
 
@@ -41,12 +78,13 @@ def _roles(session):
     entries = session.read_block(checked_address(begin), end - begin) if end > begin else b""
     role = base + p.monster_vtable_rva
     span = p.draw_position_offset + 8
+    addresses = [
+        struct.unpack_from("<Q", entries, index + p.entry_object_offset)[0]
+        for index in range(0, len(entries), p.entry_stride)
+    ]
     bodies = []
-    for index in range(0, len(entries), p.entry_stride):
-        address = struct.unpack_from("<Q", entries, index + p.entry_object_offset)[0]
-        try:
-            raw = session.read_block(checked_address(address), span)
-        except (OSError, ValueError):
+    for raw in _objects(session, addresses, span):
+        if raw is None:
             continue  # Released while reading; the next observation replans.
         if struct.unpack_from("<Q", raw)[0] != role:
             continue

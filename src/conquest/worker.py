@@ -74,6 +74,45 @@ class Operations:
                 "data": base64.b64encode(data).decode("ascii"),
                 "qualified": False,
             }
+        if operation == "read-blocks":
+            # One request for a whole scene: each read-block is an HTTP round
+            # trip under the observer lock, and ~300 scene roles took 11 s per
+            # town travel step (live 2026-09-27). A block released while
+            # reading comes back as null; the caller skips it.
+            blocks = body.get("blocks")
+            if not isinstance(blocks, list) or not 1 <= len(blocks) <= 1024:
+                raise ValueError("Provide 1 to 1024 blocks")
+            requested = []
+            for block in blocks:
+                address = block.get("address") if isinstance(block, dict) else None
+                size = block.get("size") if isinstance(block, dict) else None
+                if (
+                    not isinstance(address, str)
+                    or type(size) is not int
+                    or not 1 <= size <= 4096
+                ):
+                    raise ValueError(
+                        "Each block needs a hexadecimal address and 1 to 4096 bytes"
+                    )
+                address = int(address, 0)
+                if not 0x10000 <= address <= 0x7FFFFFFFFFFF - size:
+                    raise ValueError("Read block is outside user memory bounds")
+                requested.append((address, size))
+            if sum(size for _, size in requested) > 262144:
+                raise ValueError("Read blocks exceed 256 KiB")
+            data = []
+            for address, size in requested:
+                try:
+                    chunk = self.session.read(address, size)
+                except OSError:
+                    chunk = b""
+                data.append(
+                    base64.b64encode(chunk).decode("ascii")
+                    if len(chunk) == size
+                    else None
+                )
+            self.session.assert_identity()
+            return {"encoding": "base64", "blocks": data, "qualified": False}
         if operation == "sample":
             fields = body.get("fields")
             if not isinstance(fields, list) or not 1 <= len(fields) <= 64:
@@ -469,6 +508,7 @@ def request(info_path, operation, body=None):
         "sample-npcs",
         "town",
         "read-block",
+        "read-blocks",
         "inspect-object",
         "scan",
         "foreground-click",

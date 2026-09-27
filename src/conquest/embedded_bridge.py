@@ -21,6 +21,7 @@ class EmbeddedBridge:
         "sample-npcs",
         "town",
         "read-block",
+        "read-blocks",
         "inspect-object",
         "background-click",
         "controls",
@@ -52,7 +53,13 @@ class EmbeddedBridge:
         self.operations, self.lock = operations, lock
         self.read_only = bool(read_only)
         if self.read_only:
-            self.allowed = {"health", "sample", "read-block", "inspect-object"}
+            self.allowed = {
+                "health",
+                "sample",
+                "read-block",
+                "read-blocks",
+                "inspect-object",
+            }
         from conquest.character_context import current
 
         self.character_context = current()

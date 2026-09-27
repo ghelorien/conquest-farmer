@@ -74,6 +74,28 @@ class HealthWorkerSession(WorkerPointerSession):
             raise ValueError("Incomplete memory block response")
         return data
 
+    def read_blocks(self, addresses, size):
+        """Read many equal-size blocks in one request; None marks a block
+        released while reading."""
+        for address in addresses:
+            checked_address(address, size)
+        result = self.request(
+            "read-blocks",
+            {"blocks": [{"address": hex(a), "size": size} for a in addresses]},
+        )
+        blocks = result.get("blocks")
+        if result.get("encoding") != "base64" or not isinstance(blocks, list):
+            raise ValueError("Memory blocks response does not match the request")
+        if len(blocks) != len(addresses):
+            raise ValueError("Memory blocks response does not match the request")
+        data = []
+        for block in blocks:
+            raw = None if block is None else base64.b64decode(block, validate=True)
+            if raw is not None and len(raw) != size:
+                raise ValueError("Incomplete memory block response")
+            data.append(raw)
+        return data
+
 
 @dataclass(frozen=True)
 class HealthCandidate:
