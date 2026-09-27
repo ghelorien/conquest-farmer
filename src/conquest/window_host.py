@@ -36,6 +36,45 @@ class WindowState:
 
 
 class HostApi:
+    # Seconds without any mouse or keyboard input before the farmer may take
+    # the foreground back from another application.
+    FOREGROUND_TAKEOVER_IDLE_SECONDS = 15
+
+    def idle_seconds(self):
+        import win32api
+
+        elapsed = (win32api.GetTickCount() - win32api.GetLastInputInfo()) & 0xFFFFFFFF
+        return elapsed / 1000
+
+    def key_event(self, vk, up):
+        import win32api
+        import win32con
+
+        win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP if up else 0, 0)
+
+    def take_foreground(self, hwnd, identity, root):
+        """Lift another app's foreground lock with ALT held, only when idle.
+
+        Windows refuses a background SetForegroundWindow while another app
+        keeps the foreground lock (live 09-27: the farmer stood two minutes
+        under attack behind the Claude window). Holding ALT lifts the lock.
+        A user who touched mouse or keyboard recently keeps their window.
+        """
+        import pywintypes
+
+        if self.idle_seconds() < self.FOREGROUND_TAKEOVER_IDLE_SECONDS:
+            return False
+        self.assert_owner(hwnd, identity)
+        self.key_event(0x12, False)
+        try:
+            try:
+                self.gui.SetForegroundWindow(root)
+            except pywintypes.error:
+                pass
+        finally:
+            self.key_event(0x12, True)
+        return self.gui.GetForegroundWindow() == root
+
     def activate_owned_caption(self, hwnd, identity):
         from conquest.caption_focus import activate_owner_caption
 

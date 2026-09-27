@@ -77,6 +77,11 @@ def activate_client(hwnd, identity, *, api=None):
             win32process.AttachThreadInput(current, other, False)
     if gui.GetForegroundWindow() == root:
         return True
+    # Another app still holds the foreground lock; once nobody is using the
+    # PC, lift it (HostApi.take_foreground) instead of waiting behind it.
+    takeover = getattr(api, "take_foreground", None)
+    if takeover and takeover(hwnd, identity, root):
+        return True
     fallback = getattr(api, "activate_owned_caption", None)
     native_fallback = getattr(api, "activate_native_caption", None)
     if (fallback and fallback(hwnd, identity)) or (
