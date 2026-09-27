@@ -1,0 +1,181 @@
+"""Learn Scatter from the archer class trainer once the character's level allows.
+
+Memory-only, like every other NPC visit: ArcherGod is found by exact name and
+model in the actor scene (market_services.discover), its dialog is read from
+the player's dialog records, and success is proven only by the learned-skill
+vector holding Scatter (MagicType 8001). Input goes through the qualified
+service actions. The only options pressed are one that names Scatter or, before
+it, a step whose text is about learning skills; anything else ends the attempt.
+
+Learning never blocks farming: an unknown trainer position or an unexpected
+dialog is recorded, the farmer keeps leveling, and a later town visit retries.
+"""
+
+import time
+from pathlib import Path
+
+from conquest.character_context import state_path
+from conquest.discord_notify import read_json, write_json
+
+TRAINER = "ArcherGod"
+# Walkable tile beside the trainer, per map, from a read-only memory survey.
+TRAINERS = Path("profiles/archer-trainers.json")
+STATE = Path(state_path(".runtime/scatter-training.json"))
+# Retail Scatter level; the server decides (the client catalog has no level).
+SCATTER_LEVEL = 23
+MAX_DIALOG_STEPS = 6
+RETRY_SECONDS = 1800
+MAX_ATTEMPTS = 6
+LEARNING_WORDS = ("learn", "skill", "teach", "study", "train")
+
+
+def learned(loop):
+    """Whether memory shows Scatter in the learned-skill vector."""
+    from conquest.character_context import farmer_name
+    from conquest.combat_ranges import read_combat_ranges_for_session
+
+    ranges = read_combat_ranges_for_session(
+        loop.care.session, farmer_name(), require_scatter=False
+    )
+    return ranges["scatter"] is not None
+
+
+def choose(records, pressed):
+    """The option text to press next, or None when no option is safe."""
+    if any(r.get("kind") == 2 for r in records):
+        return None  # an input field: never type into a trainer dialog
+    options = [r["text"] for r in records if r.get("kind") == 1]
+    for text in options:
+        if "scatter" in text.casefold():
+            return text
+    for text in options:
+        if text not in pressed and any(w in text.casefold() for w in LEARNING_WORDS):
+            return text
+    return None
+
+
+def trainer_tile(map_id):
+    plan = read_json(TRAINERS).get(str(map_id))
+    tile = plan.get("approach") if plan else None
+    return tuple(tile) if tile else None
+
+
+def _dialog(loop):
+    for _ in range(20):
+        try:
+            return loop.town("service-dialog")
+        except ValueError as error:
+            if "absent" not in str(error):
+                raise
+        time.sleep(0.25)
+    raise ValueError("ArcherGod dialog did not open")
+
+
+def learn(loop):
+    """Visit ArcherGod and learn Scatter. Returns True once memory proves it."""
+    if learned(loop):
+        return True
+    state = read_json(STATE)
+    state.update(attempts=state.get("attempts", 0) + 1, last_attempt=time.time())
+    write_json(STATE, state)
+    life = loop.living()["embedded_controls"]["life"]
+    tile = trainer_tile(life["map_id"])
+    if tile is None:
+        try:
+            loop.town("service-locate", name=TRAINER)
+        except ValueError:
+            loop.record(
+                "scatter_training_pending",
+                reason="trainer_position_unknown",
+                activity="Scatter: ArcherGod's position is not surveyed yet; farming on",
+            )
+            return False
+    else:
+        loop.travel(tile, service_name=TRAINER, activity="Walking to ArcherGod to learn Scatter")
+    loop.town("close", window="Shop")
+    loop.town("close", window="Inventory")
+    loop.town("service-open", name=TRAINER)
+    pressed = []
+    for _ in range(MAX_DIALOG_STEPS):
+        dialog = _dialog(loop)
+        option = choose(dialog["records"], pressed)
+        if option is None:
+            loop.record(
+                "scatter_training_failed",
+                reason="no_learning_option",
+                records=dialog["records"],
+                activity="Scatter: ArcherGod offered no learning option; farming on",
+            )
+            _dismiss(loop)
+            return False
+        from conquest.dialog_geometry import scroll_direction
+
+        if scroll_direction(dialog, option, dialog.get("viewport")):
+            loop.town(
+                "service-scroll-dialog",
+                name=TRAINER,
+                option=option,
+                records=dialog["records"],
+            )
+            continue
+        loop.town("service-select", name=TRAINER, option=option, records=dialog["records"])
+        pressed.append(option)
+        loop.record("scatter_training_option", option=option, records=dialog["records"])
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            time.sleep(0.3)
+            if learned(loop):
+                state.update(learned_at=time.time(), dialog=pressed)
+                write_json(STATE, state)
+                loop.record(
+                    "scatter_learned",
+                    options=pressed,
+                    activity="Learned Scatter from ArcherGod",
+                )
+                _dismiss(loop)
+                return True
+    loop.record(
+        "scatter_training_failed",
+        reason="not_learned_after_dialog",
+        options=pressed,
+        activity="Scatter: not learned after the ArcherGod dialog; farming on",
+    )
+    _dismiss(loop)
+    return False
+
+
+def _dismiss(loop):
+    try:
+        loop.town("service-close-panel", window="Dialog")
+    except ValueError:
+        pass
+
+
+def due(loop):
+    """Whether this town visit should try the trainer (bounded retries)."""
+    from conquest.level_goal import back2classic, goal
+
+    if not back2classic() or goal():
+        return False
+    if getattr(loop, "last_level", 0) < SCATTER_LEVEL:
+        return False
+    state = read_json(STATE)
+    if state.get("learned_at") or state.get("attempts", 0) >= MAX_ATTEMPTS:
+        return False
+    last = state.get("last_attempt")
+    return last is None or time.time() - last >= RETRY_SECONDS
+
+
+def attempt(loop):
+    """One guarded learning attempt during a town visit; never raises."""
+    try:
+        return learn(loop)
+    except Exception as error:  # a failed attempt must not stop farming
+        loop.record(
+            "scatter_training_failed",
+            reason="error",
+            detail=str(error),
+            activity="Scatter: training attempt failed; farming on",
+        )
+        _dismiss(loop)
+        return False
