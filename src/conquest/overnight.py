@@ -403,6 +403,7 @@ class OvernightLoop:
             "open": f"Opening {vendor} shop",
             "buy": f"Buying { {**{k: v[0] for k, v in HEALING_POTIONS.items()}, 1050000: 'LuckyArrow', 1050001: 'IronArrow', 1050002: 'SpeedArrow'}.get(fields.get('type_id'), 'supplies') } from {vendor}",
             "sell": f"Selling unwanted loot to {vendor}",
+            "sell-scroll": f"Selling a TwinCityGate to {vendor} for arrows",
         }
         if action in activity:
             self.record("town_activity", activity=activity[action])
@@ -1225,6 +1226,30 @@ class OvernightLoop:
             )
             return self.buy_supply(5, fallback)
 
+    def sell_scroll_for_arrows(self):
+        """Sell one carried TwinCityGate for the pack an empty quiver needs,
+        once funding has drawn the bank (True once one is sold).
+
+        Live 2026-09-27 17:19 (Toxic, level 27, Phoenix City): 128 silver, an
+        empty bank and one arrow left; a pack costs 200 and every restock
+        retry failed in town. A TwinCityGate bought for 200 sells back for a
+        third: two pay for the pack that earns the next scrolls.
+        """
+        from conquest.return_scroll import TYPE
+
+        bag = self.town("supplies")
+        scroll = next((i for i in bag["items"] if i["type_id"] == TYPE), None)
+        if scroll is None:
+            return False
+        receipt = self.town("sell-scroll", vendor_type=5, uid=scroll["uid"])
+        self.record(
+            "scroll_sold_for_arrows",
+            receipt=receipt,
+            silver=bag["silver"] + receipt["silver_gained"],
+            activity=f"Sold a TwinCityGate for {receipt['silver_gained']} silver toward arrows",
+        )
+        return True
+
     def open_arrow_refill(self):
         before = self.town("supplies")
         try:
@@ -1402,14 +1427,15 @@ class OvernightLoop:
                 try:
                     bought = self.buy_refill_arrows()
                 except ValueError as error:
+                    short = str(error) == "Insufficient funds or inventory room to restock"
+                    empty = counts["arrows"] < self.route.supplies.arrows_return_below
+                    if short and empty and self.sell_scroll_for_arrows():
+                        continue
                     # A spare pack the wallet or bag cannot take is no reason
                     # to stop the route while enough arrows are carried to
                     # hunt (live 09-27 14:26: the eight-pack refill after a
                     # resumed restock idled Suicide in a failure cooldown).
-                    if (
-                        str(error) != "Insufficient funds or inventory room to restock"
-                        or counts["arrows"] < self.route.supplies.arrows_return_below
-                    ):
+                    if not short or empty:
                         raise
                     self.record(
                         "arrow_purchase_short",
