@@ -48,6 +48,17 @@ class FarmerJournal:
 
 ROUTE_PHASES = ("starting", "hunting", "restocking", "recovering_route")
 ROUTE_STATUS_SECONDS = 30
+# Farming-only servers have no visitor admission. An unapproved request is
+# cancelled once it has stayed displayed this long (AGENTS.md: five seconds).
+FARMING_ONLY_DECLINE_AFTER = 5
+# A Cancel press that leaves the request displayed is retried at most this
+# many times, this many seconds apart.
+FARMING_ONLY_DECLINE_ATTEMPTS = 3
+FARMING_ONLY_DECLINE_RETRY = 10
+
+
+def _clock():
+    return time.monotonic()
 
 
 def route_owns_farmer():
@@ -105,11 +116,24 @@ def decline_permission(runtime):
     return False, "Farming is Off; the unapproved request awaits the operator"
 
 
-def controller(runtime, observer):
+def controller(runtime, observer, *, farming_only=False):
     from conquest.merchants.driver import MerchantDriver
-    from conquest.merchants.farmer_qualification import qualification_path
 
-    qualification = qualification_path(observer, migrate=False)
+    if farming_only:
+        # Delivery qualification is America-only, so a farming-only server
+        # has none. Its decline rests on the live native 1078 request proof
+        # alone (unrelated_request); this path is never read.
+        from pathlib import Path
+
+        from conquest.character_context import state_path
+
+        qualification = Path(
+            state_path(".runtime/merchants/no-delivery-qualification.json")
+        )
+    else:
+        from conquest.merchants.farmer_qualification import qualification_path
+
+        qualification = qualification_path(observer, migrate=False)
     driver = MerchantDriver(observer, qualification, runtime.coordinator)
     driver.read = lambda: driver.memory.read(farmer_preflight=True)
 
@@ -131,6 +155,7 @@ def controller(runtime, observer):
     return SimpleNamespace(
         character="Farmer",
         manual_farmer=True,
+        farming_only=farming_only,
         journal=FarmerJournal(runtime),
         driver=driver,
         coordinator=runtime.coordinator,
@@ -139,7 +164,90 @@ def controller(runtime, observer):
     )
 
 
+def _project_farming_only_request(runtime, pending):
+    """Tell the route's health read that only an unapproved request fences
+    the farmer, so its town actions wait for the decline instead of failing."""
+    runtime.coordinator.farming_only_request = bool(pending)
+
+
+def decline_farming_only_request(runtime, observer, snapshot):
+    """Cancel an unapproved request on a farming-only server.
+
+    These servers never open a visitor session. Once the exact request has
+    stayed displayed for FARMING_ONLY_DECLINE_AFTER seconds, the native 1078
+    decline presses Cancel under its hover proof and once-only journal. A
+    press that leaves the request displayed is retried a bounded number of
+    times; a changed client identity is never pressed.
+    """
+    request = snapshot["request"]
+    key = [
+        request.get("participant_uid"),
+        request.get("participant"),
+        request.get("message"),
+    ]
+    now = _clock()
+    track = getattr(runtime, "farming_only_request", None)
+    if not track or track["key"] != key or now - track["seen"] > 2:
+        track = {
+            "key": key,
+            "identity": snapshot.get("identity"),
+            "since": now,
+            "retry_at": now + FARMING_ONLY_DECLINE_AFTER,
+            "presses": 0,
+        }
+    track["seen"] = now
+    runtime.farming_only_request = track
+    observation = runtime.manual_farmer_observation
+    if snapshot.get("identity") != track["identity"]:
+        observation["decline_blocker"] = (
+            "Client identity changed under the displayed request; no decline input"
+        )
+        return False
+    if track["presses"] >= FARMING_ONLY_DECLINE_ATTEMPTS:
+        observation["decline_blocker"] = (
+            "Cancel did not close the request; it stays fenced until it closes"
+        )
+        return False
+    if now < track["retry_at"]:
+        return False
+    allowed, blocker = decline_permission(runtime)
+    if not allowed:
+        observation["decline_blocker"] = blocker
+        return False
+    from conquest.merchants.unrelated_request import decline_unrelated_request
+
+    before = runtime._manual_get("Farmer", "unrelated_request_decline")
+    declined = False
+    try:
+        current = runtime.manual_farmer_controller
+        if (
+            current is None
+            or not getattr(current, "farming_only", False)
+            or current.driver.observer is not observer
+        ):
+            current = controller(runtime, observer, farming_only=True)
+            runtime.manual_farmer_controller = current
+        declined = decline_unrelated_request(current, snapshot, operations_enabled=True)
+    except (ValueError, OSError) as error:
+        observation["decline_blocker"] = str(error)
+    # Only a submitted press counts toward the bounded retries; refusals
+    # before input (focus, F11/F12, changed dialog) just wait and retry.
+    if runtime._manual_get("Farmer", "unrelated_request_decline") != before:
+        track["presses"] += 1
+    # The decline itself takes seconds; that is not an observation gap.
+    track["seen"] = _clock()
+    track["retry_at"] = track["seen"] + FARMING_ONLY_DECLINE_RETRY
+    observation["farming_only_decline"] = {
+        "presses": track["presses"],
+        "declined": bool(declined),
+    }
+    return bool(declined)
+
+
 def observe(runtime, observer=None):
+    # Only the app's dedicated observer thread (run_manual_farmer) calls
+    # without an observer; the combat and town boundaries pass theirs.
+    observer_thread = observer is None
     configured = runtime.manual_farmer_provider()
     if observer is not None and observer is not configured:
         return False
@@ -192,6 +300,7 @@ def observe(runtime, observer=None):
             or runtime.manual_handoff_status() is not None
         )
         if not visible and not held:
+            _project_farming_only_request(runtime, False)
             runtime.manual_farmer_observation = {
                 "available": True,
                 "windows_absent": True,
@@ -238,12 +347,17 @@ def observe(runtime, observer=None):
     if snapshot.get("server") in FARMING_ONLY_SERVERS and (
         snapshot.get("request") is not None or snapshot.get("trade") is not None
     ):
-        # Visitor admission and the native decline are qualified on America
-        # only. A farming-only server never opens a visitor session (which
-        # could not settle there); it only fences town input while the modal
-        # is open, and the next closed read lifts the fence.
+        # Visitor admission is qualified on America only. A farming-only
+        # server never opens a visitor session (which could not settle
+        # there); it fences farmer input while the modal is open, and the
+        # observer thread cancels an unapproved request after five seconds.
         runtime.manual_farmer_observation["farming_only_modal"] = True
+        request_only = snapshot.get("trade") is None
+        _project_farming_only_request(runtime, request_only)
+        if observer_thread and request_only:
+            decline_farming_only_request(runtime, observer, snapshot)
         return True
+    _project_farming_only_request(runtime, False)
     routed = runtime.process_probe_owned("Farmer", snapshot)
     if routed:
         from conquest.merchants.manual_runtime import OBSERVATION_DEFERRED

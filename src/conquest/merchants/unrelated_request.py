@@ -23,6 +23,11 @@ def _exact_booth(items):
     return [[uid, *details] for uid, details in sorted(exact_listings(items).items())]
 
 
+# A farming-only decline still unreconciled after this long is superseded by
+# the next displayed request instead of fencing it forever.
+FARMING_ONLY_STALE_SECONDS = 10
+
+
 def _reconcile_pending(controller, snapshot, pending):
     """Observe a submitted decline once; never repeat its native input."""
     if snapshot.get("request") or snapshot.get("trade"):
@@ -34,7 +39,12 @@ def _reconcile_pending(controller, snapshot, pending):
         raise CaptureUnavailable(
             "Legacy unrelated request decline lacks exact reconciliation evidence"
         )
-    if (
+    if getattr(controller, "farming_only", False):
+        # No trade window is open and a farming-only farmer never trades, so
+        # nothing can have moved; its own looting may change bag and silver.
+        if snapshot.get("identity") != pending["identity"]:
+            raise CaptureUnavailable("Unrelated request decline changed client")
+    elif (
         snapshot.get("identity") != pending["identity"]
         or _exact_inventory(snapshot.get("inventory", [])) != pending["inventory"]
         or _exact_booth(snapshot.get("booth", [])) != pending["booth"]
@@ -233,7 +243,16 @@ def decline_unrelated_request(
     key = "unrelated_request_decline"
     pending = controller.journal.get(controller.character, key)
     if pending and pending.get("phase") == "submitted":
-        return _reconcile_pending(controller, snapshot, pending)
+        stale = time.time() - pending.get("at", 0) >= FARMING_ONLY_STALE_SECONDS
+        if not (getattr(controller, "farming_only", False) and stale):
+            return _reconcile_pending(controller, snapshot, pending)
+        # The earlier Cancel left a request displayed. Nothing can move
+        # without a trade window, so a bounded retry may press Cancel again.
+        controller.journal.set(
+            controller.character,
+            key,
+            {**pending, "phase": "superseded", "superseded_at": time.time()},
+        )
     request = snapshot.get("request")
     if not request or snapshot.get("trade"):
         return False
@@ -258,15 +277,23 @@ def decline_unrelated_request(
         controller.character, name, identity["uid"]
     ):
         return False
-    # On 1078 the farmer's own native trade qualification (a verified
-    # bilateral receipt bound to this farmer, native window-owned controls)
-    # covers its request dialog; merchants keep the unqualified capability.
-    driver.require_qualified(
-        "farmer_delivery"
-        if getattr(driver, "trade1078", False)
-        and getattr(controller, "manual_farmer", False)
-        else "trade_request"
-    )
+    if getattr(controller, "farming_only", False):
+        # Farming-only servers have no delivery qualification. The decline
+        # rests on the build-scoped native 1078 request proof checked below
+        # (decline_control) and the hover proof of the Cancel label.
+        if not getattr(driver, "trade1078", False):
+            raise ValueError("Farming-only decline requires the native 1078 request")
+    else:
+        # On 1078 the farmer's own native trade qualification (a verified
+        # bilateral receipt bound to this farmer, native window-owned
+        # controls) covers its request dialog; merchants keep the
+        # unqualified capability.
+        driver.require_qualified(
+            "farmer_delivery"
+            if getattr(driver, "trade1078", False)
+            and getattr(controller, "manual_farmer", False)
+            else "trade_request"
+        )
     from conquest.desktop_runtime import physical_coordinates
     from conquest.focus_recovery import activate_client
     from conquest.foreground import foreground_click

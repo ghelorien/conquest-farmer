@@ -550,11 +550,13 @@ def manual_session_blocked(character=None):
 
 def farmer_fence_projection():
     """Farmer fence fields for the route's health read (no input authority)."""
+    # A farming-only server's displayed request has no visitor session; the
+    # observer thread declines it (manual_farmer.decline_farming_only_request).
+    farming_only = bool(getattr(_coordinator, "farming_only_request", False))
     return {
-        "manual_input_fence": manual_session_blocked("Farmer"),
-        "manual_request_pending": bool(
-            _coordinator and _coordinator.manual_request_pending("Farmer")
-        ),
+        "manual_input_fence": manual_session_blocked("Farmer") or farming_only,
+        "manual_request_pending": farming_only
+        or bool(_coordinator and _coordinator.manual_request_pending("Farmer")),
     }
 
 
