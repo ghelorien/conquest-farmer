@@ -1891,6 +1891,13 @@ class OvernightLoop:
             next_route=selected.name,
             activity=f"Level {level}: moving to {selected.name}",
         )
+        if selected.map_id != life["map_id"]:
+            # Another map starts from town: its Conductress trip walks to her
+            # from where the farmer stands, ~950 tiles from the Poltergeists
+            # and past town travel's 90 s limit.
+            from conquest.return_scroll import return_to_town
+
+            return_to_town(self)
         travel_to_map(self, selected.map_id)
         request(self.info, "controls", {"route_id": selected.id})
         deadline = time.monotonic() + 10

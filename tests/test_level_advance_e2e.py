@@ -66,6 +66,10 @@ class Farmer:
         self.loop = loop
         monkeypatch.setattr(leveling_routes, "read_level", lambda *a: self.level)
         monkeypatch.setattr(world_travel, "travel_to_map", self.travel)
+        monkeypatch.setattr(
+            "conquest.return_scroll.return_to_town",
+            lambda loop: self.step["calls"].append("return_to_town"),
+        )
         monkeypatch.setattr(overnight, "request", self.request)
         monkeypatch.setattr(
             overnight, "read_status", lambda path: {"selected_route": self.acknowledged}
@@ -198,9 +202,11 @@ def test_level_advance_e2e(tmp_path, monkeypatch):
         'controls:{"route_id": "turtledove"}',
         "queue_route_optimization",
     ]
-    # Mode 6: the Phoenix zone is reached by travelling there first.
+    # Mode 6: the Phoenix zone is reached by travelling there first, from
+    # town (a scroll back; the Conductress walk from the field is too long).
     assert by_level[26]["calls"] == [
         "stop_farm",
+        "return_to_town",
         "travel_to_map:1011",
         'controls:{"route_id": "wingedsnake"}',
         "queue_route_optimization",
