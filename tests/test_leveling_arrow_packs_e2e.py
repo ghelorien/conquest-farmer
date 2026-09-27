@@ -15,6 +15,8 @@ Failure modes, written before the fix:
  A3 IronArrow or SpeedArrow packs (1,000 or 5,000 arrows) exceed two packs.
  A4 The restock withdrawal does not fund the extra packs.
  A5 The artifact is not repeatable.
+ A6 The route's refill target stays at two packs: adopt_ammunition set
+    arrows_restock_to to 400 (live 11:43: one pack bought, 400 arrows).
 """
 
 import json
@@ -69,6 +71,25 @@ def buys(kind, leveling, start=2):
     return {"packs_after": arrow_upgrades.arrow_pack_count(state), "bought": len(bought)}
 
 
+def refill_target(leveling):
+    """The refill target the route adopts for its current LuckyArrow tier."""
+    if leveling:
+        level_goal.start(23)
+    else:
+        level_goal.stop()
+    arrows = dict(
+        uid=99, type_id=1050000, name="LuckyArrow", level=1, profession=40, sex=0,
+        plus=0, gem1=0, gem2=0, attack_min=10, attack_max=10, defense=0, dodge=0,
+    )
+    state = {"level": 14, "profession": 40, "map_id": 1002, "equipment": {"arrows": arrows}}
+    loop = OvernightLoop.__new__(OvernightLoop)
+    loop.route = RouteLibrary().load("robin")
+    loop.town = lambda action, **fields: bag(1050000, 2) if action == "supplies" else state
+    loop.record = lambda *a, **k: None
+    loop.adopt_ammunition(state)
+    return loop.route.supplies.arrows_restock_to
+
+
 def scenario(monkeypatch):
     monkeypatch.setattr(banking, "transport_reserve", lambda: 200)
     route = RouteLibrary().load("robin")
@@ -82,6 +103,7 @@ def scenario(monkeypatch):
         "leveling_iron": buys(1050001, True),
         "leveling_speed": buys(1050002, True),
         "budget": {"leveling": leveling_budget, "america": america_budget},
+        "refill_target": {"leveling": refill_target(True), "america": refill_target(False)},
     }
 
 
@@ -108,3 +130,5 @@ def test_leveling_lucky_archer_carries_five_packs(tmp_path, monkeypatch):
     assert a["leveling_speed"]["packs_after"] == 2
     # A4: the withdrawal covers three more 200-silver packs than America's.
     assert a["budget"]["leveling"] - a["budget"]["america"] == 3 * 200
+    # A6: the route refills to five packs (1,000) while leveling, 400 otherwise.
+    assert a["refill_target"] == {"leveling": 1000, "america": 400}

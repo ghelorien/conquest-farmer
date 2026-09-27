@@ -53,6 +53,11 @@ def arrow_pack_count(snapshot):
     return len(items) + int(equipped)
 
 
+def refill_target(kind):
+    """Arrows a restock refills this tier to: its pack size times its pack limit."""
+    return ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS * max_arrow_packs(kind)
+
+
 def require_arrow_purchase_room(snapshot, kind=None):
     if arrow_pack_count(snapshot) >= max_arrow_packs(kind):
         raise ValueError("Arrow purchase blocked: already carrying the maximum packs")
