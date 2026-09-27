@@ -880,7 +880,11 @@ def run_trial(
                     escape_observed_at = time.monotonic()
                     escape_observation = supervisor.memory_targets(config.client_size)
                     escape = supervisor.ranged_escape(
-                        (x, y), (l, t, r, b), anchor=config.player_anchor
+                        (x, y),
+                        (l, t, r, b),
+                        anchor=config.player_anchor,
+                        # Jump-Scatter never lets a monster reach melee.
+                        adjacent_trigger=1 if config.jump_scatter else 2,
                     )
                     if escape is not None:
                         dx, dy = escape[0] - x, escape[1] - y

@@ -146,6 +146,22 @@ def test_dense_pack_landing_avoids_actor_tiles_and_click_boxes():
     assert not any(abs(px - t.x) <= 24 and -40 <= py - t.y <= 10 for t in targets)
 
 
+def test_jump_scatter_never_lands_within_a_monsters_reach():
+    # Alex: "you can't let enemies ever attack you, if enemies are within 1
+    # tile of you you gotta jump scatter".
+    terrain = TerrainMap(1011, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ())
+    supervisor = SimpleNamespace(recovery=SimpleNamespace(terrain=terrain))
+    # A scattered pack 8-12 tiles out: many landings sit beside a monster.
+    targets = [target(58 + dx, 44 + dy) for dx in (0, 3, 6) for dy in (0, 3, 6, 9)]
+    landing = scatter_landing(supervisor, targets, (50, 50), (20, 20, 80, 80), 10)
+    assert landing is not None
+    assert all(
+        max(abs(t.world_position[0] - landing[0]), abs(t.world_position[1] - landing[1]))
+        >= 2
+        for t in targets
+    )
+
+
 def test_finish_wounded_group_requires_fresh_same_identities_in_range(monkeypatch):
     from conquest import scatter_movement as sm
 

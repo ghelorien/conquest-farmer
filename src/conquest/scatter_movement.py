@@ -144,6 +144,11 @@ def scatter_landing(
                 continue
             if point in live:
                 continue  # Ctrl-clicking an actor can attack instead of jumping.
+            # Never land where a monster can reach: one within a tile is what
+            # the jump-Scatter escape jumps away from (Alex 2026-09-27: "you
+            # can't let enemies ever attack you").
+            if any(max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= 1 for p in live):
+                continue
             px, py = anchor[0] + (dx - dy) * 32, anchor[1] + (dx + dy) * 16
             if not clear_scene((px, py), viewport):
                 continue

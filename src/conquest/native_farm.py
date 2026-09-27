@@ -1529,10 +1529,14 @@ class NativeFarmSupervisor:
                 continue
         raise CaptureUnavailable("Waiting for a traversable patrol step")
 
-    def ranged_escape(self, position, boundary, anchor=None):
+    def ranged_escape(self, position, boundary, anchor=None, adjacent_trigger=2):
         """A bounded clear jump away from memory-verified nearby living monsters.
 
         ``anchor`` is the player's screen position the jump is clicked from.
+        ``adjacent_trigger`` monsters within one tile call for a jump without
+        any damage; jump-Scatter uses 1 (Alex 2026-09-27: "if enemies are
+        within 1 tile of you you gotta jump scatter that's the whole
+        strategy").
         """
         from conquest.navigation import native_movement_delta
 
@@ -1552,7 +1556,7 @@ class NativeFarmSupervisor:
             now - self.last_damage_at <= DAMAGE_WINDOW
             and self.last_damage_at > self.escape_damage_consumed_at
         )
-        if adjacent < 2 and not damaged:
+        if adjacent < adjacent_trigger and not damaged:
             return None
         threats = [
             p

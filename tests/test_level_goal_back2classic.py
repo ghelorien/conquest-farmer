@@ -282,6 +282,27 @@ def test_escape_landings_are_judged_from_the_players_screen_anchor(monkeypatch):
     assert max(abs(landing[0] - 21), abs(landing[1] - 20)) >= 6
 
 
+# Alex: "When doing jump scatter you can't let enemies ever attack you, if
+# enemies are within 1 tile of you you gotta jump scatter".
+def test_jump_scatter_jumps_before_a_single_adjacent_monster_can_hit(monkeypatch):
+    from test_native_farm import setup
+    from conquest import native_farm
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.scene_timestamp = 100.0
+    supervisor.escape_monsters = (NS(position=(21, 20)),)  # one, not yet hitting
+    supervisor.recovery.terrain = NS(walkable=lambda p: True)
+    # Single-shot farming waits for a hit or a second adjacent monster.
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is None
+    landing = supervisor.ranged_escape((20, 20), (0, 0, 50, 50), adjacent_trigger=1)
+    assert landing is not None and max(abs(landing[0] - 21), abs(landing[1] - 20)) >= 6
+    assert supervisor.escape_context["reason"] == "enemies_within_one_tile"
+    # Two tiles away is not yet contact.
+    supervisor.escape_monsters = (NS(position=(22, 20)),)
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50), adjacent_trigger=1) is None
+
+
 # A crowd can leave no landing 6+ tiles from every monster within 12 tiles:
 # still jump clear of the monster hitting us instead of tanking it.
 def test_crowded_hit_still_jumps_clear_of_the_attacker(monkeypatch):

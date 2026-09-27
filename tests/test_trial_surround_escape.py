@@ -212,7 +212,7 @@ def test_escape_refused_by_the_hud_takes_another_landing_at_once(
     # panel. (433, 455) clicks (838, 556), clear of the HUD.
     under_hud, clear = (423, 467), (433, 455)
 
-    def escape(position_now, boundary, anchor=None):
+    def escape(position_now, boundary, anchor=None, **kwargs):
         if position != [423, 455]:
             return None
         blocked = getattr(supervisor, "escape_blocked", {})
