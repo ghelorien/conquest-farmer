@@ -111,7 +111,10 @@ Return to town when fewer than three usable arrows remain, selected healing
 supplies are exhausted, or inventory is completely full. Reload a usable reserve
 stack before returning. Scatter must not be attempted with only one or two arrows.
 Do not reintroduce proactive 200-arrow / six-potion return thresholds. Saved
-thresholds are three arrows and one potion. Necessary city
+thresholds are three arrows and one potion. Exception: while the Back2Classic
+level goal runs, the farmer walks back with up to five potions left (at most
+half of what it left town with); the walk from the low-level fields is long
+and it died on it with none (2026-09-27). Necessary city
 transitions and valuable-storage safety remain separate obligations. During a
 legitimate town trip, skip the Pharmacist when healing stock is already full,
 there is no identified junk to sell and no required return scroll to replenish.
@@ -126,9 +129,12 @@ preserve existing excess for use. Use memory-qualified owned upgrades before
 buying, and fund the best eligible normal tier on required town visits.
 Keep existing excess potions to use normally; do not discard them to reach five.
 Low-level routes (Pheasants through Winged Snakes, levels 1-31) refill to 20
-Painkillers instead (user, 2026-09-26: "buy 20 of the appropriate potions
-relative to the total health he has"); higher routes keep five. Choosing a
-stronger potion as max HP grows is not implemented yet.
+potions instead (user, 2026-09-26: "buy 20 of the appropriate potions
+relative to the total health he has"); higher routes keep five. Back2Classic
+farmers (and the level goal) buy the smallest Pharmacist tier that restores
+40% of max HP and that the live shop price lets them buy in full; America
+farmers keep Painkillers. Every carried HP potion tier counts and is drunk
+(smallest that covers the missing HP first); none is ever sold or dropped.
 Keep warehouse funding, available inventory space, verified purchases and the
 empty-supplies/full-inventory town trigger. Do not restore old 1,600-arrow or
 10/20-potion targets, including savings mode.

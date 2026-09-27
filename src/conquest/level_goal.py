@@ -108,20 +108,39 @@ def mark_reviewed(level):
 def healing_type(loop):
     """Choose and activate the potion tier while the Pharmacist is open.
 
-    Every restock picks by maximum HP and price, goal or not: a fixed route
-    potion (Painkiller) can restore more than a fresh character's whole bar.
+    Back2Classic farmers (and the level goal) pick by maximum HP and the
+    Pharmacist's live prices: a fixed Painkiller can restore more than a
+    fresh character's whole bar. America farmers keep their route potion.
+    Every carried tier stays usable, so a new tier never sells or strands
+    potions, and an unreadable shop keeps the current tier.
     """
     from conquest import potion_tiers
 
-    products = loop.town("shop", vendor_type=3)["products"]
-    life = loop.living()["embedded_controls"]["life"]
-    silver = loop.town("supplies")["silver"]
-    kind = potion_tiers.choose(
-        life["max_hp"],
-        silver,
-        loop.route.supplies.healing_restock_to,
-        offered={p["type_id"] for p in products},
-    )
+    current = loop.route.supplies.healing_type
+    if not potion_tiers.adaptive():
+        return current
+    try:
+        products = (loop.town("shop", vendor_type=3) or {}).get("products") or []
+        life = loop.living()["embedded_controls"]["life"]
+        silver = loop.town("supplies")["silver"]
+        kind = potion_tiers.choose(
+            life["max_hp"],
+            silver,
+            loop.route.supplies.healing_restock_to,
+            offered={
+                p["type_id"]: p.get("price")
+                for p in products
+                if p.get("type_id") in potion_tiers.HEALING_POTIONS
+            },
+        )
+    except (ValueError, KeyError, TypeError) as error:
+        loop.record(
+            "healing_tier_unchanged",
+            healing_type=current,
+            detail=str(error),
+            activity=f"Keeping {potion_tiers.name(current)}: potion prices unavailable",
+        )
+        return current
     if kind != loop.route.supplies.healing_type:
         loop.route = loop.route.model_copy(
             update={

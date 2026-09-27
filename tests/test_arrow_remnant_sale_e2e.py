@@ -31,7 +31,7 @@ from conquest.memory_inventory import InventorySnapshot, Item
 from conquest.town_trade import TownTrade
 
 LUCKY = 1050000
-STANCHER = 1000000  # Identified junk consumable: an ordinary loot sale.
+MANA = 1001000  # A mana potion, identified junk: an ordinary loot sale.
 CASES = {
     # name: (action, item type, amount, game takes item, silver change)
     "remnant_0_silver": ("sell_partial_arrow", LUCKY, 2, True, 0),
@@ -40,8 +40,8 @@ CASES = {
     "remnant_silver_lost": ("sell_partial_arrow", LUCKY, 2, True, -5),
     "bundle_0_silver": ("sell_partial_arrow", LUCKY, 20, True, 0),
     "bundle_6_silver": ("sell_partial_arrow", LUCKY, 20, True, 6),
-    "loot_0_silver": ("sell", STANCHER, 1, True, 0),
-    "loot_1_silver": ("sell", STANCHER, 1, True, 1),
+    "loot_0_silver": ("sell", MANA, 1, True, 0),
+    "loot_1_silver": ("sell", MANA, 1, True, 1),
 }
 
 

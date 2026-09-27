@@ -72,7 +72,10 @@ def test_equipment_is_retained_until_instance_enhancements_can_be_verified():
 
 
 def test_only_identified_unwanted_consumables_are_sale_candidates():
-    assert all(junk_type(i) for i in (1000000, 1000010, 1001000, 1001010, 1001020))
+    # Mana supplies are junk for the archer. HP potions of every tier heal and
+    # are counted, so none is ever sold (test_potion_restock_e2e).
+    assert all(junk_type(i) for i in (1001000, 1001010, 1001020))
+    assert not any(junk_type(i) for i in (1000000, 1000010, 1000020, 1002000))
 
 
 def test_farming_off_cancels_the_overnight_loop():

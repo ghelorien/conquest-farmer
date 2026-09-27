@@ -7,8 +7,8 @@ Ways this can fail, written before the code:
 4. A cheaper tier the character relies on is sold as junk at the next visit.
 5. Switching to a stronger tier strands the old potions as "not potions", so
    the route returns to town at once although the bag still heals.
-6. The existing Painkiller farmer (no goal) changes behavior: Stanchers must
-   still be junk and Painkiller stays the bought tier.
+6. The existing Painkiller farmer (America, no goal) changes behavior:
+   Painkiller stays the bought tier whatever its maximum HP.
 7. The gear trip fires on the first hunt (wasted walk) or never fires.
 8. The goal never stops, or stops before the target level.
 9. A route change resets the chosen tier to the YAML Painkiller.
@@ -79,26 +79,25 @@ def test_unknown_max_hp_never_guesses(max_hp):
         potion_tiers.choose(max_hp, 1000, 5)
 
 
-# 4, 6
-def test_junk_follows_the_active_tier():
-    # Legacy default: Painkiller active, lower tiers sold as before.
-    assert junk_type(1000000) and junk_type(1000010) and not junk_type(1000020)
+# 4
+def test_no_hp_potion_is_junk_whatever_the_active_tier():
+    for active in (1000000, 1000020, 1002000):
+        potion_tiers.set_active(active)
+        assert not any(junk_type(t) for t in potion_tiers.HEALING_POTIONS)
     assert junk_type(1001000)  # mana stays junk
-    potion_tiers.set_active(1000000)
-    assert not junk_type(1000000) and not junk_type(1000020)
-    potion_tiers.set_active(1000020)
-    assert junk_type(1000000) and not junk_type(1000030)
 
 
 # 5
-def test_every_usable_tier_counts_and_heals():
+def test_every_tier_counts_and_heals():
     potion_tiers.set_active(1000010)
     carried = bag(Item(1, 1000000, 1), Item(2, 1000010, 2), Item(3, 1000020, 1))
-    assert potion_tiers.count(carried) == 3  # Stancher is below the tier
+    assert potion_tiers.count(carried) == 4  # a Stancher below the tier still heals
     assert potion_tiers.count(carried, include=1000000) == 4
+    assert potion_tiers.pick(carried, 60).type_id == 1000000
     assert potion_tiers.pick(carried, 90).type_id == 1000010
     assert potion_tiers.pick(carried, 400).type_id == 1000020
-    assert potion_tiers.pick(bag(Item(1, 1000000)), 50) is None
+    assert potion_tiers.pick(bag(Item(1, 1000000)), 50).type_id == 1000000
+    assert potion_tiers.pick(bag(Item(1, 1050000)), 50) is None
 
 
 # 7, 8
@@ -152,10 +151,16 @@ def test_pharmacist_step_switches_route_tier_and_records(runtime):
         ),
         record=lambda event, **fields: events.append((event, fields)),
     )
-    products = [{"type_id": 1000000}, {"type_id": 1000010}, {"type_id": 1000020}]
-    # With or without a goal, the tier follows max HP and price.
-    assert level_goal.healing_type(loop) == 1000000
-    assert potion_tiers.active_type() == 1000000
+    products = [
+        {"type_id": 1000000, "price": 5},
+        {"type_id": 1000010, "price": 18},
+        {"type_id": 1000020, "price": 60},
+    ]
+    # 6: an America farmer without the goal keeps the route Painkiller.
+    assert level_goal.healing_type(loop) == 1000020
+    assert loop.route.supplies.healing_type == 1000020
+    assert not potion_tiers.TIER.exists() and events == []
+    # With the goal the tier follows max HP and the live price.
     level_goal.start(23)
     assert level_goal.healing_type(loop) == 1000000
     assert loop.route.supplies.healing_type == 1000000

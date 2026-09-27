@@ -2,7 +2,8 @@
 
 Values come from the installed client's ini/itemtype.json (checked 2026-09-26).
 None has a level, class or stat requirement, so the choice depends only on
-maximum HP and silver.
+maximum HP and silver. Every tier heals, so every carried tier counts and is
+drunk; a potion is never junk, whichever tier is bought today.
 """
 
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 from conquest.character_context import state_path
 from conquest.discord_notify import read_json, write_json
 
-# type_id: (name, life restored, Pharmacist price)
+# type_id: (name, life restored, client catalog price)
 HEALING_POTIONS = {
     1000000: ("Stancher", 70, 5),
     1000010: ("Resolutive", 100, 18),
@@ -36,30 +37,55 @@ def name(type_id):
     return HEALING_POTIONS.get(type_id, (f"potion {type_id}",))[0]
 
 
+def adaptive():
+    """Whether this farmer picks its tier by maximum HP.
+
+    Back2Classic characters level from 1 and outgrow each potion; the level
+    goal implies the same. America farmers keep their route potion exactly
+    as before.
+    """
+    from conquest import level_goal
+
+    if level_goal.goal():
+        return True
+    from conquest.character_context import current
+    from conquest.client_attachment import FARMING_ONLY_SERVERS
+
+    context = current()
+    return bool(context and context.profile.server in FARMING_ONLY_SERVERS)
+
+
 def choose(max_hp, silver, count, offered=None, reserve=0):
     """Smallest potion restoring 40% of max HP that `count` of can be bought.
 
-    Falls back to the strongest tier the silver covers for `count`, then to
-    the cheapest offered tier, so a poor character still leaves with potions.
+    `offered` maps each tier the Pharmacist sells to its live price (a set
+    or None uses the client catalog prices). Falls back to the strongest tier
+    the silver covers for `count`, then to the cheapest offered tier, so a
+    poor character still leaves with potions.
     """
     if type(max_hp) is not int or max_hp <= 0:
         raise ValueError("Maximum HP must be read from memory before choosing potions")
     if type(count) is not int or count <= 0:
         raise ValueError("Potion count must be positive")
+    prices = {
+        t: offered[t] if isinstance(offered, dict) else HEALING_POTIONS[t][2]
+        for t in HEALING_POTIONS
+        if offered is None or t in offered
+    }
     tiers = sorted(
-        (t for t in HEALING_POTIONS if offered is None or t in offered),
+        (t for t, price in prices.items() if type(price) is int and price > 0),
         key=life,
     )
     if not tiers:
         raise ValueError("The Pharmacist offers no known HP potion")
     budget = silver - reserve
-    affordable = [t for t in tiers if HEALING_POTIONS[t][2] * count <= budget]
+    affordable = [t for t in tiers if prices[t] * count <= budget]
     fitting = [t for t in affordable if life(t) >= max_hp * MINIMUM_SHARE]
     if fitting:
         return fitting[0]
     if affordable:
         return affordable[-1]
-    return tiers[0]
+    return min(tiers, key=lambda t: prices[t])
 
 
 def active_type():
@@ -74,20 +100,17 @@ def set_active(type_id):
         write_json(TIER, {"type_id": type_id})
 
 
-def weaker_than_active(type_id):
-    """Carried HP potions below the active tier are sold as junk."""
-    return type_id in HEALING_POTIONS and life(type_id) < life(active_type())
-
-
 def usable(type_id, include=None):
-    """An HP potion at or above the active tier, or the configured one."""
-    return type_id in HEALING_POTIONS and (
-        type_id == include or not weaker_than_active(type_id)
-    )
+    """Any HP potion heals; `include` also admits a configured other item."""
+    return type_id in HEALING_POTIONS or (include is not None and type_id == include)
 
 
 def count(inventory, include=None):
-    """Usable HP potions, from an Inventory reader result or a town snapshot."""
+    """Carried HP potions of every tier, from an Inventory result or snapshot.
+
+    A configured healing item that is not an HP potion counts exactly.
+    """
+    exact = include is not None and include not in HEALING_POTIONS
     if isinstance(inventory, dict):
         items, get = inventory["items"], (lambda i, k: i[k])
     elif hasattr(inventory, "items"):
@@ -95,19 +118,24 @@ def count(inventory, include=None):
     else:
         # A count-only reader: the configured (or active) tier alone.
         return inventory.count(include or active_type())
-    return sum(get(i, "amount") for i in items if usable(get(i, "type_id"), include))
+    return sum(
+        get(i, "amount")
+        for i in items
+        if (get(i, "type_id") == include if exact else usable(get(i, "type_id")))
+    )
 
 
 def pick(inventory, missing_hp, include=None):
-    """The carried usable potion that best covers the missing HP.
+    """The carried potion that best covers the missing HP.
 
-    Prefer the smallest potion that restores everything missing; otherwise the
-    strongest one carried. Returns None when nothing usable is carried.
+    Prefer the smallest potion that restores everything missing (so small
+    potions are used up first); otherwise the strongest one carried. Returns
+    None when no HP potion is carried.
     """
     carried = [
         i
         for i in inventory.items
-        if usable(i.type_id, include) and getattr(i, "amount", 0) > 0
+        if usable(i.type_id) and getattr(i, "amount", 0) > 0
     ]
     if not carried:
         return None

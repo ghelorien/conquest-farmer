@@ -19,9 +19,8 @@ from conquest.memory_warehouse import MemoryWarehouseReader, deposit_received
 from conquest.reconnect import login_screen
 
 
-# Unnecessary mana supplies for the archer. HP potions are junk only when they
-# are weaker than the active healing tier (potion_tiers). Never blanket-sell
-# special IDs.
+# Unnecessary mana supplies for the archer. HP potions are never junk: every
+# tier is counted and drunk (potion_tiers). Never blanket-sell special IDs.
 JUNK_CONSUMABLES = frozenset((1001000, 1001010, 1001020))
 from conquest.valuables import SPECIAL_LOOT_TYPES, storage_only, urgent_storage
 
@@ -48,9 +47,7 @@ def stash_candidate(item):
 
 def junk_type(type_id):
     # Type alone is insufficient for gear; sale_candidate also requires +0.
-    from conquest.potion_tiers import weaker_than_active
-
-    return type_id in JUNK_CONSUMABLES or weaker_than_active(type_id)
+    return type_id in JUNK_CONSUMABLES
 
 
 def sale_candidate(item):

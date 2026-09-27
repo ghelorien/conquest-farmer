@@ -89,7 +89,8 @@ def test_memory_inventory_potion_requires_consumption_and_hp(consumed, gained):
 @pytest.mark.parametrize(
     "item",
     [
-        POTION,
+        # Every HP potion tier heals; a mana potion is never an HP heal.
+        replace(POTION, type_id=1001000),
         replace(POTION, type_id=1000020, slot=None),
         replace(POTION, type_id=1000020, slot=40),
     ],

@@ -71,15 +71,7 @@ def supply_counts(snapshot, route):
         arrows += ammo["amount"]
     from conquest import potion_tiers
 
-    potions = (
-        potion_tiers.count(snapshot, route.supplies.healing_type)
-        if route.supplies.healing_type in potion_tiers.HEALING_POTIONS
-        else sum(
-            i["amount"]
-            for i in snapshot["items"]
-            if i["type_id"] == route.supplies.healing_type
-        )
-    )
+    potions = potion_tiers.count(snapshot, route.supplies.healing_type)
     return {
         "arrows": arrows,
         "potions": potions,
@@ -88,17 +80,22 @@ def supply_counts(snapshot, route):
     }
 
 
-def potion_reserve(route):
+def potion_reserve(route, departed=None):
     """Potions kept for the walk back while the Back2Classic level goal runs.
 
     The walk from the low-level fields to Twin City takes minutes; leaving
-    with none meant arriving (or dying) on an empty bar (09-27).
+    with none meant arriving (or dying) on an empty bar (09-27). A trip that
+    left town with few potions keeps at most half of them, so a poor restock
+    hunts before it walks back instead of turning straight round.
     """
     from conquest import level_goal
 
     if not level_goal.goal():
         return 0
-    return min(TRIP_POTION_RESERVE, route.supplies.healing_restock_to // 4)
+    reserve = min(TRIP_POTION_RESERVE, route.supplies.healing_restock_to // 4)
+    if departed is not None:
+        reserve = min(reserve, departed // 2)
+    return reserve
 
 
 TRIP_POTION_RESERVE = 5
@@ -106,10 +103,17 @@ TRIP_POTION_RESERVE = 5
 SLOW_TRAVEL_STEP_SECONDS = 4
 
 
-def needs_town(counts, route):
+def needs_town(counts, route, *, departed=None, reserve=False):
+    """Whether supplies send the farmer to town.
+
+    The trip reserve applies only where a caller decides to walk to town or
+    top up: a finished restock with at least one potion, three arrows and a
+    free slot can hunt.
+    """
+    kept = potion_reserve(route, departed) if reserve else 0
     return (
         counts["arrows"] < 3
-        or counts["potions"] <= potion_reserve(route)
+        or counts["potions"] <= kept
         or counts["free_slots"] <= 0
     )
 
@@ -187,9 +191,9 @@ class OvernightLoop:
         from conquest.savings import configure_route
 
         self.route = configure_route(self.route)
-        from conquest import level_goal, potion_tiers
+        from conquest import potion_tiers
 
-        if level_goal.goal() or potion_tiers.TIER.exists():
+        if potion_tiers.adaptive() and potion_tiers.TIER.exists():
             # Resume with the tier bought on the last Pharmacist visit.
             self.route = self.route.model_copy(
                 update={
@@ -1316,7 +1320,22 @@ class OvernightLoop:
                     and counts["potions"] >= self.route.supplies.healing_return_below
                 ):
                     break
-                if not self.buy_supply(3, self.route.supplies.healing_type):
+                try:
+                    bought = self.buy_supply(3, self.route.supplies.healing_type)
+                except ValueError as error:
+                    # The worker refuses an unaffordable buy before any input.
+                    # Leave with what the wallet bought; the final supply check
+                    # decides whether the farmer can hunt (live 09-27 01:50: a
+                    # raise here idled the farmer in town for seven hours).
+                    if str(error) != "Insufficient funds or inventory room to restock":
+                        raise
+                    self.record(
+                        "potion_purchase_short",
+                        supplies=counts,
+                        activity=f"Out of silver or bag room at {counts['potions']} potions",
+                    )
+                    break
+                if not bought:
                     break
             stock(self)
             self.town("close", window="Shop")
@@ -1517,7 +1536,7 @@ class OvernightLoop:
             "urgent_banking_complete",
             activity="Valuables banked; returning to monsters",
         )
-        if needs_town(supply_counts(bag, self.route), self.route):
+        if needs_town(supply_counts(bag, self.route), self.route, reserve=True):
             self.restock()
         else:
             # Valuables are already verified in storage. Use this required
@@ -1554,6 +1573,7 @@ class OvernightLoop:
         self.record("hunt_started", activity="Heading back to the hunting area")
         reached = None
         last_report = 0
+        departed = None  # potions carried at the first supply read of this hunt
         while True:
             h = self.health()
             data = h["embedded_controls"]
@@ -1670,7 +1690,12 @@ class OvernightLoop:
                 and reached
                 and time.monotonic() - reached >= self.first_hunt_seconds
             )
-            if needs_town(supplies, self.route) or forced:
+            if departed is None:
+                departed = supplies["potions"]
+            if (
+                needs_town(supplies, self.route, departed=departed, reserve=True)
+                or forced
+            ):
                 self.record(
                     "return_required", supplies=supplies, validation_cycle=bool(forced)
                 )
@@ -1889,7 +1914,7 @@ class OvernightLoop:
             and not circuit.get("finished_at")
             and not circuit.get("completed")
         )
-        if needs_town(counts, self.route):
+        if needs_town(counts, self.route, reserve=True):
             self.restock()
         elif interrupted_circuit:
             from conquest.session_plan import upgrade_circuit
@@ -2044,7 +2069,7 @@ class OvernightLoop:
             service_window(self, town=True)
         acceptance.finish_town(self, send=merchant)
         bag = self.town("supplies")
-        if needs_town(supply_counts(bag, self.route), self.route):
+        if needs_town(supply_counts(bag, self.route), self.route, reserve=True):
             self.restock()
         self.town_visit.complete_town_work("merchant_acceptance")
 
