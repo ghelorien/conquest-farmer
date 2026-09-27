@@ -172,12 +172,13 @@ def use(trade):
     return result
 
 
-def secure_one(loop):
+def secure_one(loop, keep=0):
     """Buy one return scroll before any potion when none is carried.
 
     Potions came first and spent the silver: Toxic left town without a scroll
     (134 silver, stock needs 400) and died walking ~1,000 tiles home through
     the Poltergeists (live 2026-09-27 15:35). The scroll is the way home.
+    ``keep`` is silver it must leave (the arrow pack a short quiver needs).
     """
     policy = read_json(POLICY)
     if not policy.get("enabled") or loop.route.restock_map_id != 1002:
@@ -190,7 +191,7 @@ def secure_one(loop):
     if (
         len(choices) != 1
         or choices[0]["price"] != 200
-        or bag["silver"] < choices[0]["price"]
+        or bag["silver"] < choices[0]["price"] + keep
         or len(bag["items"]) >= bag["capacity"] - loop.route.supplies.minimum_free_slots
     ):
         return False

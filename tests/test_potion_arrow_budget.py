@@ -18,6 +18,7 @@ from types import SimpleNamespace as NS
 
 from conquest.overnight import (
     SAFE_HUNT_POTIONS,
+    arrow_reserve,
     last_verified_price,
     potion_budget_reached,
 )
@@ -61,6 +62,13 @@ def test_less_than_a_pack_keeps_the_pack_price():
     ):
         silver, potions, bought = silver - 18, potions + 1, bought + 1
     assert silver >= 200 and potions >= SAFE_HUNT_POTIONS and bought == 10
+
+
+def test_the_arrow_reserve_is_one_pack_price_while_short_of_a_pack():
+    # Shared by the potion cap and the first return scroll.
+    assert arrow_reserve(counts(arrows=53), ROUTE, 200) == 200
+    assert arrow_reserve(counts(arrows=200), ROUTE, 200) == 0
+    assert arrow_reserve(counts(arrows=53), ROUTE, None) == 0
 
 
 def test_unknown_prices_keep_the_old_behaviour():
