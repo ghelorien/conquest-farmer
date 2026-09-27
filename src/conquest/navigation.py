@@ -109,14 +109,20 @@ class TerrainMap:
                     )
         raise ValueError("No traversable route between the endpoints")
 
-    def travel_path(self, start, goal, *, avoid=(), limit=250000):
+    def travel_path(self, start, goal, *, avoid=(), limit=None):
         """Route in eight directions, then remove terrain-visible detours.
 
         The search, its tie-breaking and the result are those of calling
         clear_segment for every step, on a flat grid of open cells instead:
         tuple and numpy lookups made a 600-tile Twin City return take
         2.5-5.6 s per plan (live 2026-09-27).
+
+        By default the budget covers every cell of the map, so a reachable
+        goal is always found: a fixed 250,000 refused the 952-tile walk from
+        Twin City to the Poltergeists (live 2026-09-27; about 0.6 s).
         """
+        if limit is None:
+            limit = self.width * self.height
         start, goal = tuple(start), tuple(goal)
         excluded = set(map(tuple, avoid))
         if not self.walkable(start) or not self.walkable(goal) or goal in excluded:

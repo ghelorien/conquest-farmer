@@ -18,6 +18,10 @@ Failure modes, written before the code:
    farther from the Apparition field than town (352 vs ~225 tiles in a line)
    though it is far shorter to walk (356 vs 653), so every ride after the
    first was skipped (live 2026-09-27).
+7. A fare the farmer cannot pay is found out at her dialog, whose refusal
+   stops the route (live 2026-09-27: 39 silver, an empty bank).
+8. A farmer left on her tile, south of the town boundary, never boards
+   again and walks instead.
 """
 
 import json
@@ -108,6 +112,22 @@ def test_failure_before_payment_walks_instead(state, monkeypatch):
     assert shortcut.ride(loop_for(twin)) is False
     assert "conductress-travel" not in twin.actions
     assert "conductress_shortcut_skipped" in twin.events
+
+
+def test_an_unaffordable_fare_walks_without_visiting_her(state):
+    # 7: checked before walking to her, not refused by her dialog.
+    twin = Twin(silver=39)
+    assert shortcut.ride(loop_for(twin)) is False
+    assert not {"travel", "conductress-open", "conductress-travel"} & set(twin.actions)
+    assert "conductress_shortcut_skipped" in twin.events
+
+
+def test_a_farmer_on_her_tile_still_boards(state):
+    # 8: (438, 444) is below the Twin City town boundary's bottom edge (433).
+    twin = Twin()
+    twin.position = list(shortcut.CONDUCTRESS_TILE)
+    assert shortcut.ride(loop_for(twin)) is True
+    assert twin.actions.count("conductress-travel") == 1
 
 
 def test_unverified_ride_is_never_paid_twice(state):
