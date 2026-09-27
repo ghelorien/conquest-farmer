@@ -235,3 +235,7 @@ def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
     level_goal.stop()
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
     assert not wanted_drop(silver)
+    # A Back2Classic character keeps funding itself after the goal ends.
+    monkeypatch.setattr(level_goal, "back2classic", lambda: True)
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    assert wanted_drop(silver)

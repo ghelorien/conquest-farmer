@@ -32,15 +32,25 @@ def goal():
     return data if data.get("active") else None
 
 
+def back2classic():
+    """Whether the selected character plays on Back2Classic (farming only)."""
+    from conquest.character_context import current
+    from conquest.client_attachment import FARMING_ONLY_SERVERS
+
+    context = current()
+    return bool(context and context.profile.server in FARMING_ONLY_SERVERS)
+
+
 _silver_cache = (-float("inf"), False)
 
 
 def collect_silver():
-    """Pick up dropped silver while the goal runs (checked at most every 2 s)."""
+    """Pick up dropped silver while the goal runs or on Back2Classic, where a
+    character funds itself from drops at every level (checked every 2 s)."""
     global _silver_cache
     now = time.monotonic()
     if now - _silver_cache[0] >= 2:
-        _silver_cache = (now, bool(goal()))
+        _silver_cache = (now, bool(goal()) or back2classic())
     return _silver_cache[1]
 
 
