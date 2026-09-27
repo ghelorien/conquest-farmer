@@ -15,7 +15,9 @@ the monster bracket in `profiles/leveling-presets.json`.
   trainer; the default target of 23 is the retail Scatter level.
 - **Gear every 5 levels.** Every restock already reviews the blacksmith and
   the armor and accessory shops and equips strictly better, level-eligible
-  archer gear while keeping 3,000 silver for supplies (`equipment.py`). With the
+  archer gear (`equipment.py`). A leveling archer brings its banked silver
+  and keeps only what the rest of the visit buys, so upgrades are affordable
+  (it previously kept a flat 3,000 and never bought them). With the
   goal active, the farmer also returns to town once every 5 levels
   (`GEAR_STEP`) even when supplies are not exhausted, so upgrades happen at
   levels 6, 11, 16, 21 for a level 1 start.

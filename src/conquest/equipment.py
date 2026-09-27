@@ -19,6 +19,14 @@ VENDORS = {5: ("bow", "arrows"), 1: ("ring", "boots", "necklace"), 4: ("armor", 
 RESERVE_SILVER = 3000
 
 
+def leveling_archer():
+    """A Back2Classic farmer, or one on the level goal, outgrows its gear every
+    few levels. America farmers keep their established shop rules."""
+    from conquest.potion_tiers import adaptive
+
+    return adaptive()
+
+
 def category(kind):
     if kind in (1050000, 1050001, 1050002, 1050020):
         return "arrows"
@@ -159,6 +167,9 @@ def upgrade_reason(product, state):
         slot == "armor"
         and old
         and (get("type_id") // 100) % 10 != (old["type_id"] // 100) % 10
+        # The hundreds digit is the dye colour. A leveling archer's starter
+        # Coat (132504, colour 5) matches nothing the Twin City armorer sells.
+        and not leveling_archer()
     ):
         return "Armor form does not match"
     if not old:
@@ -189,7 +200,7 @@ def upgrade_candidate(product, state):
     return upgrade_reason(product, state) is None
 
 
-def review_slots(products, state, silver):
+def review_slots(products, state, silver, reserve=RESERVE_SILVER):
     """Explain every mapped slot against this particular live shop's inventory."""
     from conquest.arrow_upgrades import eligible_arrow
 
@@ -215,7 +226,7 @@ def review_slots(products, state, silver):
                     reason = None
             else:
                 reason = upgrade_reason(p, state)
-            if reason is None and not 0 < p["price"] <= silver - RESERVE_SILVER:
+            if reason is None and not 0 < p["price"] <= silver - reserve:
                 reason = "Keeping silver for supplies"
             if reason is None:
                 candidates.append(p["name"])
@@ -321,15 +332,27 @@ class EquipmentReview:
             options = [
                 p for p in shop["products"] if category(p["type_id"]) in VENDORS[vendor]
             ]
-            choices = choose_upgrades(options, state, bag["silver"])
+            reserve = RESERVE_SILVER
+            if leveling_archer():
+                # Keep what the rest of this visit still buys (missing arrow
+                # packs, potions, scrolls, fares), not a flat 3,000: a level-11
+                # archer kept its level-1 bow over a 204-silver BambooBow.
+                from conquest.banking import shopping_budget
+
+                try:
+                    reserve = shopping_budget(loop.route, bag, state["level"])
+                except ValueError:
+                    reserve = RESERVE_SILVER
+            choices = choose_upgrades(options, state, bag["silver"], reserve)
             loop.record(
                 "equipment_review",
                 level=state["level"],
                 vendor=vendor,
                 activity=f"Checking level {state['level']} archer equipment",
                 map_id=map_id,
-                slots=review_slots(shop["products"], state, bag["silver"]),
+                slots=review_slots(shop["products"], state, bag["silver"], reserve),
                 upgrades=[p["name"] for p in choices],
+                reserve=reserve,
             )
             for product in choices:
                 key = (state["level"], product["type_id"])

@@ -301,13 +301,25 @@ def fund_restock(loop):
     from conquest.savings import savings_plan
 
     level = None if savings_plan() else loop.town("gear").get("level")
-    if bag["silver"] >= shopping_budget(loop.route, bag, level):
+    from conquest.equipment import leveling_archer
+
+    # A leveling archer outgrows its gear every few levels. Bring the banked
+    # silver so this visit's equipment review can pay for upgrades;
+    # after_shopping banks whatever is left again.
+    gear = (
+        level is not None
+        and leveling_archer()
+        and read_json(STATUS).get("stored_silver", 0) > 0
+    )
+    if not gear and bag["silver"] >= shopping_budget(loop.route, bag, level):
         return
     bank = open_warehouse(loop)
     try:
         loop.route = configure_route(loop.route, bank["silver"] + bank["stored_silver"])
         required = shopping_budget(loop.route, bag, level)
         amount = min(bank["stored_silver"], max(0, required - bank["silver"]))
+        if gear:
+            amount = bank["stored_silver"]
         if amount:
             transfer(loop, "withdraw", amount)
     finally:
