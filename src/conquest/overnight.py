@@ -12,6 +12,7 @@ from conquest.route_input import BridgeJumpStepper
 from conquest.routes import RouteLibrary
 from conquest.travel_care import TravelCare, TravelStateChanged
 from conquest.town_trade import junk_type, sale_candidate, TownObservationUnavailable
+from conquest.potion_tiers import HEALING_POTIONS
 from conquest.worker import request
 from conquest.capture import CaptureUnavailable
 
@@ -68,10 +69,16 @@ def supply_counts(snapshot, route):
     ammo = snapshot.get("equipped_ammo")
     if ammo and ammo["type_id"] == route.supplies.arrow_type:
         arrows += ammo["amount"]
-    potions = sum(
-        i["amount"]
-        for i in snapshot["items"]
-        if i["type_id"] == route.supplies.healing_type
+    from conquest import potion_tiers
+
+    potions = (
+        potion_tiers.count(snapshot, route.supplies.healing_type)
+        if route.supplies.healing_type in potion_tiers.HEALING_POTIONS
+        else sum(
+            i["amount"]
+            for i in snapshot["items"]
+            if i["type_id"] == route.supplies.healing_type
+        )
     )
     return {
         "arrows": arrows,
@@ -110,6 +117,17 @@ class OvernightLoop:
         from conquest.savings import configure_route
 
         self.route = configure_route(self.route)
+        from conquest import level_goal, potion_tiers
+
+        if level_goal.goal():
+            # Resume with the tier bought on the last Pharmacist visit.
+            self.route = self.route.model_copy(
+                update={
+                    "supplies": self.route.supplies.model_copy(
+                        update={"healing_type": potion_tiers.active_type()}
+                    )
+                }
+            )
         self.queue_route_optimization()
         self.terrain = read_terrain(
             installation_path(r"C:\Program Files\Classic Conquer 2.0"),
@@ -291,7 +309,7 @@ class OvernightLoop:
         )
         activity = {
             "open": f"Opening {vendor} shop",
-            "buy": f"Buying { {1000020: 'Painkiller', 1050000: 'LuckyArrow', 1050001: 'IronArrow', 1050002: 'SpeedArrow'}.get(fields.get('type_id'), 'supplies') } from {vendor}",
+            "buy": f"Buying { {**{k: v[0] for k, v in HEALING_POTIONS.items()}, 1050000: 'LuckyArrow', 1050001: 'IronArrow', 1050002: 'SpeedArrow'}.get(fields.get('type_id'), 'supplies') } from {vendor}",
             "sell": f"Selling unwanted loot to {vendor}",
         }
         if action in activity:
@@ -472,7 +490,7 @@ class OvernightLoop:
         from conquest.arrow_upgrades import NORMAL_ARROWS
 
         purpose = {
-            3: "Pharmacist to sell loot and buy Painkiller",
+            3: "Pharmacist to sell loot and buy potions",
             5: f"Blacksmith to buy {NORMAL_ARROWS.get(self.route.supplies.arrow_type, 'arrows')}",
             4: "Armorer to check armor and headgear",
             1: "Shopkeeper to check ring, boots and necklace",
@@ -1159,6 +1177,10 @@ class OvernightLoop:
         ):
             self.travel(self.route.restock_anchor)
             self.town("open", vendor_type=3)
+            from conquest.level_goal import healing_type
+
+            # Choose the tier before selling: lower tiers become junk.
+            healing_type(self, self.town("shop", vendor_type=3)["products"])
             self.sell_junk(3)
             self.shopping_space(3, self.route.restock_anchor)
             for _ in range(30):
@@ -1241,6 +1263,9 @@ class OvernightLoop:
             raise ValueError(
                 "Supplies or inventory room remain insufficient after restocking and storage"
             )
+        from conquest.level_goal import mark_reviewed
+
+        mark_reviewed(getattr(self, "last_level", 0))
         self.optional_town_service()
         if visits is not None:
             from conquest.town_visit import checkpoint_verified_tail
@@ -1491,6 +1516,22 @@ class OvernightLoop:
             if progress(self, supplies["silver"]):
                 self.stop_farm()
                 return "savings_target"
+            from conquest import level_goal
+
+            step = level_goal.due(getattr(self, "last_level", 0))
+            if step == "reached":
+                self.stop_farm()
+                return "level_goal"
+            if step == "gear":
+                self.record(
+                    "return_required",
+                    reason="gear_review",
+                    level=self.last_level,
+                    supplies=supplies,
+                    activity=f"Level {self.last_level}: returning to town to check gear upgrades",
+                )
+                self.stop_farm()
+                return
             if time.monotonic() - last_report > 10:
                 app = read_status(state_path("reports/desktop-farming/app-state.json"))
                 self.record(
@@ -1639,7 +1680,11 @@ class OvernightLoop:
         self.route = selected.model_copy(
             update={
                 "supplies": selected.supplies.model_copy(
-                    update={"arrow_type": self.route.supplies.arrow_type}
+                    update={
+                        "arrow_type": self.route.supplies.arrow_type,
+                        # Keep the potion tier chosen for this character's HP.
+                        "healing_type": self.route.supplies.healing_type,
+                    }
                 )
             }
         )
@@ -1827,6 +1872,12 @@ class OvernightLoop:
                 from conquest.savings import finish_in_town
 
                 if finish_in_town(self):
+                    return
+                continue
+            if outcome == "level_goal":
+                from conquest import level_goal
+
+                if level_goal.finish_in_town(self):
                     return
                 continue
             if outcome != "route_changed":

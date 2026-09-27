@@ -77,7 +77,9 @@ def active_plan():
 def plan_note():
     plan = active_plan()
     if not plan:
-        return "Automatic leveling"
+        from conquest.level_goal import note
+
+        return note() or "Automatic leveling"
     if plan.get("mode") == "hold_route":
         from conquest.routes import RouteLibrary
 

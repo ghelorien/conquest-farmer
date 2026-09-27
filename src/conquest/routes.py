@@ -165,7 +165,14 @@ class SavedRoute(BaseModel):
         reasons = []
         if ammo < s.arrows_return_below:
             reasons.append("arrows_low")
-        if inventory.count(s.healing_type) < s.healing_return_below:
+        from conquest import potion_tiers
+
+        potions = (
+            potion_tiers.count(inventory, s.healing_type)
+            if s.healing_type in potion_tiers.HEALING_POTIONS
+            else inventory.count(s.healing_type)
+        )
+        if potions < s.healing_return_below:
             reasons.append("healing_supplies_low")
         if len(inventory.items) >= inventory.capacity:
             reasons.append("inventory_full")

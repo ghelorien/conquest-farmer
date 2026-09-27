@@ -8,6 +8,7 @@ import yaml
 from conquest.addressing import WorkerPointerSession, PlayerLayout, resolve_player
 from conquest.memory_inventory import InventoryLayout, MemoryInventoryReader
 from conquest.worker import request
+from conquest.potion_tiers import count as potion_count, pick as pick_potion
 
 
 class TravelStateChanged(ValueError):
@@ -270,12 +271,12 @@ class TravelCare:
         if self.pending:
             before, hp, issued = self.pending
             after = self.inventory.read()
-            if after.count(1000020) < before and life["current_hp"] > hp:
+            if potion_count(after) < before and life["current_hp"] > hp:
                 self.notify(
                     {
                         "event": "travel_heal_verified",
                         "hp": life["current_hp"],
-                        "potions": after.count(1000020),
+                        "potions": potion_count(after),
                     }
                 )
                 self.pending = None
@@ -288,7 +289,7 @@ class TravelCare:
                     {
                         "event": "travel_heal_unconfirmed",
                         "hp": life["current_hp"],
-                        "consumed": after.count(1000020) < before,
+                        "consumed": potion_count(after) < before,
                         "activity": "Healing result unclear; continuing toward safety",
                     }
                 )
@@ -299,7 +300,7 @@ class TravelCare:
             self.xp_step(health)
             return
         inventory = self.inventory.read()
-        if inventory.count(1000020) <= 0:
+        if potion_count(inventory) <= 0:
             if not getattr(self, "empty_healing_reported", False):
                 self.empty_healing_reported = True
                 self.notify(
@@ -311,9 +312,7 @@ class TravelCare:
             self.xp_step(health)
             return  # Keep escaping toward supplies; stopping cannot restore health.
         self.empty_healing_reported = False
-        potion = next(
-            i for i in inventory.items if i.type_id == 1000020 and i.amount > 0
-        )
+        potion = pick_potion(inventory, life["max_hp"] - life["current_hp"])
         masked = False
         deferred = None
         try:
@@ -338,7 +337,8 @@ class TravelCare:
                 ) from error
             if (
                 str(error) == "Healing consumption unverified; no repeat input issued"
-                and self.inventory.read().count(1000020) == inventory.count(1000020) - 1
+                and self.inventory.read().count(potion.type_id)
+                == inventory.count(potion.type_id) - 1
             ):
                 self.last_heal = now
                 self.notify(

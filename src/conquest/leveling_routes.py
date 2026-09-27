@@ -46,7 +46,9 @@ def read_level(info, health):
             "fields": [
                 {
                     "name": "level",
-                    "address": hex(life["object_address"] + 0x6E8),
+                    # Build 1078 player level (classic-1078-player-candidate
+                    # level_offset). +0x6E8 was the retired legacy build's.
+                    "address": hex(life["object_address"] + 0x6F8),
                     "kind": "u32",
                 }
             ]

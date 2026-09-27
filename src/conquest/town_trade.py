@@ -19,9 +19,10 @@ from conquest.memory_warehouse import MemoryWarehouseReader, deposit_received
 from conquest.reconnect import login_screen
 
 
-# Explicitly identified low-value consumables, inferior to this route's Painkiller
-# or unnecessary mana supplies for the archer. Never blanket-sell special IDs.
-JUNK_CONSUMABLES = frozenset((1000000, 1000010, 1001000, 1001010, 1001020))
+# Unnecessary mana supplies for the archer. HP potions are junk only when they
+# are weaker than the active healing tier (potion_tiers). Never blanket-sell
+# special IDs.
+JUNK_CONSUMABLES = frozenset((1001000, 1001010, 1001020))
 from conquest.valuables import SPECIAL_LOOT_TYPES, storage_only, urgent_storage
 
 PROTECTED_VALUABLES = SPECIAL_LOOT_TYPES
@@ -47,7 +48,9 @@ def stash_candidate(item):
 
 def junk_type(type_id):
     # Type alone is insufficient for gear; sale_candidate also requires +0.
-    return type_id in JUNK_CONSUMABLES
+    from conquest.potion_tiers import weaker_than_active
+
+    return type_id in JUNK_CONSUMABLES or weaker_than_active(type_id)
 
 
 def sale_candidate(item):
@@ -1296,7 +1299,15 @@ class TownTrade:
                 )
             return {"closed": True}
         if action == "buy" and set(body) == {"action", "vendor_type", "type_id"}:
-            if body["type_id"] not in (1000020, 1050000, 1050001, 1050002, 1060020):
+            from conquest.potion_tiers import HEALING_POTIONS
+
+            if body["type_id"] not in (
+                *HEALING_POTIONS,
+                1050000,
+                1050001,
+                1050002,
+                1060020,
+            ):
                 raise ValueError("Unsupported healing or normal archer ammunition")
             npc = self.vendor(body["vendor_type"])
             shop = self.shop.read(npc.entity_id)

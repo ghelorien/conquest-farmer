@@ -267,6 +267,8 @@ def status_text(app, route, now, alive=process_alive):
     phase = route.get("phase")
     if phase == "completed" and route.get("event") == "savings_complete":
         return f"Goal complete: {route['silver']:,} silver; parked in Twin City"
+    if phase == "completed" and route.get("event") == "level_goal_reached":
+        return f"Level goal complete: level {route['level']}; parked in town"
     active = phase in (
         "starting",
         "hunting",
