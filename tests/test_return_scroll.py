@@ -54,6 +54,14 @@ def test_last_scroll_disappears_but_inventory_slot_compaction_is_allowed():
     assert r.receipt(before, item, after, source, arrival)
 
 
+def test_a_scroll_reads_outside_town_or_inside_a_twin_city_building():
+    # ArcherGod's building (1004) has no readable terrain: the scroll leaves it.
+    assert r.may_read(NS(map_id=1004, position=(37, 55)))
+    assert r.may_read(NS(map_id=1002, position=(110, 345)))
+    assert not r.may_read(NS(map_id=1002, position=(430, 380)))  # in town
+    assert not r.may_read(NS(map_id=1011, position=(100, 100)))
+
+
 def test_unqualified_scroll_route_never_uses_input():
     r.write_json(r.POLICY, {"enabled": True, "qualified": False})
     assert not r.return_to_town(NS(living=lambda: pytest.fail("Not qualified")))
