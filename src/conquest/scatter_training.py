@@ -89,11 +89,9 @@ def _locate(loop):
 
 
 def _carries_scroll(loop):
-    from conquest.return_scroll import TYPE
+    from conquest.return_scroll import carried
 
-    return any(
-        i["type_id"] == TYPE and i["amount"] > 0 for i in loop.town("supplies")["items"]
-    )
+    return carried(loop)
 
 
 def _exit_scroll(loop):

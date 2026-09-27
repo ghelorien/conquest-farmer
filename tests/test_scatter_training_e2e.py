@@ -334,13 +334,17 @@ def test_a_farmer_left_in_the_building_reads_its_way_back_to_twin_city(monkeypat
         return True
 
     monkeypatch.setattr("conquest.return_scroll.return_to_town", read_scroll)
+    monkeypatch.setattr("conquest.return_scroll.carried", lambda loop: True)
     monkeypatch.setattr(world_travel, "read_terrain", lambda root, map_id: NS(map_id=map_id))
     loop = NS(living=lambda: {"embedded_controls": {"life": dict(life)}})
     world_travel.travel_to_map(loop, 1002)
     assert reads == [1004] and loop.terrain.map_id == 1002
+    # No scroll and no Pharmacist in the building: reported, not hidden.
     life.update(map_id=1004)
+    monkeypatch.setattr("conquest.return_scroll.carried", lambda loop: False)
+    monkeypatch.setattr("conquest.return_scroll.buy_here", lambda loop: False)
     monkeypatch.setattr("conquest.return_scroll.return_to_town", lambda loop: False)
-    with pytest.raises(ValueError, match="scroll is needed"):
+    with pytest.raises(ValueError, match="needed to leave this building"):
         world_travel.travel_to_map(loop, 1002)
 
 
