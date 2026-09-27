@@ -148,8 +148,11 @@ def last_verified_price(type_id, path=None):
 
 # Potions a farmer carries before arrow silver may cap further potion buys.
 # Below this it keeps buying potions; if that leaves no arrow money, the
-# arrow purchase refuses and the farmer stays safely in town.
-SAFE_HUNT_POTIONS = 10
+# arrow purchase refuses and the farmer stays in town. Ten stranded Toxic
+# twice on 2026-09-27: at 18:18 nine Resolutives (18 each) left 143 silver
+# for a 200-silver pack and 2 arrows, and no hunt can earn it back. Five
+# potions and a full quiver hunt; nine potions and no arrows cannot.
+SAFE_HUNT_POTIONS = 5
 
 
 def arrow_reserve(counts, route, arrow_price):

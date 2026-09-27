@@ -64,6 +64,18 @@ def test_less_than_a_pack_keeps_the_pack_price():
     assert silver >= 200 and potions >= SAFE_HUNT_POTIONS and bought == 10
 
 
+def test_an_empty_quiver_keeps_its_pack_after_five_potions():
+    # Live 2026-09-27 18:18 (Toxic): 2 arrows, no potions, Resolutives at 18;
+    # nine were bought and the 200-silver pack no longer fit (143 left).
+    silver, potions, bought = 305, 0, 0
+    while not potion_budget_reached(
+        counts(arrows=2, potions=potions, silver=silver), ROUTE, 18, 200
+    ):
+        silver, potions, bought = silver - 18, potions + 1, bought + 1
+    assert SAFE_HUNT_POTIONS == 5
+    assert bought == 5 and silver >= 200
+
+
 def test_the_arrow_reserve_is_one_pack_price_while_short_of_a_pack():
     # Shared by the potion cap and the first return scroll.
     assert arrow_reserve(counts(arrows=53), ROUTE, 200) == 200
