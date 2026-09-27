@@ -20,6 +20,10 @@ from conquest.character_context import state_path
 from conquest.discord_notify import read_json, write_json
 
 TRAINER = "ArcherGod"
+# Alex (2026-09-27): "I will bring you to archer god". The trainer stands in
+# its own building (map 1004), which the route cannot leave on its own, so
+# walking there is opt-in per character: {"auto_visit": true} in STATE.
+AUTO_VISIT_DEFAULT = False
 # Walkable tile beside the trainer, per map, from a read-only memory survey.
 TRAINERS = Path("profiles/archer-trainers.json")
 STATE = Path(state_path(".runtime/scatter-training.json"))
@@ -62,6 +66,11 @@ def choose(records, pressed):
             if text not in pressed and any(w in words for w in CONFIRM_WORDS):
                 return text
     return None
+
+
+def auto_visit():
+    """Whether this character may walk to ArcherGod by itself."""
+    return bool(read_json(STATE).get("auto_visit", AUTO_VISIT_DEFAULT))
 
 
 def trainer_tile(map_id):
@@ -178,6 +187,12 @@ def learn(loop):
     """Visit ArcherGod and learn Scatter. Returns True once memory proves it."""
     if learned(loop):
         return True
+    if not auto_visit():
+        loop.record(
+            "scatter_training_manual",
+            activity="Scatter level reached: learn Scatter at ArcherGod by hand; leveling on",
+        )
+        return False
     state = read_json(STATE)
     state.update(attempts=state.get("attempts", 0) + 1, last_attempt=time.time())
     write_json(STATE, state)
@@ -258,7 +273,7 @@ def due(loop):
     """Whether this town visit should try the trainer (bounded retries)."""
     from conquest.level_goal import back2classic, goal
 
-    if not back2classic() or goal():
+    if not back2classic() or goal() or not auto_visit():
         return False
     if getattr(loop, "last_level", 0) < SCATTER_LEVEL:
         return False
@@ -279,6 +294,8 @@ def scout_due(loop):
     from conquest.level_goal import back2classic
 
     if not back2classic() or getattr(loop, "last_level", 0) < SCOUT_FROM_LEVEL:
+        return False
+    if not auto_visit():
         return False
     state = read_json(STATE)
     if state.get("learned_at") or state.get("trainer"):

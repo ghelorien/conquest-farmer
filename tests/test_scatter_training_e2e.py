@@ -104,6 +104,8 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(scatter_training, "STATE", tmp_path / "scatter-training.json")
     monkeypatch.setattr(scatter_training, "TRAINERS", tmp_path / "archer-trainers.json")
     monkeypatch.setattr(world_travel, "travel_to_map", lambda loop, map_id: None)
+    # These scenarios cover a character opted in to walking to ArcherGod.
+    monkeypatch.setattr(scatter_training, "AUTO_VISIT_DEFAULT", True)
     monkeypatch.setattr("conquest.return_scroll.return_to_town", lambda loop: False)
     monkeypatch.setattr(level_goal, "back2classic", lambda: True)
     monkeypatch.setattr("conquest.dialog_geometry.scroll_direction", lambda *a: 0)
@@ -167,7 +169,11 @@ def finish(world, trainer, monkeypatch, *, surveyed=True):
         "pressed": [o for a, o in trainer.actions if a == "service-select"],
         "walked_to": [t for a, t in trainer.actions if a == "travel"][-1:],
         "events": [e for e in trainer.events if e.startswith("scatter") or e.startswith("level_goal")],
-        "attempts": json.loads(world.root.joinpath("scatter-training.json").read_text())["attempts"],
+        "attempts": (
+            json.loads(state.read_text())["attempts"]
+            if (state := world.root.joinpath("scatter-training.json")).exists()
+            else 0
+        ),
     }
 
 
@@ -281,6 +287,24 @@ def test_trainer_is_scouted_ahead_of_the_scatter_level(world, monkeypatch):
     assert not scatter_training.scout_due(loop)
     world.clock.now += scatter_training.SCOUT_RETRY_SECONDS
     assert scatter_training.scout_due(loop)
+
+
+def test_by_default_alex_brings_the_farmer_to_archergod(world, monkeypatch):
+    # Alex: "I will bring you to archer god". Without the per-character
+    # opt-in the farmer never walks there (its building has no route back),
+    # the goal still ends in town and leveling carries on.
+    monkeypatch.setattr(scatter_training, "AUTO_VISIT_DEFAULT", False)
+    trainer = Trainer([LEARN, SKILLS])
+    row = finish(world, trainer, monkeypatch)
+    assert row["carried_on"] and not row["goal_active"]
+    # Only the goal's own walk to the town anchor, never to the trainer.
+    assert row["pressed"] == [] and row["walked_to"] == [[466, 333]]
+    assert "scatter_training_manual" in row["events"]
+    loop = loop_for(trainer)
+    loop.last_level = 23
+    assert not scatter_training.due(loop) and not scatter_training.scout_due(loop)
+    scatter_training.write_json(scatter_training.STATE, {"auto_visit": True})
+    assert scatter_training.due(loop)
 
 
 def test_option_choice_never_guesses():
