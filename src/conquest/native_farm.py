@@ -10,6 +10,8 @@ from conquest.capture import CaptureUnavailable
 from conquest.viewport import size_for, clear_scene
 from conquest.valuables import SPECIAL_LOOT_TYPES
 
+# Seconds of recent damage that can still justify an escape jump.
+DAMAGE_WINDOW = 1.25
 
 @contextmanager
 def logical_coordinates():
@@ -42,7 +44,14 @@ class NativeFarmSupervisor:
         self.last_health_position = None
         self.defend_until = 0
         self.last_damage_at = -float("inf")
+        self.damage_events = []
         self.escape_damage_consumed_at = -float("inf")
+        from conquest import level_goal
+
+        # 0 keeps the long-standing rule: any recent damage may trigger a jump.
+        self.escape_damage_share = (
+            level_goal.ESCAPE_DAMAGE_SHARE if level_goal.goal() else 0
+        )
         self.escape_context = {}
         self.defending = False
         self.position = None
@@ -377,6 +386,17 @@ class NativeFarmSupervisor:
                     and not life.dead_candidate
                 ):
                     self.last_damage_at = time.monotonic()
+                    self.damage_events = [
+                        *(
+                            e
+                            for e in getattr(self, "damage_events", ())
+                            if self.last_damage_at - e[0] <= DAMAGE_WINDOW
+                        ),
+                        (
+                            self.last_damage_at,
+                            (previous[0] - life.current_hp) / max(life.max_hp, 1),
+                        ),
+                    ]
                 if (
                     previous
                     and previous[1] == self.position
@@ -1457,9 +1477,22 @@ class NativeFarmSupervisor:
             max(abs(a - b) for a, b in zip(p, position)) <= 1 for p in living
         )
         damaged = (
-            now - self.last_damage_at <= 1.25
+            now - self.last_damage_at <= DAMAGE_WINDOW
             and self.last_damage_at > self.escape_damage_consumed_at
         )
+        minimum = getattr(self, "escape_damage_share", 0)
+        if damaged and minimum:
+            # Back2Classic: only significant recent damage (a share of max
+            # HP) is worth a jump; single scratches keep the attack going.
+            damaged = (
+                sum(
+                    share
+                    for at, share in getattr(self, "damage_events", ())
+                    if now - at <= DAMAGE_WINDOW
+                    and at > self.escape_damage_consumed_at
+                )
+                >= minimum
+            )
         if adjacent < 2 and not damaged:
             return None
         threats = [

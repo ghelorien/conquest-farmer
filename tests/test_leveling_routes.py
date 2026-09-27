@@ -27,10 +27,9 @@ def test_level_read_rejects_stale_dead_or_changed_character(monkeypatch):
     }
 
     def request(info, operation, body=None):
-        if operation == "town":
-            # The worker's build-qualified player layout owns the level field.
-            assert body == {"action": "gear"}
-            return {"level": 27, "profession": 40, "map_id": 1002, "equipment": {}}
+        # The level comes from the worker's qualified gear read (+0x6F8).
+        if operation == "town" and body == {"action": "gear"}:
+            return {"level": 27}
         return state
 
     monkeypatch.setattr(lr, "request", request)

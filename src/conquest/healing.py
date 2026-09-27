@@ -33,19 +33,21 @@ def potion_point(item, visible_points):
 
 
 def consume_inventory_potion(trade, uid):
-    """Use one memory-identified Painkiller without assuming an F1 binding."""
+    """Use one memory-identified HP potion without assuming an F1 binding."""
     from conquest.discard_loot import inventory_button
+    from conquest.potion_tiers import usable
 
     life = trade.life(any_map=True)
     before = trade.inventory.read()
     matches = [
         i
         for i in before.items
-        if i.uid == uid and i.type_id == 1000020 and i.amount > 0
+        if i.uid == uid and usable(i.type_id) and i.amount > 0
     ]
     if len(matches) != 1:
-        raise ValueError("Selected healing item is not a carried Painkiller")
+        raise ValueError("Selected healing item is not a carried usable HP potion")
     item = matches[0]
+    kind = item.type_id
     if item.slot is None or not 0 <= item.slot < 40:
         raise ValueError("Healing item slot is invalid")
     if life.current_hp >= life.max_hp:
@@ -99,7 +101,7 @@ def consume_inventory_potion(trade, uid):
     after, healed = trade.verified_read(
         lambda: (trade.inventory.read(), trade.life(any_map=True)),
         lambda pair: (
-            pair[0].count(1000020) == before.count(1000020) - 1
+            pair[0].count(kind) == before.count(kind) - 1
             and pair[1].object_address == life.object_address
             and pair[1].current_hp > fresh.current_hp
         ),
@@ -108,8 +110,8 @@ def consume_inventory_potion(trade, uid):
     return {
         "consumed": True,
         "uid": uid,
-        "type_id": 1000020,
+        "type_id": kind,
         "hp_before": fresh.current_hp,
         "hp_after": healed.current_hp,
-        "remaining": after.count(1000020),
+        "remaining": after.count(kind),
     }

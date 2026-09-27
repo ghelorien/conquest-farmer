@@ -288,6 +288,23 @@ class DesktopApp:
         ttk.Button(
             session_row, text="Resume leveling", command=self.resume_leveling, padding=2
         ).pack(side="right")
+        from conquest import level_goal
+
+        goal_row = ttk.Frame(self.route_details_frame)
+        goal_row.pack(fill="x", pady=(4, 0))
+        ttk.Label(goal_row, text="Back2Classic: level to").pack(side="left")
+        self.level_goal_target = tk.IntVar(
+            value=(level_goal.goal() or {}).get("target_level", level_goal.SCATTER_LEVEL)
+        )
+        ttk.Spinbox(
+            goal_row, from_=2, to=140, width=4, textvariable=self.level_goal_target
+        ).pack(side="left", padx=(4, 0))
+        ttk.Button(
+            goal_row, text="Stop goal", command=self.stop_level_goal, padding=2
+        ).pack(side="right")
+        ttk.Button(
+            goal_row, text="Start goal", command=self.start_level_goal, padding=2
+        ).pack(side="right", padx=(0, 4))
         self.restore_route()
         self.level_presets = json.loads(
             Path("profiles/leveling-presets.json").read_text(encoding="utf-8")
@@ -2049,6 +2066,27 @@ class DesktopApp:
         self.session_note.set("Automatic leveling")
         self.record(route_hold=None)
 
+    def start_level_goal(self):
+        """Saved goal only: it sends no input and does not switch Farming On."""
+        from conquest import level_goal
+        from conquest.session_plan import plan_note
+
+        try:
+            level_goal.start(int(self.level_goal_target.get()))
+        except (ValueError, tk.TclError) as error:
+            self.session_note.set(str(error))
+            return
+        self.session_note.set(plan_note())
+        self.record(route_hold=None, level_goal=level_goal.goal())
+
+    def stop_level_goal(self):
+        from conquest import level_goal
+        from conquest.session_plan import plan_note
+
+        level_goal.stop()
+        self.session_note.set(plan_note())
+        self.record(level_goal=None)
+
     def restore_route(self):
         if not self.route_selection_path.exists():
             return
@@ -2454,6 +2492,8 @@ class DesktopApp:
         from conquest.viewport import size_for
 
         viewport = size_for(self.observer)
+        from conquest import level_goal
+
         config = config.model_copy(
             update={
                 "observation_mode": "memory_only",
@@ -2463,7 +2503,9 @@ class DesktopApp:
                 "monster_variants": monster_variants,
                 "expected_map": route.map_id,
                 **route_combat_settings(route, ranges),
-                "kite_when_surrounded": route.kite_when_surrounded,
+                # Back2Classic: always allowed to jump away from damage.
+                "kite_when_surrounded": route.kite_when_surrounded
+                or bool(level_goal.goal()),
                 "hunting_anchor": route.hunting_anchor,
                 "boundary": route.hunting_boundary,
                 "patrol_search": route.patrol_search,
@@ -2495,7 +2537,12 @@ class DesktopApp:
         config = apply_overrides(config)
         config = config.model_copy(
             update={
-                "heal_below": max(config.heal_below, route.supplies.healing_threshold)
+                "heal_below": max(
+                    config.heal_below,
+                    route.supplies.healing_threshold,
+                    # Fresh characters on small potions heal early.
+                    level_goal.HEAL_BELOW if level_goal.goal() else 0,
+                )
             }
         )
         if ranges["scatter"] is None:

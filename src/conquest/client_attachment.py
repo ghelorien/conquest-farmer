@@ -188,7 +188,14 @@ def verify_observer(context, observer):
     if context.profile.character_uid is None:
         from conquest.character_profiles import ProfileRegistry
 
-        ProfileRegistry(context.root).bind(
-            context.profile.id, context.profile.name, profile_server, uid
-        )
+        registry = ProfileRegistry(context.root)
+        # The app keeps the context it started with, so its profile still
+        # shows no UID after the first bind. Check the saved registry: binding
+        # on every observation rewrote profiles.json several times a second
+        # and a racing reader made the replace fail (live 2026-09-27).
+        saved = next(p for p in registry.profiles() if p.id == context.profile.id)
+        if saved.character_uid is None:
+            registry.bind(context.profile.id, context.profile.name, profile_server, uid)
+        elif saved.character_uid != uid:
+            raise ValueError("Character UID changed; no automatic rebind")
     return evidence

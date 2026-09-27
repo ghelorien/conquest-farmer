@@ -25,6 +25,7 @@ from conquest.vision import health_ratio, targets
 from conquest.memory_inventory import InventoryLayout, MemoryInventoryReader
 from conquest.inventory import InventoryReader
 from conquest.healing import HealingAttempt, potion_point
+from conquest.potion_tiers import HEALING_POTIONS, pick as pick_potion
 from conquest.reloading import ReloadAttempt
 from conquest.looting import PickupAttempt, nearby_drops
 from conquest.recovery import (
@@ -135,6 +136,15 @@ def scatter_attack_mode(config, speed, strategy, isolated, name):
     return strategy.button(name) if strategy else config.attack_button
 
 
+def carried_potions(inventory, config):
+    """Usable HP potions of every Pharmacist tier; other items count exactly."""
+    from conquest.potion_tiers import HEALING_POTIONS, count
+
+    if config.potion_type in HEALING_POTIONS:
+        return count(inventory, config.potion_type)
+    return inventory.count(config.potion_type)
+
+
 def supply_stop_reason(inventory, config, now):
     if not 0 <= now - inventory.started_at <= 1:
         return "stale_inventory"
@@ -155,7 +165,7 @@ def supply_stop_reason(inventory, config, now):
             )
         ):
             return "ammo_unavailable"
-    if inventory.count(config.potion_type) <= 0:
+    if carried_potions(inventory, config) <= 0:
         return "potions_exhausted"
     return None
 
@@ -610,7 +620,7 @@ def run_trial(
                     ammo=inventory.equipped_ammo.amount
                     if inventory.equipped_ammo
                     else 0,
-                    potions=inventory.count(config.potion_type),
+                    potions=carried_potions(inventory, config),
                 )
                 if not 0 <= time.monotonic() - inventory.started_at <= 0.85:
                     stale_observations += 1
@@ -1007,7 +1017,7 @@ def run_trial(
                     else:
                         verified_heals += 1
                     healing = None
-                    if inventory.count(config.potion_type) <= 0 and not supervisor:
+                    if carried_potions(inventory, config) <= 0 and not supervisor:
                         reason = "potions_exhausted"
                         break
                 healing_threshold = (
@@ -1019,19 +1029,28 @@ def run_trial(
                 if (
                     config.healing_enabled
                     and hp < healing_threshold
-                    and (not supervisor or inventory.count(config.potion_type) > 0)
+                    and (not supervisor or carried_potions(inventory, config) > 0)
                 ):
                     if time.monotonic() - last_heal < config.potion_cooldown:
                         time.sleep(0.05)
                         continue
-                    potion = next(
-                        (
-                            i
-                            for i in inventory.items
-                            if i.type_id == config.potion_type and i.amount > 0
-                        ),
-                        None,
-                    )
+                    if supervisor and config.potion_type in HEALING_POTIONS:
+                        # Memory-selected inventory use: the carried tier that
+                        # best covers the missing HP, not only one fixed type.
+                        potion = pick_potion(
+                            inventory,
+                            fields["max_hp"][0] - absolute_health,
+                            config.potion_type,
+                        )
+                    else:
+                        potion = next(
+                            (
+                                i
+                                for i in inventory.items
+                                if i.type_id == config.potion_type and i.amount > 0
+                            ),
+                            None,
+                        )
                     if potion is None:
                         reason = "potions_exhausted"
                         break
@@ -1046,7 +1065,7 @@ def run_trial(
                     issued = time.monotonic()
                     if (
                         supervisor
-                        and config.potion_type == 1000020
+                        and config.potion_type in HEALING_POTIONS
                         and hasattr(supervisor, "heal_potion")
                     ):
                         receipt = supervisor.heal_potion(potion.uid)
@@ -1088,8 +1107,8 @@ def run_trial(
                         potion.amount,
                         absolute_health,
                         issued,
-                        config.potion_type,
-                        inventory.count(config.potion_type),
+                        potion.type_id,
+                        inventory.count(potion.type_id),
                     )
                     last_heal = issued
                     event(
@@ -1603,7 +1622,7 @@ def run_trial(
                         item_name=picking_up.drop.name,
                         total=verified_pickups,
                         position=picking_up.drop.position,
-                        potions=inventory.count(config.potion_type),
+                        potions=carried_potions(inventory, config),
                     )
                     picking_up = None
                 if (
@@ -1715,7 +1734,7 @@ def run_trial(
                         health_ratio=hp,
                         targets=len(observed),
                         ammo=inventory.equipped_ammo.amount,
-                        potions=inventory.count(config.potion_type),
+                        potions=carried_potions(inventory, config),
                         occupied_slots=len(inventory.items),
                         inventory_source="read_only_memory",
                     )
@@ -1731,7 +1750,7 @@ def run_trial(
                                 is not None
                                 and not (
                                     supervisor
-                                    and inventory.count(config.potion_type) == 0
+                                    and carried_potions(inventory, config) == 0
                                     and supply_stop_reason(
                                         inventory, config, time.monotonic()
                                     )
