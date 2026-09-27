@@ -1368,7 +1368,25 @@ class OvernightLoop:
                 # again before the required refill's price read or purchase.
                 if not self.open_arrow_refill():
                     break
-                if not self.buy_refill_arrows():
+                try:
+                    bought = self.buy_refill_arrows()
+                except ValueError as error:
+                    # A spare pack the wallet or bag cannot take is no reason
+                    # to stop the route while enough arrows are carried to
+                    # hunt (live 09-27 14:26: the eight-pack refill after a
+                    # resumed restock idled Suicide in a failure cooldown).
+                    if (
+                        str(error) != "Insufficient funds or inventory room to restock"
+                        or counts["arrows"] < self.route.supplies.arrows_return_below
+                    ):
+                        raise
+                    self.record(
+                        "arrow_purchase_short",
+                        supplies=counts,
+                        activity=f"Out of silver or bag room at {counts['arrows']} arrows",
+                    )
+                    break
+                if not bought:
                     break
         self.town("close", window="Shop")
         self.town("close", window="Inventory")

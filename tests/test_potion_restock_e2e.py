@@ -271,6 +271,27 @@ def test_potion_restock_e2e(world):
     assert america["heads_back_with_1_potion"] is False
 
 
+def test_a_spare_arrow_pack_the_wallet_cannot_take_does_not_stop_the_route(world):
+    # Live 09-27 14:26: after a resumed restock banked the silver, the next
+    # LuckyArrow pack was unaffordable and the route idled in a cooldown.
+    level_goal.start(23)  # a leveling archer: eight packs wanted
+    route = RouteLibrary().load("robin")
+    pharmacy = Pharmacy(0, [PAINKILLER] * 20, 222)
+    pharmacy.items[0]["amount"] = 200  # two packs carried: enough to hunt
+    buys = []
+
+    def town(action, **fields):
+        if action == "buy" and fields.get("type_id") == LUCKY:
+            buys.append(fields)
+            raise ValueError("Insufficient funds or inventory room to restock")
+        return pharmacy.town(action, **fields)
+
+    loop = loop_for(route, pharmacy)
+    loop.town = town
+    loop.restock()
+    assert loop.cycles == 1 and buys and "arrow_purchase_short" in pharmacy.events
+
+
 def test_no_hp_potion_is_junk_and_every_tier_counts_and_heals(world):
     # Modes 1-3 for the field: nothing sold, everything counted, every pick
     # accepted by the worker's consume check.
