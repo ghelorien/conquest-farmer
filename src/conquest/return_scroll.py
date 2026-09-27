@@ -7,7 +7,11 @@ import time
 from conquest.discord_notify import read_json, write_json
 
 TYPE = 1060020
-POLICY = Path("profiles/return-scroll.json")
+# Per character: a verified first use qualifies this character's client, and
+# a release folder is immutable (a changed file there blocks route launches).
+# Absent means disabled.
+POLICY_NAME = ".runtime/return-scroll.json"
+POLICY = Path(state_path(POLICY_NAME))
 STATUS = Path(state_path("reports/return-scroll/status.json"))
 
 
@@ -171,7 +175,18 @@ def return_to_town(loop):
         return False
     loop.town("close", window="Shop")
     loop.town("close", window="Warehouse")
-    result = loop.town("return-scroll")
+    try:
+        result = loop.town("return-scroll")
+    except ValueError as error:
+        # Walking stays the fallback. An unverified submission remains in
+        # STATUS and blocks further scroll input until it is reconciled.
+        loop.town("close", window="Inventory")
+        loop.record(
+            "return_scroll_failed",
+            detail=str(error),
+            activity="Return scroll did not complete; walking to town",
+        )
+        return False
     loop.town("close", window="Inventory")
     loop.record(
         "return_scroll_verified",
