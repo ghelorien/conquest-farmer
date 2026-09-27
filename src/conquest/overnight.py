@@ -88,8 +88,30 @@ def supply_counts(snapshot, route):
     }
 
 
+def potion_reserve(route):
+    """Potions kept for the walk back while the Back2Classic level goal runs.
+
+    The walk from the low-level fields to Twin City takes minutes; leaving
+    with none meant arriving (or dying) on an empty bar (09-27).
+    """
+    from conquest import level_goal
+
+    if not level_goal.goal():
+        return 0
+    return min(TRIP_POTION_RESERVE, route.supplies.healing_restock_to // 4)
+
+
+TRIP_POTION_RESERVE = 5
+# A town-travel iteration slower than this is logged with its phase timings.
+SLOW_TRAVEL_STEP_SECONDS = 4
+
+
 def needs_town(counts, route):
-    return counts["arrows"] < 3 or counts["potions"] <= 0 or counts["free_slots"] <= 0
+    return (
+        counts["arrows"] < 3
+        or counts["potions"] <= potion_reserve(route)
+        or counts["free_slots"] <= 0
+    )
 
 
 def last_verified_price(type_id, path=None):
@@ -571,9 +593,23 @@ class OvernightLoop:
         market_failed = set()
         obstruction_origin = None
         blocked_jump_origin = None
+        laps = {}
+        lap_at = [time.monotonic()]
+
+        def lap(name):
+            # Where each travel iteration spends its time; reported when slow.
+            now = time.monotonic()
+            laps[name] = round(laps.get(name, 0) + now - lap_at[0], 2)
+            lap_at[0] = now
+
         while time.monotonic() < deadline:
+            if laps and sum(laps.values()) >= SLOW_TRAVEL_STEP_SECONDS:
+                self.record("travel_slow_step", timings=dict(laps))
+            laps.clear()
+            lap_at[0] = time.monotonic()
             waiting = time.monotonic()
             h = self.living()
+            lap("living")
             life = h["embedded_controls"]["life"]
             source = tuple(life["position"])
             occupied.discard(source)
@@ -625,8 +661,10 @@ class OvernightLoop:
                         "reachable"
                     ):
                         return
+            lap("vendor_checks")
             try:
                 self.care.check(h)
+                lap("care")
                 try:
                     planner = getattr(
                         self.terrain, "travel_path", self.terrain.straight_path
@@ -664,6 +702,7 @@ class OvernightLoop:
                         "town_path_retry",
                         activity="Retrying the town corridor with running steps",
                     )
+                lap("planner")
                 remaining = sum(
                     max(abs(a[0] - b[0]), abs(a[1] - b[1]))
                     for a, b in zip(path, path[1:])
@@ -722,9 +761,11 @@ class OvernightLoop:
                     clear_route_point,
                 )
 
+                lap("waypoint")
                 anchor = memory_player_anchor(
                     SimpleNamespace(adapter=self.care.session), SimpleNamespace(**life)
                 )
+                lap("anchor")
                 # Generic Market recovery has no occupancy input.  Retain a
                 # fresh merchant probe's hard exclusions instead of bypassing
                 # them with an alternate landing guessed from terrain alone.
@@ -827,7 +868,9 @@ class OvernightLoop:
                 # A click on a player, booth or NPC does not move the farmer.
                 # The destination itself stays the click target: service and
                 # exit tiles stand beside their NPC (Market Controller, 09-26).
+                lap("visible_point")
                 crowd = Crowd.observe(self.care.session, anchor)
+                lap("crowd")
                 dx, dy = target[0] - source[0], target[1] - source[1]
                 if tuple(target) != tuple(destination) and crowd.covers(
                     (anchor[0] + (dx - dy) * 32, anchor[1] + (dx + dy) * 16)
@@ -856,7 +899,9 @@ class OvernightLoop:
                 ):
                     avoided.add(target)
                     continue
+                lap("reroute")
                 result = self.stepper.step_to(target, expected_position=source)
+                lap("step")
             except TravelStateChanged:
                 continue
             except CaptureUnavailable:
