@@ -35,6 +35,11 @@ from conquest.recovery import (
     revive_button,
 )
 
+# After a ranged escape: how long patrol keeps away from the spot we fled
+# (and healing uses the 75% threshold), and how close counts as "the spot".
+ESCAPE_MEMORY_SECONDS = 4
+ESCAPE_KEEP_OUT_TILES = 5
+
 
 def scatter_receipt_ready(
     elapsed, previous_ammo, current_ammo, minimum_seconds=0.2, minimum_arrows=3
@@ -853,6 +858,9 @@ def run_trial(
                         scatter_jump_due = False
                         supervisor.patrol_chase = None
                         supervisor.escape_ready_at = time.monotonic() + 0.9
+                        # Remember where the pack was so patrol does not jump
+                        # straight back into it (Suicide died this way 09-27).
+                        supervisor.last_escape = (time.monotonic(), (x, y))
                         supervisor.escape_damage_consumed_at = getattr(
                             supervisor, "last_damage_at", -float("inf")
                         )
@@ -1020,10 +1028,21 @@ def run_trial(
                     if carried_potions(inventory, config) <= 0 and not supervisor:
                         reason = "potions_exhausted"
                         break
+                recently_escaped = bool(supervisor) and (
+                    time.monotonic()
+                    - getattr(supervisor, "last_escape", (-float("inf"),))[0]
+                    < ESCAPE_MEMORY_SECONDS
+                )
                 healing_threshold = (
                     max(config.heal_below, 0.75)
                     if supervisor
-                    and (approaching or supervised.get("returning_after_revive"))
+                    and (
+                        approaching
+                        or supervised.get("returning_after_revive")
+                        # Top up right after fleeing a pack: the next second
+                        # can be blind (focus loss, stale scene) under attack.
+                        or recently_escaped
+                    )
                     else config.heal_below
                 )
                 if (
@@ -1881,6 +1900,21 @@ def run_trial(
                                     chase=not rotation
                                     or rotation.region.contains((x, y)),
                                 )
+                                escaped = getattr(supervisor, "last_escape", None)
+                                if (
+                                    escaped
+                                    and time.monotonic() - escaped[0]
+                                    < ESCAPE_MEMORY_SECONDS
+                                    and max(
+                                        abs(destination[0] - escaped[1][0]),
+                                        abs(destination[1] - escaped[1][1]),
+                                    )
+                                    <= ESCAPE_KEEP_OUT_TILES
+                                ):
+                                    # Hold position and shoot from range instead
+                                    # of patrolling back onto the pack we fled.
+                                    time.sleep(0.05)
+                                    continue
                         dx, dy = destination[0] - x, destination[1] - y
                         scale = min(
                             1, (12 if supervisor else 6) / max(abs(dx), abs(dy), 1)
