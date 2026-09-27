@@ -1569,6 +1569,10 @@ class OvernightLoop:
         from conquest.city_travel import ensure_city_visit
 
         ensure_city_visit(self)
+        from conquest.conductress_shortcut import ride
+
+        # Alex: the Conductress to Ape City is the fast way to the far fields.
+        ride(self)
         request(
             self.info,
             "controls",
