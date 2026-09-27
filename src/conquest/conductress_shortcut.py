@@ -21,7 +21,10 @@ from pathlib import Path
 from conquest.character_context import state_path
 from conquest.discord_notify import read_json, write_json
 
-SHORTCUTS = {"apparition": "Ape Mountain", "poltergeist": "Ape Mountain"}
+# Poltergeist: the Desert City gate (45, 397) is 78 walking tiles from the
+# field; the Ape gate is 665 and Twin City ~1,010 (beyond the default planner
+# budget), so "instead" there means Desert City.
+SHORTCUTS = {"apparition": "Ape Mountain", "poltergeist": "Desert City"}
 FARE = 100
 CONDUCTRESS_TILE = (438, 444)
 LANDINGS = Path(state_path(".runtime/conductress-landings.json"))
