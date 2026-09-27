@@ -87,6 +87,26 @@ def test_scatter_ends_the_hold_for_the_next_spot(monkeypatch):
     assert choose(loop, 23)[0].id == "poltergeist" and loop.events == []
 
 
+def test_the_trainer_visit_record_counts_when_memory_cannot_be_read(
+    tmp_path, monkeypatch
+):
+    # Suicide learned Scatter at 16:26, but in combat every skill read failed
+    # (its experience changes with each cast) and the hold stayed on.
+    from conquest import scatter_training
+
+    monkeypatch.setattr(scatter_training, "STATE", tmp_path / "scatter-training.json")
+
+    def unreadable(loop):
+        raise ValueError("Scatter changed during range observation")
+
+    monkeypatch.setattr(scatter_training, "learned", unreadable)
+    level_goal.start(level_goal.SCATTER_LEVEL)
+    assert choose(loop_with(94), 22)[0].id == "apparition"
+    write_json(scatter_training.STATE, {"learned_at": 1})
+    loop = loop_with(94)
+    assert choose(loop, 23)[0].id == "poltergeist" and loop.events == ["economy_hold_ended"]
+
+
 def test_back2classic_archer_past_the_goal_still_holds(monkeypatch):
     # Toxic reached the goal's level 23 at 15:11 and the guard stopped applying.
     level_goal.stop()

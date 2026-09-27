@@ -27,11 +27,19 @@ CHECK_SECONDS = 60
 
 
 def scatter_learned(loop):
-    """Whether memory shows Scatter; unreadable counts as not learned."""
-    try:
-        from conquest.scatter_training import learned
+    """Whether Scatter is learned: the trainer visit's record, else memory
+    (unreadable counts as not learned).
 
-        return bool(learned(loop))
+    The memory read double-checks the skill object, whose experience changes
+    with every cast: in combat it fails and Suicide stayed held on
+    Apparitions after learning Scatter at 16:26 (live 2026-09-27).
+    """
+    from conquest import scatter_training
+
+    if read_json(scatter_training.STATE).get("learned_at"):
+        return True
+    try:
+        return bool(scatter_training.learned(loop))
     except Exception:
         return False
 
