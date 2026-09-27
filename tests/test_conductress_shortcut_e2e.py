@@ -137,7 +137,14 @@ def test_someone_on_her_tile_does_not_stall_the_walk_to_her(state):
     loop = loop_for(twin)
     loop.travel = lambda target, **kw: travels.append((target, kw))
     assert shortcut.ride(loop) is True
-    assert travels == [(shortcut.CONDUCTRESS_TILE, {"arrival_radius": 4})]
+    assert travels == [(shortcut.CONDUCTRESS_TILE, {"arrival_radius": 2})]
+    # OvernightLoop.travel refuses anything above two tiles (4 did, 15:26).
+    from conquest.overnight import OvernightLoop
+
+    loop = OvernightLoop.__new__(OvernightLoop)
+    with pytest.raises(ValueError, match="zero to two"):
+        loop._travel(shortcut.CONDUCTRESS_TILE, arrival_radius=3)
+    assert 0 <= shortcut.ARRIVAL_RADIUS <= 2
 
 
 def test_unverified_ride_is_never_paid_twice(state):

@@ -69,3 +69,12 @@ def test_no_hold_far_past_the_previous_bracket_or_without_the_goal():
     loop = loop_with(10)
     route, _ = choose(loop, 22)
     assert route.id == "poltergeist" and loop.events == []
+
+
+def test_back2classic_archer_past_the_goal_still_holds(monkeypatch):
+    # Toxic reached the goal's level 23 at 15:11 and the guard stopped applying.
+    level_goal.stop()
+    monkeypatch.setattr(level_goal, "back2classic", lambda: True)
+    loop = loop_with(134)
+    route, _ = choose(loop, 23)
+    assert route.id == "apparition" and loop.events == ["economy_hold_started"]
