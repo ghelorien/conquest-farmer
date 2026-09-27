@@ -86,6 +86,10 @@ def isolate_live_session_plan(tmp_path, monkeypatch):
     from conquest import leveling_economy
 
     monkeypatch.setattr(leveling_economy, "HOLD", tmp_path / "economy-hold.json")
+    # Level checks ask whether Scatter is learned (the trainer visit's record).
+    from conquest import scatter_training
+
+    monkeypatch.setattr(scatter_training, "STATE", tmp_path / "scatter-training.json")
     from conquest import safe_reload
 
     monkeypatch.setattr(safe_reload, "RESUME", tmp_path / "reload-resume.json")
