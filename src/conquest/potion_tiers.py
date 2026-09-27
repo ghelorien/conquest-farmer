@@ -22,8 +22,9 @@ HEALING_POTIONS = {
 }
 # The long-standing route potion; used when no tier has been chosen.
 DEFAULT_TYPE = 1000020
-# One potion should restore at least this share of maximum HP.
-MINIMUM_SHARE = 0.5
+# One potion should restore at least this share of maximum HP: the gap left
+# when healing at 60%, so a single potion refills the bar.
+MINIMUM_SHARE = 0.4
 TIER = Path(state_path(".runtime/healing-tier.json"))
 
 
@@ -36,7 +37,7 @@ def name(type_id):
 
 
 def choose(max_hp, silver, count, offered=None, reserve=0):
-    """Smallest potion restoring half of max HP that `count` of can be bought.
+    """Smallest potion restoring 40% of max HP that `count` of can be bought.
 
     Falls back to the strongest tier the silver covers for `count`, then to
     the cheapest offered tier, so a poor character still leaves with potions.

@@ -119,7 +119,7 @@ def last_verified_price(type_id, path=None):
 # Potions a farmer carries before arrow silver may cap further potion buys.
 # Below this it keeps buying potions; if that leaves no arrow money, the
 # arrow purchase refuses and the farmer stays safely in town.
-SAFE_HUNT_POTIONS = 5
+SAFE_HUNT_POTIONS = 10
 
 
 def potion_budget_reached(counts, route, potion_price, arrow_price):
@@ -167,7 +167,7 @@ class OvernightLoop:
         self.route = configure_route(self.route)
         from conquest import level_goal, potion_tiers
 
-        if level_goal.goal():
+        if level_goal.goal() or potion_tiers.TIER.exists():
             # Resume with the tier bought on the last Pharmacist visit.
             self.route = self.route.model_copy(
                 update={

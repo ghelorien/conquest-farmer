@@ -53,6 +53,7 @@ def bag(*items):
     [
         (80, 1000, 1000000),  # level 1: a Stancher restores a full bar
         (180, 1000, 1000010),  # Resolutive covers half
+        (213, 1000, 1000010),  # level 12: Resolutive, not a Painkiller above max HP
         (420, 1000, 1000020),  # around Scatter level: Painkiller
         (420, 150, 1000010),  # cannot afford 5 Painkillers: strongest affordable
         (420, 10, 1000000),  # broke: cheapest, still leaves with potions
@@ -152,9 +153,9 @@ def test_pharmacist_step_switches_route_tier_and_records(runtime):
         record=lambda event, **fields: events.append((event, fields)),
     )
     products = [{"type_id": 1000000}, {"type_id": 1000010}, {"type_id": 1000020}]
-    # Without a goal the route's own potion is kept and made active.
-    assert level_goal.healing_type(loop) == 1000020
-    assert potion_tiers.active_type() == 1000020 and not events
+    # With or without a goal, the tier follows max HP and price.
+    assert level_goal.healing_type(loop) == 1000000
+    assert potion_tiers.active_type() == 1000000
     level_goal.start(23)
     assert level_goal.healing_type(loop) == 1000000
     assert loop.route.supplies.healing_type == 1000000

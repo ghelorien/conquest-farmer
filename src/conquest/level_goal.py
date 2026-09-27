@@ -106,12 +106,13 @@ def mark_reviewed(level):
 
 
 def healing_type(loop):
-    """Choose and activate the potion tier while the Pharmacist is open."""
+    """Choose and activate the potion tier while the Pharmacist is open.
+
+    Every restock picks by maximum HP and price, goal or not: a fixed route
+    potion (Painkiller) can restore more than a fresh character's whole bar.
+    """
     from conquest import potion_tiers
 
-    if not goal():
-        potion_tiers.set_active(loop.route.supplies.healing_type)
-        return loop.route.supplies.healing_type
     products = loop.town("shop", vendor_type=3)["products"]
     life = loop.living()["embedded_controls"]["life"]
     silver = loop.town("supplies")["silver"]
