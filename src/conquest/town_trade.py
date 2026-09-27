@@ -1392,11 +1392,19 @@ class TownTrade:
                 destination,
                 size_for(self.observer),
             )
+            # A 1-2 arrow remnant can sell for 0 silver (live 2026-09-26), so
+            # its proof is leaving the bag without silver loss. Every other
+            # sale still requires a silver increase.
+            remnant = action == "sell_partial_arrow" and item.amount < 3
             after = self.verified_read(
                 self.inventory.read,
                 lambda after: (
                     item.uid not in {i.uid for i in after.items}
-                    and after.silver > before.silver
+                    and (
+                        after.silver >= before.silver
+                        if remnant
+                        else after.silver > before.silver
+                    )
                 ),
                 "Sale was not verified; no further sale issued",
             )
