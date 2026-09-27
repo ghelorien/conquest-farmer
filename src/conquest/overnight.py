@@ -1162,9 +1162,9 @@ class OvernightLoop:
             if str(error) != "Insufficient funds or inventory room to restock":
                 raise
             from conquest.arrow_upgrades import (
-                ARROW_REFILL_AMOUNTS,
                 NORMAL_ARROWS,
                 fallback_arrow,
+                refill_target,
             )
 
             bag = self.town("supplies")
@@ -1190,7 +1190,7 @@ class OvernightLoop:
                     "supplies": self.route.supplies.model_copy(
                         update={
                             "arrow_type": fallback,
-                            "arrows_restock_to": ARROW_REFILL_AMOUNTS[fallback],
+                            "arrows_restock_to": refill_target(fallback),
                         }
                     )
                 }
@@ -1882,7 +1882,7 @@ class OvernightLoop:
         from conquest.arrow_upgrades import (
             current_arrow,
             NORMAL_ARROWS,
-            ARROW_REFILL_AMOUNTS,
+            refill_target,
         )
 
         from conquest.savings import savings_plan
@@ -1898,7 +1898,7 @@ class OvernightLoop:
             reserves,
             equipped_ammo=supplies.get("equipped_ammo"),
         )
-        target = ARROW_REFILL_AMOUNTS[kind]
+        target = refill_target(kind)
         if (
             kind != self.route.supplies.arrow_type
             or target != self.route.supplies.arrows_restock_to
