@@ -22,10 +22,6 @@ SCATTER_LEVEL = 23
 GEAR_STEP = 5
 # Combat heal threshold while the goal runs (share of max HP).
 HEAL_BELOW = 0.6
-# Jump away from monsters when this share of max HP was lost within the
-# last 1.25 s; smaller hits keep the attack going. Being surrounded by two
-# or more adjacent monsters still triggers a jump on its own.
-ESCAPE_DAMAGE_SHARE = 0.1
 
 
 def goal():

@@ -198,28 +198,58 @@ def test_e2e_ladder_to_scatter_artifact(runtime):
     assert [r["potion"] for r in timeline if r["step"] == "gear"][-1] == "Painkiller"
 
 
-# Alex: "if you are taking significant damage from enemies make sure you jump away"
-def test_goal_jumps_away_only_from_significant_damage(monkeypatch):
+# Alex: "As soon as you get attacked ... don't tank a few hits before jumping.
+# React fast." It replaced the former 10%-of-max-HP bar, which a typical 9%
+# Apparition hit never reached (live 2026-09-27: 43% of hits got no jump).
+def test_jumps_away_on_the_first_hit(monkeypatch):
     from test_native_farm import setup
     from conquest import native_farm
 
     supervisor, _, _, _ = setup(monkeypatch)
-    supervisor.escape_damage_share = level_goal.ESCAPE_DAMAGE_SHARE
     monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
     supervisor.scene_timestamp = 100.0
     supervisor.escape_monsters = (NS(position=(24, 20)),)
     supervisor.recovery.terrain = NS(walkable=lambda p: True)
-    supervisor.last_damage_at = 100.0
-    supervisor.damage_events = [(99.5, 0.03), (100.0, 0.04)]  # 7%: keep shooting
+    # Not hit yet, one monster 4 tiles away: keep shooting.
     assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is None
-    supervisor.damage_events.append((100.0, 0.05))  # 12% in 1.25 s: jump
-    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is not None
+    # The first hit, however small, jumps at once to 6+ tiles from it.
+    supervisor.last_damage_at = 100.0
+    landing = supervisor.ranged_escape((20, 20), (0, 0, 50, 50))
+    assert max(abs(landing[0] - 24), abs(landing[1] - 20)) >= 6
     assert supervisor.escape_context["reason"] == "recent_damage"
+    # A hit already answered by a jump does not trigger another one.
+    supervisor.escape_damage_consumed_at = 100.0
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is None
     # Surrounded by two adjacent monsters still jumps without any damage.
-    supervisor.damage_events = []
     supervisor.last_damage_at = -float("inf")
     supervisor.escape_monsters = (NS(position=(21, 20)), NS(position=(20, 21)))
     assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is not None
+
+
+# A crowd can leave no landing 6+ tiles from every monster within 12 tiles:
+# still jump clear of the monster hitting us instead of tanking it.
+def test_crowded_hit_still_jumps_clear_of_the_attacker(monkeypatch):
+    from test_native_farm import setup
+    from conquest import native_farm
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.scene_timestamp = 100.0
+    # Only the line west is open; every west landing is 5 tiles from (10, 15).
+    supervisor.recovery.terrain = NS(walkable=lambda p: p[1] == 20 and p[0] <= 20)
+    supervisor.escape_monsters = (NS(position=(21, 20)), NS(position=(10, 15)))
+    supervisor.last_damage_at = 100.0
+    landing = supervisor.ranged_escape((20, 20), (0, 0, 50, 50))
+    assert landing[1] == 20 and 20 - landing[0] >= 8
+    assert supervisor.escape_context["crowded"] is True
+    # Without the hit, one adjacent monster is no reason to leave.
+    supervisor.last_damage_at = -float("inf")
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is None
+    # A landing beside another monster is no escape at all.
+    supervisor.last_damage_at = 100.0
+    supervisor.escape_monsters = (NS(position=(21, 20)), NS(position=(10, 18)))
+    supervisor.recovery.terrain = NS(walkable=lambda p: p[1] == 20 and 8 <= p[0] <= 20)
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is None
 
 
 # Alex: "we need to be able to pickup the money on the ground"

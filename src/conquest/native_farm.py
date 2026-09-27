@@ -66,14 +66,7 @@ class NativeFarmSupervisor:
         self.last_health_position = None
         self.defend_until = 0
         self.last_damage_at = -float("inf")
-        self.damage_events = []
         self.escape_damage_consumed_at = -float("inf")
-        from conquest import level_goal
-
-        # 0 keeps the long-standing rule: any recent damage may trigger a jump.
-        self.escape_damage_share = (
-            level_goal.ESCAPE_DAMAGE_SHARE if level_goal.goal() else 0
-        )
         self.escape_context = {}
         self.defending = False
         self.position = None
@@ -408,17 +401,6 @@ class NativeFarmSupervisor:
                     and not life.dead_candidate
                 ):
                     self.last_damage_at = time.monotonic()
-                    self.damage_events = [
-                        *(
-                            e
-                            for e in getattr(self, "damage_events", ())
-                            if self.last_damage_at - e[0] <= DAMAGE_WINDOW
-                        ),
-                        (
-                            self.last_damage_at,
-                            (previous[0] - life.current_hp) / max(life.max_hp, 1),
-                        ),
-                    ]
                 if (
                     previous
                     and previous[1] == self.position
@@ -1500,23 +1482,13 @@ class NativeFarmSupervisor:
         adjacent = sum(
             max(abs(a - b) for a, b in zip(p, position)) <= 1 for p in living
         )
+        # Any hit is reason to jump: tanking "small" hits (a 9% Apparition
+        # hit stayed under the former 10% bar) only burns potions and town
+        # trips (Alex 2026-09-27: "don't tank a few hits before jumping").
         damaged = (
             now - self.last_damage_at <= DAMAGE_WINDOW
             and self.last_damage_at > self.escape_damage_consumed_at
         )
-        minimum = getattr(self, "escape_damage_share", 0)
-        if damaged and minimum:
-            # Back2Classic: only significant recent damage (a share of max
-            # HP) is worth a jump; single scratches keep the attack going.
-            damaged = (
-                sum(
-                    share
-                    for at, share in getattr(self, "damage_events", ())
-                    if now - at <= DAMAGE_WINDOW
-                    and at > self.escape_damage_consumed_at
-                )
-                >= minimum
-            )
         if adjacent < 2 and not damaged:
             return None
         threats = [
@@ -1535,55 +1507,72 @@ class NativeFarmSupervisor:
             if until > now
         }
         self.escape_blocked = blocked
-        candidates = []
-        for length in (12, 10, 8):
-            for dx, dy in (
-                (length, 0),
-                (-length, 0),
-                (0, length),
-                (0, -length),
-                # Diagonals: a surround that walls off the straight lines.
-                (length, length),
-                (-length, -length),
-                (length, -length),
-                (-length, length),
-            ):
-                dx, dy = native_movement_delta(dx, dy, viewport=size_for(self.observer))
-                distance = max(abs(dx), abs(dy))
-                if distance < ESCAPE_MIN_JUMP:
-                    continue
-                point = (x + dx, y + dy)
-                if point in blocked:
-                    continue  # that landing just failed to move the farmer
-                if not (left <= point[0] <= right and top <= point[1] <= bottom):
-                    continue
-                sx, sy = dx // distance, dy // distance
-                if not all(
-                    terrain.walkable((x + sx * i, y + sy * i))
-                    for i in range(distance + 1)
+
+        def landings(threats):
+            found = []
+            for length in (12, 10, 8):
+                for dx, dy in (
+                    (length, 0),
+                    (-length, 0),
+                    (0, length),
+                    (0, -length),
+                    # Diagonals: a surround that walls off the straight lines.
+                    (length, length),
+                    (-length, -length),
+                    (length, -length),
+                    (-length, length),
                 ):
-                    continue
-                separation = min(
-                    max(abs(point[0] - mx), abs(point[1] - my)) for mx, my in threats
-                )
-                if separation < 6:
-                    continue
-                distances = [
-                    max(abs(point[0] - mx), abs(point[1] - my)) for mx, my in living
-                ]
-                nearby = sum(d <= 4 for d in distances)
-                if nearby >= len(threats):
-                    continue
-                # Prefer fewer nearby enemies, including those outside the
-                # original surround, then more clearance and longer jumps.
-                candidates.append(
-                    (-nearby, min(distances), separation, distance, point)
-                )
+                    dx, dy = native_movement_delta(
+                        dx, dy, viewport=size_for(self.observer)
+                    )
+                    distance = max(abs(dx), abs(dy))
+                    if distance < ESCAPE_MIN_JUMP:
+                        continue
+                    point = (x + dx, y + dy)
+                    if point in blocked:
+                        continue  # that landing just failed to move the farmer
+                    if not (left <= point[0] <= right and top <= point[1] <= bottom):
+                        continue
+                    sx, sy = dx // distance, dy // distance
+                    if not all(
+                        terrain.walkable((x + sx * i, y + sy * i))
+                        for i in range(distance + 1)
+                    ):
+                        continue
+                    separation = min(
+                        max(abs(point[0] - mx), abs(point[1] - my))
+                        for mx, my in threats
+                    )
+                    if separation < 6:
+                        continue
+                    distances = [
+                        max(abs(point[0] - mx), abs(point[1] - my)) for mx, my in living
+                    ]
+                    nearby = sum(d <= 4 for d in distances)
+                    if nearby >= len(threats):
+                        continue
+                    # Prefer fewer nearby enemies, including those outside the
+                    # original surround, then more clearance and longer jumps.
+                    found.append((-nearby, min(distances), separation, distance, point))
+            return found
+
+        candidates = landings(threats)
+        crowded = False
+        if not candidates and damaged:
+            # A crowd within 12 tiles can rule out every landing; still get
+            # 6+ tiles clear of the monsters close enough to be hitting us
+            # rather than standing there and tanking.
+            attackers = [
+                p for p in threats if max(abs(a - b) for a, b in zip(p, position)) <= 3
+            ]
+            if attackers:
+                candidates, crowded = landings(attackers), True
         if not candidates:
             return None
         self.escape_context = {
             "adjacent_enemies": adjacent,
             "recent_damage": damaged,
+            "crowded": crowded,
             "reason": "recent_damage" if damaged else "enemies_within_one_tile",
         }
         return max(candidates)[-1]

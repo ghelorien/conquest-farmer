@@ -35,11 +35,14 @@ the monster bracket in `profiles/leveling-presets.json`.
   farmer without a goal still ignores silver.
 - **Healing earlier.** With the goal active the combat heal threshold is at
   least 60% HP.
-- **Jump away from significant damage.** With the goal active, jump-away
-  escape is on for every route (Pheasant and Turtledove had it off). It jumps
-  8-12 tiles to open, walkable ground when 10% of max HP or more was lost in
-  the last 1.25 s, or when two monsters stand adjacent. Smaller hits keep the
-  attack going, so leveling stays efficient.
+- **Jump away from the first hit.** With the goal active, jump-away escape
+  is on for every route (Pheasant and Turtledove had it off). It jumps 8-12
+  tiles to open, walkable ground at least 6 tiles from every monster near
+  the farmer as soon as any damage is taken (or two monsters stand
+  adjacent), then keeps shooting from there. Alex, 2026-09-27: "don't tank a
+  few hits before jumping. React fast." Tanking hits under the former 10%
+  threshold (a typical Apparition hit is 9% of max HP at level 18) cost
+  potions and town trips.
 
 ## Fixed on the way
 
