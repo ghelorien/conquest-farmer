@@ -92,6 +92,54 @@ def needs_town(counts, route):
     return counts["arrows"] < 3 or counts["potions"] <= 0 or counts["free_slots"] <= 0
 
 
+def last_verified_price(type_id, path=None):
+    """Price of the newest verified purchase of this type, or None.
+
+    Read from this character's own event log, so it is a price the shop
+    actually charged, never a guess.
+    """
+    path = Path(path or state_path("reports/overnight/events.jsonl"))
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if '"purchase"' not in line:
+            continue
+        try:
+            receipt = json.loads(line).get("receipt") or {}
+        except ValueError:
+            continue
+        price = receipt.get("price")
+        if receipt.get("bought") == type_id and type(price) is int and price > 0:
+            return price
+    return None
+
+
+# Potions a farmer carries before arrow silver may cap further potion buys.
+# Below this it keeps buying potions; if that leaves no arrow money, the
+# arrow purchase refuses and the farmer stays safely in town.
+SAFE_HUNT_POTIONS = 5
+
+
+def potion_budget_reached(counts, route, potion_price, arrow_price):
+    """Stop potions while the next one would leave too little for arrows.
+
+    A short-of-arrows restock spent every coin on Painkillers and then could
+    not buy a single arrow pack, stranding the farmer in town (live
+    2026-09-27). Once a safe hunt's potions are carried, keep one verified
+    arrow pack's price. Unknown prices keep the old behaviour.
+    """
+    return bool(
+        potion_price
+        and arrow_price
+        and counts["arrows"] < route.supplies.arrows_return_below
+        and counts["potions"]
+        >= max(route.supplies.healing_return_below, SAFE_HUNT_POTIONS)
+        and counts["silver"] - potion_price < arrow_price
+    )
+
+
 def pharmacist_needed(snapshot, route, *, scroll_enabled=False):
     counts = supply_counts(snapshot, route)
     if counts["potions"] < route.supplies.healing_restock_to:
@@ -1183,9 +1231,37 @@ class OvernightLoop:
             healing_type(self)
             self.sell_junk(3)
             self.shopping_space(3, self.route.restock_anchor)
+            arrow_price = last_verified_price(self.route.supplies.arrow_type)
+            potion_quote = None
+            if arrow_price:
+                try:
+                    products = (self.town("shop", vendor_type=3) or {}).get(
+                        "products"
+                    ) or []
+                except ValueError:
+                    products = []  # No verified quote: keep the old behaviour.
+                potion_quote = next(
+                    (
+                        p["price"]
+                        for p in products
+                        if p.get("type_id") == self.route.supplies.healing_type
+                    ),
+                    None,
+                )
             for _ in range(30):
                 counts = supply_counts(self.town("supplies"), self.route)
                 if counts["potions"] >= self.route.supplies.healing_restock_to:
+                    break
+                if potion_budget_reached(
+                    counts, self.route, potion_quote, arrow_price
+                ):
+                    self.record(
+                        "potion_purchase_capped",
+                        supplies=counts,
+                        arrow_price=arrow_price,
+                        potion_price=potion_quote,
+                        activity="Keeping silver for arrows before more potions",
+                    )
                     break
                 reserve = self.route.supplies.minimum_free_slots + int(
                     counts["arrows"] < self.route.supplies.arrows_return_below
