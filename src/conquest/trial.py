@@ -895,6 +895,9 @@ def run_trial(
                         reach=JUMP_SCATTER_REACH
                         if config.jump_scatter and not looting
                         else 1,
+                        scatter_range=config.attack_range_tiles
+                        if config.jump_scatter
+                        else None,
                     )
                     if escape is not None:
                         dx, dy = escape[0] - x, escape[1] - y

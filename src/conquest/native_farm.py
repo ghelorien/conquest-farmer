@@ -1571,7 +1571,13 @@ class NativeFarmSupervisor:
         raise CaptureUnavailable("Waiting for a traversable patrol step")
 
     def ranged_escape(
-        self, position, boundary, anchor=None, adjacent_trigger=2, reach=1
+        self,
+        position,
+        boundary,
+        anchor=None,
+        adjacent_trigger=2,
+        reach=1,
+        scatter_range=None,
     ):
         """A bounded clear jump away from memory-verified nearby living monsters.
 
@@ -1579,7 +1585,10 @@ class NativeFarmSupervisor:
         ``adjacent_trigger`` monsters within ``reach`` tiles call for a jump
         without any damage; jump-Scatter uses one monster within
         JUMP_SCATTER_REACH (Alex 2026-09-27: "When doing jump scatter you
-        can't let enemies ever attack you").
+        can't let enemies ever attack you"). With ``scatter_range``, equally
+        safe landings prefer the one with the most monsters left inside
+        Scatter range: the farthest landing often left the pack out of range,
+        and 40% of escapes went over 1.5 s without a cast (18:45-18:56).
         """
         from conquest.navigation import native_movement_delta
 
@@ -1662,8 +1671,16 @@ class NativeFarmSupervisor:
                     if fewer and nearby >= len(threats):
                         continue
                     # Prefer fewer nearby enemies, including those outside the
-                    # original surround, then more clearance and longer jumps.
-                    found.append((-nearby, min(distances), separation, distance, point))
+                    # original surround, then (jump-Scatter) more of the pack
+                    # still in Scatter range, then more clearance and longer jumps.
+                    in_range = (
+                        sum(reach < d <= scatter_range for d in distances)
+                        if scatter_range
+                        else 0
+                    )
+                    found.append(
+                        (-nearby, in_range, min(distances), separation, distance, point)
+                    )
             return found
 
         candidates = landings(threats)

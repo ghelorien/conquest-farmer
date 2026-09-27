@@ -332,6 +332,44 @@ def test_jump_scatter_leaves_before_a_monster_is_within_hitting_reach(monkeypatc
     )
 
 
+def test_jump_scatter_escape_keeps_the_pack_inside_scatter_range(monkeypatch):
+    # 18:45-18:56: the farthest landing often left the pack out of range and
+    # 40% of escapes went over 1.5 s without a cast.
+    from test_native_farm import setup
+    from conquest import native_farm
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.scene_timestamp = 100.0
+    supervisor.recovery.terrain = NS(walkable=lambda p: True)
+    # One Poltergeist at reach, the rest of the pack six tiles east.
+    supervisor.escape_monsters = tuple(
+        NS(position=p) for p in ((23, 20), (26, 19), (27, 21), (28, 20))
+    )
+    reach = native_farm.JUMP_SCATTER_REACH
+
+    def pack_in_range(landing, radius=8):
+        return sum(
+            reach < max(abs(landing[0] - m.position[0]), abs(landing[1] - m.position[1])) <= radius
+            for m in supervisor.escape_monsters
+        )
+
+    farthest = supervisor.ranged_escape(
+        (20, 20), (0, 0, 50, 50), adjacent_trigger=1, reach=reach
+    )
+    kiting = supervisor.ranged_escape(
+        (20, 20), (0, 0, 50, 50), adjacent_trigger=1, reach=reach, scatter_range=8
+    )
+    assert pack_in_range(farthest) == 0
+    assert pack_in_range(kiting) >= 2
+    # Still never within the attacker's reach, and 6+ tiles from it.
+    assert min(
+        max(abs(kiting[0] - m.position[0]), abs(kiting[1] - m.position[1]))
+        for m in supervisor.escape_monsters
+    ) > reach
+    assert max(abs(kiting[0] - 23), abs(kiting[1] - 20)) >= 6
+
+
 def test_scatter_landing_keeps_every_monster_beyond_hitting_reach():
     import numpy as np
     from conquest.navigation import TerrainMap
