@@ -189,9 +189,43 @@ def test_teleport_checks_town_before_payment_and_visits_it_after_arrival(monkeyp
     assert loop.terrain is terrain
 
 
-def test_twin_city_return_never_falls_back_to_walking_without_verified_conductress(
+def test_leaving_twin_city_never_falls_back_to_walking_without_verified_conductress(
     monkeypatch,
 ):
+    from conquest import world_travel as w, city_travel, conductress
+
+    life = {"map_id": 1002}
+    calls = []
+    loop = SimpleNamespace(living=lambda: {"embedded_controls": {"life": life}})
+    terrain = SimpleNamespace(source_sha256="same", portals=((963, 557, 7),))
+    edge = dict(
+        source_map=1002,
+        destination_map=1011,
+        portal_id=7,
+        portal_position=[963, 557],
+        source_terrain_sha256="same",
+        destination_terrain_sha256="same",
+    )
+    monkeypatch.setattr(w, "connection_path", lambda *args: [edge])
+    monkeypatch.setattr(w, "read_terrain", lambda *args: terrain)
+    monkeypatch.setattr(city_travel, "city_for", lambda *args: None)
+    monkeypatch.setattr(
+        conductress, "take_saved_trip", lambda loop, d: calls.append(d) or False
+    )
+    monkeypatch.setattr(
+        w, "cross_portal", lambda *args: pytest.fail("No walking substitute")
+    )
+    with pytest.raises(ValueError, match="Conductress"):
+        w.travel_to_map(loop, 1011)
+    assert calls == [1011]
+
+
+def test_return_to_twin_city_walks_the_verified_portal_without_a_conductress_trip(
+    monkeypatch,
+):
+    """Live 2026-09-27 17:32: Toxic in Phoenix City with 60 silver and no
+    scroll; no Conductress trip leads back and the route change failed on
+    every retry."""
     from conquest import world_travel as w, city_travel, conductress
 
     life = {"map_id": 1011}
@@ -216,12 +250,19 @@ def test_twin_city_return_never_falls_back_to_walking_without_verified_conductre
     monkeypatch.setattr(
         conductress, "take_saved_trip", lambda loop, d: calls.append(d) or False
     )
+
+    def cross(loop, portal_id, expected_map):
+        calls.append(("portal", portal_id, expected_map))
+        life["map_id"] = 1002
+
+    monkeypatch.setattr(w, "cross_portal", cross)
     monkeypatch.setattr(
-        w, "cross_portal", lambda *args: pytest.fail("No walking substitute")
+        city_travel,
+        "ensure_city_visit",
+        lambda *args, **kw: calls.append(("town", kw["new_arrival"])),
     )
-    with pytest.raises(ValueError, match="Conductress"):
-        w.travel_to_map(loop, 1002)
-    assert calls == [1002]
+    w.travel_to_map(loop, 1002)
+    assert calls == [1002, ("portal", 0, 1002), ("town", True)]
 
 
 def test_market_start_uses_saved_return_before_city_visit(tmp_path, monkeypatch):

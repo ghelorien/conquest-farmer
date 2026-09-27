@@ -1399,11 +1399,13 @@ class TownTrade:
                 "price": product.price,
                 "silver": after.silver,
             }
-        if action in ("sell", "sell_partial_arrow") and set(body) == {
+        if action in ("sell", "sell_partial_arrow", "sell-scroll") and set(body) == {
             "action",
             "vendor_type",
             "uid",
         }:
+            from conquest.return_scroll import TYPE as SCROLL_TYPE
+
             npc = self.vendor(body["vendor_type"])
             shop = self.shop.read(npc.entity_id)
             before = self.inventory.read()
@@ -1414,6 +1416,10 @@ class TownTrade:
                 and (
                     sale_candidate(i)
                     if action == "sell"
+                    # Only a TwinCityGate, and only when the route asks: the
+                    # silver pays for the arrows an empty quiver needs.
+                    else i.type_id == SCROLL_TYPE
+                    if action == "sell-scroll"
                     else body["vendor_type"] == 5 and expendable_arrow(i, before)
                 )
             ]

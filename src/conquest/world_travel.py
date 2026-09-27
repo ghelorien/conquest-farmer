@@ -186,6 +186,11 @@ def travel_to_map(loop, destination):
                 raise ValueError("A TwinCityGate scroll is needed to leave this building")
         edge = connection_path(life["map_id"], destination)[0]
         terrain = read_terrain(CLIENT_ROOT, life["map_id"])
+        # Every walk before the crossing (banking for the fare, the way to the
+        # Conductress) is on this map. A restarted route still held its
+        # route map's terrain: Twin City's east gate (958, 555) was "outside
+        # the map" of Phoenix Castle (live 2026-09-27 17:46).
+        loop.terrain = terrain
         target = read_terrain(CLIENT_ROOT, edge["destination_map"])
         if (
             terrain.source_sha256 != edge["source_terrain_sha256"]
@@ -200,14 +205,19 @@ def travel_to_map(loop, destination):
         if life["map_id"] == 1002 or edge["destination_map"] == 1002:
             from conquest.conductress import take_saved_trip
 
-            if not take_saved_trip(loop, edge["destination_map"]):
+            if take_saved_trip(loop, edge["destination_map"]):
+                arrival = loop.living()["embedded_controls"]["life"]
+                if arrival["map_id"] == edge["destination_map"]:
+                    ensure_city_visit(loop, new_arrival=True)
+                    continue
+            elif life["map_id"] == 1002:
                 raise ValueError(
                     "A memory-verified Conductress trip is required for Twin City travel; walking fallback is disabled"
                 )
-            arrival = loop.living()["embedded_controls"]["life"]
-            if arrival["map_id"] == edge["destination_map"]:
-                ensure_city_visit(loop, new_arrival=True)
-                continue
+            # No saved Conductress trip leads back into Twin City: walk the
+            # memory-verified portal checked above. Live 2026-09-27 17:32
+            # (Toxic, Phoenix City, 60 silver, no scroll): the route change
+            # to the Poltergeists failed here on every retry.
         cross_portal(loop, edge["portal_id"], edge["destination_map"])
         ensure_city_visit(loop, new_arrival=True)
     raise ValueError("Map travel exceeded the connection limit")
