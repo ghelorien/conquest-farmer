@@ -196,7 +196,13 @@ def test_target_recheck_does_not_substitute_a_new_monster_at_same_point(monkeypa
         )
 
 
-@pytest.mark.parametrize("change", [None, "replaced", "far", "hud", "dead"])
+# "drifted": live 2026-09-27 Apparitions kept moving 3-4 tiles between
+# selection and input, so the 2-tile bound refused 77 attacks in 5 minutes
+# ("Selected monster moved before input"). The same exact monster (entity and
+# object) is aimed at its fresh position; a 12-tile jump ("far") stays refused.
+@pytest.mark.parametrize(
+    "change", [None, "drifted", "replaced", "far", "hud", "dead"]
+)
 def test_aim_refresh_tracks_same_live_monster_without_bypassing_guards(
     monkeypatch, change
 ):
@@ -220,6 +226,8 @@ def test_aim_refresh_tracks_same_live_monster_without_bypassing_guards(
     )
     if change == "replaced":
         monster.object_address = 2000
+    if change == "drifted":
+        monster.position = (16, 10)
     if change == "far":
         monster.position = (24, 10)
     if change == "hud":
@@ -237,14 +245,14 @@ def test_aim_refresh_tracks_same_live_monster_without_bypassing_guards(
             attack_range=10,
         )
 
-    if change:
+    if change not in (None, "drifted"):
         with pytest.raises(CaptureUnavailable):
             execute()
         assert not points and not clicks
     else:
         execute()
         assert points == [(650, 410)] and clicks == [True]
-        assert supervisor.last_target.world_position == (13, 10)
+        assert supervisor.last_target.world_position == monster.position
 
 
 @pytest.mark.parametrize("operation", ["observe", "dispatch"])
