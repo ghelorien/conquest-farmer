@@ -83,6 +83,9 @@ def isolate_live_session_plan(tmp_path, monkeypatch):
     from conquest import supply_plan
 
     monkeypatch.setattr(supply_plan, "RATES", tmp_path / "supply-rates.json")
+    from conquest import leveling_economy
+
+    monkeypatch.setattr(leveling_economy, "HOLD", tmp_path / "economy-hold.json")
     from conquest import safe_reload
 
     monkeypatch.setattr(safe_reload, "RESUME", tmp_path / "reload-resume.json")

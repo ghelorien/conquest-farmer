@@ -1779,6 +1779,12 @@ class OvernightLoop:
 
             plan = active_plan()
             selected, entry = desired_route(hunting_level(level))
+            if not plan and selected is not None:
+                from conquest.leveling_economy import economy_route
+
+                # A wallet that cannot fund the next bracket's potions hunts
+                # the cheaper one until it can (Toxic ran to 94 silver).
+                selected, entry = economy_route(self, level, selected, entry)
             if plan:
                 selected = RouteLibrary().load(plan["route_id"])
                 if getattr(self, "reported_hold", None) != plan["started_at"]:
