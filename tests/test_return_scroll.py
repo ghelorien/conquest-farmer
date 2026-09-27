@@ -54,12 +54,57 @@ def test_last_scroll_disappears_but_inventory_slot_compaction_is_allowed():
     assert r.receipt(before, item, after, source, arrival)
 
 
-def test_a_scroll_reads_outside_town_or_inside_a_twin_city_building():
-    # ArcherGod's building (1004) has no readable terrain: the scroll leaves it.
+def test_a_scroll_reads_outside_town_or_where_twin_city_is_a_scroll_away():
+    # ArcherGod's building (1004) and Phoenix Castle (1011) have no saved
+    # Conductress trip back: the scroll is the way to Twin City.
     assert r.may_read(NS(map_id=1004, position=(37, 55)))
+    assert r.may_read(NS(map_id=1011, position=(236, 263)))
     assert r.may_read(NS(map_id=1002, position=(110, 345)))
     assert not r.may_read(NS(map_id=1002, position=(430, 380)))  # in town
-    assert not r.may_read(NS(map_id=1011, position=(100, 100)))
+    assert not r.may_read(NS(map_id=1036, position=(100, 100)))  # Market
+
+
+def test_phoenix_to_twin_city_reads_a_carried_scroll_else_walks_the_portal(monkeypatch):
+    # Suicide reached level 26 at 17:28 and the brackets took it to Phoenix
+    # Castle; Scatter farming then wants the Poltergeists back in Twin City.
+    # Phoenix's Pharmacist sells CastleGate, not TwinCityGate (live 17:43).
+    from conquest import world_travel
+
+    state = {"map": 1011, "scroll": True, "calls": []}
+
+    def read_scroll(loop):
+        if not state["scroll"]:
+            return False
+        state.update(scroll=False, map=1002)
+        state["calls"].append("scroll")
+        return True
+
+    def walk_portal(loop, portal_id, expected):
+        state["calls"].append(f"portal:{portal_id}")
+        state["map"] = expected
+
+    edge = dict(
+        source_map=1011,
+        destination_map=1002,
+        portal_id=0,
+        portal_position=[5, 376],
+        source_terrain_sha256="same",
+        destination_terrain_sha256="same",
+    )
+    terrain = NS(map_id=1011, source_sha256="same", portals=((5, 376, 0),))
+    monkeypatch.setattr(r, "return_to_town", read_scroll)
+    monkeypatch.setattr(world_travel, "connection_path", lambda *a: [edge])
+    monkeypatch.setattr(world_travel, "read_terrain", lambda root, map_id: terrain)
+    monkeypatch.setattr(world_travel, "cross_portal", walk_portal)
+    monkeypatch.setattr("conquest.city_travel.city_for", lambda map_id: {})
+    monkeypatch.setattr("conquest.city_travel.ensure_city_visit", lambda *a, **k: None)
+    monkeypatch.setattr("conquest.conductress.take_saved_trip", lambda loop, d: False)
+    loop = NS(living=lambda: {"embedded_controls": {"life": {"map_id": state["map"]}}})
+    world_travel.travel_to_map(loop, 1002)
+    assert state["calls"] == ["scroll"]
+    state.update(map=1011, calls=[])
+    world_travel.travel_to_map(loop, 1002)  # no scroll left
+    assert state["calls"] == ["portal:0"] and state["map"] == 1002
 
 
 def test_unqualified_scroll_route_never_uses_input():

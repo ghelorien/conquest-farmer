@@ -33,7 +33,7 @@ def scene_bounds(size):
     return 80, 140, width - 80, height - 126
 
 
-def clear_scene(point, size=DEFAULT_SIZE):
+def clear_scene(point, size=DEFAULT_SIZE, *, chat_blocks=True):
     x, y = point
     left, top, right, bottom = scene_bounds(size)
     # The memory-qualified XP/Fly/Descend row sits above the control bar,
@@ -42,10 +42,17 @@ def clear_scene(point, size=DEFAULT_SIZE):
     popup_row = y >= size[1] - 180
     over_xp_popup = popup_row and abs(x - size[0] / 2) <= 100
     over_skill_menu = popup_row and x >= size[0] - 160
+    # The chat box (bottom left) passes clicks through to the world (Alex,
+    # 2026-09-27: "The chat box is clickable you can press through it"). Route
+    # jumps rely on that (chat_blocks=False); other targeting keeps its
+    # verified behaviour until each path is measured. The status panel at the
+    # top left always blocks.
+    over_chat = chat_blocks and x < 615 and y > size[1] - 243
     return (
         left < x < right
         and top < y < bottom
-        and not (x < 615 and (y > size[1] - 243 or y < 170))
+        and not (x < 615 and y < 170)
+        and not over_chat
         and not over_xp_popup
         and not over_skill_menu
     )

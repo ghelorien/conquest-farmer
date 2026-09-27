@@ -20,17 +20,23 @@ PRE_INPUT_CHANGE = "Player or inventory changed before scroll input"
 SCROLL_ATTEMPTS = 3
 # Silver on hand before a second (spare) scroll is bought.
 SPARE_SCROLL_SILVER = 1000
-# Twin City buildings a scroll leaves (ArcherGod's, map 1004): Twin City
-# travel never guesses a portal walk.
-BUILDINGS = (1004,)
+# Maps a TwinCityGate leads back to Twin City from, where Twin City travel
+# never guesses a portal walk: ArcherGod's building (1004), and Phoenix
+# Castle (1011), which has no saved Conductress trip back (a level route
+# took Suicide there at 26; live 2026-09-27 17:28).
+SCROLL_SOURCES = (1004, 1011)
 
 
 def may_read(life):
     """Whether a scroll may be read here: outside town on the Twin City map,
-    or inside one of its buildings."""
-    if life.map_id in BUILDINGS:
+    or on a map whose way back to Twin City is a scroll."""
+    if life.map_id in SCROLL_SOURCES:
         return True
     return life.map_id == 1002 and not in_town(life)
+
+
+def carried(loop):
+    return any(i["type_id"] == TYPE and i["amount"] > 0 for i in loop.town("supplies")["items"])
 
 
 def settle(loop, seconds=4.0, steady=0.6):

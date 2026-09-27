@@ -172,15 +172,16 @@ def travel_to_map(loop, destination):
         if life["map_id"] == 1036:
             return_from_market(loop, destination)
             continue
-        from conquest.return_scroll import BUILDINGS, return_to_town
+        from conquest.return_scroll import SCROLL_SOURCES, return_to_town
 
-        if life["map_id"] in BUILDINGS and destination == 1002:
-            # Twin City travel is by Conductress or scroll, never a guessed
-            # portal walk: a scroll leaves the building (a farmer left inside
-            # ArcherGod's by a failed visit).
-            if not return_to_town(loop):
+        if life["map_id"] in SCROLL_SOURCES and destination == 1002:
+            # A carried TwinCityGate is the quickest way back to Twin City.
+            # Only Twin City sells them (Phoenix's Pharmacist sells CastleGate,
+            # live 17:43), so without one Phoenix walks its verified portal.
+            if return_to_town(loop):
+                continue
+            if life["map_id"] == 1004:
                 raise ValueError("A TwinCityGate scroll is needed to leave this building")
-            continue
         edge = connection_path(life["map_id"], destination)[0]
         terrain = read_terrain(CLIENT_ROOT, life["map_id"])
         # Every walk before the crossing (banking for the fare, the way to the

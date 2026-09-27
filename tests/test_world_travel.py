@@ -230,7 +230,11 @@ def test_return_to_twin_city_walks_the_verified_portal_without_a_conductress_tri
 
     life = {"map_id": 1011}
     calls = []
-    loop = SimpleNamespace(living=lambda: {"embedded_controls": {"life": life}})
+    # No scroll to read and no silver to buy one: the Conductress rule holds.
+    loop = SimpleNamespace(
+        living=lambda: {"embedded_controls": {"life": life}},
+        town=lambda action, **kw: {"items": [], "silver": 0},
+    )
     terrain = SimpleNamespace(source_sha256="same", portals=((5, 376, 0),))
     edge = dict(
         source_map=1011,
