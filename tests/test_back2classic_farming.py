@@ -161,6 +161,21 @@ def test_back2classic_farmer_never_rebinds_a_different_uid(tmp_path, monkeypatch
     assert uid_of(registry, "Suicide") == 7101 and revision(registry) == before
 
 
+def test_a_profile_gone_from_the_saved_registry_fails_closed(tmp_path, monkeypatch):
+    # Removed in Manage profiles (or the data root switched) while the app
+    # kept its context: a ValueError the attach handlers report, not a bare
+    # StopIteration escaping them.
+    install(monkeypatch)
+    registry = fresh_pc(tmp_path)
+    context = context_for(registry.resolve("Suicide").id, registry.root)
+    monkeypatch.setattr(ProfileRegistry, "profiles", lambda self: [])
+    from conquest.client_attachment import verify_observer
+
+    observer = SimpleNamespace(adapter=Client(b"Classic_B2C", 7101), read_only_build=True)
+    with pytest.raises(ValueError, match="no longer in the saved profiles"):
+        verify_observer(context, observer)
+
+
 @pytest.mark.parametrize("name", ["Kilhiam", "Kalhiam"])
 def test_america_profiles_are_unchanged(tmp_path, monkeypatch, name):
     install(monkeypatch)

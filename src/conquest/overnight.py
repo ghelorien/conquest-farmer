@@ -157,12 +157,18 @@ def potion_budget_reached(counts, route, potion_price, arrow_price):
     A short-of-arrows restock spent every coin on Painkillers and then could
     not buy a single arrow pack, stranding the farmer in town (live
     2026-09-27). Once a safe hunt's potions are carried, keep one verified
-    arrow pack's price. Unknown prices keep the old behaviour.
+    arrow pack's price while less than a pack is carried: at 15:20 the same
+    day Suicide came in with 53 arrows (about a minute of shooting), spent
+    192 of its 385 silver on potions and left 7 short of a 200-silver pack.
+    Unknown prices keep the old behaviour.
     """
+    from conquest.arrow_upgrades import ARROW_REFILL_AMOUNTS, MAX_ARROW_PACKS
+
+    pack = ARROW_REFILL_AMOUNTS.get(route.supplies.arrow_type, 0) // MAX_ARROW_PACKS
     return bool(
         potion_price
         and arrow_price
-        and counts["arrows"] < route.supplies.arrows_return_below
+        and counts["arrows"] < max(route.supplies.arrows_return_below, pack)
         and counts["potions"]
         >= max(route.supplies.healing_return_below, SAFE_HUNT_POTIONS)
         and counts["silver"] - potion_price < arrow_price

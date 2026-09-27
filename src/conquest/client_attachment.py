@@ -193,7 +193,11 @@ def verify_observer(context, observer):
         # shows no UID after the first bind. Check the saved registry: binding
         # on every observation rewrote profiles.json several times a second
         # and a racing reader made the replace fail (live 2026-09-27).
-        saved = next(p for p in registry.profiles() if p.id == context.profile.id)
+        saved = next(
+            (p for p in registry.profiles() if p.id == context.profile.id), None
+        )
+        if saved is None:
+            raise ValueError("This profile is no longer in the saved profiles")
         if saved.character_uid is None:
             registry.bind(context.profile.id, context.profile.name, profile_server, uid)
         elif saved.character_uid != uid:
