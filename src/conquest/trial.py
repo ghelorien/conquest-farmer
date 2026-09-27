@@ -40,9 +40,10 @@ from conquest.recovery import (
 ESCAPE_MEMORY_SECONDS = 4
 ESCAPE_KEEP_OUT_TILES = 5
 # Below this HP share within this long of a verified heal, potions are not
-# holding the fight: read a TwinCityGate scroll and restock instead.
-EMERGENCY_RETURN_HP = 0.30
-EMERGENCY_HEAL_WINDOW = 2.5
+# holding the fight: read a TwinCityGate scroll and restock instead. (14:06
+# on Poltergeists HP fell 42% -> 5% between two reads, so 30% was too late.)
+EMERGENCY_RETURN_HP = 0.45
+EMERGENCY_HEAL_WINDOW = 3.0
 EMERGENCY_SCROLL = 1060020
 
 
