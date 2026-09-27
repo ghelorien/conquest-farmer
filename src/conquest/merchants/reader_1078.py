@@ -411,9 +411,8 @@ class TradeObservationReader1078:
         self.session.assert_identity()
         from conquest.client_attachment import QUALIFIED_SERVERS
 
-        server = QUALIFIED_SERVERS.get(
-            self._read(self.base + self.server_rva, 64).split(b"\0", 1)[0]
-        )
+        server_field = self._read(self.base + self.server_rva, 64)
+        server = QUALIFIED_SERVERS.get(server_field.split(b"\0", 1)[0])
         if server is None:
             raise ObservationUnavailable1078(
                 "1078 server field is not a qualified server value"
@@ -495,7 +494,7 @@ class TradeObservationReader1078:
             raise ObservationUnavailable1078(
                 "1078 actor evidence changed during observation"
             )
-        if self._read(self.base + self.server_rva, 64) != server:
+        if self._read(self.base + self.server_rva, 64) != server_field:
             raise ObservationUnavailable1078(
                 "1078 server field changed during observation"
             )
