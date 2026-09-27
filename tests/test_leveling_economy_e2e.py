@@ -11,13 +11,22 @@ Failure modes, written before the code:
    level on.
 4. Farmers without the level goal (America) change routes.
 5. The hold is forgotten by a controller restart.
+6. An archer with Scatter is still held back (Alex at level 23: "you are
+   higher than 21 why did you not go to the next monster?").
 """
 
 from types import SimpleNamespace as NS
 
-from conquest import banking, level_goal, leveling_economy
+import pytest
+
+from conquest import banking, level_goal, leveling_economy, scatter_training
 from conquest.discord_notify import write_json
 from conquest.leveling_routes import bracket, desired_route
+
+
+@pytest.fixture(autouse=True)
+def no_scatter_yet(tmp_path, monkeypatch):
+    monkeypatch.setattr(scatter_training, "STATE", tmp_path / "scatter-training.json")
 
 
 def loop_with(silver, stored=0):
@@ -78,3 +87,16 @@ def test_back2classic_archer_past_the_goal_still_holds(monkeypatch):
     loop = loop_with(134)
     route, _ = choose(loop, 23)
     assert route.id == "apparition" and loop.events == ["economy_hold_started"]
+
+
+def test_scatter_moves_a_held_archer_on_to_the_next_bracket(monkeypatch):
+    # 6: held on Apparitions while poor, then Scatter is learned.
+    level_goal.stop()
+    monkeypatch.setattr(level_goal, "back2classic", lambda: True)
+    loop = loop_with(134)
+    assert choose(loop, 23)[0].id == "apparition"
+    write_json(scatter_training.STATE, {"learned_at": 1})
+    loop = loop_with(134)
+    route, _ = choose(loop, 23)
+    assert route.id == "poltergeist" and loop.events == ["economy_hold_ended"]
+    assert leveling_economy.read_json(leveling_economy.HOLD)["active"] is False

@@ -33,6 +33,18 @@ def wallet(loop):
     return carried + read_json(STATUS).get("stored_silver", 0)
 
 
+def has_scatter(loop):
+    """Whether this archer has learned Scatter (its visit record or memory)."""
+    from conquest import scatter_training
+
+    if read_json(scatter_training.STATE).get("learned_at"):
+        return True
+    try:
+        return scatter_training.learned(loop)
+    except (ValueError, OSError, AttributeError):
+        return False
+
+
 def economy_route(loop, level, selected, entry):
     """The route to hunt: ``selected``, or a cheaper one while silver is low."""
     from conquest.equipment import leveling_archer
@@ -51,14 +63,20 @@ def economy_route(loop, level, selected, entry):
     now = time.monotonic()
     if now < getattr(loop, "economy_checked_until", 0):
         silver = getattr(loop, "economy_wallet", None)
+        scatter = getattr(loop, "economy_scatter", False)
     else:
         try:
             silver = wallet(loop)
         except (ValueError, OSError, KeyError):
             silver = None
+        scatter = has_scatter(loop)
         loop.economy_checked_until = now + CHECK_SECONDS
-        loop.economy_wallet = silver
-    if silver is None:
+        loop.economy_wallet, loop.economy_scatter = silver, scatter
+    if scatter:
+        # Scatter's area shots pay for the next bracket. Alex at level 23:
+        # "you are higher than 21 why did you not go to the next monster?"
+        held = False
+    elif silver is None:
         held = bool(state.get("active"))
     elif state.get("active"):
         held = silver < HIGH
@@ -70,7 +88,12 @@ def economy_route(loop, level, selected, entry):
             loop.record(
                 "economy_hold_ended",
                 silver=silver,
-                activity=f"{silver:,} silver: moving on to {entry['name']}",
+                scatter=scatter,
+                activity=(
+                    f"Scatter learned: moving on to {entry['name']}"
+                    if scatter
+                    else f"{silver:,} silver: moving on to {entry['name']}"
+                ),
             )
         return selected, entry
     route, previous_entry = desired_route(previous["levels"][1])
