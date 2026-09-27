@@ -73,6 +73,12 @@ def isolate_live_session_plan(tmp_path, monkeypatch):
 
     monkeypatch.setattr(session_plan, "PLAN", tmp_path / "session-plan.json")
     monkeypatch.setattr(session_plan, "CIRCUIT", tmp_path / "equipment-circuit.json")
+    # Restock writes the chosen potion tier and OvernightLoop resumes from it;
+    # without this, tests leave .runtime/healing-tier.json in the checkout.
+    from conquest import level_goal, potion_tiers
+
+    monkeypatch.setattr(level_goal, "GOAL", tmp_path / "level-goal.json")
+    monkeypatch.setattr(potion_tiers, "TIER", tmp_path / "healing-tier.json")
     from conquest import safe_reload
 
     monkeypatch.setattr(safe_reload, "RESUME", tmp_path / "reload-resume.json")

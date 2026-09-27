@@ -85,6 +85,40 @@ def test_stock_only_buys_two_at_verified_price_and_preserves_inventory_space():
     assert len(buys) == 2 and bag["silver"] == 600
 
 
+# Return-scroll fallback and policy location (failure modes written first):
+# 1. A scroll use that fails or cannot be verified aborts the restock, so the
+#    route stops in the field instead of walking to town.
+# 2. The failed attempt leaves the Inventory panel open for the walk.
+# 3. The policy is read from the immutable release: recording qualification
+#    there changes a manifest file and the next route launch is refused.
+def test_failed_scroll_use_walks_to_town_instead_of_stopping_the_restock():
+    r.write_json(r.POLICY, {"enabled": True, "qualified": True})
+    calls, records = [], []
+
+    def town(action, **kw):
+        calls.append((action, kw.get("window")))
+        if action == "supplies":
+            return {"items": [{"type_id": r.TYPE, "amount": 2}]}
+        if action == "return-scroll":
+            raise ValueError("Town scroll transfer unverified; no repeat scroll issued")
+        return {"closed": kw.get("window")}
+
+    loop = NS(
+        living=lambda: {
+            "embedded_controls": {"life": {"map_id": 1002, "position": [700, 500]}}
+        },
+        town=town,
+        record=lambda event, **fields: records.append(event),
+    )
+    assert r.return_to_town(loop) is False
+    assert ("close", "Inventory") in calls[calls.index(("return-scroll", None)) :]
+    assert records == ["return_scroll_failed"]
+
+
+def test_scroll_policy_is_character_state_not_release_content():
+    assert r.POLICY_NAME.startswith(".runtime/")
+
+
 def test_ambiguous_scroll_submission_blocks_a_second_click(monkeypatch):
     r.write_json(r.STATUS, {"state": "submitted"})
     _, _, _, source, _ = snapshots()
