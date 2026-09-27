@@ -269,6 +269,43 @@ def due(loop):
     return last is None or time.time() - last >= RETRY_SECONDS
 
 
+# Find ArcherGod ahead of the Scatter level, so level 23 is a short walk and
+# the town grid walk is proven before it matters (at most once an hour).
+SCOUT_FROM_LEVEL = 20
+SCOUT_RETRY_SECONDS = 3600
+
+
+def scout_due(loop):
+    from conquest.level_goal import back2classic
+
+    if not back2classic() or getattr(loop, "last_level", 0) < SCOUT_FROM_LEVEL:
+        return False
+    state = read_json(STATE)
+    if state.get("learned_at") or state.get("trainer"):
+        return False
+    life = loop.living()["embedded_controls"]["life"]
+    if trainer_tile(life["map_id"]) is not None:
+        return False
+    last = state.get("last_scout")
+    return last is None or time.time() - last >= SCOUT_RETRY_SECONDS
+
+
+def prepare(loop):
+    """Scout ArcherGod during a town visit before the Scatter level; never raises."""
+    state = read_json(STATE)
+    state["last_scout"] = time.time()
+    write_json(STATE, state)
+    try:
+        return scout(loop)
+    except Exception as error:  # scouting must not stop farming
+        loop.record(
+            "scatter_trainer_scouting_failed",
+            detail=str(error),
+            activity="Scatter: scouting for ArcherGod failed; farming on",
+        )
+        return None
+
+
 def attempt(loop):
     """One guarded learning attempt during a town visit; never raises."""
     try:

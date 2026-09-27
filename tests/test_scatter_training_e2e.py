@@ -255,6 +255,34 @@ def test_retries_are_spaced_and_bounded(world, monkeypatch):
     assert not scatter_training.due(loop)  # America farmers are untouched
 
 
+def test_trainer_is_scouted_ahead_of_the_scatter_level(world, monkeypatch):
+    # From level 20 one town visit an hour may walk the grid for ArcherGod,
+    # so the level-23 visit is a short walk and scouting is proven early.
+    trainer = Trainer([LEARN, SKILLS], hidden_until_near=True)
+    loop = loop_for(trainer)
+    loop.last_level = 19
+    assert not scatter_training.scout_due(loop)
+    loop.last_level = 20
+    assert scatter_training.scout_due(loop)
+    monkeypatch.setattr(level_goal, "back2classic", lambda: False)
+    assert not scatter_training.scout_due(loop)  # America farmers never scout
+    monkeypatch.setattr(level_goal, "back2classic", lambda: True)
+    found = scatter_training.prepare(loop)
+    assert found is not None and "scatter_trainer_found" in trainer.events
+    assert [a for a, _ in trainer.actions if a == "service-select"] == []  # no learning yet
+    assert scatter_training.trainer_tile(1002) == found
+    assert not scatter_training.scout_due(loop)  # known now
+    # A failed scout waits an hour before the next one.
+    world.root.joinpath("scatter-training.json").unlink()
+    lost = Trainer([LEARN], locatable=False)
+    loop = loop_for(lost)
+    loop.last_level = 21
+    assert scatter_training.prepare(loop) is None
+    assert not scatter_training.scout_due(loop)
+    world.clock.now += scatter_training.SCOUT_RETRY_SECONDS
+    assert scatter_training.scout_due(loop)
+
+
 def test_option_choice_never_guesses():
     assert scatter_training.choose(SKILLS, []) == "Scatter"
     assert scatter_training.choose(LEARN, []) == "Learn skills"
