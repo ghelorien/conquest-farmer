@@ -24,7 +24,8 @@ from conquest.memory_ground import GroundItem
         (700001, 0, 0, False),
         (1000020, 0, 0, False),
         (1050000, 0, 0, False),
-        (1000000, 0, 0, True),
+        # Every HP potion tier heals and is kept (potion_tiers); mana is junk.
+        (1000000, 0, 0, False),
         (1001000, 0, 0, True),
     ],
 )
