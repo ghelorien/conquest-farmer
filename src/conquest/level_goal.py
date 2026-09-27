@@ -86,11 +86,59 @@ def note():
     data = goal()
     if not data:
         return None
-    return f"Back2Classic: leveling to {data['target_level']}, gear check every {GEAR_STEP} levels"
+    return f"Back2Classic: leveling to {data['target_level']}, gear check when a shop tier unlocks"
 
 
-def due(level):
-    """What the hunt should do at this verified level: None, "gear" or "reached"."""
+# (level, reviewed level, city) -> whether a tier upgrade is due; the worn
+# gear is read at most once for each.
+_tier_checks = {}
+GEAR_SLOTS = ("bow", "armor", "ring", "boots", "necklace", "head")
+
+
+def tier_unlocked(level, reviewed, gear, city, silver):
+    """A saved shop tier became usable since the last review, upgrades the worn
+    item and fits the silver on hand and banked.
+
+    `gear` returns the build-qualified gear read; it is only called when the
+    city's catalog has a tier in (reviewed, level].
+    """
+    key = (level, reviewed, city)
+    if key in _tier_checks:
+        return _tier_checks[key]
+    from conquest.archer_shop_catalog import catalog
+    from conquest.equipment import category, upgrade_reason
+
+    vendors = catalog().get("cities", {}).get(str(city), {})
+    stock = [
+        p
+        for vendor in vendors.values()
+        if isinstance(vendor, dict)
+        for p in vendor.get("products", [])
+        if category(p.get("type_id")) in GEAR_SLOTS
+        and type(p.get("level")) is int
+        and reviewed < p["level"] <= level
+        and type(p.get("price")) is int
+        and 0 < p["price"] <= silver
+    ]
+    result = False
+    if stock:
+        try:
+            state = gear()
+        except (ValueError, OSError):
+            return False  # Unreadable now; a later hunt tick asks again.
+        result = any(upgrade_reason(p, state) is None for p in stock)
+    _tier_checks[key] = result
+    return result
+
+
+def due(level, *, gear=None, city=None, silver=None):
+    """What the hunt should do at this verified level: None, "gear" or "reached".
+
+    With `gear`, `city` and `silver`, a trip is due as soon as a tier of the
+    city's saved shop catalog unlocks that upgrades worn gear (Twin City bows
+    unlock at 8, 15, 20 and 25). Every GEAR_STEP levels a trip is due anyway,
+    which also covers a city without a saved catalog.
+    """
     data = goal()
     if not data or type(level) is not int or level <= 0:
         return None
@@ -101,6 +149,13 @@ def due(level):
         # Start counting from the first verified level; starter gear is fine.
         mark_reviewed(level)
         return None
+    if (
+        gear is not None
+        and city is not None
+        and type(silver) is int
+        and tier_unlocked(level, reviewed, gear, city, silver)
+    ):
+        return "gear"
     if level >= reviewed + GEAR_STEP:
         return "gear"
     return None

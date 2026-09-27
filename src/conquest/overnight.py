@@ -1665,8 +1665,16 @@ class OvernightLoop:
                 self.stop_farm()
                 return "savings_target"
             from conquest import level_goal
+            from conquest.banking import STATUS as BANK_STATUS
+            from conquest.discord_notify import read_json
 
-            step = level_goal.due(getattr(self, "last_level", 0))
+            step = level_goal.due(
+                getattr(self, "last_level", 0),
+                gear=lambda: self.town("gear"),
+                city=self.route.restock_map_id,
+                silver=supplies["silver"]
+                + read_json(BANK_STATUS).get("stored_silver", 0),
+            )
             if step == "reached":
                 self.stop_farm()
                 return "level_goal"
