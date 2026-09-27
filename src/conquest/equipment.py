@@ -377,10 +377,18 @@ class EquipmentReview:
                     if carried:
                         uid = carried[0]["uid"]
                     else:
+                        # The worker re-checks the wallet; hand it this
+                        # review's reserve so it does not reimpose 3,000.
+                        extra = (
+                            {"reserve": min(reserve, RESERVE_SILVER)}
+                            if reserve != RESERVE_SILVER
+                            else {}
+                        )
                         receipt = loop.town(
                             "buy-equipment",
                             vendor_type=vendor,
                             type_id=product["type_id"],
+                            **extra,
                         )
                         uid = receipt["uid"]
                         attempt.update(state="bought", uid=uid)

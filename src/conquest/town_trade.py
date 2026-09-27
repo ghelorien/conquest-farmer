@@ -705,6 +705,44 @@ class TownTrade:
                 raise TownObservationUnavailable(str(error)) from error
             raise
 
+    def visible_product(self, npc, shop, product):
+        """Scroll the live shop grid until the product's row is visible.
+
+        Scrolling submits no purchase. Returns the fresh snapshot the caller
+        must use for its unchanged-shop check and click point.
+        """
+        from conquest.foreground import foreground_scroll
+
+        for _ in range(20):
+            try:
+                shop.point(product)
+                return shop, product
+            except ValueError as error:
+                if "qualified visible" not in str(error):
+                    raise
+            y = (
+                shop.grid.position[1]
+                + 32
+                + 80 * (product.index // 5)
+                - shop.grid.scroll[1]
+            )
+            self.life()
+            foreground_scroll(
+                self.observer.operations.target,
+                (
+                    round(shop.grid.position[0] + 120),
+                    round(shop.grid.position[1] + 160),
+                ),
+                2 if y < shop.grid.position[1] + 8 else -2,
+                expected_size=size_for(self.observer),
+            )
+            shop = self.shop.read(npc.entity_id)
+            matches = [p for p in shop.products if p.type_id == product.type_id]
+            if len(matches) != 1:
+                raise ValueError("Requested supplies are not sold in this shop")
+            product = matches[0]
+        raise ValueError("Product could not be scrolled into the live shop viewport")
+
     def verified_read(self, read, accept, failure, timeout=2):
         # Once input is sent, retry observation only, never the transaction.
         deadline = time.monotonic() + timeout
@@ -870,7 +908,7 @@ class TownTrade:
             from conquest.equipment import read_equipment
 
             return read_equipment(self.observer)
-        if action == "buy-equipment" and set(body) == {
+        if action == "buy-equipment" and set(body) - {"reserve"} == {
             "action",
             "vendor_type",
             "type_id",
@@ -886,6 +924,11 @@ class TownTrade:
 
             if body["vendor_type"] not in VENDORS:
                 raise ValueError("Unsupported equipment vendor")
+            # A leveling review reserves what the rest of its visit buys
+            # (equipment.EquipmentReview); otherwise the flat 3,000 applies.
+            reserve = body.get("reserve", RESERVE_SILVER)
+            if type(reserve) is not int or not 0 <= reserve <= RESERVE_SILVER:
+                raise ValueError("Equipment reserve must be 0 to 3,000 silver")
             npc = self.vendor(body["vendor_type"])
             for _ in range(20):
                 shop = self.shop.read(npc.entity_id)
@@ -901,7 +944,7 @@ class TownTrade:
                 before = self.inventory.read()
                 if (
                     len(before.items) >= before.capacity - 1
-                    or before.silver < product.price + RESERVE_SILVER
+                    or before.silver < product.price + reserve
                 ):
                     raise ValueError(
                         "Equipment budget or inventory reserve unavailable"
@@ -1326,6 +1369,9 @@ class TownTrade:
                 raise ValueError(
                     "Supply purchase requires a positive verified silver price"
                 )
+            # The Twin City Blacksmith lists ~40 products; LuckyArrow is below
+            # the visible rows (live 2026-09-27), so scroll it into view first.
+            shop, product = self.visible_product(npc, shop, product)
             before = self.inventory.read()
             if product.type_id in (1050000, 1050001, 1050002):
                 from conquest.arrow_upgrades import require_arrow_purchase_room
