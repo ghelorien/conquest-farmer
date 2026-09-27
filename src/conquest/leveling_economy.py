@@ -26,6 +26,16 @@ GRACE_LEVELS = 2
 CHECK_SECONDS = 60
 
 
+def scatter_learned(loop):
+    """Whether memory shows Scatter; unreadable counts as not learned."""
+    try:
+        from conquest.scatter_training import learned
+
+        return bool(learned(loop))
+    except Exception:
+        return False
+
+
 def wallet(loop):
     from conquest.banking import STATUS
 
@@ -58,6 +68,21 @@ def economy_route(loop, level, selected, entry):
             silver = None
         loop.economy_checked_until = now + CHECK_SECONDS
         loop.economy_wallet = silver
+        loop.economy_scatter = scatter_learned(loop)
+    # The guard bridges the leveling stretch before Scatter. Once Scatter is
+    # learned the plan is to farm the next spot with it (Alex 2026-09-27:
+    # "I just manually taught you scatter, now you gotta go to the next
+    # training spot").
+    if getattr(loop, "economy_scatter", False):
+        if state.get("active"):
+            write_json(HOLD, {"active": False, "ended_at": time.time(), "reason": "scatter"})
+            loop.record(
+                "economy_hold_ended",
+                silver=silver,
+                reason="scatter",
+                activity=f"Scatter learned: moving on to {entry['name']}",
+            )
+        return selected, entry
     if silver is None:
         held = bool(state.get("active"))
     elif state.get("active"):

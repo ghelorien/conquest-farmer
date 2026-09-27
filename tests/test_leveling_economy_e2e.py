@@ -71,6 +71,22 @@ def test_no_hold_far_past_the_previous_bracket_or_without_the_goal():
     assert route.id == "poltergeist" and loop.events == []
 
 
+def test_scatter_ends_the_hold_for_the_next_spot(monkeypatch):
+    # Alex taught Toxic Scatter at 16:00: "now you gotta go to the next
+    # training spot" (it was held on Apparitions with ~2,000 silver).
+    level_goal.start(level_goal.SCATTER_LEVEL)
+    loop = loop_with(94)
+    assert choose(loop, 22)[0].id == "apparition"  # held before Scatter
+    monkeypatch.setattr("conquest.scatter_training.learned", lambda loop: True)
+    loop = loop_with(1500)
+    route, _ = choose(loop, 23)
+    assert route.id == "poltergeist" and loop.events == ["economy_hold_ended"]
+    assert leveling_economy.read_json(leveling_economy.HOLD)["active"] is False
+    # And it stays down with little silver.
+    loop = loop_with(10)
+    assert choose(loop, 23)[0].id == "poltergeist" and loop.events == []
+
+
 def test_back2classic_archer_past_the_goal_still_holds(monkeypatch):
     # Toxic reached the goal's level 23 at 15:11 and the guard stopped applying.
     level_goal.stop()
