@@ -28,6 +28,10 @@ from conquest.discord_notify import read_json, write_json
 SHORTCUTS = {"apparition": "Ape Mountain", "poltergeist": "Desert City"}
 FARE = 100
 CONDUCTRESS_TILE = (438, 444)
+# Her dialog opens within 18 tiles; arriving within a few tiles of her tile
+# does not stall when someone stands on it (live 2026-09-27 14:50: 30 s of
+# stalled steps until the ride was abandoned for a ~1,000-tile walk).
+ARRIVAL_RADIUS = 4
 LANDINGS = Path(state_path(".runtime/conductress-landings.json"))
 
 
@@ -107,7 +111,7 @@ def ride(loop):
             option=option,
             activity=f"Taking the Conductress to {option} toward the hunting field",
         )
-        loop.travel(CONDUCTRESS_TILE)
+        loop.travel(CONDUCTRESS_TILE, arrival_radius=ARRIVAL_RADIUS)
         loop.town("conductress-open")
         prepare_destination(loop, option)
         before = loop.town("supplies")

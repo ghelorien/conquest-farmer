@@ -130,6 +130,16 @@ def test_a_farmer_on_her_tile_still_boards(state):
     assert twin.actions.count("conductress-travel") == 1
 
 
+def test_someone_on_her_tile_does_not_stall_the_walk_to_her(state):
+    # 14:50: the walk to her exact tile stalled 30 s and the ride was dropped.
+    twin = Twin()
+    travels = []
+    loop = loop_for(twin)
+    loop.travel = lambda target, **kw: travels.append((target, kw))
+    assert shortcut.ride(loop) is True
+    assert travels == [(shortcut.CONDUCTRESS_TILE, {"arrival_radius": 4})]
+
+
 def test_unverified_ride_is_never_paid_twice(state):
     # 3: the click went out but the farmer never moved and no fare was taken.
     twin = Twin(moves=False)
