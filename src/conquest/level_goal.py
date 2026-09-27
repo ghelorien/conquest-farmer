@@ -19,8 +19,6 @@ GOAL = Path(state_path(".runtime/level-goal.json"))
 # stored with the goal so the UI can change it if the server differs.
 SCATTER_LEVEL = 23
 GEAR_STEP = 5
-# Potions to carry after a refill; matches the saved healing_restock_to.
-POTION_COUNT = 5
 # Combat heal threshold while the goal runs (share of max HP).
 HEAL_BELOW = 0.6
 # Jump away from monsters when this share of max HP was lost within the
@@ -119,7 +117,7 @@ def healing_type(loop, products):
     kind = potion_tiers.choose(
         life["max_hp"],
         silver,
-        POTION_COUNT,
+        loop.route.supplies.healing_restock_to,
         offered={p["type_id"] for p in products},
     )
     if kind != loop.route.supplies.healing_type:
