@@ -17,6 +17,7 @@ hunting_anchor:
 - 300
 - 605
 kite_when_surrounded: true
+jump_scatter: true
 attack_range_tiles: 16
 hunting_boundary:
 - 252

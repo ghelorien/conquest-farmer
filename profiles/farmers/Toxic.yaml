@@ -1,17 +1,24 @@
-# Toxic (Back2Classic, build 1078), 2026-09-27: Kilhiam's measured timings
-# plus Parasite's observation options. On the defaults Toxic paused about
-# 5.6/min on "Player moved before projection" and 4.9/min on "Selected
-# monster moved before input" (Apparitions, level 19). Scatter options and
-# cluster_lookahead wait until Toxic has learned Scatter.
+# Toxic (Back2Classic, build 1078). Alex taught it Scatter at level 23
+# (2026-09-27): "You should use scatter jump strategy now, no more left
+# clicks. Make sure you are doing it as rapidly as you used to, just new
+# strategy." Same profile as Parasite's measured jump-Scatter farming.
 character: Toxic
 combat_speed:
   action_interval: 0.15
+  scatter_recast_seconds: 0.8
+  scatter_receipt_seconds: 0.2
   jump_arrival_seconds: 0.25
   jump_attack_guard_seconds: 0.28
+  scatter_during_jump: true
   coherent_projection: true
   selected_target_refresh: true
   packed_monster_records: true
+  fast_scatter_planning: true
   scene_reuse_seconds: 0.15
   torn_life_attempts: 3
   moving_observation_retry_seconds: 0.01
+  force_jump_scatter: true
+  cluster_lookahead: true
+  regional_search_expansion: true
   counter_gap_recovery: true
+  cross_region_scatter: true
