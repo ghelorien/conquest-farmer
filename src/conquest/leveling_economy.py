@@ -6,8 +6,9 @@ and scrolls while its silver pickups returned ~60; Apparitions cost ~75 and
 returned more. The bank ran from 12,248 to 94 silver and a restock could no
 longer pay for its arrows, so the farmer sat in town.
 
-While the level goal runs and the wallet (carried plus banked silver) is
-below LOW, the farmer hunts the previous, cheaper bracket as long as its
+While a Back2Classic archer levels (goal or not) and the wallet (carried
+plus banked silver) is below LOW, it hunts the previous, cheaper bracket as
+long as its
 level is at most GRACE_LEVELS past that bracket's top; it moves on once the
 wallet is back to HIGH. The hold survives controller restarts.
 """
@@ -34,11 +35,12 @@ def wallet(loop):
 
 def economy_route(loop, level, selected, entry):
     """The route to hunt: ``selected``, or a cheaper one while silver is low."""
-    from conquest import level_goal
+    from conquest.equipment import leveling_archer
     from conquest.leveling_routes import bracket, desired_route
 
-    # Back2Classic characters fund themselves after the goal ends too.
-    if not level_goal.protections() or entry["levels"][0] <= 1:
+    # Back2Classic farmers keep leveling after the goal's Scatter level (the
+    # goal ended at 23 and the guard stopped applying, 15:26).
+    if not leveling_archer() or entry["levels"][0] <= 1:
         return selected, entry
     previous = bracket(entry["levels"][0] - 1)
     if level > previous["levels"][1] + GRACE_LEVELS:
