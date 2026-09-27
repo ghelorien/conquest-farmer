@@ -832,6 +832,18 @@ def run_trial(
                 escape_observed_at = None
                 if timing:
                     timing.stage("escape_scene")
+                if supervisor and getattr(supervisor, "escape_pending", None):
+                    # A jump that never moved the farmer must not hand the
+                    # loop back to attacking while it is still surrounded.
+                    if supervisor.escape_result((x, y)) == "failed":
+                        event(
+                            "ranged_escape_failed",
+                            source=[x, y],
+                            failures=supervisor.escape_failures,
+                        )
+                        if supervisor.escape_quick_retry():
+                            supervisor.escape_ready_at = 0
+                            escape_settle_until = 0
                 if (
                     supervisor
                     and config.kite_when_surrounded
@@ -861,6 +873,16 @@ def run_trial(
                         # Remember where the pack was so patrol does not jump
                         # straight back into it (Suicide died this way 09-27).
                         supervisor.last_escape = (time.monotonic(), (x, y))
+                        if hasattr(supervisor, "escape_sent"):
+                            supervisor.escape_sent(
+                                (x, y),
+                                escape,
+                                consumed_before=getattr(
+                                    supervisor,
+                                    "escape_damage_consumed_at",
+                                    -float("inf"),
+                                ),
+                            )
                         supervisor.escape_damage_consumed_at = getattr(
                             supervisor, "last_damage_at", -float("inf")
                         )

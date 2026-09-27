@@ -21,6 +21,14 @@ KILL_DROP_AFTER_MS = 1500
 KILL_DROP_RADIUS = 5
 KILL_DROP_UNKNOWN_RADIUS = 10
 KILL_SITE_KEEP_MS = 20000
+# An escape jump that has not moved the farmer this long after the click
+# failed (live 09-27 11:39: surrounded, the jump never happened, the loop
+# attacked and Suicide died). Its landing is avoided for a few seconds and a
+# few immediate retries go elsewhere before the normal escape cadence.
+ESCAPE_VERIFY_SECONDS = 0.45
+ESCAPE_BLOCK_SECONDS = 3
+ESCAPE_QUICK_RETRIES = 3
+ESCAPE_MIN_JUMP = 6
 
 @contextmanager
 def logical_coordinates():
@@ -1516,14 +1524,32 @@ class NativeFarmSupervisor:
         x, y = position
         left, top, right, bottom = boundary
         terrain = self.recovery.terrain
+        blocked = {
+            landing: until
+            for landing, until in getattr(self, "escape_blocked", {}).items()
+            if until > now
+        }
+        self.escape_blocked = blocked
         candidates = []
         for length in (12, 10, 8):
-            for dx, dy in ((length, 0), (-length, 0), (0, length), (0, -length)):
+            for dx, dy in (
+                (length, 0),
+                (-length, 0),
+                (0, length),
+                (0, -length),
+                # Diagonals: a surround that walls off the straight lines.
+                (length, length),
+                (-length, -length),
+                (length, -length),
+                (-length, length),
+            ):
                 dx, dy = native_movement_delta(dx, dy, viewport=size_for(self.observer))
                 distance = max(abs(dx), abs(dy))
-                if distance < 8:
+                if distance < ESCAPE_MIN_JUMP:
                     continue
                 point = (x + dx, y + dy)
+                if point in blocked:
+                    continue  # that landing just failed to move the farmer
                 if not (left <= point[0] <= right and top <= point[1] <= bottom):
                     continue
                 sx, sy = dx // distance, dy // distance
@@ -1556,6 +1582,42 @@ class NativeFarmSupervisor:
             "reason": "recent_damage" if damaged else "enemies_within_one_tile",
         }
         return max(candidates)[-1]
+
+    def escape_sent(self, source, destination, *, consumed_before=None):
+        """Remember a dispatched escape jump until its movement is verified."""
+        self.escape_pending = (
+            time.monotonic(),
+            tuple(source),
+            tuple(destination),
+            consumed_before,
+        )
+
+    def escape_result(self, position):
+        """'moved', 'failed', or None while the jump may still be landing."""
+        pending = getattr(self, "escape_pending", None)
+        if not pending:
+            return None
+        at, source, destination, consumed_before = pending
+        now = time.monotonic()
+        if max(abs(a - b) for a, b in zip(position, source)) >= 3:
+            self.escape_pending = None
+            self.escape_failures = 0
+            return "moved"
+        if now - at < ESCAPE_VERIFY_SECONDS:
+            return None
+        self.escape_pending = None
+        blocked = getattr(self, "escape_blocked", {})
+        blocked[destination] = now + ESCAPE_BLOCK_SECONDS
+        self.escape_blocked = blocked
+        self.escape_failures = getattr(self, "escape_failures", 0) + 1
+        if consumed_before is not None:
+            # The damage that called for the jump still stands.
+            self.escape_damage_consumed_at = consumed_before
+        return "failed"
+
+    def escape_quick_retry(self):
+        """Whether a failed jump may be retried at once, not after the cadence."""
+        return 0 < getattr(self, "escape_failures", 0) <= ESCAPE_QUICK_RETRIES
 
     def remember_kill_site(self):
         """Where and when our verified kill happened; its drops appear there."""
