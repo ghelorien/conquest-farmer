@@ -78,9 +78,14 @@ def read(gui):
     }
 
 
-def locate(gui, snapshot):
-    """Return (window, logical point); caller must verify hover ID for ``No``."""
-    if read(gui) != snapshot or snapshot is None:
+def locate(gui, snapshot, *, reader=None):
+    """Return (window, logical point); caller must verify hover ID for ``No``.
+
+    ``reader`` identifies another exact prompt drawn by the same shared
+    confirmation renderer (team_invite_1078); Open Booth's by default.
+    """
+    reader = reader or read
+    if reader(gui) != snapshot or snapshot is None:
         raise ValueError("1078 Open Booth confirmation differs from the saved instance")
     # ImGui reuses the ###Confirm identity; its stored window name can still
     # be Trade###Confirm. Only the model strings above identify this prompt.
@@ -117,7 +122,7 @@ def locate(gui, snapshot):
     ):
         raise ValueError("1078 Open Booth negative button is clipped")
     if (
-        read(gui) != snapshot
+        reader(gui) != snapshot
         or [w for w in gui.windows() if w["name"].endswith("###Confirm")] != windows
         or session.read_block(window["address"] + 0x18, 16) != raw[0x18:0x28]
         or session.read_block(window["address"] + 0xE8, 8) != raw[0xE8:0xF0]

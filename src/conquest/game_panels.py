@@ -30,6 +30,12 @@ def _close_one(trade, check):
     if trade.observer.character != farmer_name():
         raise ValueError("Panel cleanup requires the farmer")
     check()
+    from conquest.merchants.team_invite_1078 import decline
+
+    # Other players' team invitations are declined before the Open Booth
+    # cleanup, which refuses every prompt but its own.
+    if decline(trade, check):
+        return "Join Team###Confirm"
     from conquest.merchants.open_booth_cancel_1078 import cancel
 
     if cancel(trade, check):
