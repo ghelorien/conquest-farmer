@@ -53,10 +53,19 @@ FIELD = [
 class Trainer:
     """ArcherGod's dialogs and the learned-skill vector."""
 
-    def __init__(self, pages, *, teaches=True, locatable=True, open_error=None):
+    def __init__(
+        self,
+        pages,
+        *,
+        teaches=True,
+        locatable=True,
+        open_error=None,
+        hidden_until_near=False,
+    ):
         self.pages = list(pages)
         self.teaches = teaches
-        self.locatable = locatable
+        self.locatable = locatable and not hidden_until_near
+        self.hidden_until_near = hidden_until_near
         self.open_error = open_error
         self.learned = False
         self.page = None
@@ -112,15 +121,28 @@ def world(tmp_path, monkeypatch):
 
 
 def loop_for(trainer):
+    position = [466, 333]
+
+    def travel(target, **kw):
+        trainer.actions.append(["travel", list(target)])
+        position[:] = list(target)
+        # The simulated trainer stands at (420, 300); it enters the scene
+        # when the walk ends within scene range of it.
+        if trainer.hidden_until_near and max(
+            abs(position[0] - 420), abs(position[1] - 300)
+        ) <= 18:
+            trainer.locatable = True
+
     loop = NS(
         phase="hunting",
         last_level=23,
         route=NS(restock_map_id=1002, restock_anchor=(466, 333)),
         town=trainer.town,
-        travel=lambda target, **kw: trainer.actions.append(["travel", list(target)]),
+        travel=travel,
+        terrain=NS(walkable=lambda p: True),
         living=lambda: {
             "embedded_controls": {
-                "life": {"map_id": 1002, "position": [466, 333], "dead_candidate": False}
+                "life": {"map_id": 1002, "position": list(position), "dead_candidate": False}
             }
         },
         record=lambda event, **fields: trainer.events.append(event),
@@ -155,7 +177,14 @@ def scenario(world, monkeypatch, root):
     rows = {
         # 1, 6: learn through a "Learn skills" step, then keep leveling.
         "learns": finish(world, Trainer([LEARN, SKILLS]), monkeypatch),
-        # 4: no surveyed tile and not in the scene: recorded, farming goes on.
+        # No surveyed tile: the town grid walk finds ArcherGod, then it learns.
+        "scouts": finish(
+            world,
+            Trainer([LEARN, SKILLS], hidden_until_near=True),
+            monkeypatch,
+            surveyed=False,
+        ),
+        # 4: not surveyed and nowhere in town: recorded, farming goes on.
         "unknown_trainer": finish(
             world, Trainer([LEARN, SKILLS], locatable=False), monkeypatch, surveyed=False
         ),
@@ -186,6 +215,9 @@ def test_scatter_training_e2e(world, monkeypatch):
     assert learns["learned"] and learns["pressed"] == ["Learn skills", "Scatter"]
     assert learns["walked_to"] == [[421, 302]]
     assert "scatter_learned" in learns["events"] and "level_goal_reached" in learns["events"]
+    scouts = rows["scouts"]
+    assert scouts["learned"] and scouts["pressed"] == ["Learn skills", "Scatter"]
+    assert "scatter_trainer_found" in scouts["events"]
     assert rows["unknown_trainer"]["pressed"] == []
     assert "scatter_training_pending" in rows["unknown_trainer"]["events"]
     assert rows["unexpected_dialog"]["pressed"] == []
