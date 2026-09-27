@@ -120,6 +120,23 @@ def test_missing_scatter_disables_jump_route_setting():
     assert settings["jump_scatter"] is False and settings["attack_button"] == "left"
 
 
+def test_toxic_runs_measured_timings_and_observation_options_without_scatter_ones():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "profiles" / "farmers"
+    toxic = load_combat_speed("Toxic", root)
+    kilhiam = load_combat_speed("Kilhiam", root)
+    assert (toxic.jump_arrival_seconds, toxic.jump_attack_guard_seconds) == (
+        kilhiam.jump_arrival_seconds,
+        kilhiam.jump_attack_guard_seconds,
+    )
+    assert toxic.coherent_projection and toxic.selected_target_refresh
+    assert toxic.moving_observation_retry_seconds == 0.01
+    assert toxic.torn_life_attempts == 3
+    # A single-target archer is not pulled into denser groups before Scatter.
+    assert not toxic.cluster_lookahead and not toxic.scatter_during_jump
+
+
 @pytest.mark.parametrize(
     "option",
     [

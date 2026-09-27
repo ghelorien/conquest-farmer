@@ -1,0 +1,17 @@
+# Toxic (Back2Classic, build 1078), 2026-09-27: Kilhiam's measured timings
+# plus Parasite's observation options. On the defaults Toxic paused about
+# 5.6/min on "Player moved before projection" and 4.9/min on "Selected
+# monster moved before input" (Apparitions, level 19). Scatter options and
+# cluster_lookahead wait until Toxic has learned Scatter.
+character: Toxic
+combat_speed:
+  action_interval: 0.15
+  jump_arrival_seconds: 0.25
+  jump_attack_guard_seconds: 0.28
+  coherent_projection: true
+  selected_target_refresh: true
+  packed_monster_records: true
+  scene_reuse_seconds: 0.15
+  torn_life_attempts: 3
+  moving_observation_retry_seconds: 0.01
+  counter_gap_recovery: true
