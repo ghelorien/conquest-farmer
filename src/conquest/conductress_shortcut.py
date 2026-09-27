@@ -10,9 +10,10 @@ City to the Apparition field ~600-700 walking tiles, from the south gate
 The ride uses the qualified Conductress dialog and fare path (conductress-open,
 prepare_destination, conductress-travel) and is verified by memory: the
 farmer moved away from her and exactly the fare left the bag. Each option's
-landing is remembered per character; a landing farther from the field than
-the farmer is not ridden to. A refusal before payment just means walking;
-an unverified ride is never paid again.
+landing is remembered per character; once known, the ride is taken only when
+walking to her plus walking from the landing beats walking from here, both
+measured on the terrain. A refusal before payment just means walking; an
+unverified ride is never paid again.
 """
 
 import time
@@ -32,6 +33,35 @@ LANDINGS = Path(state_path(".runtime/conductress-landings.json"))
 
 def _distance(a, b):
     return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+
+def walking_tiles(terrain, start, goal):
+    """Checked walking tiles between two Twin City points; None if unplannable."""
+    try:
+        return len(terrain.travel_path(tuple(start), tuple(goal))) - 1
+    except ValueError:
+        return None
+
+
+def worth_riding(loop, position, landing, anchor):
+    """Whether walking to her and then from the landing beats walking from here.
+
+    A straight line misjudges Twin City: the river puts the Ape gate 352
+    tiles from the Apparition field in a line but 356 to walk, and town ~225
+    in a line but 653 to walk (live 2026-09-27: the second ride was skipped).
+    Without Twin City terrain the straight line is all there is.
+    """
+    terrain = getattr(loop, "terrain", None)
+    if getattr(terrain, "map_id", None) != 1002:
+        return _distance(landing, anchor) < _distance(position, anchor)
+    after = walking_tiles(terrain, landing, anchor)
+    to_her = walking_tiles(terrain, position, CONDUCTRESS_TILE)
+    if after is None or to_her is None:
+        return False
+    walk = walking_tiles(terrain, position, anchor)
+    # Unplannable from here (Poltergeist from town is beyond the planner's
+    # budget): the ride is the way.
+    return walk is None or to_her + after < walk
 
 
 def _in_town(life):
@@ -54,7 +84,7 @@ def ride(loop):
         return False
     anchor = tuple(loop.route.hunting_anchor)
     landing = read_json(LANDINGS).get(option)
-    if landing and _distance(landing, anchor) >= _distance(life["position"], anchor):
+    if landing and not worth_riding(loop, life["position"], landing, anchor):
         return False
     actor = life["object_address"]
     try:

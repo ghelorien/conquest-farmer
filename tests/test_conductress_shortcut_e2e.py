@@ -14,6 +14,10 @@ Failure modes, written before the code:
 3. A ride whose arrival or fare is not verified is paid again.
 4. The landing is not remembered, so later rides cannot be judged.
 5. A remembered landing farther from the field than the farmer is ridden to.
+6. A straight line judges the ride: the river makes the Ape gate look
+   farther from the Apparition field than town (352 vs ~225 tiles in a line)
+   though it is far shorter to walk (356 vs 653), so every ride after the
+   first was skipped (live 2026-09-27).
 """
 
 import json
@@ -119,4 +123,58 @@ def test_a_landing_farther_than_the_farmer_is_not_ridden(state):
     shortcut.LANDINGS.write_text(json.dumps({"Ape Mountain": [900, 900]}))
     twin = Twin()
     assert shortcut.ride(loop_for(twin)) is False
+    assert "conductress-travel" not in twin.actions
+
+
+def twin_city(walks):
+    """Twin City terrain whose checked walks have these lengths."""
+
+    def travel_path(start, goal, **kwargs):
+        tiles = walks.get((tuple(start), tuple(goal)))
+        if tiles is None:
+            raise ValueError("Route search exceeded its node budget")
+        return [tuple(start)] * (tiles + 1)
+
+    return NS(map_id=1002, travel_path=travel_path)
+
+
+TOWN, HER, APE, FIELD = (466, 333), shortcut.CONDUCTRESS_TILE, (555, 957), (300, 605)
+
+
+def test_walking_distance_not_the_straight_line_decides_the_ride(state):
+    # 6: live Twin City numbers; the landing is farther in a line.
+    shortcut.LANDINGS.write_text(json.dumps({"Ape Mountain": list(APE)}))
+    twin = Twin(lands=APE)
+    loop = loop_for(twin)
+    loop.terrain = twin_city({(TOWN, FIELD): 653, (TOWN, HER): 111, (APE, FIELD): 356})
+    assert shortcut.ride(loop) is True
+    assert twin.actions.count("conductress-travel") == 1
+
+
+def test_walking_to_her_counts_against_the_ride(state):
+    # 5 on terrain: 111 to her + 600 from the landing loses to 272 on foot.
+    shortcut.LANDINGS.write_text(json.dumps({"Ape Mountain": [900, 900]}))
+    twin = Twin()
+    loop = loop_for(twin)
+    loop.terrain = twin_city(
+        {(TOWN, FIELD): 272, (TOWN, HER): 111, ((900, 900), FIELD): 600}
+    )
+    assert shortcut.ride(loop) is False
+    assert "conductress-travel" not in twin.actions
+
+
+def test_unplannable_walk_from_town_takes_the_ride_but_a_dead_end_landing_does_not(
+    state,
+):
+    # Poltergeist from town is beyond the planner's budget: ride.
+    shortcut.LANDINGS.write_text(json.dumps({"Ape Mountain": list(APE)}))
+    twin = Twin(lands=APE)
+    loop = loop_for(twin)
+    loop.terrain = twin_city({(TOWN, HER): 111, (APE, FIELD): 356})
+    assert shortcut.ride(loop) is True
+    # A landing with no checked walk to the field is never ridden to.
+    twin = Twin(lands=APE)
+    loop = loop_for(twin)
+    loop.terrain = twin_city({(TOWN, FIELD): 653, (TOWN, HER): 111})
+    assert shortcut.ride(loop) is False
     assert "conductress-travel" not in twin.actions
