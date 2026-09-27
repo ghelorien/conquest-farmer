@@ -30,6 +30,13 @@ def bracket(level, rows=None):
     )
 
 
+def hunting_level(level, rows=None):
+    """The level whose zone to hunt: reaching a bracket's top level moves on to
+    the next zone (user rule: Pheasants 1-6 hand over to Turtledoves at 6)."""
+    top = bracket(level, rows)["levels"][1]
+    return level + 1 if level == top and level < 140 else level
+
+
 def read_level(info, health):
     data = health["embedded_controls"]
     life = data.get("life")
