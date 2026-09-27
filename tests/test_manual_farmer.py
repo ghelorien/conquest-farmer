@@ -238,6 +238,25 @@ def test_farmer_observer_closed_windows_needs_no_unqualified_full_reader(
     assert x.runtime.manual_farmer_status()["observation"]["windows_absent"]
 
 
+# Back2Classic trade requests. Failure modes (written before the change):
+# 1. A player's request opens a visitor session that can never settle on a
+#    farming-only server, so town input stays fenced after the modal closes.
+# 2. The open modal is not fenced, so town clicks land while it is up.
+# 3. The closed read after the modal still fences town input.
+# 4. America farmers lose visitor admission (covered by the tests above).
+def test_back2classic_request_fences_only_while_the_modal_is_open(rig, monkeypatch):
+    x = farmer(rig, monkeypatch)
+    x.state["server"] = "Back2Classic"
+    assert x.runtime.observe_manual_farmer()
+    assert x.runtime.manual_status("Farmer") is None
+    assert x.runtime.manual_farmer_status()["observation"]["farming_only_modal"]
+    x.state["request"] = None
+    x.now += 1
+    assert not x.runtime.observe_manual_farmer()
+    assert x.runtime.manual_status("Farmer") is None
+    check_input()
+
+
 def test_farmer_loop_consumes_current_valuables_without_false_pickup_or_resume(
     rig, monkeypatch
 ):

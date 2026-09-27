@@ -409,10 +409,14 @@ class TradeObservationReader1078:
         """Return a stable manual-only ownership snapshot; it never enables input."""
         started = time.monotonic()
         self.session.assert_identity()
-        server = self._read(self.base + self.server_rva, 64)
-        if server.split(b"\0", 1)[0] != b"Classic_US":
+        from conquest.client_attachment import QUALIFIED_SERVERS
+
+        server = QUALIFIED_SERVERS.get(
+            self._read(self.base + self.server_rva, 64).split(b"\0", 1)[0]
+        )
+        if server is None:
             raise ObservationUnavailable1078(
-                "1078 server field is not the qualified America value"
+                "1078 server field is not a qualified server value"
             )
         holder, actual, wrapper = self._actual_and_wrapper()
         inventory, silver = self._inventory(wrapper)
@@ -430,7 +434,7 @@ class TradeObservationReader1078:
             "character": self.character,
             "character_uid": character_uid,
             "identity": dict(self.session.identity),
-            "server": "America",
+            "server": server,
             "inventory": [asdict(item) for item in inventory],
             "booth": [asdict(item) for item in booth],
             "capacity": 40,

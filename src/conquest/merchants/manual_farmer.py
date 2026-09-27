@@ -233,6 +233,17 @@ def observe(runtime, observer=None):
     # decline routing.  It only observes the existing memory snapshot.
     if runtime.observe_manual_handoff("Farmer", snapshot):
         return True
+    from conquest.client_attachment import FARMING_ONLY_SERVERS
+
+    if snapshot.get("server") in FARMING_ONLY_SERVERS and (
+        snapshot.get("request") is not None or snapshot.get("trade") is not None
+    ):
+        # Visitor admission and the native decline are qualified on America
+        # only. A farming-only server never opens a visitor session (which
+        # could not settle there); it only fences town input while the modal
+        # is open, and the next closed read lifts the fence.
+        runtime.manual_farmer_observation["farming_only_modal"] = True
+        return True
     routed = runtime.process_probe_owned("Farmer", snapshot)
     if routed:
         from conquest.merchants.manual_runtime import OBSERVATION_DEFERRED
