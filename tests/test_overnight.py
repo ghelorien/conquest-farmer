@@ -261,7 +261,7 @@ def test_restart_closes_panels_and_keeps_loot_space_when_supplies_are_adequate()
     snapshot = {
         "items": [
             {"type_id": 1050000, "amount": 1525},
-            {"type_id": 1000020, "amount": 15},
+            {"type_id": 1000020, "amount": loop.route.supplies.healing_restock_to},
         ],
         "equipped_ammo": None,
         "silver": 9782,
@@ -690,7 +690,10 @@ def test_arrow_refill_reopens_shop_after_deferred_equipment_review(monkeypatch):
     loop.cycles = 0
     opened = [False]
     purchases = []
-    rows = [{"type_id": 1050000, "amount": 200}, {"type_id": 1000020, "amount": 15}]
+    rows = [
+        {"type_id": 1050000, "amount": 200},
+        {"type_id": 1000020, "amount": loop.route.supplies.healing_restock_to},
+    ]
 
     def review(vendor):
         opened[0] = False  # equip succeeds but subsequent Shop reopen was deferred
@@ -1492,7 +1495,10 @@ def test_initial_blacksmith_open_failure_still_completes_storage_when_stocked(
             return {
                 "items": [
                     {"type_id": 1050000, "amount": 1600},
-                    {"type_id": 1000020, "amount": 15},
+                    {
+                        "type_id": 1000020,
+                        "amount": loop.route.supplies.healing_restock_to,
+                    },
                 ],
                 "capacity": 40,
                 "silver": 10000,

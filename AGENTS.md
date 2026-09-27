@@ -125,6 +125,10 @@ from level 32, then LuckyArrows. Never buy while carrying two or more packs;
 preserve existing excess for use. Use memory-qualified owned upgrades before
 buying, and fund the best eligible normal tier on required town visits.
 Keep existing excess potions to use normally; do not discard them to reach five.
+Low-level routes (Pheasants through Winged Snakes, levels 1-31) refill to 20
+Painkillers instead (user, 2026-09-26: "buy 20 of the appropriate potions
+relative to the total health he has"); higher routes keep five. Choosing a
+stronger potion as max HP grows is not implemented yet.
 Keep warehouse funding, available inventory space, verified purchases and the
 empty-supplies/full-inventory town trigger. Do not restore old 1,600-arrow or
 10/20-potion targets, including savings mode.
