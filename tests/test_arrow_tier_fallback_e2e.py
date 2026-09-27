@@ -300,7 +300,7 @@ class Game:
                 # Same pre-input refusals as town_trade's worker purchase.
                 if self.pack_count() >= 2:
                     raise ValueError(
-                        "Arrow purchase blocked: already carrying two or more packs"
+                        "Arrow purchase blocked: already carrying the maximum packs"
                     )
                 price = self.product(kind)["price"]
             if self.silver < price or len(self.items) >= 40:

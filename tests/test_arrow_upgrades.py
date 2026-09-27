@@ -173,7 +173,7 @@ def test_purchase_cap_counts_partial_packs_and_prevents_topups(count):
     )
     assert arrow_pack_count(bag) == count
     assert not loop.buy_supply(5, 1050001)
-    with pytest.raises(ValueError, match="two or more"):
+    with pytest.raises(ValueError, match="maximum packs"):
         require_arrow_purchase_room(bag)
 
 
@@ -269,7 +269,7 @@ def test_two_speed_packs_block_buy_even_when_equipped_pack_is_partial():
         "items": [{"uid": 2, "type_id": 1050002, "amount": 5000, "limit": 5000}],
         "equipped_ammo": {"uid": 1, "type_id": 1050002, "amount": 4, "limit": 5000},
     }
-    with pytest.raises(ValueError, match="two or more"):
+    with pytest.raises(ValueError, match="maximum packs"):
         require_arrow_purchase_room(bag)
     bag["items"] = []
     require_arrow_purchase_room(bag)

@@ -116,19 +116,19 @@ def run(tmp_path, monkeypatch, name):
     return path
 
 
-def test_leveling_lucky_archer_carries_five_packs(tmp_path, monkeypatch):
+def test_leveling_lucky_archer_carries_eight_packs(tmp_path, monkeypatch):
     first = run(tmp_path, monkeypatch, "first")
     second = run(tmp_path, monkeypatch, "second")
     assert first.read_bytes() == second.read_bytes()  # A5
     a = json.loads(first.read_text(encoding="utf-8"))
-    # A1: 2 -> 5 LuckyArrow packs (1,000 arrows).
-    assert a["leveling_lucky"] == {"packs_after": 5, "bought": 3}
+    # A1: 2 -> 8 LuckyArrow packs (1,600 arrows).
+    assert a["leveling_lucky"] == {"packs_after": 8, "bought": 6}
     # A2: America keeps one equipped and one spare.
     assert a["america_lucky"] == {"packs_after": 2, "bought": 0}
     # A3: larger packs keep the two-pack rule even while leveling.
     assert a["leveling_iron"]["packs_after"] == 2
     assert a["leveling_speed"]["packs_after"] == 2
-    # A4: the withdrawal covers three more 200-silver packs than America's.
-    assert a["budget"]["leveling"] - a["budget"]["america"] == 3 * 200
-    # A6: the route refills to five packs (1,000) while leveling, 400 otherwise.
-    assert a["refill_target"] == {"leveling": 1000, "america": 400}
+    # A4: the withdrawal covers six more 200-silver packs than America's.
+    assert a["budget"]["leveling"] - a["budget"]["america"] == 6 * 200
+    # A6: the route refills to eight packs (1,600) while leveling, 400 otherwise.
+    assert a["refill_target"] == {"leveling": 1600, "america": 400}

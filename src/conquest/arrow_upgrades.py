@@ -7,8 +7,10 @@ MAX_ARROW_PACKS = 2
 ARROW_REFILL_AMOUNTS = {1050000: 400, 1050001: 2000, 1050002: 10000}
 # A leveling archer on 200-arrow LuckyArrow packs emptied two packs in about
 # 18 minutes (live 2026-09-27), so every town trip was for arrows. The
-# two-pack preference was set for 5,000-arrow SpeedArrow packs.
-LEVELING_LUCKY_PACKS = 5
+# two-pack preference was set for 5,000-arrow SpeedArrow packs. At 15
+# kills/min (level 20, 50 arrows/min) five packs lasted ~20 minutes while
+# the potions lasted ~37: eight packs (~32 minutes) balance the two.
+LEVELING_LUCKY_PACKS = 8
 
 
 def max_arrow_packs(kind=None):
