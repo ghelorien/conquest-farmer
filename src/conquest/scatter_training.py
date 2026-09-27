@@ -191,8 +191,15 @@ def learn(loop):
     loop.town("close", window="Inventory")
     loop.town("service-open", name=TRAINER)
     pressed = []
-    for _ in range(MAX_DIALOG_STEPS):
-        dialog = _dialog(loop)
+    for step in range(MAX_DIALOG_STEPS):
+        try:
+            dialog = _dialog(loop)
+        except ValueError:
+            if step or pressed:
+                raise
+            # The first click missed the trainer's sprite: open it once more.
+            loop.town("service-open", name=TRAINER)
+            dialog = _dialog(loop)
         option = choose(dialog["records"], pressed)
         if option is None:
             loop.record(
