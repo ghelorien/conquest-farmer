@@ -115,6 +115,41 @@ def test_failed_scroll_use_walks_to_town_instead_of_stopping_the_restock():
     assert records == ["return_scroll_failed"]
 
 
+# Live 2026-09-27 11:07: the gear trip's scroll was refused with "Player or
+# inventory changed before scroll input" right after farming stopped (a jump or
+# pickup was still landing) and the farmer walked 591 tiles for two minutes.
+# 4. The scroll is attempted before the farmer stands still.
+# 5. A pre-input refusal (no scroll clicked) falls back to walking at once.
+def test_scroll_waits_for_a_settled_farmer_and_retries_a_pre_input_refusal():
+    r.write_json(r.POLICY, {"enabled": True, "qualified": True})
+    positions = iter([[700, 500], [706, 506], [712, 512]] + [[712, 512]] * 200)
+    attempts, records, reads = [], [], []
+
+    def living():
+        position = next(positions)
+        reads.append(position)
+        return {"embedded_controls": {"life": {"map_id": 1002, "position": position}}}
+
+    def town(action, **kw):
+        if action == "supplies":
+            return {"items": [{"type_id": r.TYPE, "amount": 2}], "silver": 100}
+        if action == "return-scroll":
+            attempts.append(reads[-1])
+            if len(attempts) == 1:
+                raise ValueError("Player or inventory changed before scroll input")
+            return {"state": "verified"}
+        return {}
+
+    loop = NS(
+        living=living,
+        town=town,
+        record=lambda event, **fields: records.append(event),
+    )
+    assert r.return_to_town(loop) is True
+    assert len(attempts) == 2 and all(p == [712, 512] for p in attempts)
+    assert records == ["return_scroll_verified"]
+
+
 def test_scroll_policy_is_character_state_not_release_content():
     assert r.POLICY_NAME.startswith(".runtime/")
 

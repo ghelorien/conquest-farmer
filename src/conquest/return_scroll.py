@@ -2,6 +2,7 @@
 
 from conquest.character_context import state_path
 from dataclasses import asdict
+import json
 from pathlib import Path
 import time
 from conquest.discord_notify import read_json, write_json
@@ -13,6 +14,40 @@ TYPE = 1060020
 POLICY_NAME = ".runtime/return-scroll.json"
 POLICY = Path(state_path(POLICY_NAME))
 STATUS = Path(state_path("reports/return-scroll/status.json"))
+# use() refuses before any scroll input when the farmer or bag moved while the
+# Inventory opened; that refusal alone is safe to retry.
+PRE_INPUT_CHANGE = "Player or inventory changed before scroll input"
+SCROLL_ATTEMPTS = 3
+
+
+def settle(loop, seconds=4.0, steady=0.6):
+    """Wait until position, bag, silver and ammunition stay unchanged.
+
+    Farming stops just before a town trip; the last jump, shot or pickup can
+    still be landing and would make the scroll's pre-input check refuse.
+    """
+    deadline = time.monotonic() + seconds
+    last, since = None, None
+    while time.monotonic() < deadline:
+        life = loop.living()["embedded_controls"]["life"]
+        bag = loop.town("supplies")
+        key = json.dumps(
+            [
+                life["position"],
+                bag.get("items"),
+                bag.get("silver"),
+                bag.get("equipped_ammo"),
+            ],
+            sort_keys=True,
+            default=str,
+        )
+        now = time.monotonic()
+        if key != last:
+            last, since = key, now
+        elif now - since >= steady:
+            return True
+        time.sleep(0.2)
+    return False
 
 
 def in_town(life):
@@ -175,18 +210,23 @@ def return_to_town(loop):
         return False
     loop.town("close", window="Shop")
     loop.town("close", window="Warehouse")
-    try:
-        result = loop.town("return-scroll")
-    except ValueError as error:
-        # Walking stays the fallback. An unverified submission remains in
-        # STATUS and blocks further scroll input until it is reconciled.
-        loop.town("close", window="Inventory")
-        loop.record(
-            "return_scroll_failed",
-            detail=str(error),
-            activity="Return scroll did not complete; walking to town",
-        )
-        return False
+    for attempt in range(SCROLL_ATTEMPTS):
+        settle(loop)
+        try:
+            result = loop.town("return-scroll")
+            break
+        except ValueError as error:
+            loop.town("close", window="Inventory")
+            if str(error) == PRE_INPUT_CHANGE and attempt + 1 < SCROLL_ATTEMPTS:
+                continue
+            # Walking stays the fallback. An unverified submission remains
+            # in STATUS and blocks further scroll input until it is reconciled.
+            loop.record(
+                "return_scroll_failed",
+                detail=str(error),
+                activity="Return scroll did not complete; walking to town",
+            )
+            return False
     loop.town("close", window="Inventory")
     loop.record(
         "return_scroll_verified",
