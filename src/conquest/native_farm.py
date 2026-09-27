@@ -31,6 +31,8 @@ KILL_DROP_AFTER_MS = 1500
 KILL_DROP_RADIUS = 5
 KILL_DROP_UNKNOWN_RADIUS = 10
 KILL_SITE_KEEP_MS = 20000
+# The target's scene position this recent stands for where it died.
+TARGET_SEEN_MS = 3000
 # An escape jump that has not moved the farmer this long after the click
 # failed (live 09-27 11:39: surrounded, the jump never happened, the loop
 # attacked and Suicide died). Its landing is avoided for a few seconds and a
@@ -746,6 +748,7 @@ class NativeFarmSupervisor:
             self.targets_observation_available = True
             self.scene_monsters = monsters
             self.scene_timestamp = time.monotonic()
+            self.note_target_position(monsters)
             intent = self.control.snapshot()
             accepted = []
             scatter_scene = []
@@ -1682,13 +1685,44 @@ class NativeFarmSupervisor:
         """Whether a failed jump may be retried at once, not after the cadence."""
         return 0 < getattr(self, "escape_failures", 0) <= ESCAPE_QUICK_RETRIES
 
+    def note_target_position(self, monsters):
+        """Where the monster we are shooting was last seen in the scene.
+
+        Melee monsters walk at the archer while it shoots and the archer jumps
+        away from hits, so a monster dies well away from where it was targeted.
+        """
+        target = self.last_target
+        if target is None:
+            return
+        key = (target.entity_id, target.object_address)
+        for monster in monsters:
+            if (monster.entity_id, monster.object_address) == key:
+                from conquest.memory_ground import client_tick_ms
+
+                self.last_target_seen = (key, client_tick_ms(), tuple(monster.position))
+                return
+
     def remember_kill_site(self):
-        """Where and when our verified kill happened; its drops appear there."""
+        """Where and when our verified kill happened; its drops appear there.
+
+        The monster's last seen tile, not where it was targeted: judged from
+        the targeting tile our own silver was often more than KILL_DROP_RADIUS
+        away and left behind (Toxic 2026-09-27: 0.96 silver pickups per kill
+        before the rule, 0.2-0.3 after, and the bank drained to 94 silver).
+        """
         from conquest.memory_ground import client_tick_ms
 
         now = client_tick_ms()
         target = self.last_target
         site = getattr(target, "world_position", None) if target is not None else None
+        seen = getattr(self, "last_target_seen", None)
+        if (
+            target is not None
+            and seen
+            and seen[0] == (target.entity_id, target.object_address)
+            and now - seen[1] <= TARGET_SEEN_MS
+        ):
+            site = seen[2]
         radius = KILL_DROP_RADIUS
         if site is None and self.position is not None:
             site, radius = tuple(self.position), KILL_DROP_UNKNOWN_RADIUS

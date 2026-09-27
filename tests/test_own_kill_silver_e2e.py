@@ -23,6 +23,10 @@ Failure modes, written before the code:
 6. Valuable items (Meteors, + gear) stop being picked up: silver-only rule.
 7. Remembered kill sites pile up without bound.
 8. A kill with no remembered target tile loses its silver.
+9. The target walked at the archer while it shot and died far from where it
+   was targeted, so our own silver is judged someone else's (live Toxic
+   2026-09-27: 0.96 silver pickups per kill before this rule, 0.2-0.3
+   after, and the bank ran down to 94 silver).
 """
 
 import json
@@ -122,3 +126,33 @@ def test_own_kill_silver_e2e(monkeypatch, tmp_path):
         "kill_without_target_tile": [8],
         "remembered_sites": 1,
     }
+
+
+def test_silver_where_the_target_died_after_walking_at_us(monkeypatch):
+    # 9
+    clock = [KILL]
+    supervisor = farmer(monkeypatch, clock)
+    supervisor.last_target = Target("Apparition", 500, 400, 1.0, 7, 70, (22, 10))
+    # The scene saw it walk from 12 tiles away up to 2 tiles before it died.
+    supervisor.note_target_position(
+        [SimpleNamespace(entity_id=7, object_address=70, position=(12, 10))]
+    )
+    supervisor.position = (10, 10)
+    supervisor.finish_target("kill_counter_increased")
+    assert picks(supervisor, [GroundItem(9, 90, SILVER, (12, 11), KILL + 200)]) == [9]
+    # A sighting older than 3 s falls back to the targeting tile.
+    clock[0] = KILL + 60_000
+    supervisor.last_target = Target("Apparition", 500, 400, 1.0, 8, 80, (22, 10))
+    supervisor.note_target_position(
+        [SimpleNamespace(entity_id=8, object_address=80, position=(12, 10))]
+    )
+    clock[0] = KILL + 65_000
+    supervisor.finish_target("kill_counter_increased")
+    assert picks(supervisor, [GroundItem(10, 100, SILVER, (12, 11), clock[0] - 100)]) == []
+    # Another monster's sighting never stands in for our target.
+    supervisor.last_target = Target("Apparition", 500, 400, 1.0, 9, 90, (22, 10))
+    supervisor.note_target_position(
+        [SimpleNamespace(entity_id=3, object_address=30, position=(12, 10))]
+    )
+    supervisor.finish_target("kill_counter_increased")
+    assert picks(supervisor, [GroundItem(11, 110, SILVER, (12, 11), clock[0] - 100)]) == []
