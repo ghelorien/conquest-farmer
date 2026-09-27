@@ -170,6 +170,37 @@ def use(trade):
     return result
 
 
+def secure_one(loop):
+    """Buy one return scroll before any potion when none is carried.
+
+    Potions came first and spent the silver: Toxic left town without a scroll
+    (134 silver, stock needs 400) and died walking ~1,000 tiles home through
+    the Poltergeists (live 2026-09-27 15:35). The scroll is the way home.
+    """
+    policy = read_json(POLICY)
+    if not policy.get("enabled") or loop.route.restock_map_id != 1002:
+        return False
+    bag = loop.town("supplies")
+    if any(i["type_id"] == TYPE and i["amount"] > 0 for i in bag["items"]):
+        return False
+    products = loop.town("shop", vendor_type=3)["products"]
+    choices = [p for p in products if p["type_id"] == TYPE]
+    if (
+        len(choices) != 1
+        or choices[0]["price"] != 200
+        or bag["silver"] < choices[0]["price"]
+        or len(bag["items"]) >= bag["capacity"] - loop.route.supplies.minimum_free_slots
+    ):
+        return False
+    result = loop.town("buy", vendor_type=3, type_id=TYPE)
+    loop.record(
+        "return_scroll_purchase",
+        receipt=result,
+        activity="Buying a TwinCityGate return scroll before potions",
+    )
+    return True
+
+
 def stock(loop):
     policy = read_json(POLICY)
     if not policy.get("enabled") or loop.route.restock_map_id != 1002:

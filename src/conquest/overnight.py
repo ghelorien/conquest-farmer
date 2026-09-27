@@ -1280,7 +1280,7 @@ class OvernightLoop:
         from conquest.banking import fund_restock
 
         fund_restock(self)
-        from conquest.return_scroll import stock, POLICY as scroll_policy
+        from conquest.return_scroll import stock, secure_one, POLICY as scroll_policy
         from conquest.discord_notify import read_json
 
         if pharmacist_needed(
@@ -1296,6 +1296,8 @@ class OvernightLoop:
             healing_type(self)
             self.sell_junk(3)
             self.shopping_space(3, self.route.restock_anchor)
+            # The way home comes before potions when silver is short.
+            secure_one(self)
             arrow_price = last_verified_price(self.route.supplies.arrow_type)
             potion_quote = None
             if arrow_price:

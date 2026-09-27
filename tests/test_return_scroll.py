@@ -85,6 +85,39 @@ def test_stock_only_buys_two_at_verified_price_and_preserves_inventory_space():
     assert len(buys) == 2 and bag["silver"] == 600
 
 
+# Toxic left town at 15:25 with 134 silver and no scroll (potions came first
+# and stock needs 400) and died walking home from the Poltergeists at 15:35.
+def test_the_first_scroll_comes_before_potions_whenever_200_silver_is_carried():
+    r.write_json(r.POLICY, {"enabled": True, "qualified": True})
+    bag = {"silver": 250, "items": [], "capacity": 40}
+    buys = []
+
+    def town(action, **kw):
+        if action == "shop":
+            return {"products": [{"type_id": r.TYPE, "price": 200}]}
+        if action == "supplies":
+            return bag
+        assert action == "buy" and kw == {"vendor_type": 3, "type_id": r.TYPE}
+        buys.append(kw)
+        bag["items"].append({"type_id": r.TYPE, "amount": 1})
+        bag["silver"] -= 200
+        return {"bought": r.TYPE, "amount": 1, "price": 200}
+
+    loop = NS(
+        route=NS(restock_map_id=1002, supplies=NS(minimum_free_slots=4)),
+        town=town,
+        record=lambda *a, **k: None,
+    )
+    assert r.secure_one(loop) is True and bag["silver"] == 50
+    # One carried scroll is enough before potions; stock tops up later.
+    assert r.secure_one(loop) is False and len(buys) == 1
+    bag.update(items=[], silver=199)
+    assert r.secure_one(loop) is False and len(buys) == 1
+    r.write_json(r.POLICY, {"enabled": False})
+    bag["silver"] = 5000
+    assert r.secure_one(loop) is False and len(buys) == 1
+
+
 # Return-scroll fallback and policy location (failure modes written first):
 # 1. A scroll use that fails or cannot be verified aborts the restock, so the
 #    route stops in the field instead of walking to town.
