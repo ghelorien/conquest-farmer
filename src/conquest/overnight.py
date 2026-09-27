@@ -1618,6 +1618,9 @@ class OvernightLoop:
                     "inventory_full",
                     "ammo_unavailable",
                     "potions_exhausted",
+                    # The combat loop already read a TwinCityGate out of a
+                    # losing fight; restocking in town needs no second scroll.
+                    "emergency_return",
                 ):
                     self.phase = "restocking"
                     self.record(

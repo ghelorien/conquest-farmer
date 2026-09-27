@@ -39,6 +39,9 @@ ESCAPE_VERIFY_SECONDS = 0.45
 ESCAPE_BLOCK_SECONDS = 3
 ESCAPE_QUICK_RETRIES = 3
 ESCAPE_MIN_JUMP = 6
+# Below this HP share a crowded escape takes the least crowded open landing
+# even when none has fewer monsters than are attacking.
+ESCAPE_LOW_HP = 0.5
 
 @contextmanager
 def logical_coordinates():
@@ -282,6 +285,28 @@ class NativeFarmSupervisor:
 
         return self.dispatch(consume)
 
+    def emergency_return(self):
+        """Read a carried TwinCityGate scroll: leave a fight potions cannot hold.
+
+        The town trade's verified scroll use (outside town on Twin City only)
+        proves the arrival in town; it never repeats an uncertain read.
+        """
+
+        def read_scroll():
+            with logical_coordinates():
+                trade = self.observer.town_trade
+                self.supply_panel_pending = True
+                try:
+                    return trade({"action": "return-scroll"})
+                finally:
+                    try:
+                        trade({"action": "close", "window": "Inventory"})
+                        self.supply_panel_pending = False
+                    except (ValueError, OSError):
+                        pass
+
+        return self.dispatch(read_scroll)
+
     def attack_strategy(self):
         from conquest.attack_strategy import AttackStrategy, equipment_context
         from conquest.equipment import read_equipment
@@ -388,6 +413,8 @@ class NativeFarmSupervisor:
         """Record a hit worth a jump, and damage taken while standing still."""
         previous = self.last_health_position
         position = tuple(life.position)
+        if not life.dead_candidate and life.max_hp:
+            self.health_share = life.current_hp / life.max_hp
         if previous and not life.dead_candidate and life.current_hp < previous[0]:
             if previous[0] - life.current_hp > ESCAPE_DAMAGE_SHARE * life.max_hp:
                 self.last_damage_at = time.monotonic()
@@ -1517,7 +1544,7 @@ class NativeFarmSupervisor:
         }
         self.escape_blocked = blocked
 
-        def landings(threats):
+        def landings(threats, *, fewer=True, clearance=6):
             found = []
             for length in (12, 10, 8):
                 for dx, dy in (
@@ -1552,13 +1579,13 @@ class NativeFarmSupervisor:
                         max(abs(point[0] - mx), abs(point[1] - my))
                         for mx, my in threats
                     )
-                    if separation < 6:
+                    if separation < clearance:
                         continue
                     distances = [
                         max(abs(point[0] - mx), abs(point[1] - my)) for mx, my in living
                     ]
                     nearby = sum(d <= 4 for d in distances)
-                    if nearby >= len(threats):
+                    if fewer and nearby >= len(threats):
                         continue
                     # Prefer fewer nearby enemies, including those outside the
                     # original surround, then more clearance and longer jumps.
@@ -1576,6 +1603,13 @@ class NativeFarmSupervisor:
             ]
             if attackers:
                 candidates, crowded = landings(attackers), True
+                if not candidates and getattr(self, "health_share", 1) < ESCAPE_LOW_HP:
+                    # Low HP in a crowd (09-27 13:19: ~30 Apparitions, no
+                    # landing with fewer monsters): still leave the attackers
+                    # for the least crowded open landing instead of tanking.
+                    candidates = landings(attackers, fewer=False) or landings(
+                        attackers, fewer=False, clearance=4
+                    )
         if not candidates:
             return None
         self.escape_context = {

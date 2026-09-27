@@ -39,6 +39,11 @@ from conquest.recovery import (
 # (and healing uses the 75% threshold), and how close counts as "the spot".
 ESCAPE_MEMORY_SECONDS = 4
 ESCAPE_KEEP_OUT_TILES = 5
+# Below this HP share within this long of a verified heal, potions are not
+# holding the fight: read a TwinCityGate scroll and restock instead.
+EMERGENCY_RETURN_HP = 0.30
+EMERGENCY_HEAL_WINDOW = 2.5
+EMERGENCY_SCROLL = 1060020
 
 
 def scatter_receipt_ready(
@@ -139,6 +144,18 @@ def scatter_attack_mode(config, speed, strategy, isolated, name):
     if strategy and isolated:
         return "left"
     return strategy.button(name) if strategy else config.attack_button
+
+
+def emergency_return_due(supervisor, hp, last_verified_heal, blocked_until, inventory, now):
+    """A heal just landed yet HP is under the line, and a scroll is carried."""
+    return (
+        supervisor is not None
+        and hasattr(supervisor, "emergency_return")
+        and hp < EMERGENCY_RETURN_HP
+        and now - last_verified_heal <= EMERGENCY_HEAL_WINDOW
+        and now >= blocked_until
+        and inventory.count(EMERGENCY_SCROLL) > 0
+    )
 
 
 def carried_potions(inventory, config):
@@ -341,6 +358,7 @@ def run_trial(
     )
     attempts, paused, last_pause_key = 0, False, False
     healing, last_heal, verified_heals = None, -float("inf"), 0
+    last_verified_heal, emergency_blocked_until = -float("inf"), 0.0
     focus_paused, waypoint, moving, movement_failures = False, 0, None, 0
     from conquest.region_rotation import RegionRotation
 
@@ -1053,9 +1071,30 @@ def run_trial(
                             break
                     else:
                         verified_heals += 1
+                        last_verified_heal = time.monotonic()
                     healing = None
                     if carried_potions(inventory, config) <= 0 and not supervisor:
                         reason = "potions_exhausted"
+                        break
+                if emergency_return_due(
+                    supervisor,
+                    hp,
+                    last_verified_heal,
+                    emergency_blocked_until,
+                    inventory,
+                    time.monotonic(),
+                ):
+                    # A heal just landed and HP is still sinking: potions no
+                    # longer hold this fight (09-27 11:39 and 13:19 deaths).
+                    # Leave by TwinCityGate rather than tank to death.
+                    try:
+                        receipt = supervisor.emergency_return()
+                    except (ValueError, OSError) as error:
+                        emergency_blocked_until = time.monotonic() + 10
+                        event("emergency_return_unavailable", detail=str(error))
+                    else:
+                        event("emergency_return", health_ratio=hp, receipt=receipt)
+                        reason = "emergency_return"
                         break
                 recently_escaped = bool(supervisor) and (
                     time.monotonic()
