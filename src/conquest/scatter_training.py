@@ -7,12 +7,12 @@ vector holding Scatter (MagicType 8001). Input goes through the qualified
 service actions. The only options pressed are one that names Scatter or, before
 it, a step whose text is about learning skills; anything else ends the attempt.
 
-ArcherGod stands in his own building (map 1004), whose terrain file the
-planner cannot read. Twin City portal 2 at (401, 387) leads in and lands at
-(37, 55), four tiles from him at (33, 53) (live 2026-09-27 13:02), inside the
-18-tile reach of his dialog. So the farmer never walks inside: it carries a
-TwinCityGate scroll (the only way back out), enters, talks from the landing,
-and always reads the scroll out again. Learning never blocks farming: an
+ArcherGod stands in his own building (map 1004, forum.DMap). Twin City portal
+2 at (401, 387) lands at (51, 70), 18 tiles from him at (33, 53): in range of
+his dialog but off screen, so the click missed the client (live 16:14). The
+farmer walks the building's terrain to (37, 55), four tiles from him, talks,
+and reads a TwinCityGate back out (Twin City travel never guesses a portal
+walk), so it carries one before going in. Learning never blocks farming: an
 unexpected dialog or an error is recorded, the farmer keeps leveling, and a
 later town visit retries.
 """
@@ -30,6 +30,8 @@ TRAINER = "ArcherGod"
 AUTO_VISIT_DEFAULT = True
 TRAINER_DOOR = 2  # Twin City portal id
 TRAINER_MAP = 1004
+# Walkable, four tiles from ArcherGod (live 2026-09-27 13:02).
+TRAINER_APPROACH = (37, 55)
 STATE = Path(state_path(".runtime/scatter-training.json"))
 # Retail Scatter level; the server decides (the client catalog has no level).
 SCATTER_LEVEL = 23
@@ -143,6 +145,7 @@ def _to_town(loop):
 
 def _leave(loop):
     """Read the scroll out of the building; raises if the farmer stays inside."""
+    from conquest import world_travel
     from conquest.return_scroll import return_to_town
 
     life = loop.living()["embedded_controls"]["life"]
@@ -152,6 +155,7 @@ def _leave(loop):
     return_to_town(loop)
     if loop.living()["embedded_controls"]["life"]["map_id"] == TRAINER_MAP:
         raise ValueError("Still inside ArcherGod's building: the return scroll failed")
+    loop.terrain = world_travel.read_terrain(world_travel.CLIENT_ROOT, 1002)
 
 
 def _dialog(loop):
@@ -193,7 +197,7 @@ def learn(loop):
             "scatter_trainer_departing",
             activity="Walking to ArcherGod to learn Scatter",
         )
-        cross_portal(loop, TRAINER_DOOR, TRAINER_MAP, read_destination=False)
+        cross_portal(loop, TRAINER_DOOR, TRAINER_MAP)
     try:
         return _talk(loop)
     finally:
@@ -201,7 +205,7 @@ def learn(loop):
 
 
 def _talk(loop):
-    """Learn Scatter in ArcherGod's dialog from where the farmer stands."""
+    """Walk up to ArcherGod and learn Scatter in his dialog."""
     if _locate(loop) is None:
         loop.record(
             "scatter_training_failed",
@@ -209,6 +213,7 @@ def _talk(loop):
             activity="Scatter: ArcherGod is not in sight; farming on",
         )
         return False
+    loop.travel(TRAINER_APPROACH, activity="Walking up to ArcherGod")
     loop.town("close", window="Shop")
     loop.town("close", window="Inventory")
     loop.town("service-open", name=TRAINER)

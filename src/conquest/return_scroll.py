@@ -20,8 +20,8 @@ PRE_INPUT_CHANGE = "Player or inventory changed before scroll input"
 SCROLL_ATTEMPTS = 3
 # Silver on hand before a second (spare) scroll is bought.
 SPARE_SCROLL_SILVER = 1000
-# Twin City buildings whose terrain the planner cannot read (ArcherGod's,
-# map 1004): a scroll is the way back out to the Twin City map.
+# Twin City buildings a scroll leaves (ArcherGod's, map 1004): Twin City
+# travel never guesses a portal walk.
 BUILDINGS = (1004,)
 
 

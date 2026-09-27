@@ -118,6 +118,14 @@ def test_installed_map_format_blocks_portals_and_solid_cells(tmp_path):
     (tmp_path / "test.DMap").write_bytes(header + cells[:20])
     with pytest.raises(ValueError, match="Truncated"):
         read_terrain(tmp_path, 1002)
+    # ArcherGod's building (forum.DMap) signs the header "DMAP101" instead of
+    # a version number, with the same layout; any other signature is refused.
+    signed = b"DMAP101\0" + header[8:]
+    (tmp_path / "test.DMap").write_bytes(signed + cells + tail)
+    assert read_terrain(tmp_path, 1002).portals == ((4, 4, 7),)
+    (tmp_path / "test.DMap").write_bytes(b"DMAP999\0" + header[8:] + cells + tail)
+    with pytest.raises(ValueError, match="DMap versions"):
+        read_terrain(tmp_path, 1002)
 
 
 def test_return_boundary_includes_terrain_detours_and_departure():

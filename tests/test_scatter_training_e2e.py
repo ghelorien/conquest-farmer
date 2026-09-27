@@ -6,9 +6,10 @@ person came by. Alex: keep them constantly doing something; once they reach
 Scatter level, farm with Scatter; at 23 "why are you not heading to archer god
 for a new skill?"
 
-ArcherGod stands in his own building (map 1004), whose terrain the planner
-cannot read. Twin City portal 2 lands four tiles from him, so the farmer talks
-from the landing and reads a TwinCityGate scroll back out.
+ArcherGod stands in his own building (map 1004). Twin City portal 2 lands at
+(51, 70), 18 tiles from him and off screen (live 16:14 the dialog click missed
+the client), so the farmer walks up to (37, 55) first and reads a TwinCityGate
+scroll back out afterwards.
 
 Ways this can fail:
 1. The farmer parks at the target level and stays idle (Farming Off).
@@ -16,7 +17,8 @@ Ways this can fail:
    skills is pressed (a guessed choice), or an input field is used.
 3. Success is claimed without the learned-skill vector proving Scatter.
 4. An unexpected dialog or an input error inside the building leaves the
-   farmer there: every visit must read the scroll back out.
+   farmer there: every visit must read the scroll back out. The dialog is
+   opened from the landing, 18 tiles away, instead of beside him.
 5. The farmer enters without a scroll to leave by (it cannot walk out).
 6. A failing trainer is retried on every town visit forever.
 7. The level goal stays active after the target level (gear trips forever).
@@ -94,6 +96,9 @@ class Trainer:
         if action == "service-open":
             if self.open_error:
                 raise ValueError(self.open_error)
+            x, y = self.position
+            if max(abs(x - 33), abs(y - 53)) > 8:
+                raise ValueError("Point is outside the game client")  # 16:14
             self.page = 0
             return {"interacted": True}
         if action == "service-dialog":
@@ -108,11 +113,11 @@ class Trainer:
             return {"interacted": True, "option": fields["option"]}
         return {"closed": True}
 
-    def enter(self, loop, portal_id, expected_map, *, read_destination=True):
-        assert (portal_id, expected_map, read_destination) == (2, 1004, False)
+    def enter(self, loop, portal_id, expected_map):
+        assert (portal_id, expected_map) == (2, 1004)
         assert self.scrolls, "never enter without the scroll that leads out"
         self.actions.append(["enter", portal_id])
-        self.map, self.position = 1004, [37, 55]
+        self.map, self.position = 1004, [51, 70]
 
     def read_scroll(self, loop):
         # The real return_to_town refuses inside Twin City town.
@@ -134,6 +139,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(scatter_training, "STATE", tmp_path / "scatter-training.json")
     monkeypatch.setattr(world_travel, "travel_to_map", lambda loop, map_id: None)
     monkeypatch.setattr("conquest.banking.ensure_transport", lambda loop, minimum: None)
+    monkeypatch.setattr(world_travel, "read_terrain", lambda root, map_id: NS(map_id=map_id))
     monkeypatch.setattr(level_goal, "back2classic", lambda: True)
     monkeypatch.setattr("conquest.dialog_geometry.scroll_direction", lambda *a: 0)
     clock = NS(now=1000.0)
@@ -154,8 +160,7 @@ def loop_for(trainer, monkeypatch):
     monkeypatch.setattr("conquest.return_scroll.return_to_town", trainer.read_scroll)
 
     def travel(target, **kw):
-        assert trainer.map == 1002, "no walking inside the building"
-        trainer.actions.append(["travel", list(target)])
+        trainer.actions.append(["travel", [trainer.map, *target]])
         trainer.position[:] = list(target)
 
     return NS(
@@ -189,6 +194,7 @@ def finish(world, trainer, monkeypatch):
         "learned": trainer.learned,
         "pressed": [o for a, o in trainer.actions if a == "service-select"],
         "entered": any(a == "enter" for a, _ in trainer.actions),
+        "walked_inside": [t for a, t in trainer.actions if a == "travel" and t[0] == 1004],
         "map_after": trainer.map,
         "scrolls_after": trainer.scrolls,
         "events": [
@@ -244,6 +250,7 @@ def test_scatter_training_e2e(world, monkeypatch):
     learns = rows["learns"]
     assert learns["learned"] and learns["pressed"] == ["Learn skills", "Scatter"]
     assert learns["entered"] and learns["scrolls_after"] == 0
+    assert learns["walked_inside"] == [[1004, 37, 55]]  # 4: beside him, on screen
     assert "scatter_learned" in learns["events"] and "level_goal_reached" in learns["events"]
     bought = rows["buys_exit_scroll"]
     assert bought["learned"] and bought["entered"] and bought["scrolls_after"] == 0
