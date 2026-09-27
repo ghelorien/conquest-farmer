@@ -84,7 +84,8 @@ def supply_counts(snapshot, route):
 
 
 def potion_reserve(route, departed=None):
-    """Potions kept for the walk back while the Back2Classic level goal runs.
+    """Potions kept for the walk back: while the level goal runs, and always
+    on Back2Classic.
 
     The walk from the low-level fields to Twin City takes minutes; leaving
     with none meant arriving (or dying) on an empty bar (09-27). A trip that
@@ -93,7 +94,7 @@ def potion_reserve(route, departed=None):
     """
     from conquest import level_goal
 
-    if not level_goal.goal():
+    if not level_goal.protections():
         return 0
     reserve = min(TRIP_POTION_RESERVE, route.supplies.healing_restock_to // 4)
     if departed is not None:

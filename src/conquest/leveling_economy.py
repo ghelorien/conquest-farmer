@@ -37,7 +37,8 @@ def economy_route(loop, level, selected, entry):
     from conquest import level_goal
     from conquest.leveling_routes import bracket, desired_route
 
-    if not level_goal.goal() or entry["levels"][0] <= 1:
+    # Back2Classic characters fund themselves after the goal ends too.
+    if not level_goal.protections() or entry["levels"][0] <= 1:
         return selected, entry
     previous = bracket(entry["levels"][0] - 1)
     if level > previous["levels"][1] + GRACE_LEVELS:

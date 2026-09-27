@@ -38,6 +38,14 @@ def back2classic():
     return bool(context and context.profile.server in FARMING_ONLY_SERVERS)
 
 
+def protections():
+    """Heal early and always jump away from damage: while the goal runs, and
+    on Back2Classic at every level, where a character funds itself on small
+    potions. The goal ends at level 23, which would otherwise drop the heal
+    threshold from 60% to the route's 40%, beside the 45% emergency scroll."""
+    return bool(goal()) or back2classic()
+
+
 _silver_cache = (-float("inf"), False)
 
 
