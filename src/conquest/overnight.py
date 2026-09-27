@@ -1266,6 +1266,11 @@ class OvernightLoop:
         # A restarted controller may inherit a shop left open by the failed run.
         self.town("close", window="Shop")
         self.town("close", window="Inventory")
+        from conquest.supply_plan import balance
+
+        # Learn the finished hunt and size potions against arrow packs before
+        # the withdrawal budget is computed from those targets.
+        balance(self)
         from conquest.banking import fund_restock
 
         fund_restock(self)
@@ -1424,6 +1429,9 @@ class OvernightLoop:
             checkpoint_verified_tail(self, "restock")
             visits.complete_town_work("restock")
         self.cycles += 1
+        from conquest.supply_plan import begin_hunt
+
+        begin_hunt(self.route.id, counts)
         self.record("restock_complete", supplies=counts)
 
     def resume_settled_town_work(self):
@@ -1908,6 +1916,8 @@ class OvernightLoop:
             equipped_ammo=supplies.get("equipped_ammo"),
         )
         target = refill_target(kind)
+        # A measured supply plan may carry fewer packs so more potions fit.
+        target = min(target, getattr(self, "planned_arrows", {}).get(kind, target))
         if (
             kind != self.route.supplies.arrow_type
             or target != self.route.supplies.arrows_restock_to
