@@ -146,15 +146,17 @@ def test_pharmacist_step_switches_route_tier_and_records(runtime):
     loop = NS(
         route=route,
         living=lambda: {"embedded_controls": {"life": {"max_hp": 90}}},
-        town=lambda action, **_: {"silver": 400},
+        town=lambda action, **_: (
+            {"products": products} if action == "shop" else {"silver": 400}
+        ),
         record=lambda event, **fields: events.append((event, fields)),
     )
     products = [{"type_id": 1000000}, {"type_id": 1000010}, {"type_id": 1000020}]
     # Without a goal the route's own potion is kept and made active.
-    assert level_goal.healing_type(loop, products) == 1000020
+    assert level_goal.healing_type(loop) == 1000020
     assert potion_tiers.active_type() == 1000020 and not events
     level_goal.start(23)
-    assert level_goal.healing_type(loop, products) == 1000000
+    assert level_goal.healing_type(loop) == 1000000
     assert loop.route.supplies.healing_type == 1000000
     assert potion_tiers.active_type() == 1000000
     assert events[-1][0] == "healing_tier_selected"

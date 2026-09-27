@@ -156,7 +156,7 @@ supplies:
   arrows_restock_to: 2000
   healing_type: 1000020
   healing_return_below: 1
-  healing_restock_to: 5
+  healing_restock_to: 20
   minimum_free_slots: 4
 equipment_review_levels:
 - 8

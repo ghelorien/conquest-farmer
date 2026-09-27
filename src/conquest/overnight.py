@@ -1180,7 +1180,7 @@ class OvernightLoop:
             from conquest.level_goal import healing_type
 
             # Choose the tier before selling: lower tiers become junk.
-            healing_type(self, self.town("shop", vendor_type=3)["products"])
+            healing_type(self)
             self.sell_junk(3)
             self.shopping_space(3, self.route.restock_anchor)
             for _ in range(30):
@@ -1566,7 +1566,7 @@ class OvernightLoop:
     def select_level_route(self, health=None):
         if not getattr(self, "auto_level", False):
             return False
-        from conquest.leveling_routes import read_level, desired_route
+        from conquest.leveling_routes import desired_route, hunting_level, read_level
 
         now = time.monotonic()
         if now < self.next_level_check:
@@ -1580,7 +1580,7 @@ class OvernightLoop:
             from conquest.session_plan import active_plan
 
             plan = active_plan()
-            selected, entry = desired_route(level)
+            selected, entry = desired_route(hunting_level(level))
             if plan:
                 selected = RouteLibrary().load(plan["route_id"])
                 if getattr(self, "reported_hold", None) != plan["started_at"]:

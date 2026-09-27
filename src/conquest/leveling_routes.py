@@ -30,6 +30,13 @@ def bracket(level, rows=None):
     )
 
 
+def hunting_level(level, rows=None):
+    """The level whose zone to hunt: reaching a bracket's top level moves on to
+    the next zone (user rule: Pheasants 1-6 hand over to Turtledoves at 6)."""
+    top = bracket(level, rows)["levels"][1]
+    return level + 1 if level == top and level < 140 else level
+
+
 def read_level(info, health):
     data = health["embedded_controls"]
     life = data.get("life")
@@ -39,22 +46,10 @@ def read_level(info, health):
         or not 0 <= time.time() - data.get("observed_at", 0) <= 1
     ):
         raise ValueError("Current living memory state required for route selection")
-    result = request(
-        info,
-        "sample",
-        {
-            "fields": [
-                {
-                    "name": "level",
-                    # Build 1078 player level (classic-1078-player-candidate
-                    # level_offset). +0x6E8 was the retired legacy build's.
-                    "address": hex(life["object_address"] + 0x6F8),
-                    "kind": "u32",
-                }
-            ]
-        },
-    )
-    level = result["fields"][0]["value"][0]
+    # The worker reads the level through the client build's qualified player
+    # layout and archer identity (1078 keeps it at +0x6F8). The fixed +0x6E8
+    # read 0 live, which silently rejected every automatic route change.
+    level = request(info, "town", {"action": "gear"})["level"]
     fresh = request(info, "health")["embedded_controls"]
     latest = fresh.get("life")
     if (

@@ -27,8 +27,9 @@ def test_level_read_rejects_stale_dead_or_changed_character(monkeypatch):
     }
 
     def request(info, operation, body=None):
-        if operation == "sample":
-            return {"fields": [{"value": [27]}]}
+        # The level comes from the worker's qualified gear read (+0x6F8).
+        if operation == "town" and body == {"action": "gear"}:
+            return {"level": 27}
         return state
 
     monkeypatch.setattr(lr, "request", request)
