@@ -390,9 +390,9 @@ def read_terrain(client_root, map_id):
     if len(matches) != 1:
         raise ValueError("Map ID must resolve to one installed map")
     data = client_file(client_root, matches[0]["FileName"]).read_bytes()
-    # Some maps (ArcherGod's building, map 1004 forum.DMap) sign the header
-    # with the text "DMAP101" in place of the version number; the layout after
-    # it is the same as 1003's (checked 2026-09-27: 96x96, one portal).
+    # Building interiors (map 1004, forum.DMap: ArcherGod's promotion house)
+    # carry the text tag "DMAP101" where versions 1003/1004 carry a number;
+    # the rest of the layout is the same (a 96x96 room, one doorway portal).
     if len(data) < 276 or (
         struct.unpack_from("<I", data)[0] not in (1003, 1004)
         and data[:8] != b"DMAP101\0"

@@ -120,21 +120,21 @@ def test_missing_scatter_disables_jump_route_setting():
     assert settings["jump_scatter"] is False and settings["attack_button"] == "left"
 
 
-def test_toxic_runs_measured_timings_and_observation_options_without_scatter_ones():
+def test_toxic_farms_scatter_exactly_like_the_measured_jump_scatter_profile():
+    # Alex, after teaching Toxic Scatter: "use scatter jump strategy now, no
+    # more left clicks ... as rapidly as you used to".
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1] / "profiles" / "farmers"
-    toxic = load_combat_speed("Toxic", root)
-    kilhiam = load_combat_speed("Kilhiam", root)
-    assert (toxic.jump_arrival_seconds, toxic.jump_attack_guard_seconds) == (
-        kilhiam.jump_arrival_seconds,
-        kilhiam.jump_attack_guard_seconds,
-    )
-    assert toxic.coherent_projection and toxic.selected_target_refresh
-    assert toxic.moving_observation_retry_seconds == 0.01
-    assert toxic.torn_life_attempts == 3
-    # A single-target archer is not pulled into denser groups before Scatter.
-    assert not toxic.cluster_lookahead and not toxic.scatter_during_jump
+    assert load_combat_speed("Toxic", root) == load_combat_speed("Parasite", root)
+    assert load_combat_speed("Toxic", root).force_jump_scatter is True
+
+
+def test_leveling_scatter_routes_jump_scatter():
+    from conquest.routes import RouteLibrary
+
+    for route_id in ("apparition", "poltergeist", "wingedsnake"):
+        assert RouteLibrary().load(route_id).jump_scatter is True, route_id
 
 
 @pytest.mark.parametrize(
