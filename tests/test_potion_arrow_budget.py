@@ -8,6 +8,9 @@ Failure modes (written before the change):
 3. The cap fires when arrows are not short.
 4. An unknown arrow or potion price invents a reserve.
 5. The arrow price comes from anything but a verified purchase of that type.
+6. "Short" means only under the return threshold (3 arrows), so a farmer
+   with less than one pack is left unable to buy it (live 2026-09-27 15:20:
+   53 arrows, 385 silver, 15 cheap potions bought, 193 left for a 200 pack).
 """
 
 import json
@@ -46,6 +49,18 @@ def test_no_cap_before_a_safe_hunt_of_potions():
 
 def test_no_cap_when_arrows_are_not_short():
     assert not potion_budget_reached(counts(arrows=500, silver=210), ROUTE, 60, 200)
+    # One full LuckyArrow pack (200) carried is not short.
+    assert not potion_budget_reached(counts(arrows=200, silver=210), ROUTE, 60, 200)
+
+
+def test_less_than_a_pack_keeps_the_pack_price():
+    # 6: the live 15:20 restock, Resolutives at 18.
+    silver, potions, bought = 385, 5, 0
+    while not potion_budget_reached(
+        counts(arrows=53, potions=potions, silver=silver), ROUTE, 18, 200
+    ):
+        silver, potions, bought = silver - 18, potions + 1, bought + 1
+    assert silver >= 200 and potions >= SAFE_HUNT_POTIONS and bought == 10
 
 
 def test_unknown_prices_keep_the_old_behaviour():
