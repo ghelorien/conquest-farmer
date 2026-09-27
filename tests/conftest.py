@@ -79,6 +79,10 @@ def isolate_live_session_plan(tmp_path, monkeypatch):
 
     monkeypatch.setattr(level_goal, "GOAL", tmp_path / "level-goal.json")
     monkeypatch.setattr(potion_tiers, "TIER", tmp_path / "healing-tier.json")
+    # Every restock learns and plans supplies in .runtime/supply-rates.json.
+    from conquest import supply_plan
+
+    monkeypatch.setattr(supply_plan, "RATES", tmp_path / "supply-rates.json")
     from conquest import safe_reload
 
     monkeypatch.setattr(safe_reload, "RESUME", tmp_path / "reload-resume.json")

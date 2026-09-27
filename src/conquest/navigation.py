@@ -529,12 +529,22 @@ def rejoin_path(terrain, path, position, *, avoid=(), reach=3):
     return None
 
 
+# Search budget for walking to a far hunting field. Twin City to the
+# Poltergeist field is ~1,010 tiles around the river and needs more than the
+# default 250,000 nodes; every trial then failed at once and the farmer stood
+# in town whenever the Conductress was unavailable (live 2026-09-27 14:50).
+# On the flat grid that walk plans in ~0.65 s.
+FIELD_TRAVEL_LIMIT = 2_000_000
+
+
 def hunting_return_path(terrain, position, anchor, hunting_boundary):
     """A checked path back to the saved hunting spot and a boundary around it."""
     left, top, right, bottom = hunting_boundary
     if not (left <= anchor[0] <= right and top <= anchor[1] <= bottom):
         raise ValueError("Saved hunting spot is outside the hunting boundary")
-    path = terrain.travel_path(tuple(position), tuple(anchor))
+    path = terrain.travel_path(
+        tuple(position), tuple(anchor), limit=FIELD_TRAVEL_LIMIT
+    )
     return path, path_boundary(path, (terrain.width, terrain.height))
 
 

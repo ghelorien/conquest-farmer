@@ -594,8 +594,10 @@ def test_long_approach_budget_and_cache_follow_fresh_position(monkeypatch):
     calls = []
 
     def path(source, destination, limit, **kwargs):
+        from conquest.navigation import FIELD_TRAVEL_LIMIT
+
         calls.append((source, limit, kwargs))
-        assert limit == 250000
+        assert limit == FIELD_TRAVEL_LIMIT
         return [(x, 10) for x in range(source[0], 41)]
 
     supervisor.recovery.terrain = SimpleNamespace(path=path)

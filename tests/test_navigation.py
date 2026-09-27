@@ -352,6 +352,22 @@ def test_hunting_return_path_is_one_plan_with_a_containing_boundary():
     )
     with pytest.raises(ValueError, match="outside the hunting boundary"):
         hunting_return_path(terrain, (20, 10), (20, 10), (5, 5, 12, 12))
+    # Twin City to the Poltergeist field needs more than the default budget.
+    from conquest.navigation import FIELD_TRAVEL_LIMIT
+
+    budgets = []
+    fake = NS_terrain = type(
+        "Fake",
+        (),
+        {
+            "width": 30,
+            "height": 30,
+            "travel_path": lambda self, a, b, limit=250000: budgets.append(limit)
+            or [a, b],
+        },
+    )()
+    hunting_return_path(fake, (20, 10), (10, 10), (5, 5, 12, 12))
+    assert budgets == [FIELD_TRAVEL_LIMIT] and FIELD_TRAVEL_LIMIT > 250000
 
 
 def test_short_corner_uses_running_destination_clear_of_player_sprite():
