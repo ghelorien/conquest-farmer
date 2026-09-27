@@ -20,6 +20,17 @@ PRE_INPUT_CHANGE = "Player or inventory changed before scroll input"
 SCROLL_ATTEMPTS = 3
 # Silver on hand before a second (spare) scroll is bought.
 SPARE_SCROLL_SILVER = 1000
+# Twin City buildings whose terrain the planner cannot read (ArcherGod's,
+# map 1004): a scroll is the way back out to the Twin City map.
+BUILDINGS = (1004,)
+
+
+def may_read(life):
+    """Whether a scroll may be read here: outside town on the Twin City map,
+    or inside one of its buildings."""
+    if life.map_id in BUILDINGS:
+        return True
+    return life.map_id == 1002 and not in_town(life)
 
 
 def settle(loop, seconds=4.0, steady=0.6):
@@ -84,7 +95,7 @@ def use(trade):
     from conquest.discard_loot import inventory_button
 
     source = trade.life(any_map=True)
-    if source.map_id != 1002 or in_town(source):
+    if not may_read(source):
         raise ValueError(
             "TwinCityGate qualification requires being outside town on Twin City map"
         )
@@ -240,7 +251,7 @@ def return_to_town(loop):
     life = loop.living()["embedded_controls"]["life"]
     from types import SimpleNamespace
 
-    if life["map_id"] != 1002 or in_town(SimpleNamespace(**life)):
+    if not may_read(SimpleNamespace(**life)):
         return False
     bag = loop.town("supplies")
     if not any(i["type_id"] == TYPE and i["amount"] > 0 for i in bag["items"]):

@@ -72,7 +72,13 @@ def approach_portal(terrain, source, portal_id):
     raise ValueError("No walkable approach to this portal")
 
 
-def cross_portal(loop, portal_id, expected_map=None):
+def cross_portal(loop, portal_id, expected_map=None, *, read_destination=True):
+    """Enter a portal and confirm the arrival map by memory.
+
+    ``read_destination=False`` is for a building whose terrain the planner
+    cannot read (ArcherGod's, map 1004): no edge is saved, ``loop.terrain``
+    keeps the source map, and the farmer must not walk until it is back.
+    """
     before = loop.living()["embedded_controls"]["life"]
     source_map = before["map_id"]
     actor = before["object_address"]
@@ -131,6 +137,14 @@ def cross_portal(loop, portal_id, expected_map=None):
         raise ValueError(
             f"Portal destination changed: expected {expected_map}, observed {arrival['map_id']}"
         )
+    if not read_destination:
+        loop.record(
+            "map_arrived",
+            map_id=arrival["map_id"],
+            position=arrival["position"],
+            activity=f"Arrived on map {arrival['map_id']}",
+        )
+        return None
     destination = read_terrain(CLIENT_ROOT, arrival["map_id"])
     edge = {
         "source_map": source_map,
@@ -171,6 +185,14 @@ def travel_to_map(loop, destination):
             return
         if life["map_id"] == 1036:
             return_from_market(loop, destination)
+            continue
+        from conquest.return_scroll import BUILDINGS, return_to_town
+
+        if life["map_id"] in BUILDINGS and destination == 1002:
+            # A Twin City building has no readable terrain: a scroll leaves it
+            # (a farmer left inside ArcherGod's by a failed visit).
+            if not return_to_town(loop):
+                raise ValueError("A TwinCityGate scroll is needed to leave this building")
             continue
         edge = connection_path(life["map_id"], destination)[0]
         terrain = read_terrain(CLIENT_ROOT, life["map_id"])

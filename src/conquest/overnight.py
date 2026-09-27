@@ -1464,8 +1464,6 @@ class OvernightLoop:
 
         if scatter_training.due(self):
             scatter_training.attempt(self)
-        elif scatter_training.scout_due(self):
-            scatter_training.prepare(self)
         self.optional_town_service()
         if visits is not None:
             from conquest.town_visit import checkpoint_verified_tail
