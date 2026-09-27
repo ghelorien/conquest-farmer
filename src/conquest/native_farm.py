@@ -1427,10 +1427,12 @@ class NativeFarmSupervisor:
                         if not chase
                         else terrain.path
                     )
+                    from conquest.navigation import FIELD_TRAVEL_LIMIT
+
                     path = planner(
                         position,
                         destination,
-                        limit=250000 if not chase else 10000,
+                        limit=FIELD_TRAVEL_LIMIT if not chase else 10000,
                         **({"avoid": avoid} if avoid else {}),
                     )
                 if not chase:
