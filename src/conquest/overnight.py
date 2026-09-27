@@ -1409,6 +1409,10 @@ class OvernightLoop:
         from conquest.level_goal import mark_reviewed
 
         mark_reviewed(getattr(self, "last_level", 0))
+        from conquest import scatter_training
+
+        if scatter_training.due(self):
+            scatter_training.attempt(self)
         self.optional_town_service()
         if visits is not None:
             from conquest.town_visit import checkpoint_verified_tail

@@ -5,7 +5,8 @@ the level). On top of it this mode:
 - sends the farmer to town every GEAR_STEP levels so the normal restock
   reviews and buys gear upgrades, even when supplies are not yet exhausted;
 - picks the Pharmacist potion that fits the character's maximum HP;
-- stops in town at the target level and reports it.
+- at the target level, learns Scatter in town (scatter_training) and keeps
+  leveling with it instead of parking.
 """
 
 import time
@@ -171,7 +172,13 @@ def healing_type(loop):
 
 
 def finish_in_town(loop):
-    """Park in the restock town at the target level; the route then ends."""
+    """At the target level: walk to town, learn Scatter, keep leveling.
+
+    The goal ends in town. Scatter is learned there from ArcherGod
+    (scatter_training, memory-proven); when that is not possible yet, a
+    later town visit retries. Either way the route carries on with automatic
+    leveling instead of parking idle, so this returns False.
+    """
     data = goal()
     if not data:
         return False
@@ -197,16 +204,25 @@ def finish_in_town(loop):
         or not (left <= x <= right and top <= y <= bottom)
     ):
         raise ValueError("Level goal completion requires a living character in town")
-    data.update(active=False, reached_level=loop.last_level, reached_at=time.time())
+    from conquest import scatter_training
+
+    learned = scatter_training.attempt(loop)
+    data.update(
+        active=False,
+        reached_level=loop.last_level,
+        reached_at=time.time(),
+        scatter_learned=learned,
+    )
     write_json(GOAL, data)
-    loop.phase = "completed"
     loop.record(
         "level_goal_reached",
         level=loop.last_level,
         target_level=data["target_level"],
+        scatter_learned=learned,
         activity=(
-            f"Level goal complete: level {loop.last_level}; parked in town. "
-            "Learn Scatter at the Archer trainer."
+            f"Level goal complete: level {loop.last_level}; "
+            + ("Scatter learned" if learned else "Scatter still to learn")
+            + "; leveling on"
         ),
     )
-    return True
+    return False
