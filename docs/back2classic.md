@@ -38,11 +38,13 @@ the monster bracket in `profiles/leveling-presets.json`.
 - **Jump away from the first hit.** With the goal active, jump-away escape
   is on for every route (Pheasant and Turtledove had it off). It jumps 8-12
   tiles to open, walkable ground at least 6 tiles from every monster near
-  the farmer as soon as any damage is taken (or two monsters stand
-  adjacent), then keeps shooting from there. Alex, 2026-09-27: "don't tank a
-  few hits before jumping. React fast." Tanking hits under the former 10%
-  threshold (a typical Apparition hit is 9% of max HP at level 18) cost
-  potions and town trips.
+  the farmer as soon as a hit takes more than 1% of max HP (or two monsters
+  stand adjacent), then keeps shooting from there. In a crowd with no such
+  landing it still jumps 6+ tiles clear of the monsters hitting it. Alex,
+  2026-09-27: "As soon as you get attacked by damage that is over 1% of max
+  hp jump away and start attacking back don't tank a few hits before
+  jumping." Tanking hits under the former 10% threshold (a typical
+  Apparition hit is 9% of max HP at level 18) cost potions and town trips.
 
 ## Fixed on the way
 

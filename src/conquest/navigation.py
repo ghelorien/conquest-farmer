@@ -110,41 +110,25 @@ class TerrainMap:
         raise ValueError("No traversable route between the endpoints")
 
     def travel_path(self, start, goal, *, avoid=(), limit=250000):
-        """Route in eight directions, then remove terrain-visible detours."""
+        """Route in eight directions, then remove terrain-visible detours.
+
+        The search, its tie-breaking and the result are those of calling
+        clear_segment for every step, on a flat grid of open cells instead:
+        tuple and numpy lookups made a 600-tile Twin City return take
+        2.5-5.6 s per plan (live 2026-09-27).
+        """
         start, goal = tuple(start), tuple(goal)
         excluded = set(map(tuple, avoid))
         if not self.walkable(start) or not self.walkable(goal) or goal in excluded:
             raise ValueError("Route endpoint is blocked or outside the map")
         if clear_segment(self, start, goal, avoid=excluded):
             return line_tiles(start, goal)
-        h = lambda p: max(abs(p[0] - goal[0]), abs(p[1] - goal[1]))
-        heap = [(h(start), 0, start)]
-        costs = {start: 0}
-        previous = {}
-        visited = 0
-        while heap:
-            _, cost, point = heapq.heappop(heap)
-            if costs.get(point) != cost:
-                continue
-            if point == goal:
-                path = [goal]
-                while path[-1] != start:
-                    path.append(previous[path[-1]])
-                path.reverse()
-                result = [start]
-                index = 0
-                while index < len(path) - 1:
-                    end = len(path) - 1
-                    while end > index + 1 and not clear_segment(
-                        self, path[index], path[end], avoid=excluded
-                    ):
-                        end -= 1
-                    result.extend(line_tiles(path[index], path[end])[1:])
-                    index = end
-                return result
-            visited += 1
-            if visited > limit:
-                raise ValueError("Route search exceeded its node budget")
+        grid, stride = open_grid(self, excluded)
+        (sx, sy), (gx, gy) = start, goal
+        origin = (sy + 1) * stride + sx + 1
+        target = (gy + 1) * stride + gx + 1
+        steps = tuple(
+            (dx, dy, dy * stride + dx)
             for dx, dy in (
                 (1, 0),
                 (-1, 0),
@@ -154,16 +138,55 @@ class TerrainMap:
                 (1, -1),
                 (-1, 1),
                 (-1, -1),
-            ):
-                neighbor = (point[0] + dx, point[1] + dy)
-                if not clear_segment(self, point, neighbor, avoid=excluded):
+            )
+        )
+        pop, push, inf = heapq.heappop, heapq.heappush, float("inf")
+        heap = [(max(abs(sx - gx), abs(sy - gy)), 0, sx, sy)]
+        costs = {origin: 0}
+        previous = {}
+        visited = 0
+        while heap:
+            _, cost, x, y = pop(heap)
+            here = (y + 1) * stride + x + 1
+            if costs.get(here) != cost:
+                continue
+            if here == target:
+                break
+            visited += 1
+            if visited > limit:
+                raise ValueError("Route search exceeded its node budget")
+            if not grid[here]:
+                continue  # An avoided start: every step from it is refused.
+            cost += 1
+            for dx, dy, step in steps:
+                there = here + step
+                # A diagonal step also needs both cells beside its corner.
+                if not grid[there] or (
+                    dx and dy and not (grid[here + dx] and grid[here + dy * stride])
+                ):
                     continue
-                candidate = cost + 1
-                if candidate < costs.get(neighbor, float("inf")):
-                    costs[neighbor] = candidate
-                    previous[neighbor] = point
-                    heapq.heappush(heap, (candidate + h(neighbor), candidate, neighbor))
-        raise ValueError("No traversable route between the endpoints")
+                if cost < costs.get(there, inf):
+                    costs[there] = cost
+                    previous[there] = here
+                    nx, ny = x + dx, y + dy
+                    push(heap, (cost + max(abs(nx - gx), abs(ny - gy)), cost, nx, ny))
+        else:
+            raise ValueError("No traversable route between the endpoints")
+        cells = [target]
+        while cells[-1] != origin:
+            cells.append(previous[cells[-1]])
+        path = [(cell % stride - 1, cell // stride - 1) for cell in reversed(cells)]
+        result = [start]
+        index = 0
+        while index < len(path) - 1:
+            end = len(path) - 1
+            while end > index + 1 and not open_line(
+                grid, stride, path[index], path[end]
+            ):
+                end -= 1
+            result.extend(line_tiles(path[index], path[end])[1:])
+            index = end
+        return result
 
 
 def line_tiles(start, end):
@@ -175,6 +198,46 @@ def line_tiles(start, end):
         (start[0] + round(dx * i / length), start[1] + round(dy * i / length))
         for i in range(length + 1)
     ]
+
+
+def open_grid(terrain, excluded=()):
+    """Walkable, not excluded cells as a flat bytearray with a closed border.
+
+    Cell (x, y) is at (y + 1) * stride + x + 1, so every neighbour of a map
+    cell is inside the array. Built per call: callers may edit ``blocked``.
+    """
+    stride = terrain.width + 2
+    cells = np.zeros((terrain.height + 2, stride), dtype=np.uint8)
+    cells[1:-1, 1:-1] = np.logical_not(
+        np.asarray(terrain.blocked)[: terrain.height, : terrain.width]
+    )
+    grid = bytearray(cells.tobytes())
+    for point in excluded:
+        x, y = point
+        if x == int(x) and y == int(y) and terrain.walkable((int(x), int(y))):
+            grid[(int(y) + 1) * stride + int(x) + 1] = 0
+    return grid, stride
+
+
+def open_line(grid, stride, start, end):
+    """clear_segment on an open_grid: the same cells and corner rule."""
+    x0, y0 = start
+    dx, dy = end[0] - x0, end[1] - y0
+    length = max(abs(dx), abs(dy))
+    if not grid[(y0 + 1) * stride + x0 + 1]:
+        return False
+    px, py = x0, y0
+    for i in range(1, length + 1):
+        x, y = x0 + round(dx * i / length), y0 + round(dy * i / length)
+        row = (y + 1) * stride + 1
+        if not grid[row + x]:
+            return False
+        if x != px and y != py and not (
+            grid[row + px] and grid[(py + 1) * stride + x + 1]
+        ):
+            return False
+        px, py = x, y
+    return True
 
 
 def clear_segment(terrain, start, end, *, avoid=()):
@@ -434,12 +497,37 @@ def path_boundary(path, map_size, padding=12):
     )
 
 
-def plan_hunting_return(terrain, position, anchor, hunting_boundary):
-    """Recover a same-map excursion by following a checked path to the saved spot."""
+def rejoin_path(terrain, path, position, *, avoid=(), reach=3):
+    """The rest of a checked path from a tile on it or a few tiles beside it.
+
+    A landing a tile or two off the planned line (a shortened jump, an
+    escape) rejoins the plan at its farthest tile in straight clear reach
+    instead of planning the whole route again. None when no tile is close.
+    """
+    position = tuple(position)
+    if position in path:
+        return list(path[path.index(position) :])
+    for index in range(len(path) - 1, -1, -1):
+        tile = tuple(path[index])
+        if max(abs(tile[0] - position[0]), abs(tile[1] - position[1])) <= reach and (
+            clear_segment(terrain, position, tile, avoid=avoid)
+        ):
+            return line_tiles(position, tile) + list(path[index + 1 :])
+    return None
+
+
+def hunting_return_path(terrain, position, anchor, hunting_boundary):
+    """A checked path back to the saved hunting spot and a boundary around it."""
     left, top, right, bottom = hunting_boundary
     if not (left <= anchor[0] <= right and top <= anchor[1] <= bottom):
         raise ValueError("Saved hunting spot is outside the hunting boundary")
     path = terrain.travel_path(tuple(position), tuple(anchor))
+    return path, path_boundary(path, (terrain.width, terrain.height))
+
+
+def plan_hunting_return(terrain, position, anchor, hunting_boundary):
+    """Recover a same-map excursion by following a checked path to the saved spot."""
+    path, _ = hunting_return_path(terrain, position, anchor, hunting_boundary)
     points = []
     index = 0
     while index < len(path) - 1:

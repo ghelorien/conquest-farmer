@@ -198,9 +198,37 @@ def test_e2e_ladder_to_scatter_artifact(runtime):
     assert [r["potion"] for r in timeline if r["step"] == "gear"][-1] == "Painkiller"
 
 
-# Alex: "As soon as you get attacked ... don't tank a few hits before jumping.
-# React fast." It replaced the former 10%-of-max-HP bar, which a typical 9%
-# Apparition hit never reached (live 2026-09-27: 43% of hits got no jump).
+# Alex: "As soon as you get attacked by damage that is over 1% of max hp jump
+# away and start attacking back don't tank a few hits before jumping."
+def test_a_hit_over_one_percent_of_max_hp_calls_for_a_jump(monkeypatch):
+    from dataclasses import replace
+    from test_native_farm import Life, setup
+    from conquest import native_farm
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    clock = [100.0]
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: clock[0])
+    life = Life(current_hp=300, max_hp=300, dead_candidate=False, position=(20, 20))
+    supervisor.note_health(life)
+    supervisor.note_health(replace(life, current_hp=297))  # exactly 1%: no
+    supervisor.note_health(replace(life, current_hp=300))  # healing: no
+    assert supervisor.last_damage_at == -float("inf")
+    clock[0] = 101.0
+    supervisor.note_health(replace(life, current_hp=296))  # 1.3%: a hit
+    assert supervisor.last_damage_at == 101.0
+    # The very next escape check jumps.
+    supervisor.scene_timestamp = 101.0
+    supervisor.escape_monsters = (NS(position=(21, 20)),)
+    supervisor.recovery.terrain = NS(walkable=lambda p: True)
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is not None
+    # A death is not a hit to jump from.
+    clock[0] = 110.0
+    supervisor.note_health(replace(life, current_hp=0, dead_candidate=True))
+    assert supervisor.last_damage_at == 101.0
+
+
+# It replaced the former 10%-of-max-HP bar, which a typical 9% Apparition hit
+# never reached (live 2026-09-27: 43% of hits got no jump).
 def test_jumps_away_on_the_first_hit(monkeypatch):
     from test_native_farm import setup
     from conquest import native_farm

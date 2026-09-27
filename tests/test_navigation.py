@@ -203,6 +203,144 @@ def test_scene_collision_connects_bridge_and_keeps_portals_blocked(tmp_path, por
         read_terrain(tmp_path, 1002)
 
 
+def reference_travel_path(terrain, start, goal, *, avoid=(), limit=250000):
+    """TerrainMap.travel_path before its flat-grid rewrite (2026-09-27)."""
+    import heapq
+    from conquest.navigation import clear_segment, line_tiles
+
+    start, goal = tuple(start), tuple(goal)
+    excluded = set(map(tuple, avoid))
+    if not terrain.walkable(start) or not terrain.walkable(goal) or goal in excluded:
+        raise ValueError("Route endpoint is blocked or outside the map")
+    if clear_segment(terrain, start, goal, avoid=excluded):
+        return line_tiles(start, goal)
+    h = lambda p: max(abs(p[0] - goal[0]), abs(p[1] - goal[1]))
+    heap = [(h(start), 0, start)]
+    costs = {start: 0}
+    previous = {}
+    visited = 0
+    while heap:
+        _, cost, point = heapq.heappop(heap)
+        if costs.get(point) != cost:
+            continue
+        if point == goal:
+            path = [goal]
+            while path[-1] != start:
+                path.append(previous[path[-1]])
+            path.reverse()
+            result = [start]
+            index = 0
+            while index < len(path) - 1:
+                end = len(path) - 1
+                while end > index + 1 and not clear_segment(
+                    terrain, path[index], path[end], avoid=excluded
+                ):
+                    end -= 1
+                result.extend(line_tiles(path[index], path[end])[1:])
+                index = end
+            return result
+        visited += 1
+        if visited > limit:
+            raise ValueError("Route search exceeded its node budget")
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            neighbor = (point[0] + dx, point[1] + dy)
+            if not clear_segment(terrain, point, neighbor, avoid=excluded):
+                continue
+            candidate = cost + 1
+            if candidate < costs.get(neighbor, float("inf")):
+                costs[neighbor] = candidate
+                previous[neighbor] = point
+                heapq.heappush(heap, (candidate + h(neighbor), candidate, neighbor))
+    raise ValueError("No traversable route between the endpoints")
+
+
+def outcome(planner, *args, **kwargs):
+    try:
+        return planner(*args, **kwargs)
+    except ValueError as error:
+        return ("error", str(error))
+
+
+# The flat-grid search must return exactly what the per-step clear_segment
+# search did: every caller (town travel, merchants, hunting returns) keeps
+# its routes, only faster (a 600-tile Twin City route: 2.5-5.6 s -> 0.3 s).
+def test_flat_grid_travel_path_matches_the_original_search():
+    import random
+
+    rng = random.Random(1078)
+    for _ in range(80):
+        width, height = rng.randint(6, 36), rng.randint(6, 36)
+        blocked = np.array(
+            [[rng.random() < rng.choice((0.15, 0.3, 0.45)) for _ in range(width)]
+             for _ in range(height)]
+        )
+        terrain = TerrainMap(1002, width, height, blocked, "", (), ())
+        free = [(x, y) for y in range(height) for x in range(width) if not blocked[y, x]]
+        if len(free) < 2:
+            continue
+        for _ in range(6):
+            start, goal = rng.choice(free), rng.choice(free)
+            avoid = set(rng.sample(free, k=min(len(free), rng.randint(0, 8))))
+            avoid |= {(-1, 3), (width, 0), (2.5, 1)}  # off-map and odd points
+            for kwargs in (
+                {},
+                {"avoid": avoid},
+                {"avoid": avoid | {start}},  # an avoided start
+                {"limit": rng.randint(0, 40)},
+            ):
+                assert outcome(terrain.travel_path, start, goal, **kwargs) == outcome(
+                    reference_travel_path, terrain, start, goal, **kwargs
+                )
+        # The same map, edited after construction, is read afresh.
+        terrain.blocked[:, width // 2] = True
+        start, goal = free[0], free[-1]
+        assert outcome(terrain.travel_path, start, goal) == outcome(
+            reference_travel_path, terrain, start, goal
+        )
+
+
+def test_off_line_landing_rejoins_the_planned_path():
+    from conquest.navigation import clear_segment, rejoin_path
+
+    blocked = np.zeros((40, 40), dtype=bool)
+    blocked[10:30, 20] = True  # a wall beside part of the route
+    terrain = TerrainMap(1002, 40, 40, blocked, "", (), ())
+    path = [(x, 5) for x in range(5, 35)] + [(34, y) for y in range(6, 30)]
+    # On the path: the rest of it.
+    assert rejoin_path(terrain, path, (10, 5)) == path[5:]
+    # Two tiles off: the farthest path tile in clear reach, then the rest.
+    rejoined = rejoin_path(terrain, path, (12, 7))
+    assert rejoined[0] == (12, 7) and rejoined[-1] == (34, 29)
+    joined = next(i for i, p in enumerate(rejoined) if p in path)
+    assert rejoined[joined:] == path[path.index(rejoined[joined]) :]
+    assert path.index(rejoined[joined]) == path.index((15, 5))  # 3 tiles reach
+    assert all(clear_segment(terrain, a, b) for a, b in zip(rejoined, rejoined[1:]))
+    # Too far from every path tile, or only across a wall: plan again.
+    assert rejoin_path(terrain, path, (12, 12)) is None
+    wall_side = [(19, y) for y in range(10, 30)]
+    assert rejoin_path(terrain, wall_side, (21, 20)) is None
+    # An avoided tile (or corner) on the straight line rules that tile out.
+    assert rejoin_path(terrain, path, (12, 8), avoid={(14, 6)}) == (
+        [(12, 8), (12, 7), (13, 6), (13, 5)] + path[path.index((13, 5)) + 1 :]
+    )
+
+
+def test_hunting_return_path_is_one_plan_with_a_containing_boundary():
+    from conquest.navigation import hunting_return_path
+
+    blocked = np.zeros((30, 30), dtype=bool)
+    blocked[:15, 15] = True
+    terrain = TerrainMap(1002, 30, 30, blocked, "test", (), ())
+    path, boundary = hunting_return_path(terrain, (20, 10), (10, 10), (5, 5, 12, 12))
+    assert path == terrain.travel_path((20, 10), (10, 10))
+    assert all(
+        boundary[0] <= x <= boundary[2] and boundary[1] <= y <= boundary[3]
+        for x, y in path
+    )
+    with pytest.raises(ValueError, match="outside the hunting boundary"):
+        hunting_return_path(terrain, (20, 10), (20, 10), (5, 5, 12, 12))
+
+
 def test_short_corner_uses_running_destination_clear_of_player_sprite():
     from conquest.navigation import native_waypoint
 
