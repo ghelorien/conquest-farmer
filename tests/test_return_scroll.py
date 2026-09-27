@@ -64,48 +64,47 @@ def test_a_scroll_reads_outside_town_or_where_twin_city_is_a_scroll_away():
     assert not r.may_read(NS(map_id=1036, position=(100, 100)))  # Market
 
 
-def test_phoenix_to_twin_city_buys_a_scroll_there_when_none_is_carried(monkeypatch):
+def test_phoenix_to_twin_city_reads_a_carried_scroll_else_walks_the_portal(monkeypatch):
     # Suicide reached level 26 at 17:28 and the brackets took it to Phoenix
     # Castle; Scatter farming then wants the Poltergeists back in Twin City.
+    # Phoenix's Pharmacist sells CastleGate, not TwinCityGate (live 17:43).
     from conquest import world_travel
 
-    state = {"map": 1011, "scrolls": 0, "silver": 3117, "calls": []}
-
-    def town(action, **kw):
-        state["calls"].append(action)
-        if action == "supplies":
-            items = [{"type_id": r.TYPE, "amount": state["scrolls"]}] if state["scrolls"] else []
-            return {"items": items, "silver": state["silver"]}
-        if action == "shop":
-            return {"products": [{"type_id": r.TYPE, "price": 200}]}
-        if action == "buy":
-            assert state["map"] == 1011 and kw == {"vendor_type": 3, "type_id": r.TYPE}
-            state.update(scrolls=1, silver=state["silver"] - 200)
-            return {"bought": r.TYPE, "price": 200}
-        return {}
+    state = {"map": 1011, "scroll": True, "calls": []}
 
     def read_scroll(loop):
-        assert state["scrolls"] == 1
-        state.update(scrolls=0, map=1002)
+        if not state["scroll"]:
+            return False
+        state.update(scroll=False, map=1002)
         state["calls"].append("scroll")
         return True
 
+    def walk_portal(loop, portal_id, expected):
+        state["calls"].append(f"portal:{portal_id}")
+        state["map"] = expected
+
+    edge = dict(
+        source_map=1011,
+        destination_map=1002,
+        portal_id=0,
+        portal_position=[5, 376],
+        source_terrain_sha256="same",
+        destination_terrain_sha256="same",
+    )
+    terrain = NS(map_id=1011, source_sha256="same", portals=((5, 376, 0),))
     monkeypatch.setattr(r, "return_to_town", read_scroll)
-    monkeypatch.setattr(
-        "conquest.city_travel.city_for",
-        lambda map_id: {"services": {"pharmacist": [180, 245]}},
-    )
-    monkeypatch.setattr(world_travel, "read_terrain", lambda root, map_id: NS(map_id=map_id))
-    loop = NS(
-        town=town,
-        travel=lambda target, **kw: state["calls"].append(f"travel:{list(target)}"),
-        record=lambda *a, **k: None,
-        living=lambda: {"embedded_controls": {"life": {"map_id": state["map"]}}},
-    )
+    monkeypatch.setattr(world_travel, "connection_path", lambda *a: [edge])
+    monkeypatch.setattr(world_travel, "read_terrain", lambda root, map_id: terrain)
+    monkeypatch.setattr(world_travel, "cross_portal", walk_portal)
+    monkeypatch.setattr("conquest.city_travel.city_for", lambda map_id: {})
+    monkeypatch.setattr("conquest.city_travel.ensure_city_visit", lambda *a, **k: None)
+    monkeypatch.setattr("conquest.conductress.take_saved_trip", lambda loop, d: False)
+    loop = NS(living=lambda: {"embedded_controls": {"life": {"map_id": state["map"]}}})
     world_travel.travel_to_map(loop, 1002)
-    assert state["map"] == 1002 and state["silver"] == 2917
-    assert "travel:[180, 245]" in state["calls"]
-    assert state["calls"].index("buy") < state["calls"].index("scroll")
+    assert state["calls"] == ["scroll"]
+    state.update(map=1011, calls=[])
+    world_travel.travel_to_map(loop, 1002)  # no scroll left
+    assert state["calls"] == ["portal:0"] and state["map"] == 1002
 
 
 def test_unqualified_scroll_route_never_uses_input():

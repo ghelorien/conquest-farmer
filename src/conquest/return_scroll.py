@@ -39,35 +39,6 @@ def carried(loop):
     return any(i["type_id"] == TYPE and i["amount"] > 0 for i in loop.town("supplies")["items"])
 
 
-def buy_here(loop):
-    """Buy one TwinCityGate from this city's Pharmacist at its verified price."""
-    from conquest.city_travel import city_for
-
-    if loop.town("supplies")["silver"] < 200:
-        return False
-    life = loop.living()["embedded_controls"]["life"]
-    try:
-        anchor = city_for(life["map_id"])["services"]["pharmacist"]
-    except (ValueError, KeyError, TypeError):
-        return False
-    loop.travel(tuple(anchor))
-    loop.town("open", vendor_type=3)
-    try:
-        products = loop.town("shop", vendor_type=3)["products"]
-        if [p["price"] for p in products if p["type_id"] == TYPE] != [200]:
-            return False
-        result = loop.town("buy", vendor_type=3, type_id=TYPE)
-        loop.record(
-            "return_scroll_purchase",
-            receipt=result,
-            activity="Buying a TwinCityGate to reach Twin City",
-        )
-    finally:
-        loop.town("close", window="Shop")
-        loop.town("close", window="Inventory")
-    return carried(loop)
-
-
 def settle(loop, seconds=4.0, steady=0.6):
     """Wait until position, bag, silver and ammunition stay unchanged.
 
