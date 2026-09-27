@@ -254,6 +254,34 @@ def test_jumps_away_on_the_first_hit(monkeypatch):
     assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is not None
 
 
+# Near a map edge the camera stops following and the player is not drawn at
+# the viewport centre; a landing judged from the centre then clicks the HUD
+# and the dispatch refuses it (Suicide, 2026-09-27 14:06).
+def test_escape_landings_are_judged_from_the_players_screen_anchor(monkeypatch):
+    from test_native_farm import setup
+    from conquest import native_farm
+    from conquest.viewport import clear_scene
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.scene_timestamp = 100.0
+    supervisor.escape_monsters = (NS(position=(21, 20)),)
+    supervisor.recovery.terrain = NS(walkable=lambda p: True)
+    supervisor.last_damage_at = 100.0
+    size = native_farm.size_for(supervisor.observer)
+    anchor = (518, 330)  # drawn 66 px above the centre
+
+    def click(landing):
+        dx, dy = landing[0] - 20, landing[1] - 20
+        return round(anchor[0] + (dx - dy) * 32), round(anchor[1] + (dx + dy) * 16)
+
+    centred = supervisor.ranged_escape((20, 20), (0, 0, 50, 50))
+    assert not clear_scene(click(centred), size)  # what the old choice clicked
+    landing = supervisor.ranged_escape((20, 20), (0, 0, 50, 50), anchor=anchor)
+    assert clear_scene(click(landing), size)
+    assert max(abs(landing[0] - 21), abs(landing[1] - 20)) >= 6
+
+
 # A crowd can leave no landing 6+ tiles from every monster within 12 tiles:
 # still jump clear of the monster hitting us instead of tanking it.
 def test_crowded_hit_still_jumps_clear_of_the_attacker(monkeypatch):

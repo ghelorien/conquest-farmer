@@ -1524,8 +1524,11 @@ class NativeFarmSupervisor:
                 continue
         raise CaptureUnavailable("Waiting for a traversable patrol step")
 
-    def ranged_escape(self, position, boundary):
-        """A bounded clear jump away from memory-verified nearby living monsters."""
+    def ranged_escape(self, position, boundary, anchor=None):
+        """A bounded clear jump away from memory-verified nearby living monsters.
+
+        ``anchor`` is the player's screen position the jump is clicked from.
+        """
         from conquest.navigation import native_movement_delta
 
         now = time.monotonic()
@@ -1577,8 +1580,10 @@ class NativeFarmSupervisor:
                     (length, -length),
                     (-length, length),
                 ):
+                    # Judge the click from the player's own screen anchor,
+                    # the point the dispatch clicks from.
                     dx, dy = native_movement_delta(
-                        dx, dy, viewport=size_for(self.observer)
+                        dx, dy, viewport=size_for(self.observer), anchor=anchor
                     )
                     distance = max(abs(dx), abs(dy))
                     if distance < ESCAPE_MIN_JUMP:
