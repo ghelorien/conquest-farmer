@@ -325,3 +325,15 @@ def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
     monkeypatch.setattr(level_goal, "back2classic", lambda: True)
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
     assert wanted_drop(silver)
+
+
+def test_early_heals_and_jumping_away_outlive_the_goal_on_back2classic(monkeypatch):
+    # The goal ends at 23; the 60% heal must not fall to the route's 40%.
+    monkeypatch.setattr(level_goal, "back2classic", lambda: False)
+    assert not level_goal.protections()
+    level_goal.start(23)
+    assert level_goal.protections()
+    level_goal.stop()
+    assert not level_goal.protections()  # America without the goal: unchanged
+    monkeypatch.setattr(level_goal, "back2classic", lambda: True)
+    assert level_goal.protections()

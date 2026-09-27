@@ -2505,7 +2505,7 @@ class DesktopApp:
                 **route_combat_settings(route, ranges),
                 # Back2Classic: always allowed to jump away from damage.
                 "kite_when_surrounded": route.kite_when_surrounded
-                or bool(level_goal.goal()),
+                or level_goal.protections(),
                 "hunting_anchor": route.hunting_anchor,
                 "boundary": route.hunting_boundary,
                 "patrol_search": route.patrol_search,
@@ -2541,7 +2541,7 @@ class DesktopApp:
                     config.heal_below,
                     route.supplies.healing_threshold,
                     # Fresh characters on small potions heal early.
-                    level_goal.HEAL_BELOW if level_goal.goal() else 0,
+                    level_goal.HEAL_BELOW if level_goal.protections() else 0,
                 )
             }
         )
