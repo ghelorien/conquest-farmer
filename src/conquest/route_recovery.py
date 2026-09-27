@@ -415,7 +415,9 @@ class EmbeddedRecoveryInput:
                 raise ValueError("Short return segments must use running")
             anchor = player_anchor(life)
             point = (anchor[0] + (dx - dy) * 32, anchor[1] + (dx + dy) * 16)
-            if not clear_scene(point, viewport):
+            # The chat box passes route clicks through (Alex, 2026-09-27); at
+            # Phoenix's west edge every step to its portal fell on it.
+            if not clear_scene(point, viewport, chat_blocks=False):
                 raise ValueError("Projected route tile is outside the clear scene")
         else:
             raise ValueError("Unknown recovery action")
@@ -452,7 +454,7 @@ class EmbeddedRecoveryInput:
                 fresh_anchor[0] + (dx - dy) * 32,
                 fresh_anchor[1] + (dx + dy) * 16,
             )
-            if not clear_scene(fresh_point, fresh_viewport):
+            if not clear_scene(fresh_point, fresh_viewport, chat_blocks=False):
                 raise CaptureUnavailable("Projected route tile left the clear scene")
             return fresh_point
 
