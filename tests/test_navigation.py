@@ -29,6 +29,19 @@ def test_direct_travel_uses_diagonal_instead_of_two_sides_of_rectangle():
     assert clear_segment(terrain, (10, 10), target)
 
 
+def test_long_detour_is_found_beyond_the_old_node_budget():
+    # A wall with one far gap makes the search fill most of the near half,
+    # more than the old fixed 250,000 nodes (Twin City to Poltergeists).
+    blocked = np.zeros((800, 800), dtype=bool)
+    blocked[:799, 400] = True
+    terrain = TerrainMap(1002, 800, 800, blocked, "", (), ())
+    with pytest.raises(ValueError, match="node budget"):
+        terrain.travel_path((10, 10), (790, 10), limit=250000)
+    path = terrain.travel_path((10, 10), (790, 10))
+    assert path[0] == (10, 10) and path[-1] == (790, 10)
+    assert (400, 799) in path
+
+
 def test_diagonal_travel_does_not_cut_blocked_corners_or_guarded_tiles():
     from conquest.navigation import clear_segment, travel_waypoint
 
