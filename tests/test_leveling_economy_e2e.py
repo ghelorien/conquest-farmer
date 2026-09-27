@@ -8,9 +8,14 @@ Failure modes, written before the code:
 1. A poor farmer keeps hunting the dearer bracket until it cannot restock.
 2. The farmer flaps between brackets around a single threshold.
 3. A farmer far past the previous bracket drops to monsters too weak to
-   level on.
+   level on (brackets are five levels wide: GRACE_LEVELS=5 now spans the
+   whole next bracket, see 6).
 4. Farmers without the level goal (America) change routes.
 5. The hold is forgotten by a controller restart.
+6. A Scatter archer is sent broke to its leveling spot (live 2026-09-27:
+   WingedSnakes 5,500-7,300 XP a minute but silver-negative, Poltergeists
+   2,400 XP and about +55 silver a minute; standing the hold down once
+   Scatter was learned stranded Toxic in Phoenix with 1 silver).
 """
 
 from types import SimpleNamespace as NS
@@ -48,8 +53,9 @@ def test_poor_farmer_hunts_the_cheaper_bracket_until_the_wallet_recovers():
     assert route.id == "apparition" and loop.events == []
     # 5: a restarted controller still holds (state on disk).
     assert leveling_economy.read_json(leveling_economy.HOLD)["active"] is True
-    # Back to 8,000: move on.
-    loop = loop_with(500, stored=7500)
+    # Back to HIGH (5,000): move on.
+    assert leveling_economy.HIGH == 5000
+    loop = loop_with(500, stored=4500)
     route, _ = choose(loop, 22)
     assert route.id == "poltergeist" and loop.events == ["economy_hold_ended"]
     # Without a hold, 4,000 is enough to go on.
@@ -58,12 +64,14 @@ def test_poor_farmer_hunts_the_cheaper_bracket_until_the_wallet_recovers():
     assert route.id == "poltergeist"
 
 
-def test_no_hold_far_past_the_previous_bracket_or_without_the_goal():
-    # 3: level 24 is more than two levels past Apparition's top (21).
+def test_the_hold_spans_the_next_bracket_but_not_farmers_without_the_goal():
+    # 3/6: level 31, the top of the WingedSnake bracket, still refills on
+    # Poltergeists.
+    assert leveling_economy.GRACE_LEVELS == 5
     level_goal.start(level_goal.SCATTER_LEVEL)
     loop = loop_with(10)
-    route, _ = choose(loop, 24)
-    assert route.id == "poltergeist" and loop.events == []
+    route, _ = choose(loop, 31)
+    assert route.id == "poltergeist" and loop.events == ["economy_hold_started"]
     # 4: America farmers keep the bracket rule.
     level_goal.stop()
     loop = loop_with(10)
@@ -71,40 +79,40 @@ def test_no_hold_far_past_the_previous_bracket_or_without_the_goal():
     assert route.id == "poltergeist" and loop.events == []
 
 
-def test_scatter_ends_the_hold_for_the_next_spot(monkeypatch):
-    # Alex taught Toxic Scatter at 16:00: "now you gotta go to the next
-    # training spot" (it was held on Apparitions with ~2,000 silver).
-    level_goal.start(level_goal.SCATTER_LEVEL)
-    loop = loop_with(94)
-    assert choose(loop, 22)[0].id == "apparition"  # held before Scatter
-    monkeypatch.setattr("conquest.scatter_training.learned", lambda loop: True)
-    loop = loop_with(1500)
-    route, _ = choose(loop, 23)
-    assert route.id == "poltergeist" and loop.events == ["economy_hold_ended"]
-    assert leveling_economy.read_json(leveling_economy.HOLD)["active"] is False
-    # And it stays down with little silver.
-    loop = loop_with(10)
-    assert choose(loop, 23)[0].id == "poltergeist" and loop.events == []
-
-
-def test_the_trainer_visit_record_counts_when_memory_cannot_be_read(
-    tmp_path, monkeypatch
-):
-    # Suicide learned Scatter at 16:26, but in combat every skill read failed
-    # (its experience changes with each cast) and the hold stayed on.
+def test_scatter_archer_levels_on_the_dearer_bracket_and_refills(tmp_path, monkeypatch):
+    # 6: a learned Scatter no longer stands the hold down.
     from conquest import scatter_training
 
     monkeypatch.setattr(scatter_training, "STATE", tmp_path / "scatter-training.json")
-
-    def unreadable(loop):
-        raise ValueError("Scatter changed during range observation")
-
-    monkeypatch.setattr(scatter_training, "learned", unreadable)
-    level_goal.start(level_goal.SCATTER_LEVEL)
-    assert choose(loop_with(94), 22)[0].id == "apparition"
     write_json(scatter_training.STATE, {"learned_at": 1})
-    loop = loop_with(94)
-    assert choose(loop, 23)[0].id == "poltergeist" and loop.events == ["economy_hold_ended"]
+    monkeypatch.setattr(scatter_training, "learned", lambda loop: True)
+    level_goal.start(level_goal.SCATTER_LEVEL)
+    # Toxic at 19:40: level 28, about 1,500 silver.
+    loop = loop_with(1077, stored=423)
+    route, _ = choose(loop, 28)
+    assert route.id == "poltergeist" and loop.events == ["economy_hold_started"]
+    # Refilled: back to the WingedSnakes that level it fastest.
+    loop = loop_with(3000, stored=2100)
+    route, _ = choose(loop, 28)
+    assert route.id == "wingedsnake" and loop.events == ["economy_hold_ended"]
+
+
+def test_leaving_the_cheaper_bracket_needs_high_but_the_dearer_one_holds_to_low():
+    # 2/6: at 3,200 silver (19:40) Toxic on Poltergeists would have gone to
+    # the WingedSnakes and been sent straight back below 3,000.
+    from conquest.routes import RouteLibrary
+
+    level_goal.start(level_goal.SCATTER_LEVEL)
+    loop = loop_with(2800, stored=400)
+    loop.route = RouteLibrary().load("poltergeist")
+    assert choose(loop, 28)[0].id == "poltergeist"
+    loop = loop_with(4700, stored=400)
+    loop.route = RouteLibrary().load("poltergeist")
+    assert choose(loop, 28)[0].id == "wingedsnake"
+    # Already on the WingedSnakes, 3,200 keeps it there.
+    loop = loop_with(2800, stored=400)
+    loop.route = RouteLibrary().load("wingedsnake")
+    assert choose(loop, 28)[0].id == "wingedsnake"
 
 
 def test_back2classic_archer_past_the_goal_still_holds(monkeypatch):

@@ -30,19 +30,6 @@ def bracket(level, rows=None):
     )
 
 
-# An archer with Scatter levels fastest a few levels below its own bracket:
-# dense groups die several to a cast. Live 2026-09-27 (Toxic, level 26, fresh
-# Scatter): Poltergeists 14-16 kills a minute on 0.9 potions a minute,
-# WingedSnakes 2.3 a minute (187 Scatters for 12 kills, out of arrows in five
-# minutes).
-SCATTER_LEVEL_OFFSET = 3
-
-
-def scatter_hunting_level(level, rows=None):
-    """hunting_level for an archer farming with Scatter."""
-    return hunting_level(max(1, level - SCATTER_LEVEL_OFFSET), rows)
-
-
 def hunting_level(level, rows=None):
     """The level whose zone to hunt: reaching a bracket's top level moves on to
     the next zone (user rule: Pheasants 1-6 hand over to Turtledoves at 6)."""

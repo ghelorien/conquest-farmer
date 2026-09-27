@@ -1831,13 +1831,7 @@ class OvernightLoop:
             from conquest.session_plan import active_plan
 
             plan = active_plan()
-            from conquest.leveling_routes import scatter_hunting_level
-
-            selected, entry = desired_route(
-                scatter_hunting_level(level)
-                if self.scatter_farming()
-                else hunting_level(level)
-            )
+            selected, entry = desired_route(hunting_level(level))
             if not plan and selected is not None:
                 from conquest.leveling_economy import economy_route
 
@@ -1996,18 +1990,6 @@ class OvernightLoop:
         # Route selection clears an obsolete recovery checkpoint after a cross-map revive.
         request(self.info, "controls", {"route_id": self.route.id})
         time.sleep(0.2)
-
-    def scatter_farming(self):
-        """Whether this farmer levels with Scatter; once known it stays known,
-        and until then memory is asked at most once a minute."""
-        if not getattr(self, "scatter_known", False):
-            now = time.monotonic()
-            if now >= getattr(self, "scatter_checked_until", 0):
-                from conquest.leveling_economy import scatter_learned
-
-                self.scatter_checked_until = now + 60
-                self.scatter_known = scatter_learned(self)
-        return getattr(self, "scatter_known", False)
 
     def adopt_ammunition(self, state=None):
         from conquest.arrow_upgrades import (

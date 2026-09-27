@@ -11,6 +11,13 @@ plus banked silver) is below LOW, it hunts the previous, cheaper bracket as
 long as its
 level is at most GRACE_LEVELS past that bracket's top; it moves on once the
 wallet is back to HIGH. The hold survives controller restarts.
+
+With Scatter too (live 2026-09-27, Toxic): WingedSnakes gave 5,500-7,300 XP a
+minute at level 26 against 2,400-2,500 on Poltergeists at 27-28, but about 20
+Scatters per kill cost more arrows than their silver returned, while
+Poltergeists cleared about 55 silver a minute. The archer levels on the
+dearer bracket and refills on the cheaper one; standing the hold down once
+Scatter was learned sent it to WingedSnakes broke and stranded it in Phoenix.
 """
 
 import time
@@ -21,27 +28,12 @@ from conquest.discord_notify import read_json, write_json
 
 HOLD = Path(state_path(".runtime/economy-hold.json"))
 LOW = 3000
-HIGH = 8000
-GRACE_LEVELS = 2
+# A refill of 2,000 takes about 40 minutes on Poltergeists (8,000 kept a
+# Scatter archer off its leveling spot for two hours).
+HIGH = 5000
+# The whole next five-level bracket may refill on the previous one.
+GRACE_LEVELS = 5
 CHECK_SECONDS = 60
-
-
-def scatter_learned(loop):
-    """Whether Scatter is learned: the trainer visit's record, else memory
-    (unreadable counts as not learned).
-
-    The memory read double-checks the skill object, whose experience changes
-    with every cast: in combat it fails and Suicide stayed held on
-    Apparitions after learning Scatter at 16:26 (live 2026-09-27).
-    """
-    from conquest import scatter_training
-
-    if read_json(scatter_training.STATE).get("learned_at"):
-        return True
-    try:
-        return bool(scatter_training.learned(loop))
-    except Exception:
-        return False
 
 
 def wallet(loop):
@@ -76,24 +68,15 @@ def economy_route(loop, level, selected, entry):
             silver = None
         loop.economy_checked_until = now + CHECK_SECONDS
         loop.economy_wallet = silver
-        loop.economy_scatter = scatter_learned(loop)
-    # The guard bridges the leveling stretch before Scatter. Once Scatter is
-    # learned the plan is to farm the next spot with it (Alex 2026-09-27:
-    # "I just manually taught you scatter, now you gotta go to the next
-    # training spot").
-    if getattr(loop, "economy_scatter", False):
-        if state.get("active"):
-            write_json(HOLD, {"active": False, "ended_at": time.time(), "reason": "scatter"})
-            loop.record(
-                "economy_hold_ended",
-                silver=silver,
-                reason="scatter",
-                activity=f"Scatter learned: moving on to {entry['name']}",
-            )
-        return selected, entry
+    # Leaving the cheaper bracket needs HIGH; hunting the dearer one continues
+    # down to LOW. At 3,200 silver (19:40) Toxic would otherwise have moved to
+    # the WingedSnakes and been sent back within minutes of the trip.
+    on_previous = getattr(getattr(loop, "route", None), "id", None) == previous.get(
+        "saved_route"
+    )
     if silver is None:
         held = bool(state.get("active"))
-    elif state.get("active"):
+    elif state.get("active") or on_previous:
         held = silver < HIGH
     else:
         held = silver < LOW
