@@ -113,9 +113,15 @@ def test_the_first_scroll_comes_before_potions_whenever_200_silver_is_carried():
     assert r.secure_one(loop) is False and len(buys) == 1
     bag.update(items=[], silver=199)
     assert r.secure_one(loop) is False and len(buys) == 1
+    # A short quiver's arrow pack stays affordable (Suicide 15:20: 385 silver,
+    # 53 arrows): the scroll waits for silver beyond the pack.
+    bag.update(items=[], silver=385)
+    assert r.secure_one(loop, keep=200) is False and len(buys) == 1
+    bag["silver"] = 400
+    assert r.secure_one(loop, keep=200) is True and bag["silver"] == 200
     r.write_json(r.POLICY, {"enabled": False})
-    bag["silver"] = 5000
-    assert r.secure_one(loop) is False and len(buys) == 1
+    bag.update(items=[], silver=5000)
+    assert r.secure_one(loop) is False and len(buys) == 2
 
 
 # Return-scroll fallback and policy location (failure modes written first):

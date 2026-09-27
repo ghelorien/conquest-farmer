@@ -152,27 +152,35 @@ def last_verified_price(type_id, path=None):
 SAFE_HUNT_POTIONS = 10
 
 
+def arrow_reserve(counts, route, arrow_price):
+    """Silver a restock keeps for arrows: one verified pack's price while less
+    than a pack is carried, else nothing. Unknown prices keep nothing.
+
+    At 15:20 on 2026-09-27 Suicide came in with 53 arrows (about a minute of
+    shooting), spent 192 of its 385 silver on potions and left 7 short of a
+    200-silver pack.
+    """
+    from conquest.arrow_upgrades import ARROW_REFILL_AMOUNTS, MAX_ARROW_PACKS
+
+    pack = ARROW_REFILL_AMOUNTS.get(route.supplies.arrow_type, 0) // MAX_ARROW_PACKS
+    short = counts["arrows"] < max(route.supplies.arrows_return_below, pack)
+    return arrow_price if arrow_price and short else 0
+
+
 def potion_budget_reached(counts, route, potion_price, arrow_price):
     """Stop potions while the next one would leave too little for arrows.
 
     A short-of-arrows restock spent every coin on Painkillers and then could
     not buy a single arrow pack, stranding the farmer in town (live
-    2026-09-27). Once a safe hunt's potions are carried, keep one verified
-    arrow pack's price while less than a pack is carried: at 15:20 the same
-    day Suicide came in with 53 arrows (about a minute of shooting), spent
-    192 of its 385 silver on potions and left 7 short of a 200-silver pack.
-    Unknown prices keep the old behaviour.
+    2026-09-27). Once a safe hunt's potions are carried, keep arrow_reserve.
     """
-    from conquest.arrow_upgrades import ARROW_REFILL_AMOUNTS, MAX_ARROW_PACKS
-
-    pack = ARROW_REFILL_AMOUNTS.get(route.supplies.arrow_type, 0) // MAX_ARROW_PACKS
+    keep = arrow_reserve(counts, route, arrow_price)
     return bool(
         potion_price
-        and arrow_price
-        and counts["arrows"] < max(route.supplies.arrows_return_below, pack)
+        and keep
         and counts["potions"]
         >= max(route.supplies.healing_return_below, SAFE_HUNT_POTIONS)
-        and counts["silver"] - potion_price < arrow_price
+        and counts["silver"] - potion_price < keep
     )
 
 
@@ -1297,9 +1305,18 @@ class OvernightLoop:
             healing_type(self)
             self.sell_junk(3)
             self.shopping_space(3, self.route.restock_anchor)
-            # The way home comes before potions when silver is short.
-            secure_one(self)
             arrow_price = last_verified_price(self.route.supplies.arrow_type)
+            # The way home comes before potions when silver is short, but not
+            # before the pack a short quiver needs: a scroll bought with the
+            # last 200 left a minute of arrows, so every trip ended on a scroll.
+            secure_one(
+                self,
+                keep=arrow_reserve(
+                    supply_counts(self.town("supplies"), self.route),
+                    self.route,
+                    arrow_price,
+                ),
+            )
             potion_quote = None
             if arrow_price:
                 try:
