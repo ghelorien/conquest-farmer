@@ -26,7 +26,7 @@ AUTO_RESTARTS = 3
 AUTO_RESTART_PAUSE_SECONDS = 20
 # Once the hourly restart budget is spent: pause this long (escalating), then
 # replan from fresh reads again instead of stopping for good.
-FAILURE_COOLDOWNS = (600, 1200, 1800)
+FAILURE_COOLDOWNS = (120, 300, 600)
 
 
 class OvernightStopped(Exception):
