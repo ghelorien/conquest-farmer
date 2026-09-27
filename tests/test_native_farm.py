@@ -1165,6 +1165,56 @@ def test_obscured_meteor_is_approached_on_checked_terrain(monkeypatch):
     assert supervisor.pending_loot is None
 
 
+def meteor_field(monkeypatch, meteor_at, farmer_at=(50, 50)):
+    import numpy as np
+    from conquest.navigation import TerrainMap
+    from conquest.memory_ground import GroundItem
+
+    supervisor, _, life, notes = setup(monkeypatch)
+    supervisor.recovery.terrain = TerrainMap(
+        1002, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ()
+    )
+    life.position = farmer_at
+    supervisor.read_life = lambda: life
+    supervisor.player_anchor = lambda position: (518, 396)
+    meteor = GroundItem(1, 1000, 1088001, meteor_at)
+    supervisor.ground_items = lambda: (meteor,)
+    clicks = []
+    step = lambda: supervisor.loot_step(
+        SimpleNamespace(silver=0, items=(), capacity=40),
+        farmer_at,
+        lambda point, **kw: clicks.append((point, kw)),
+    )
+    return supervisor, notes, clicks, step
+
+
+def test_a_meteor_ten_tiles_away_is_walked_to_not_clicked(monkeypatch):
+    # Live 2026-09-27: clicks on Meteors 10-16 tiles away went unverified.
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 60))
+    assert step()
+    assert [e for e, _ in notes if e.startswith("memory_pickup")] == ["memory_pickup_approach"]
+    assert supervisor.pending_loot is None and "drop" not in clicks[0][1]
+    approach = next(f for e, f in notes if e == "memory_pickup_approach")
+    # The walk stops beside the Meteor, never on it.
+    assert tuple(approach["destination"]) != (50, 60)
+    assert max(abs(approach["destination"][0] - 50), abs(approach["destination"][1] - 60)) >= 1
+
+
+def test_a_meteor_within_six_tiles_is_clicked(monkeypatch):
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 55))
+    assert step()
+    assert clicks[0][1].get("drop") is not None and supervisor.pending_loot
+
+
+def test_a_farmer_standing_on_a_meteor_steps_beside_it_first(monkeypatch):
+    # The item under the farmer is covered by the farmer's own sprite.
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 50))
+    assert step()
+    approach = next(f for e, f in notes if e == "memory_pickup_approach")
+    assert max(abs(approach["destination"][0] - 50), abs(approach["destination"][1] - 50)) == 1
+    assert supervisor.pending_loot is None
+
+
 def test_recycled_valuable_does_not_authorize_approach(monkeypatch):
     import numpy as np
     from conquest.navigation import TerrainMap

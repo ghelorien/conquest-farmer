@@ -138,10 +138,11 @@ def test_native_looter_ignores_discarded_record_but_accepts_a_new_drop():
     inventory = NS(items=(), capacity=40)
     clicks = []
     dispatch = lambda point, **kwargs: clicks.append(kwargs["drop"])
-    assert not supervisor.loot_step(inventory, (600, 550), dispatch)
+    # Two tiles off: an item under the farmer is stepped off first.
+    assert not supervisor.loot_step(inventory, (602, 550), dispatch)
     assert not clicks
     supervisor.ground_items = lambda: (drop, newer)
-    assert supervisor.loot_step(inventory, (600, 550), dispatch)
+    assert supervisor.loot_step(inventory, (602, 550), dispatch)
     assert clicks == [newer]
 
 

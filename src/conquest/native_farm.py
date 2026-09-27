@@ -44,6 +44,10 @@ ESCAPE_MIN_JUMP = 6
 # Below this HP share a crowded escape takes the least crowded open landing
 # even when none has fewer monsters than are attacking.
 ESCAPE_LOW_HP = 0.5
+# Valuables other than silver are clicked from at most this many tiles: of
+# twelve Meteors seen on 2026-09-27 one was another player's, five were picked
+# and six were left, three of them after a click from 10-16 tiles missed.
+VALUABLE_CLICK_TILES = 6
 
 @contextmanager
 def logical_coordinates():
@@ -1097,10 +1101,14 @@ class NativeFarmSupervisor:
                 drop.uid,
                 drop.object_address,
             )
+            reach = max_distance if drop.silver else min(max_distance, VALUABLE_CLICK_TILES)
             if (
-                distance > max_distance
+                distance > reach
                 or retry_close
                 and distance > 1
+                # Under the farmer the click hits the farmer, not the item.
+                or distance == 0
+                and not drop.silver
                 or not clear_scene(point, viewport)
             ):
                 approaches.append((rank, drop))
@@ -1228,7 +1236,25 @@ class NativeFarmSupervisor:
             self, "loot_boundary", (0, 0, terrain.width - 1, terrain.height - 1)
         )
         try:
-            path = terrain.path(position, drop.position)
+            if tuple(drop.position) == tuple(position):
+                # Standing on it: step to a free tile beside it first.
+                side = next(
+                    (
+                        (position[0] + dx, position[1] + dy)
+                        for dx, dy in ((1, 0), (0, 1), (-1, 0), (0, -1))
+                        if terrain.walkable((position[0] + dx, position[1] + dy))
+                    ),
+                    None,
+                )
+                if side is None:
+                    return deferred("No free tile beside the loot")
+                path = [tuple(position), side]
+            else:
+                # Stop beside the drop: an item under the farmer is covered by
+                # the farmer (live 15:41, a Meteor stayed under Suicide).
+                path = terrain.path(position, drop.position)[:-1]
+                if len(path) < 2:
+                    return False  # already beside it: the click comes next
             if len(path) < 2 or len(path) > 100:
                 return deferred("Loot path outside bounded approach length")
             if any(
