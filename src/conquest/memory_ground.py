@@ -11,6 +11,19 @@ from conquest.memory_entities import sample_fields
 MONEY_TYPES = frozenset((1090000, 1090010, 1090020, 1091000, 1091010, 1091020))
 
 
+def client_tick_ms():
+    """Windows uptime in milliseconds: the clock of GroundItem.spawn_tick.
+
+    The client stamps each ground actor (+0x48) with GetTickCount64; live on
+    Laptop2 (2026-09-27) fresh silver read 3.4 s and 4.1 s old against it.
+    """
+    import ctypes
+
+    tick = ctypes.windll.kernel32.GetTickCount64
+    tick.restype = ctypes.c_ulonglong
+    return tick()
+
+
 @dataclass(frozen=True)
 class GroundItem:
     uid: int

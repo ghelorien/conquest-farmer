@@ -12,6 +12,15 @@ from conquest.valuables import SPECIAL_LOOT_TYPES
 
 # Seconds of recent damage that can still justify an escape jump.
 DAMAGE_WINDOW = 1.25
+# Silver counts as ours when the client created it from this long before to
+# this long after one of our verified kills (client ticks, ms), within this
+# many tiles of the monster we were attacking (Scatter also kills its
+# neighbours), or of the farmer when no target tile is remembered.
+KILL_DROP_BEFORE_MS = 3000
+KILL_DROP_AFTER_MS = 1500
+KILL_DROP_RADIUS = 5
+KILL_DROP_UNKNOWN_RADIUS = 10
+KILL_SITE_KEEP_MS = 20000
 
 @contextmanager
 def logical_coordinates():
@@ -997,6 +1006,8 @@ class NativeFarmSupervisor:
         for drop in drops:
             if (money_only and not drop.silver) or not wanted_drop(drop):
                 continue
+            if drop.silver and not self.own_kill_drop(drop):
+                continue  # another player's (or an old) drop: not worth the walk
 
             def defer(reason):
                 deferred.append(
@@ -1546,10 +1557,36 @@ class NativeFarmSupervisor:
         }
         return max(candidates)[-1]
 
+    def remember_kill_site(self):
+        """Where and when our verified kill happened; its drops appear there."""
+        from conquest.memory_ground import client_tick_ms
+
+        now = client_tick_ms()
+        target = self.last_target
+        site = getattr(target, "world_position", None) if target is not None else None
+        radius = KILL_DROP_RADIUS
+        if site is None and self.position is not None:
+            site, radius = tuple(self.position), KILL_DROP_UNKNOWN_RADIUS
+        sites = [
+            row for row in getattr(self, "kill_sites", ()) if now - row[0] <= KILL_SITE_KEEP_MS
+        ]
+        if site is not None:
+            sites.append((now, tuple(site), radius))
+        self.kill_sites = sites
+
+    def own_kill_drop(self, drop):
+        """Alex: only pick up the silver from the monsters we kill."""
+        return any(
+            at - KILL_DROP_BEFORE_MS <= drop.spawn_tick <= at + KILL_DROP_AFTER_MS
+            and max(abs(a - b) for a, b in zip(drop.position, site)) <= radius
+            for at, site, radius in getattr(self, "kill_sites", ())
+        )
+
     def finish_target(self, reason):
         self.patrol_chase = None
         if reason == "kill_counter_increased":
             self.loot_wait_until = time.monotonic() + 0.45
+            self.remember_kill_site()
         # Scatter can kill a different monster from the one used to aim.
         # A player-counter increase never proves that the aimed target died.
         if self.last_target is not None and reason != "kill_counter_increased":
