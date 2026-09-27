@@ -410,9 +410,14 @@ class TradeObservationReader1078:
         started = time.monotonic()
         self.session.assert_identity()
         server = self._read(self.base + self.server_rva, 64)
-        if server.split(b"\0", 1)[0] != b"Classic_US":
+        from conquest.client_attachment import QUALIFIED_SERVERS
+
+        # This read never enables input, so a Back2Classic farmer uses it too:
+        # refusing Classic_B2C left every manual trade request as an
+        # unreadable hold that blocked all town work (live 2026-09-27).
+        if server.split(b"\0", 1)[0] not in QUALIFIED_SERVERS:
             raise ObservationUnavailable1078(
-                "1078 server field is not the qualified America value"
+                "1078 server field is not a qualified server value"
             )
         holder, actual, wrapper = self._actual_and_wrapper()
         inventory, silver = self._inventory(wrapper)
