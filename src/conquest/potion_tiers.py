@@ -46,13 +46,7 @@ def adaptive():
     """
     from conquest import level_goal
 
-    if level_goal.goal():
-        return True
-    from conquest.character_context import current
-    from conquest.client_attachment import FARMING_ONLY_SERVERS
-
-    context = current()
-    return bool(context and context.profile.server in FARMING_ONLY_SERVERS)
+    return bool(level_goal.goal()) or level_goal.back2classic()
 
 
 def choose(max_hp, silver, count, offered=None, reserve=0):
