@@ -1968,6 +1968,18 @@ class OvernightLoop:
         )
         return True
 
+    def resume_on_route_map(self):
+        """Start on the route's map: the level route when the character
+        already stands on its map, else travel back to the current route's."""
+        if self.living()["embedded_controls"]["life"]["map_id"] != self.route.map_id:
+            # A level route change interrupted after the crossing continues
+            # on the new route's map instead of walking back (live 2026-09-27
+            # 17:46: through Phoenix's west gate into Twin City, the restarted
+            # WingedSnake route turned round for Phoenix).
+            self.select_level_route()
+        if self.living()["embedded_controls"]["life"]["map_id"] != self.route.map_id:
+            self.return_to_route_map()
+
     def return_to_route_map(self):
         from conquest.world_travel import travel_to_map
 
@@ -2134,8 +2146,7 @@ class OvernightLoop:
         # supplies. The previous process may have stopped before banking or
         # may have submitted a transfer whose result needs reconciliation.
         self.town_visit.require_town_work_complete()
-        if self.living()["embedded_controls"]["life"]["map_id"] != self.route.map_id:
-            self.return_to_route_map()
+        self.resume_on_route_map()
         from conquest.city_travel import ensure_city_visit
 
         ensure_city_visit(self)

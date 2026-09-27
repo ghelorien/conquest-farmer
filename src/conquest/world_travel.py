@@ -183,6 +183,11 @@ def travel_to_map(loop, destination):
             continue
         edge = connection_path(life["map_id"], destination)[0]
         terrain = read_terrain(CLIENT_ROOT, life["map_id"])
+        # Every walk before the crossing (banking for the fare, the way to the
+        # Conductress) is on this map. A restarted route still held its
+        # route map's terrain: Twin City's east gate (958, 555) was "outside
+        # the map" of Phoenix Castle (live 2026-09-27 17:46).
+        loop.terrain = terrain
         target = read_terrain(CLIENT_ROOT, edge["destination_map"])
         if (
             terrain.source_sha256 != edge["source_terrain_sha256"]
