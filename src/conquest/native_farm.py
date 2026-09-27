@@ -31,6 +31,12 @@ KILL_DROP_AFTER_MS = 1500
 KILL_DROP_RADIUS = 5
 KILL_DROP_UNKNOWN_RADIUS = 10
 KILL_SITE_KEEP_MS = 20000
+# Scatter kills whatever its fan reaches, often not the monster used to aim:
+# a kill this soon after a cast also counts silver within Scatter reach (8
+# tiles on 1078) plus a step of where the archer cast from (live 2026-09-27
+# 17:57-18:00: 17 jump-Scatter kills on Poltergeists, not one pickup).
+KILL_DROP_SCATTER_SECONDS = 3
+KILL_DROP_SCATTER_RADIUS = 9
 # The target's scene position this recent stands for where it died.
 TARGET_SEEN_MS = 3000
 # An escape jump that has not moved the farmer this long after the click
@@ -44,6 +50,11 @@ ESCAPE_MIN_JUMP = 6
 # Below this HP share a crowded escape takes the least crowded open landing
 # even when none has fewer monsters than are attacking.
 ESCAPE_LOW_HP = 0.5
+# Jump-Scatter leaves before a monster is close enough to hit: Poltergeists
+# hit from two tiles (Toxic 2026-09-27 16:30-16:50: in 61 of 100 hits no
+# monster stood within one tile and the archer had not moved), so a one-tile
+# trigger jumped only after the hit. Two tiles of reach plus one step.
+JUMP_SCATTER_REACH = 3
 
 @contextmanager
 def logical_coordinates():
@@ -1529,14 +1540,16 @@ class NativeFarmSupervisor:
                 continue
         raise CaptureUnavailable("Waiting for a traversable patrol step")
 
-    def ranged_escape(self, position, boundary, anchor=None, adjacent_trigger=2):
+    def ranged_escape(
+        self, position, boundary, anchor=None, adjacent_trigger=2, reach=1
+    ):
         """A bounded clear jump away from memory-verified nearby living monsters.
 
         ``anchor`` is the player's screen position the jump is clicked from.
-        ``adjacent_trigger`` monsters within one tile call for a jump without
-        any damage; jump-Scatter uses 1 (Alex 2026-09-27: "if enemies are
-        within 1 tile of you you gotta jump scatter that's the whole
-        strategy").
+        ``adjacent_trigger`` monsters within ``reach`` tiles call for a jump
+        without any damage; jump-Scatter uses one monster within
+        JUMP_SCATTER_REACH (Alex 2026-09-27: "When doing jump scatter you
+        can't let enemies ever attack you").
         """
         from conquest.navigation import native_movement_delta
 
@@ -1547,21 +1560,19 @@ class NativeFarmSupervisor:
         ):
             return None
         living = [m.position for m in self.escape_monsters]
-        adjacent = sum(
-            max(abs(a - b) for a, b in zip(p, position)) <= 1 for p in living
-        )
+        distances = [max(abs(a - b) for a, b in zip(p, position)) for p in living]
+        adjacent = sum(d <= 1 for d in distances)
+        within_reach = sum(d <= reach for d in distances)
         # Every hit over ESCAPE_DAMAGE_SHARE is reason to jump: tanking hits
         # only burns potions and town trips ("don't tank a few hits").
         damaged = (
             now - self.last_damage_at <= DAMAGE_WINDOW
             and self.last_damage_at > self.escape_damage_consumed_at
         )
-        if adjacent < adjacent_trigger and not damaged:
+        if within_reach < adjacent_trigger and not damaged:
             return None
         threats = [
-            p
-            for p in living
-            if max(abs(a - b) for a, b in zip(p, position)) <= (12 if damaged else 1)
+            p for p, d in zip(living, distances) if d <= (12 if damaged else reach)
         ]
         if not threats:
             return None
@@ -1647,9 +1658,15 @@ class NativeFarmSupervisor:
             return None
         self.escape_context = {
             "adjacent_enemies": adjacent,
+            "enemies_within_reach": within_reach,
+            "nearest_enemy": min(distances) if distances else None,
             "recent_damage": damaged,
             "crowded": crowded,
-            "reason": "recent_damage" if damaged else "enemies_within_one_tile",
+            "reason": "recent_damage"
+            if damaged
+            else "enemies_within_one_tile"
+            if reach == 1
+            else "enemies_within_reach",
         }
         return max(candidates)[-1]
 
@@ -1735,6 +1752,13 @@ class NativeFarmSupervisor:
         ]
         if site is not None:
             sites.append((now, tuple(site), radius))
+        cast_at, _ = getattr(self, "last_scatter_group", (-float("inf"), {}))
+        cast_from = getattr(self, "last_scatter_position", None)
+        if (
+            cast_from is not None
+            and 0 <= time.monotonic() - cast_at <= KILL_DROP_SCATTER_SECONDS
+        ):
+            sites.append((now, tuple(cast_from), KILL_DROP_SCATTER_RADIUS))
         self.kill_sites = sites
 
     def own_kill_drop(self, drop):

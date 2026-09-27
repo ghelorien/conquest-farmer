@@ -107,19 +107,20 @@ def test_scatter_can_use_new_right_hand_scene_without_shortening_jump():
     from conquest.scatter_movement import scatter_landing
 
     terrain = TerrainMap(1011, 100, 100, np.ones((100, 100), dtype=bool), "", (), ())
-    terrain.blocked[50, 50:64] = False
+    terrain.blocked[50, 50:68] = False
     supervisor = NS(
         recovery=NS(terrain=terrain), observer=NS(viewport_size=lambda: (1420, 1009))
     )
-    targets = [NS(world_position=(63, 50), current_hp=100)]
+    # Scatter reaches 6; the landing keeps the monster beyond its reach.
+    targets = [NS(world_position=(67, 50), current_hp=100)]
     landing = scatter_landing(
-        supervisor, targets, (50, 50), (20, 20, 80, 80), 2, anchor=(710, 504)
+        supervisor, targets, (50, 50), (20, 20, 80, 80), 6, anchor=(710, 504)
     )
     assert landing in ((61, 50), (62, 50))
     supervisor.observer.viewport_size = lambda: (1036, 793)
     assert (
         scatter_landing(
-            supervisor, targets, (50, 50), (20, 20, 80, 80), 2, anchor=(710, 504)
+            supervisor, targets, (50, 50), (20, 20, 80, 80), 6, anchor=(710, 504)
         )
         is None
     )

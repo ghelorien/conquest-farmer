@@ -156,3 +156,32 @@ def test_silver_where_the_target_died_after_walking_at_us(monkeypatch):
     )
     supervisor.finish_target("kill_counter_increased")
     assert picks(supervisor, [GroundItem(11, 110, SILVER, (12, 11), clock[0] - 100)]) == []
+
+
+def test_scatter_kill_silver_anywhere_within_its_reach(monkeypatch):
+    """10: Scatter killed a monster in its fan, not the one it aimed at (live
+    Toxic 2026-09-27 17:57-18:00: 17 jump-Scatter kills, not one pickup)."""
+    from conquest import native_farm
+    from conquest.scatter_movement import remember_scatter
+
+    clock = [KILL]
+    now = [100.0]
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr("conquest.scatter_movement.time.monotonic", lambda: now[0])
+    supervisor = farmer(monkeypatch, clock)
+    supervisor.position = (10, 10)
+    remember_scatter(supervisor, [])
+    supervisor.position = (20, 10)  # jumped away before the kill registered
+    now[0] = 101.5
+    supervisor.last_target = Target("Poltergeist", 500, 400, 1.0, 7, 70, (30, 10))
+    supervisor.finish_target("kill_counter_increased")
+    # In the fan, 7 tiles from the cast and far from the aimed monster: ours.
+    assert picks(supervisor, [GroundItem(12, 120, SILVER, (16, 16), KILL + 200)]) == [12]
+    # Beyond Scatter reach of the cast: someone else's.
+    assert picks(supervisor, [GroundItem(13, 130, SILVER, (10, 21), KILL + 200)]) == []
+    # A kill long after the last cast was not Scatter's.
+    now[0] = 110.0
+    clock[0] = KILL + 60_000
+    supervisor.last_target = Target("Poltergeist", 500, 400, 1.0, 8, 80, (30, 10))
+    supervisor.finish_target("kill_counter_increased")
+    assert picks(supervisor, [GroundItem(14, 140, SILVER, (16, 16), clock[0] - 100)]) == []

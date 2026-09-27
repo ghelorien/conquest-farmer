@@ -246,7 +246,8 @@ def test_fast_planning_avoids_checking_lower_ranked_terrain(monkeypatch):
         combat_speed=CombatSpeed(fast_scatter_planning=True),
     )
     assert scatter_landing(fast, targets, (50, 50), (20, 20, 80, 80), 12) == expected
-    assert len(calls) == 1 and original_count > 50
+    # Landings within a monster's reach are excluded before terrain checks too.
+    assert len(calls) == 1 and original_count > 40
 
 
 @pytest.mark.parametrize("enabled", [False, True])

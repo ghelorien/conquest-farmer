@@ -303,6 +303,53 @@ def test_jump_scatter_jumps_before_a_single_adjacent_monster_can_hit(monkeypatch
     assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50), adjacent_trigger=1) is None
 
 
+# Poltergeists hit from two tiles: in 61 of 100 hits (Toxic 2026-09-27
+# 16:30-16:50) no monster stood within one tile and the archer had not moved.
+def test_jump_scatter_leaves_before_a_monster_is_within_hitting_reach(monkeypatch):
+    from test_native_farm import setup
+    from conquest import native_farm
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.scene_timestamp = 100.0
+    supervisor.recovery.terrain = NS(walkable=lambda p: True)
+    reach = native_farm.JUMP_SCATTER_REACH
+    assert reach == 3
+    for distance in (2, 3):
+        supervisor.escape_monsters = (NS(position=(20 + distance, 20)),)
+        landing = supervisor.ranged_escape(
+            (20, 20), (0, 0, 50, 50), adjacent_trigger=1, reach=reach
+        )
+        assert landing is not None, distance
+        assert max(abs(landing[0] - 20 - distance), abs(landing[1] - 20)) >= 6
+        assert supervisor.escape_context["reason"] == "enemies_within_reach"
+        assert supervisor.escape_context["nearest_enemy"] == distance
+    # Four tiles out it keeps shooting.
+    supervisor.escape_monsters = (NS(position=(24, 20)),)
+    assert (
+        supervisor.ranged_escape((20, 20), (0, 0, 50, 50), adjacent_trigger=1, reach=reach)
+        is None
+    )
+
+
+def test_scatter_landing_keeps_every_monster_beyond_hitting_reach():
+    import numpy as np
+    from conquest.navigation import TerrainMap
+    from conquest.native_farm import JUMP_SCATTER_REACH
+    from conquest.scatter_movement import scatter_landing
+
+    terrain = TerrainMap(1002, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ())
+    supervisor = NS(recovery=NS(terrain=terrain))
+    pack = [NS(world_position=(62 + dx, 50 + dy), current_hp=100) for dx, dy in ((0, 0), (1, 1), (2, -1))]
+    landing = scatter_landing(supervisor, pack, (50, 50), (20, 20, 80, 80), 8)
+    assert landing is not None
+    nearest = min(
+        max(abs(landing[0] - t.world_position[0]), abs(landing[1] - t.world_position[1]))
+        for t in pack
+    )
+    assert JUMP_SCATTER_REACH < nearest <= 8
+
+
 # A crowd can leave no landing 6+ tiles from every monster within 12 tiles:
 # still jump clear of the monster hitting us instead of tanking it.
 def test_crowded_hit_still_jumps_clear_of_the_attacker(monkeypatch):

@@ -26,6 +26,8 @@ def clear_jump(terrain, source, destination):
 
 
 def remember_scatter(supervisor, targets):
+    # Where the fan was cast from: its kills drop silver around here.
+    supervisor.last_scatter_position = getattr(supervisor, "position", None)
     supervisor.last_scatter_group = (
         time.monotonic(),
         {
@@ -69,6 +71,8 @@ def scatter_landing(
     anchor=(518, 396),
     hunting_boundary=None,
 ):
+    from conquest.native_farm import JUMP_SCATTER_REACH
+
     supervisor.scatter_plan = None
     terrain = supervisor.recovery.terrain
     fast = getattr(
@@ -170,14 +174,17 @@ def scatter_landing(
             # Scatter can reach a dense group from its edge. The 1078 live
             # trace showed a jump into a 16-target group followed by lethal
             # contact damage before the next cast. Never choose a landing in
-            # the middle of that group merely for a higher attack count.
+            # the middle of that group merely for a higher attack count, nor
+            # one where a monster can already hit: Poltergeists hit from two
+            # tiles (Toxic 2026-09-27), so no monster within JUMP_SCATTER_REACH.
             contact = sum(
-                max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= 3 for p in live
+                max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= JUMP_SCATTER_REACH
+                for p in live
             )
             close = sum(
                 max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= 5 for p in live
             )
-            if contact > 2 or close > 5:
+            if contact or close > 5:
                 continue
             future = 0.0
             for center, group_count, separation in groups:
