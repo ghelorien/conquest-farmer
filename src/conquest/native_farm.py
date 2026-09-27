@@ -12,6 +12,11 @@ from conquest.valuables import SPECIAL_LOOT_TYPES
 
 # Seconds of recent damage that can still justify an escape jump.
 DAMAGE_WINDOW = 1.25
+# How far the same exact monster (entity and object) may have moved between
+# selection and input and still be re-aimed at its fresh position; the range
+# check then applies. Apparitions drift 3-4 tiles in that time (live
+# 2026-09-27: 77 attacks refused in 5 minutes at the old bound of 2).
+MONSTER_DRIFT_TILES = 5
 # Silver counts as ours when the client created it from this long before to
 # this long after one of our verified kills (client ticks, ms), within this
 # many tiles of the monster we were attacking (Scatter also kills its
@@ -640,7 +645,7 @@ class NativeFarmSupervisor:
                                 abs(a - b)
                                 for a, b in zip(m.position, target.world_position)
                             )
-                            <= 2
+                            <= MONSTER_DRIFT_TILES
                         )
                         or (
                             not refresh
