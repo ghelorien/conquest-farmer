@@ -29,6 +29,7 @@ from conquest.town_trade import junk_type
 def runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(level_goal, "GOAL", tmp_path / "level-goal.json")
     monkeypatch.setattr(potion_tiers, "TIER", tmp_path / "healing-tier.json")
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
     from conquest import session_plan
 
     monkeypatch.setattr(session_plan, "PLAN", tmp_path / "session-plan.json")
@@ -211,3 +212,18 @@ def test_goal_jumps_away_only_from_significant_damage(monkeypatch):
     supervisor.last_damage_at = -float("inf")
     supervisor.escape_monsters = (NS(position=(21, 20)), NS(position=(20, 21)))
     assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is not None
+
+
+# Alex: "we need to be able to pickup the money on the ground"
+def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
+    from conquest.memory_ground import GroundItem, wanted_drop
+
+    silver = GroundItem(1, 100000, 1090000, (1, 1))
+    assert not wanted_drop(silver)  # the old farmer still ignores silver
+    level_goal.start(23)
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    assert wanted_drop(silver)
+    assert not wanted_drop(GroundItem(2, 100000, 500008, (1, 1), plus=0))
+    level_goal.stop()
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    assert not wanted_drop(silver)

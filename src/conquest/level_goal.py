@@ -34,6 +34,18 @@ def goal():
     return data if data.get("active") else None
 
 
+_silver_cache = (-float("inf"), False)
+
+
+def collect_silver():
+    """Pick up dropped silver while the goal runs (checked at most every 2 s)."""
+    global _silver_cache
+    now = time.monotonic()
+    if now - _silver_cache[0] >= 2:
+        _silver_cache = (now, bool(goal()))
+    return _silver_cache[1]
+
+
 def start(target_level=SCATTER_LEVEL):
     if type(target_level) is not int or not 2 <= target_level <= 140:
         raise ValueError("Target level must be between 2 and 140")

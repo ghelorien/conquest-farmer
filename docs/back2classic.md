@@ -28,6 +28,9 @@ the monster bracket in `profiles/leveling-presets.json`.
   is carried, preferring the smallest that covers the missing HP. Tiers below
   the active one are sold as junk. Without a goal, Painkiller stays the only
   tier bought, exactly as before.
+- **Dropped silver.** With the goal active the looter also picks up silver
+  on the ground (verified by the carried silver going up). The existing
+  farmer without a goal still ignores silver.
 - **Healing earlier.** With the goal active the combat heal threshold is at
   least 60% HP.
 - **Jump away from significant damage.** With the goal active, jump-away
