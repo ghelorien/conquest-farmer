@@ -26,6 +26,9 @@ class PlayerLayout(BaseModel):
     position_offset: Offset
     kill_counter_offset: Offset | None = None
     level_offset: Offset | None = None
+    # Current experience (u64) and the per-level requirement table (u32 each).
+    experience_offset: Offset | None = None
+    experience_table_offset: Offset | None = None
     map_rva: int | None = Field(default=None, ge=0, le=0x7FFFFFFF)
     qualification: Literal["candidate"] = "candidate"
 

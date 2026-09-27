@@ -300,14 +300,21 @@ def straight_waypoints(path, maximum_step=4):
     return result
 
 
-def native_movement_delta(dx, dy, *, viewport=(1036, 793)):
-    """Use the longest visible landing point outside HUD and chat controls."""
+def native_movement_delta(dx, dy, *, viewport=(1036, 793), anchor=None):
+    """Use the longest visible landing point outside HUD and chat controls.
+
+    ``anchor`` is the player's screen position when known: near map edges the
+    camera stops following, and a landing judged from the viewport centre can
+    click the HUD (Suicide's escape was refused every frame and it died,
+    2026-09-27 14:06).
+    """
     length = max(abs(dx), abs(dy))
+    ax, ay = anchor if anchor is not None else (viewport[0] // 2, viewport[1] // 2)
     for distance in range(min(12, round(length)), 0, -1):
         x, y = round(dx * distance / length), round(dy * distance / length)
         from conquest.viewport import clear_scene
 
-        px, py = viewport[0] // 2 + (x - y) * 32, viewport[1] // 2 + (x + y) * 16
+        px, py = round(ax + (x - y) * 32), round(ay + (x + y) * 16)
         if clear_scene((px, py), viewport):
             return x, y
     return 0, 0

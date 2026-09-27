@@ -409,6 +409,21 @@ class NativeFarmSupervisor:
                 raise CaptureUnavailable(str(error)) from error
             raise
 
+    def experience_layout(self):
+        """This client build's player layout for the XP fields, read once.
+
+        Without it the XP reader used the retired build's offsets, which read
+        level 0 on 1078 and never produced a sample (Back2Classic, 09-27).
+        """
+        if not hasattr(self, "_experience_layout"):
+            from conquest.memory_build_layout import actual_player_layout
+
+            try:
+                self._experience_layout = actual_player_layout(self.observer.adapter)
+            except (AttributeError, KeyError, ValueError, OSError):
+                self._experience_layout = None
+        return self._experience_layout
+
     def note_health(self, life):
         """Record a hit worth a jump, and damage taken while standing still."""
         previous = self.last_health_position
@@ -454,7 +469,11 @@ class NativeFarmSupervisor:
                 from conquest.experience import read_experience
 
                 try:
-                    xp = read_experience(self.observer.adapter, life.object_address)
+                    xp = read_experience(
+                        self.observer.adapter,
+                        life.object_address,
+                        self.experience_layout(),
+                    )
                     self.notify(
                         "experience_sample",
                         {
@@ -1505,8 +1524,11 @@ class NativeFarmSupervisor:
                 continue
         raise CaptureUnavailable("Waiting for a traversable patrol step")
 
-    def ranged_escape(self, position, boundary):
-        """A bounded clear jump away from memory-verified nearby living monsters."""
+    def ranged_escape(self, position, boundary, anchor=None):
+        """A bounded clear jump away from memory-verified nearby living monsters.
+
+        ``anchor`` is the player's screen position the jump is clicked from.
+        """
         from conquest.navigation import native_movement_delta
 
         now = time.monotonic()
@@ -1558,8 +1580,10 @@ class NativeFarmSupervisor:
                     (length, -length),
                     (-length, length),
                 ):
+                    # Judge the click from the player's own screen anchor,
+                    # the point the dispatch clicks from.
                     dx, dy = native_movement_delta(
-                        dx, dy, viewport=size_for(self.observer)
+                        dx, dy, viewport=size_for(self.observer), anchor=anchor
                     )
                     distance = max(abs(dx), abs(dy))
                     if distance < ESCAPE_MIN_JUMP:

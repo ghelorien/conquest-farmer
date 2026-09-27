@@ -879,16 +879,36 @@ def run_trial(
                 ):
                     escape_observed_at = time.monotonic()
                     escape_observation = supervisor.memory_targets(config.client_size)
-                    escape = supervisor.ranged_escape((x, y), (l, t, r, b))
+                    escape = supervisor.ranged_escape(
+                        (x, y), (l, t, r, b), anchor=config.player_anchor
+                    )
                     if escape is not None:
                         dx, dy = escape[0] - x, escape[1] - y
-                        dispatch(
-                            (
-                                round(config.player_anchor[0] + (dx - dy) * 32),
-                                round(config.player_anchor[1] + (dx + dy) * 16),
-                            ),
-                            control=True,
-                        )
+                        try:
+                            dispatch(
+                                (
+                                    round(config.player_anchor[0] + (dx - dy) * 32),
+                                    round(config.player_anchor[1] + (dx + dy) * 16),
+                                ),
+                                control=True,
+                            )
+                        except CaptureUnavailable as error:
+                            if "overlaps the HUD" not in str(error):
+                                raise
+                            # Nothing was clicked. Rule this landing out and
+                            # take another at once: re-planning the same
+                            # refused click every frame left Suicide standing
+                            # until it died (2026-09-27 14:06).
+                            blocked = getattr(supervisor, "escape_blocked", {})
+                            blocked[tuple(escape)] = time.monotonic() + 3
+                            supervisor.escape_blocked = blocked
+                            event(
+                                "ranged_escape_refused",
+                                source=[x, y],
+                                destination=list(escape),
+                                detail=str(error),
+                            )
+                            continue
                         # Retain the counter checkpoint for an in-flight kill,
                         # but don't wait for the interrupted auto-attack to finish.
                         attack_interrupted = pending_attack is not None

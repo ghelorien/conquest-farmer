@@ -104,7 +104,7 @@ def test_surround_interrupts_unfinished_attack_without_waiting_for_damage_or_tim
         recovery=SimpleNamespace(terrain=_open_terrain()),
         observe=lambda: {"health_ratio": 1.0, "waiting": False, "defending": False},
         memory_targets=lambda *a: [] if calls else [Target("Pheasant", 600, 400, 1)],
-        ranged_escape=lambda *a: (433, 455) if calls and jumped[0] is None else None,
+        ranged_escape=lambda *a, **k: (433, 455) if calls and jumped[0] is None else None,
         dispatch=lambda callback, **kwargs: callback(),
         loot_step=lambda *a: False,
         finish_target=lambda *a: None,
@@ -131,6 +131,118 @@ def test_surround_interrupts_unfinished_attack_without_waiting_for_damage_or_tim
     assert calls[1][0] - calls[0][0] < 0.3
     assert calls[0][1]["button"] == attack_button
     assert result["confirmed_kills"] == 1  # In-flight hit after escape remains counted.
+
+
+# Suicide died at 14:06 on 2026-09-27: every escape landing it chose clicked
+# into the HUD, the dispatch refused the click before input, and the next
+# frame chose the same landing again. A refused landing is blocked and the
+# next one is jumped to at once.
+def test_escape_refused_by_the_hud_takes_another_landing_at_once(
+    tmp_path, monkeypatch, caplog
+):
+    import win32api
+
+    now = [10.0]
+    calls = []
+    position = [423, 455]
+    config = trial_template("pheasant-foreground-trial.yaml")
+    config.update(
+        observation_mode="memory_only",
+        kite_when_surrounded=True,
+        attack_button="left",
+        route=[],
+        healing_enabled=False,
+        loot_allowlist=[],
+        attack_progress_timeout=5,
+        client_size=[1036, 793],
+        player_anchor=[518, 396],
+    )
+    path = tmp_path / "profile.yaml"
+    path.write_text(yaml.safe_dump(config))
+    monkeypatch.setattr(trial.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(trial.time, "sleep", lambda t: now.__setitem__(0, now[0] + t))
+    monkeypatch.setattr(win32api, "GetAsyncKeyState", lambda _: 0)
+    monkeypatch.setattr(trial.cv2, "imread", lambda *a, **k: pytest.fail("memory only"))
+
+    class Session:
+        def request(self, operation, body=None):
+            if operation == "health":
+                return {"input_revision": 7, "window": {"hwnd": 1}}
+            if operation == "sample":
+                values = dict(
+                    name="Parasite",
+                    position=list(position),
+                    max_hp=[100],
+                    kill_counter=[0],
+                    level=[18],
+                    map=[1002],
+                )
+                return {"fields": [{"name": k, "value": v} for k, v in values.items()]}
+            assert operation == "foreground-click"
+            calls.append(body)
+            if body["control"]:
+                position[:] = [433, 455]
+            return {}
+
+    class Inventory:
+        def __init__(self, *a):
+            pass
+
+        def read(self):
+            now[0] += 0.01
+            return InventorySnapshot(
+                now[0],
+                now[0],
+                (Item(1, 1000000, 1, 1, 0),),
+                Item(2, 1050000, 200, 200, None),
+                0,
+                40,
+            )
+
+    monkeypatch.setattr(trial, "MemoryInventoryReader", Inventory)
+    monkeypatch.setattr(
+        trial,
+        "resolve_player",
+        lambda *a: dict.fromkeys(
+            ("name", "position", "max_hp", "kill_counter", "level", "map"), 1
+        ),
+    )
+    camera = SimpleNamespace(geometry=lambda: (0, 0), close=lambda: None)
+    # (423, 467) lies 12 tiles "down": its click (134, 588) is on the chat
+    # panel. (433, 455) clicks (838, 556), clear of the HUD.
+    under_hud, clear = (423, 467), (433, 455)
+
+    def escape(position_now, boundary, anchor=None):
+        if position != [423, 455]:
+            return None
+        blocked = getattr(supervisor, "escape_blocked", {})
+        return next((p for p in (under_hud, clear) if p not in blocked), None)
+
+    supervisor = SimpleNamespace(
+        last_target=None,
+        recovery=SimpleNamespace(terrain=_open_terrain()),
+        observe=lambda: {"health_ratio": 1.0, "waiting": False, "defending": False},
+        memory_targets=lambda *a: [],
+        ranged_escape=escape,
+        dispatch=lambda callback, **kwargs: callback(),
+        loot_step=lambda *a: False,
+        finish_target=lambda *a: None,
+    )
+    caplog.set_level(logging.INFO, logger="test")
+    trial.run_trial(
+        path,
+        None,
+        tmp_path / "run",
+        1,
+        logging.getLogger("test"),
+        session_override=Session(),
+        camera_factory=lambda *a: camera,
+        supervisor=supervisor,
+    )
+    jumps = [c for c in calls if c["control"]]
+    assert [c["point"] for c in jumps] == [[838, 556]]
+    assert "ranged_escape_refused" in caplog.messages
+    assert under_hud in supervisor.escape_blocked
 
 
 @pytest.mark.parametrize(
@@ -250,7 +362,7 @@ def test_scatter_keeps_casting_on_survivors_before_looting_or_patrolling(
         scans.append(now[0])
         return [survivor()]
 
-    def escape(*args):
+    def escape(*args, **kwargs):
         escape_scans.append(len(scans))
         if reuse_case == "expired":
             now[0] += 0.151
@@ -506,7 +618,7 @@ def test_jump_scatter_repositions_then_casts_again(
             Target("Pheasant", 600 + i, 400, 1, 1 + i, 1000 + i, (435, 455), 100)
             for i in range(group_size)
         ],
-        ranged_escape=lambda *a: None,
+        ranged_escape=lambda *a, **k: None,
         dispatch=lambda callback, **kwargs: callback(),
         loot_step=lambda *a: False,
         finish_target=lambda *a: None,
