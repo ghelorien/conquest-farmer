@@ -71,18 +71,41 @@ def end_hunt(route_id, counts, now=None):
     return learned
 
 
-def plan(rates, *, bag_slots, pack_size, max_packs, reserve, min_packs=MIN_PACKS):
+def plan(
+    rates,
+    *,
+    bag_slots,
+    pack_size,
+    max_packs,
+    reserve,
+    min_packs=MIN_PACKS,
+    budget=None,
+    potion_price=None,
+    pack_price=None,
+    carried_potions=0,
+    carried_packs=0,
+):
     """(minutes, potions, packs) lasting longest before either runs out.
 
     The equipped pack takes no bag slot; ``reserve`` potions are kept for the
-    way back and never counted as hunting supply.
+    way back and never counted as hunting supply. With a ``budget`` the
+    silver is split the same way: short of silver the restock bought ~30
+    potions first and could pay for 318 arrows, six minutes of shooting
+    (live 2026-09-27 15:36).
     """
     potion_rate, arrow_rate = rates["potions_per_min"], rates["arrows_per_min"]
     best = None
-    for packs in range(min_packs, max_packs + 1):
+    for packs in range(1 if budget is not None else min_packs, max_packs + 1):
         potions = bag_slots - (packs - 1)
+        if budget is not None:
+            spent = max(0, packs - carried_packs) * pack_price
+            if spent > budget:
+                break
+            potions = min(potions, carried_potions + (budget - spent) // potion_price)
         if potions <= reserve:
-            break
+            if budget is None:
+                break
+            continue
         minutes = min(
             (potions - reserve) / potion_rate if potion_rate > 0 else float("inf"),
             packs * pack_size / arrow_rate if arrow_rate > 0 else float("inf"),
@@ -124,12 +147,34 @@ def balance(loop):
     )
     bag_slots = snapshot["capacity"] - supplies.minimum_free_slots - others - SCROLL_SLOTS
     pack_size = ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS
+    from conquest.arrow_upgrades import arrow_pack_count
+    from conquest.banking import STATUS, transport_reserve
+    from conquest.overnight import last_verified_price
+
+    # Silver this restock may spend on potions and packs: carried and banked,
+    # less the Conductress fare and, without one carried, a return scroll.
+    scroll_carried = any(
+        item["type_id"] == SCROLL and item["amount"] > 0 for item in snapshot["items"]
+    )
+    budget = max(
+        0,
+        snapshot["silver"]
+        + read_json(STATUS).get("stored_silver", 0)
+        - transport_reserve()
+        - (0 if scroll_carried else 200),
+    )
     best = plan(
         rates,
         bag_slots=bag_slots,
         pack_size=pack_size,
         max_packs=max_arrow_packs(kind),
         reserve=potion_reserve(loop.route),
+        budget=budget,
+        potion_price=last_verified_price(supplies.healing_type)
+        or HEALING_POTIONS.get(supplies.healing_type, (None, None, 60))[2],
+        pack_price=last_verified_price(kind) or 200,
+        carried_potions=counts["potions"],
+        carried_packs=arrow_pack_count(snapshot),
     )
     if best is None:
         return None

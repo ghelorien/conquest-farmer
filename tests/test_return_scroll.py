@@ -61,7 +61,7 @@ def test_unqualified_scroll_route_never_uses_input():
 
 def test_stock_only_buys_two_at_verified_price_and_preserves_inventory_space():
     r.write_json(r.POLICY, {"enabled": True, "qualified": False})
-    bag = {"silver": 1000, "items": [], "capacity": 40}
+    bag = {"silver": 1400, "items": [], "capacity": 40}
     buys = []
 
     def town(action, **kw):
@@ -82,7 +82,12 @@ def test_stock_only_buys_two_at_verified_price_and_preserves_inventory_space():
     )
     r.stock(loop)
     r.stock(loop)
-    assert len(buys) == 2 and bag["silver"] == 600
+    assert len(buys) == 2 and bag["silver"] == 1000
+    # Short of silver the spare waits: one scroll, the rest stays for arrows.
+    bag.update(silver=900, items=[])
+    r.stock(loop)
+    assert len(buys) == 3 and bag["silver"] == 700
+    assert sum(i["amount"] for i in bag["items"]) == 1
 
 
 # Toxic left town at 15:25 with 134 silver and no scroll (potions came first

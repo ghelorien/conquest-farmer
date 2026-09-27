@@ -38,6 +38,22 @@ def test_split_runs_both_supplies_out_together_within_the_bag():
     assert (potions, packs) == (27, 8) and minutes == pytest.approx(32)
 
 
+def test_scarce_silver_is_split_like_the_bag():
+    # 15:36: short of silver the restock bought ~30 potions first and paid for
+    # 318 arrows, six minutes of shooting on Apparitions.
+    budgeted = dict(
+        bag_slots=34, pack_size=200, max_packs=8, reserve=5,
+        potion_price=60, pack_price=200, carried_potions=5, carried_packs=1,
+    )
+    minutes, potions, packs = supply_plan.plan(APPARITION, budget=1500, **budgeted)
+    assert (potions, packs) == (16, 5) and minutes == pytest.approx(20)
+    # Plenty of silver plans exactly as the bag alone does.
+    assert supply_plan.plan(APPARITION, budget=100_000, **budgeted)[1:] == (27, 8)
+    # Nothing affordable beyond the way-back reserve: keep the fixed targets.
+    broke = {**budgeted, "carried_potions": 3}
+    assert supply_plan.plan(APPARITION, budget=0, **broke) is None
+
+
 def test_short_or_broken_hunts_teach_nothing_and_rates_blend():
     # 2
     supply_plan.begin_hunt("poltergeist", {"potions": 32, "arrows": 600}, now=0)
@@ -79,6 +95,10 @@ def test_balance_sets_this_restocks_targets_and_keeps_them_through_adoption(
 
     level_goal.start(level_goal.SCATTER_LEVEL)
     monkeypatch.setattr("conquest.equipment.leveling_archer", lambda: True)
+    monkeypatch.setattr(
+        "conquest.overnight.last_verified_price",
+        lambda kind, path=None: {1000020: 60, 1050000: 200}.get(kind),
+    )
     route = RouteLibrary().load("poltergeist")
     route = route.model_copy(
         update={"supplies": route.supplies.model_copy(update={"arrow_type": 1050000})}

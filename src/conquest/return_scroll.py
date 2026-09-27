@@ -18,6 +18,8 @@ STATUS = Path(state_path("reports/return-scroll/status.json"))
 # Inventory opened; that refusal alone is safe to retry.
 PRE_INPUT_CHANGE = "Player or inventory changed before scroll input"
 SCROLL_ATTEMPTS = 3
+# Silver on hand before a second (spare) scroll is bought.
+SPARE_SCROLL_SILVER = 1000
 
 
 def settle(loop, seconds=4.0, steady=0.6):
@@ -211,10 +213,13 @@ def stock(loop):
         return
     for _ in range(2):
         bag = loop.town("supplies")
-        if sum(i["amount"] for i in bag["items"] if i["type_id"] == TYPE) >= 2:
+        carried = sum(i["amount"] for i in bag["items"] if i["type_id"] == TYPE)
+        if carried >= 2:
             return
+        # The spare waits for a comfortable wallet: short of silver it took
+        # the arrows' money and the farmer left with 402 arrows (15:46).
         if (
-            bag["silver"] < 400
+            bag["silver"] < (400 if not carried else SPARE_SCROLL_SILVER)
             or len(bag["items"])
             >= bag["capacity"] - loop.route.supplies.minimum_free_slots
         ):
