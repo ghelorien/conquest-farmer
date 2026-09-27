@@ -390,6 +390,14 @@ class World:
 
     def sleep(self, seconds):
         self.now += max(0.0, seconds)
+        # An operator Stop at a fixed simulated time ends a route that would
+        # otherwise keep retrying after its failure cooldown.
+        stop_at = getattr(self, "stop_at", None)
+        if stop_at is not None and self.rel() >= stop_at:
+            stop = self.root / ".runtime" / "overnight.stop"
+            if not stop.exists():
+                stop.parent.mkdir(parents=True, exist_ok=True)
+                stop.write_text("Stopped by user: test operator", encoding="utf-8")
 
     # -- boundaries ---------------------------------------------------------
     def patch(self, monkeypatch):
@@ -767,9 +775,12 @@ def scenario(root, monkeypatch):
         world.observe(30, at=controls)
         artifact["stop_and_f12"] = world.evidence()
 
-        # F7: the press leaves the request displayed (uncertain outcome).
+        # F7: the press leaves the request displayed (uncertain outcome). The
+        # route retries after a failure cooldown instead of stopping for good,
+        # so the test operator stops it once the first cooldown has begun.
         world = World(root, monkeypatch, "uncertain")
         world.client.cancel_effective = False
+        world.stop_at = 900
         route = hunting(world, seconds=120)
         world.observe(10)
         artifact["uncertain"] = world.evidence(route)
@@ -897,16 +908,18 @@ def test_unapproved_farmer_request_is_declined_once_and_never_strands_the_route(
     assert len(stop["presses"]) == 1 and stop["presses"][0]["t"] >= 15
     assert stop["claims"] == 1 and stop["session"]["phase"] == "declined_verified"
 
-    # F7: one claim, one press, never replayed; bounded wait -> attention.
+    # F7: one claim, one press, never replayed, even across restarts and the
+    # failure cooldown; each bounded wait expires and the route cools down
+    # instead of stopping for good.
     uncertain = artifact["uncertain"]
     assert len(uncertain["presses"]) == 1 and uncertain["claims"] == 1
     assert uncertain["decline_journal"] == "submitted" and uncertain["request_visible"]
-    assert uncertain["route"]["failed"]
+    assert not uncertain["route"]["failed"]
     events = uncertain["route"]["events"]
     expired = [e for e in events if e[1] == "manual_request_wait_expired"]
-    assert (
-        len(expired) == 1 and expired[0][0] - uncertain["marks"]["request_shown"] >= 60
-    )
+    assert expired and expired[0][0] - uncertain["marks"]["request_shown"] >= 60
+    names = [e[1] for e in events]
+    assert "failure_cooldown" in names and names[-1] == "stopped"
     # A pre-input fence refusal never looks like a possibly-transacted action.
     assert "town_action_failed" not in [e[1] for e in events]
 

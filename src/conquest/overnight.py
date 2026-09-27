@@ -24,6 +24,9 @@ MANUAL_REQUEST_WAIT_SECONDS = 60
 # hour (after a short protected pause) before the route stops for attention.
 AUTO_RESTARTS = 3
 AUTO_RESTART_PAUSE_SECONDS = 20
+# Once the hourly restart budget is spent: pause this long (escalating), then
+# replan from fresh reads again instead of stopping for good.
+FAILURE_COOLDOWNS = (600, 1200, 1800)
 
 
 class OvernightStopped(Exception):
@@ -2206,6 +2209,38 @@ class OvernightLoop:
         self.refresh()
         return True
 
+    def failure_cooldown(self, error):
+        """Wait out a failure that keeps recurring, then replan from fresh reads.
+
+        Stopping for good after the hourly restart budget left the farmer
+        standing in town for seven hours (live 2026-09-27 01:50). The pause
+        grows with each consecutive cooldown; life care keeps running, the
+        health reads keep the status heartbeat fresh and manual Stop wins.
+        """
+        streak = getattr(self, "cooldowns", 0)
+        seconds = FAILURE_COOLDOWNS[min(streak, len(FAILURE_COOLDOWNS) - 1)]
+        self.cooldowns = streak + 1
+        self.record(
+            "failure_cooldown",
+            attempt=self.cooldowns,
+            seconds=seconds,
+            activity=f"Repeated failures; retrying in {seconds // 60} minutes",
+            **self.failure_record(error),
+        )
+        self.phase = "recovering_route"
+        until = time.monotonic() + seconds
+        while time.monotonic() < until:
+            self.check_stop()
+            try:
+                self.care.check(self.living())
+            except OvernightStopped:
+                raise
+            except Exception:
+                pass
+            time.sleep(1)
+        self.auto_restarts = []
+        self.refresh()
+
     def run(self):
         self.check_stop()
         self.refresh()
@@ -2227,7 +2262,7 @@ class OvernightLoop:
                     # Open journals keep their own reconciliation gates, so a
                     # restart can never replay an uncertain transaction.
                     if not self.auto_restart(error):
-                        raise
+                        self.failure_cooldown(error)
         except OvernightStopped as error:
             self.phase = "stopped"
             self.record("stopped", detail=str(error))
