@@ -261,3 +261,12 @@ def test_option_choice_never_guesses():
     assert scatter_training.choose(LEARN, ["Learn skills"]) is None
     assert scatter_training.choose(SHOP, []) is None
     assert scatter_training.choose(FIELD, []) is None
+    confirm = [
+        {"kind": 0, "option": 255, "text": "Learn Scatter for 1000 silver?"},
+        {"kind": 1, "option": 0, "text": "Yes."},
+        {"kind": 1, "option": 1, "text": "No, thanks."},
+    ]
+    # A confirmation is taken only straight after choosing Scatter.
+    assert scatter_training.choose(confirm, ["Learn skills", "Scatter"]) == "Yes."
+    assert scatter_training.choose(confirm, ["Learn skills"]) is None
+    assert scatter_training.choose(confirm, []) is None

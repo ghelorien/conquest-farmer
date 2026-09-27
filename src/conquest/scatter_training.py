@@ -29,6 +29,8 @@ MAX_DIALOG_STEPS = 6
 RETRY_SECONDS = 1800
 MAX_ATTEMPTS = 6
 LEARNING_WORDS = ("learn", "skill", "teach", "study", "train")
+# A confirmation right after the Scatter option ("Yes", "OK", ...).
+CONFIRM_WORDS = ("yes", "ok", "sure", "confirm", "agree", "accept")
 
 
 def learned(loop):
@@ -53,6 +55,12 @@ def choose(records, pressed):
     for text in options:
         if text not in pressed and any(w in text.casefold() for w in LEARNING_WORDS):
             return text
+    if pressed and "scatter" in pressed[-1].casefold():
+        # Only straight after choosing Scatter: accept the trainer's confirm.
+        for text in options:
+            words = text.casefold().replace(".", " ").replace("!", " ").split()
+            if text not in pressed and any(w in words for w in CONFIRM_WORDS):
+                return text
     return None
 
 
