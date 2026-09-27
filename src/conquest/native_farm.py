@@ -12,6 +12,11 @@ from conquest.valuables import SPECIAL_LOOT_TYPES
 
 # Seconds of recent damage that can still justify an escape jump.
 DAMAGE_WINDOW = 1.25
+# A hit taking more than this share of max HP is answered by a jump at once
+# (Alex 2026-09-27: "As soon as you get attacked by damage that is over 1%
+# of max hp jump away and start attacking back"). The former 10% bar let a
+# typical 9% Apparition hit through: 43% of hits got no jump.
+ESCAPE_DAMAGE_SHARE = 0.01
 # How far the same exact monster (entity and object) may have moved between
 # selection and input and still be re-aimed at its fresh position; the range
 # check then applies. Apparitions drift 3-4 tiles in that time (live
@@ -379,6 +384,17 @@ class NativeFarmSupervisor:
                 raise CaptureUnavailable(str(error)) from error
             raise
 
+    def note_health(self, life):
+        """Record a hit worth a jump, and damage taken while standing still."""
+        previous = self.last_health_position
+        position = tuple(life.position)
+        if previous and not life.dead_candidate and life.current_hp < previous[0]:
+            if previous[0] - life.current_hp > ESCAPE_DAMAGE_SHARE * life.max_hp:
+                self.last_damage_at = time.monotonic()
+            if previous[1] == position:
+                self.defend_until = time.monotonic() + 8
+        self.last_health_position = (life.current_hp, position)
+
     def observe(self):
         from conquest.mouse_priority import require_idle
         from conquest.merchants.coordination import manual_session_blocked
@@ -394,21 +410,7 @@ class NativeFarmSupervisor:
             if hasattr(life, "position"):
                 self.position = tuple(life.position)
                 self.map_id = life.map_id
-                previous = self.last_health_position
-                if (
-                    previous
-                    and life.current_hp < previous[0]
-                    and not life.dead_candidate
-                ):
-                    self.last_damage_at = time.monotonic()
-                if (
-                    previous
-                    and previous[1] == self.position
-                    and life.current_hp < previous[0]
-                    and not life.dead_candidate
-                ):
-                    self.defend_until = time.monotonic() + 8
-                self.last_health_position = (life.current_hp, self.position)
+                self.note_health(life)
             if manual or manual_session_blocked("Farmer"):
                 intent = self.control.snapshot()
                 self.pending_loot = None
@@ -1349,8 +1351,11 @@ class NativeFarmSupervisor:
                 continue
             try:
                 # Long inter-area travel can exceed the small local patrol budget.
-                # Reuse a checked path only while fresh memory stays on it and the
-                # destination, terrain, boundary and temporary obstructions agree.
+                # Reuse a checked path while fresh memory stays on it or a few
+                # clear tiles beside it (a shortened or escape jump) and the
+                # destination, terrain, boundary and temporary obstructions agree:
+                # replanning a 600-tile return after every off-line landing
+                # stalled travel 2-5 s at a time (live 2026-09-27).
                 key = (
                     id(terrain),
                     self.map_id,
@@ -1359,9 +1364,14 @@ class NativeFarmSupervisor:
                     frozenset(avoid),
                 )
                 cached = getattr(self, "travel_path_cache", None) if not chase else None
-                if cached and cached[0] == key and tuple(position) in cached[1]:
-                    path = cached[1][cached[1].index(tuple(position)) :]
-                else:
+                from conquest.navigation import rejoin_path
+
+                path = (
+                    rejoin_path(terrain, cached[1], position, avoid=avoid)
+                    if cached and cached[0] == key
+                    else None
+                )
+                if path is None:
                     planner = (
                         getattr(
                             terrain,
@@ -1482,9 +1492,8 @@ class NativeFarmSupervisor:
         adjacent = sum(
             max(abs(a - b) for a, b in zip(p, position)) <= 1 for p in living
         )
-        # Any hit is reason to jump: tanking "small" hits (a 9% Apparition
-        # hit stayed under the former 10% bar) only burns potions and town
-        # trips (Alex 2026-09-27: "don't tank a few hits before jumping").
+        # Every hit over ESCAPE_DAMAGE_SHARE is reason to jump: tanking hits
+        # only burns potions and town trips ("don't tank a few hits").
         damaged = (
             now - self.last_damage_at <= DAMAGE_WINDOW
             and self.last_damage_at > self.escape_damage_consumed_at

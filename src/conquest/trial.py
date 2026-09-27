@@ -558,17 +558,24 @@ def run_trial(
                     ):
                         reason = "outside_trial_boundary"
                         break
-                    from conquest.navigation import plan_hunting_return
+                    from conquest.navigation import hunting_return_path
 
-                    approach, travel_boundary = plan_hunting_return(
-                        supervisor.recovery.terrain,
-                        (x, y),
-                        config.hunting_anchor,
-                        config.boundary,
-                    )
+                    # The supervisor steers to the anchor itself (patrol_step),
+                    # so only the travel boundary is needed. Precomputing every
+                    # landing replanned the route per shortened jump: 25-35 s
+                    # standing in town after each restock (live 2026-09-27).
+                    with (
+                        timing.measure("return_planning") if timing else nullcontext()
+                    ):
+                        _, travel_boundary = hunting_return_path(
+                            supervisor.recovery.terrain,
+                            (x, y),
+                            config.hunting_anchor,
+                            config.boundary,
+                        )
                     config = config.model_copy(
                         update={
-                            "approach_route": approach,
+                            "approach_route": (tuple(config.hunting_anchor),),
                             "approach_boundary": travel_boundary,
                         }
                     )
@@ -1901,10 +1908,16 @@ def run_trial(
                                 waypoint = (waypoint + 1) % len(config.route)
                             destination = config.route[waypoint]
                         if supervisor and scatter_destination is None:
+                            planning = (
+                                timing.measure("patrol_planning")
+                                if timing
+                                else nullcontext()
+                            )
                             if approaching:
-                                destination = supervisor.patrol_step(
-                                    (x, y), destination, (l, t, r, b), chase=False
-                                )
+                                with planning:
+                                    destination = supervisor.patrol_step(
+                                        (x, y), destination, (l, t, r, b), chase=False
+                                    )
                             else:
                                 from conquest.patrol_search import patrol_step
 
@@ -1913,15 +1926,16 @@ def run_trial(
                                     if rotation and rotation.region.contains((x, y))
                                     else (l, t, r, b)
                                 )
-                                destination, waypoint = patrol_step(
-                                    supervisor,
-                                    (x, y),
-                                    config.route,
-                                    waypoint,
-                                    patrol_boundary,
-                                    chase=not rotation
-                                    or rotation.region.contains((x, y)),
-                                )
+                                with planning:
+                                    destination, waypoint = patrol_step(
+                                        supervisor,
+                                        (x, y),
+                                        config.route,
+                                        waypoint,
+                                        patrol_boundary,
+                                        chase=not rotation
+                                        or rotation.region.contains((x, y)),
+                                    )
                                 escaped = getattr(supervisor, "last_escape", None)
                                 if (
                                     escaped
