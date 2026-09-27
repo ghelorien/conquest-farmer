@@ -1,0 +1,17 @@
+# Suicide (Back2Classic, build 1078), 2026-09-27: the same measured profile
+# as Toxic.yaml (Kilhiam's timings plus Parasite's observation options).
+# On it Toxic went from ~5-8 to ~15 kills/min on Apparitions with pauses
+# under 0.6/min each. Scatter options and cluster_lookahead wait until
+# Suicide has learned Scatter.
+character: Suicide
+combat_speed:
+  action_interval: 0.15
+  jump_arrival_seconds: 0.25
+  jump_attack_guard_seconds: 0.28
+  coherent_projection: true
+  selected_target_refresh: true
+  packed_monster_records: true
+  scene_reuse_seconds: 0.15
+  torn_life_attempts: 3
+  moving_observation_retry_seconds: 0.01
+  counter_gap_recovery: true
