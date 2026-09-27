@@ -30,8 +30,10 @@ FARE = 100
 CONDUCTRESS_TILE = (438, 444)
 # Her dialog opens within 18 tiles; arriving within a few tiles of her tile
 # does not stall when someone stands on it (live 2026-09-27 14:50: 30 s of
-# stalled steps until the ride was abandoned for a ~1,000-tile walk).
-ARRIVAL_RADIUS = 4
+# stalled steps until the ride was abandoned for a ~1,000-tile walk). Town
+# travel accepts at most 2: a radius of 4 was refused before every ride
+# (live 15:22, "Intermediate arrival radius must be zero to two tiles").
+ARRIVAL_RADIUS = 2
 LANDINGS = Path(state_path(".runtime/conductress-landings.json"))
 
 

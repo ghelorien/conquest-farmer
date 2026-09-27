@@ -65,11 +65,24 @@ class Twin:
         }
 
 
+def town_travel(twin, log=None):
+    """Town travel with the controller's own argument check (OvernightLoop._travel)."""
+
+    def travel(target, *, arrival_radius=0, **kw):
+        if type(arrival_radius) is not int or not 0 <= arrival_radius <= 2:
+            raise ValueError("Intermediate arrival radius must be zero to two tiles")
+        twin.actions.append("travel")
+        if log is not None:
+            log.append((target, {"arrival_radius": arrival_radius, **kw}))
+
+    return travel
+
+
 def loop_for(twin, route=APPARITION):
     return NS(
         route=route,
         town=twin.town,
-        travel=lambda target, **kw: twin.actions.append("travel"),
+        travel=town_travel(twin),
         living=lambda: {"embedded_controls": {"life": twin.life()}},
         health=lambda: {"embedded_controls": {"life": twin.life(), "observed_at": shortcut.time.time()}},
         record=lambda event, **fields: twin.events.append(event),
@@ -132,12 +145,13 @@ def test_a_farmer_on_her_tile_still_boards(state):
 
 def test_someone_on_her_tile_does_not_stall_the_walk_to_her(state):
     # 14:50: the walk to her exact tile stalled 30 s and the ride was dropped.
+    # 15:22: a radius of 4 is refused by town travel, so every ride walked.
     twin = Twin()
     travels = []
     loop = loop_for(twin)
-    loop.travel = lambda target, **kw: travels.append((target, kw))
+    loop.travel = town_travel(twin, travels)
     assert shortcut.ride(loop) is True
-    assert travels == [(shortcut.CONDUCTRESS_TILE, {"arrival_radius": 4})]
+    assert travels == [(shortcut.CONDUCTRESS_TILE, {"arrival_radius": 2})]
 
 
 def test_unverified_ride_is_never_paid_twice(state):
