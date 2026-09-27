@@ -435,7 +435,9 @@ class TradeObservationReader1078:
             "character": self.character,
             "character_uid": character_uid,
             "identity": dict(self.session.identity),
-            "server": "America",
+            # The profile's label, so a Back2Classic farmer matches its own
+            # profile while America-only merchant paths still refuse it.
+            "server": QUALIFIED_SERVERS[server.split(b"\0", 1)[0]],
             "inventory": [asdict(item) for item in inventory],
             "booth": [asdict(item) for item in booth],
             "capacity": 40,
