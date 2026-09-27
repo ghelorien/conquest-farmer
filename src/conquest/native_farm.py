@@ -37,6 +37,10 @@ KILL_SITE_KEEP_MS = 20000
 # 17:57-18:00: 17 jump-Scatter kills on Poltergeists, not one pickup).
 KILL_DROP_SCATTER_SECONDS = 3
 KILL_DROP_SCATTER_RADIUS = 9
+# An unconfirmed pickup of our own silver is retried this soon. Jump-Scatter
+# escapes cut pickup walks short (live 2026-09-27 18:52: three of five silver
+# clicks unconfirmed); the former minute outlived the drop's own-kill window.
+SILVER_RETRY_SECONDS = 5
 # The target's scene position this recent stands for where it died.
 TARGET_SEEN_MS = 3000
 # An escape jump that has not moved the farmer this long after the click
@@ -998,7 +1002,7 @@ class NativeFarmSupervisor:
                 self.last_loot_error = str(error)
             if self.pending_loot and now - self.pending_loot[2] >= 2:
                 drop, _, _ = self.pending_loot
-                delay = 60 if drop.silver else 1
+                delay = SILVER_RETRY_SECONDS if drop.silver else 1
                 self.loot_cooldowns[(drop.uid, drop.object_address)] = now + delay
                 if not drop.silver:
                     self.loot_wait_until = max(self.loot_wait_until, now + delay)
@@ -1048,7 +1052,7 @@ class NativeFarmSupervisor:
                     "memory_pickup_unverified",
                     {"uid": drop.uid, "type_id": drop.type_id},
                 )
-                delay = 60 if drop.silver else 1
+                delay = SILVER_RETRY_SECONDS if drop.silver else 1
                 self.loot_cooldowns[(drop.uid, drop.object_address)] = now + delay
                 if not drop.silver:
                     self.loot_wait_until = max(self.loot_wait_until, now + delay)

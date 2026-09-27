@@ -881,13 +881,20 @@ def run_trial(
                     escape_observation = supervisor.memory_targets(config.client_size)
                     from conquest.native_farm import JUMP_SCATTER_REACH
 
+                    # A pickup walk in flight (1.5 s for silver) is only cut
+                    # short by a hit or a monster at contact: jumps at reach
+                    # left three of five silver clicks unconfirmed (18:52).
+                    pickup = getattr(supervisor, "pending_loot", None)
+                    looting = bool(pickup) and time.monotonic() - pickup[2] < 3
                     escape = supervisor.ranged_escape(
                         (x, y),
                         (l, t, r, b),
                         anchor=config.player_anchor,
                         # Jump-Scatter leaves before any monster can hit it.
                         adjacent_trigger=1 if config.jump_scatter else 2,
-                        reach=JUMP_SCATTER_REACH if config.jump_scatter else 1,
+                        reach=JUMP_SCATTER_REACH
+                        if config.jump_scatter and not looting
+                        else 1,
                     )
                     if escape is not None:
                         dx, dy = escape[0] - x, escape[1] - y

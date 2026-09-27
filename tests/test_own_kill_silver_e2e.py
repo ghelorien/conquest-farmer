@@ -158,6 +158,29 @@ def test_silver_where_the_target_died_after_walking_at_us(monkeypatch):
     assert picks(supervisor, [GroundItem(11, 110, SILVER, (12, 11), clock[0] - 100)]) == []
 
 
+def test_unconfirmed_own_silver_is_retried_within_its_window(monkeypatch):
+    """11: an escape jump cut the pickup walk short (live 2026-09-27 18:52);
+    the former 60 s cooldown outlived the drop's own-kill window."""
+    from conquest import native_farm
+
+    clock = [KILL]
+    now = [100.0]
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: now[0])
+    supervisor = farmer(monkeypatch, clock)
+    kill(supervisor, clock, (11, 10))
+    drop = GroundItem(15, 150, SILVER, (12, 10), KILL + 200)
+    assert picks(supervisor, [drop]) == [15]
+    # Still on the ground 1.5 s later: unconfirmed, retried after 5 s.
+    now[0] = 101.6
+    supervisor.loot_step(
+        SimpleNamespace(silver=0, items=(), capacity=40), (10, 10), lambda *a, **k: None
+    )
+    assert supervisor.pending_loot is None
+    assert supervisor.loot_cooldowns[(15, 150)] == 101.6 + native_farm.SILVER_RETRY_SECONDS
+    now[0] = 101.6 + native_farm.SILVER_RETRY_SECONDS + 0.1
+    assert picks(supervisor, [drop]) == [15]
+
+
 def test_scatter_kill_silver_anywhere_within_its_reach(monkeypatch):
     """10: Scatter killed a monster in its fan, not the one it aimed at (live
     Toxic 2026-09-27 17:57-18:00: 17 jump-Scatter kills, not one pickup)."""
