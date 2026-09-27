@@ -46,20 +46,10 @@ def read_level(info, health):
         or not 0 <= time.time() - data.get("observed_at", 0) <= 1
     ):
         raise ValueError("Current living memory state required for route selection")
-    result = request(
-        info,
-        "sample",
-        {
-            "fields": [
-                {
-                    "name": "level",
-                    "address": hex(life["object_address"] + 0x6E8),
-                    "kind": "u32",
-                }
-            ]
-        },
-    )
-    level = result["fields"][0]["value"][0]
+    # The worker reads the level through the client build's qualified player
+    # layout and archer identity (1078 keeps it at +0x6F8). The fixed +0x6E8
+    # read 0 live, which silently rejected every automatic route change.
+    level = request(info, "town", {"action": "gear"})["level"]
     fresh = request(info, "health")["embedded_controls"]
     latest = fresh.get("life")
     if (
