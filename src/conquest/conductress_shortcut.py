@@ -71,7 +71,12 @@ def _in_town(life):
         return False
     left, top, right, bottom = city_for(1002)["town_boundary"]
     x, y = life["position"]
-    return left <= x <= right and top <= y <= bottom
+    # Her tile lies south of the town boundary: a farmer left standing there
+    # by a refused ride must still board (live 2026-09-27, every retry after
+    # the refusal walked instead).
+    return (left <= x <= right and top <= y <= bottom) or _distance(
+        life["position"], CONDUCTRESS_TILE
+    ) <= 12
 
 
 def ride(loop):
@@ -92,6 +97,11 @@ def ride(loop):
         from conquest.conductress import prepare_destination
 
         ensure_transport(loop, minimum=FARE * 2)
+        # Checked before walking to her: with 39 silver and an empty bank her
+        # dialog refused the fare and the route failed (live 2026-09-27).
+        silver = loop.town("supplies")["silver"]
+        if silver < FARE:
+            raise ValueError(f"The {FARE} silver fare is more than the {silver} carried")
         loop.record(
             "conductress_shortcut_departing",
             option=option,
