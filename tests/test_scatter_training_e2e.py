@@ -116,7 +116,9 @@ class Trainer:
 
     def read_scroll(self, loop):
         # The real return_to_town refuses inside Twin City town.
-        if self.map != 1004 or not self.scrolls or not self.exits:
+        x, y = self.position
+        in_town = self.map == 1002 and 348 <= x <= 507 and 209 <= y <= 433
+        if in_town or not self.scrolls or (self.map == 1004 and not self.exits):
             return False
         self.actions.append(["scroll", None])
         self.scrolls -= 1
@@ -297,6 +299,20 @@ def test_a_character_can_opt_out_of_the_visit(world, monkeypatch):
     assert not any(a == "enter" for a, _ in trainer.actions)
     assert "scatter_training_manual" in trainer.events
     assert not scatter_training.due(NS(last_level=23))
+
+
+def test_a_visit_due_in_the_field_goes_to_town_first(world, monkeypatch):
+    # The route restarted in the field at level 23 (a deploy): scroll to
+    # town, buy the scroll that leads out, visit, read out, keep leveling.
+    trainer = Trainer([LEARN, SKILLS], scrolls=1, silver=500)
+    trainer.position = [300, 605]  # the Apparition field
+    monkeypatch.setattr(scatter_training, "learned", lambda loop: trainer.learned)
+    loop = loop_for(trainer, monkeypatch)
+    assert scatter_training.due(loop)
+    assert scatter_training.attempt(loop) is True
+    order = [a for a, _ in trainer.actions if a in ("scroll", "buy", "enter")]
+    assert order == ["scroll", "buy", "enter", "scroll"]
+    assert trainer.map == 1002 and trainer.scrolls == 0 and trainer.silver == 300
 
 
 def test_a_farmer_left_in_the_building_reads_its_way_back_to_twin_city(monkeypatch):

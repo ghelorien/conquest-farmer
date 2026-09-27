@@ -126,6 +126,21 @@ def _exit_scroll(loop):
     return _carries_scroll(loop)
 
 
+def _to_town(loop):
+    """From the field to Twin City town, the way the level goal's finish goes."""
+    from types import SimpleNamespace
+
+    from conquest.return_scroll import in_town, return_to_town
+    from conquest.world_travel import travel_to_map
+
+    life = loop.living()["embedded_controls"]["life"]
+    if life["map_id"] == 1002 and in_town(SimpleNamespace(**life)):
+        return
+    return_to_town(loop)
+    travel_to_map(loop, 1002)
+    loop.travel(loop.route.restock_anchor)
+
+
 def _leave(loop):
     """Read the scroll out of the building; raises if the farmer stays inside."""
     from conquest.return_scroll import return_to_town
@@ -164,6 +179,7 @@ def learn(loop):
     state.update(attempts=state.get("attempts", 0) + 1, last_attempt=time.time())
     write_json(STATE, state)
     if loop.living()["embedded_controls"]["life"]["map_id"] != TRAINER_MAP:
+        _to_town(loop)
         if not _exit_scroll(loop):
             loop.record(
                 "scatter_training_pending",
