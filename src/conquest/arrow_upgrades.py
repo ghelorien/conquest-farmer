@@ -5,6 +5,20 @@ ARROW_LEVELS = {1050000: 1, 1050001: 32, 1050002: 73}
 # Latest preference: one equipped pack and one spare, across all normal tiers.
 MAX_ARROW_PACKS = 2
 ARROW_REFILL_AMOUNTS = {1050000: 400, 1050001: 2000, 1050002: 10000}
+# A leveling archer on 200-arrow LuckyArrow packs emptied two packs in about
+# 18 minutes (live 2026-09-27), so every town trip was for arrows. The
+# two-pack preference was set for 5,000-arrow SpeedArrow packs.
+LEVELING_LUCKY_PACKS = 5
+
+
+def max_arrow_packs(kind=None):
+    """Packs of this normal tier the farmer may carry, the equipped one included."""
+    if kind == 1050000:
+        from conquest.equipment import leveling_archer
+
+        if leveling_archer():
+            return LEVELING_LUCKY_PACKS
+    return MAX_ARROW_PACKS
 
 
 def preferred_arrow(level):
@@ -39,9 +53,9 @@ def arrow_pack_count(snapshot):
     return len(items) + int(equipped)
 
 
-def require_arrow_purchase_room(snapshot):
-    if arrow_pack_count(snapshot) >= MAX_ARROW_PACKS:
-        raise ValueError("Arrow purchase blocked: already carrying two or more packs")
+def require_arrow_purchase_room(snapshot, kind=None):
+    if arrow_pack_count(snapshot) >= max_arrow_packs(kind):
+        raise ValueError("Arrow purchase blocked: already carrying the maximum packs")
 
 
 def eligible_arrow(product, state):

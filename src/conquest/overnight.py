@@ -1079,15 +1079,17 @@ class OvernightLoop:
         before = supply_counts(snapshot, self.route)
         from conquest.arrow_upgrades import (
             NORMAL_ARROWS,
-            MAX_ARROW_PACKS,
             arrow_pack_count,
+            max_arrow_packs,
         )
 
-        if type_id in NORMAL_ARROWS and arrow_pack_count(snapshot) >= MAX_ARROW_PACKS:
+        if type_id in NORMAL_ARROWS and arrow_pack_count(snapshot) >= max_arrow_packs(
+            type_id
+        ):
             self.record(
                 "arrow_purchase_deferred",
                 arrow_packs=arrow_pack_count(snapshot),
-                activity="Keeping existing arrow packs; one equipped and one spare is enough",
+                activity="Keeping existing arrow packs; the pack limit is reached",
             )
             return False
         from conquest.savings import savings_plan, affordable_supply

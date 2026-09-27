@@ -68,7 +68,12 @@ def shopping_budget(route, bag, level=None):
     )
     if not pack:
         raise ValueError("Arrow refill budget is not qualified")
-    from conquest.arrow_upgrades import MAX_ARROW_PACKS, arrow_pack_count, NORMAL_ARROWS
+    from conquest.arrow_upgrades import (
+        MAX_ARROW_PACKS,
+        NORMAL_ARROWS,
+        arrow_pack_count,
+        max_arrow_packs,
+    )
 
     # One/two-arrow remnants will be recycled on this required shop visit.
     # They must not consume the budget for the replacement pack. The actual
@@ -85,7 +90,7 @@ def shopping_budget(route, bag, level=None):
         usable_bag["equipped_ammo"] = None
     packs = min(
         math.ceil(max(0, route.supplies.arrows_restock_to - counts["arrows"]) / pack),
-        max(0, MAX_ARROW_PACKS - arrow_pack_count(usable_bag)),
+        max(0, max_arrow_packs(kind) - arrow_pack_count(usable_bag)),
     )
     # A full two-pack bag cannot buy another pack. Do not require a catalog
     # price for a purchase that the inventory cap already rules out.

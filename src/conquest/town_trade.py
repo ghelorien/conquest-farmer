@@ -1376,7 +1376,7 @@ class TownTrade:
             if product.type_id in (1050000, 1050001, 1050002):
                 from conquest.arrow_upgrades import require_arrow_purchase_room
 
-                require_arrow_purchase_room(before)
+                require_arrow_purchase_room(before, product.type_id)
             if before.silver < product.price or len(before.items) >= before.capacity:
                 raise ValueError("Insufficient funds or inventory room to restock")
             fresh = self.shop.read(npc.entity_id)

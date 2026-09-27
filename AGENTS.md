@@ -125,7 +125,10 @@ Latest user preference: refill to five selected healing potions and two arrow
 packs maximum: one equipped and one spare, counting partial packs across tiers.
 Prefer SpeedArrows from level 73 (5,000 per pack; 10,000 total), then IronArrows
 from level 32, then LuckyArrows. Never buy while carrying two or more packs;
-preserve existing excess for use. Use memory-qualified owned upgrades before
+preserve existing excess for use. Exception: a leveling archer (Back2Classic
+profile or level goal) on 200-arrow LuckyArrow packs carries up to five packs
+(1,000 arrows); two packs lasted about 18 minutes at Robins and every town trip
+was for arrows (2026-09-27). Use memory-qualified owned upgrades before
 buying, and fund the best eligible normal tier on required town visits.
 Keep existing excess potions to use normally; do not discard them to reach five.
 Low-level routes (Pheasants through Winged Snakes, levels 1-31) refill to 20
