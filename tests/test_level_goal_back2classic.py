@@ -489,7 +489,8 @@ def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
     level_goal.start(23)
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
     assert wanted_drop(silver)
-    assert not wanted_drop(GroundItem(2, 100000, 500008, (1, 1), plus=0))
+    # Unique and higher is always wanted now (Alex 2026-09-28); Refined +0 is not.
+    assert not wanted_drop(GroundItem(2, 100000, 500006, (1, 1), plus=0))
     level_goal.stop()
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
     assert not wanted_drop(silver)
