@@ -58,6 +58,10 @@ from conquest.focus_recovery import (
 
 # In-place trial restarts for a lock error that escapes run_trial anyway.
 RUNNER_STORAGE_RESTARTS = 3
+# plan_note() parses every saved route. Refreshed on each 200 ms poll it was
+# most of the UI thread's CPU (Toxic 2026-09-28: the main thread at 68% of a
+# core, the combat thread starved of the GIL at 13%).
+SESSION_NOTE_SECONDS = 2.0
 
 
 class EventQueue(logging.Handler):
@@ -2790,11 +2794,14 @@ class DesktopApp:
         try:
             from conquest.session_plan import plan_note
 
-            try:
-                self.session_note.set(plan_note())
-            except Exception:
-                # A display/schema change must not starve control, healing or reload events.
-                self.session_note.set("Session settings updating")
+            now = time.monotonic()
+            if now >= getattr(self, "_session_note_due", 0):
+                self._session_note_due = now + SESSION_NOTE_SECONDS
+                try:
+                    self.session_note.set(plan_note())
+                except Exception:
+                    # A display/schema change must not starve control, healing or reload events.
+                    self.session_note.set("Session settings updating")
             from conquest.thread_sampler import poll as poll_thread_profile
 
             poll_thread_profile()  # .runtime/thread-profile.request; never raises

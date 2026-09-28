@@ -265,6 +265,34 @@ def test_settings_label_error_does_not_starve_control_poll(monkeypatch):
     assert calls == ["controls", "scheduled"]
 
 
+def test_session_note_parses_routes_at_most_every_two_seconds(monkeypatch):
+    # plan_note() parses every saved route; at 5 Hz it starved the combat
+    # thread of the GIL (Toxic 2026-09-28).
+    from conquest import desktop_app
+    from conquest.desktop_app import DesktopApp
+
+    notes, now = [], [100.0]
+    monkeypatch.setattr(desktop_app.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        "conquest.session_plan.plan_note",
+        lambda: notes.append("parsed") or "Staying on WingedSnakes",
+    )
+    shown = []
+    app = NS(
+        session_note=NS(set=shown.append),
+        _poll=lambda: True,
+        root=NS(after=lambda *args: None),
+        poll=lambda: None,
+    )
+    DesktopApp.poll(app)
+    now[0] += 0.2
+    DesktopApp.poll(app)
+    assert notes == ["parsed"] and shown == ["Staying on WingedSnakes"]
+    now[0] += desktop_app.SESSION_NOTE_SECONDS
+    DesktopApp.poll(app)
+    assert notes == ["parsed", "parsed"]
+
+
 def test_new_app_resumes_only_the_same_client_and_consumes_handoff(
     monkeypatch, tmp_path
 ):
