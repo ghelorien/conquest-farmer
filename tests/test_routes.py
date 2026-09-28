@@ -162,6 +162,28 @@ def test_ui_route_selection_persists_group_but_never_starts_farming(tmp_path):
     assert app.selected_route is None
 
 
+def test_a_route_family_grown_by_a_release_still_restores(tmp_path):
+    # Toxic 2026-09-28 18:16: saved [9, 68] against the FireSpirit route's new
+    # (9, 68, 8104) selected nothing and every farm start failed.
+    app = DesktopApp.__new__(DesktopApp)
+    app.route_library = RouteLibrary(tmp_path / "routes")
+    app.route_library.save(RouteLibrary().load("firespirit"))
+    app.control = FarmingControl(tmp_path / "controls.json")
+    app.control.update({"target_ids": [], "target_type_ids": [9, 68]})
+    app.route_selection_path = tmp_path / "selected-route.json"
+    app.route_selection_path.write_text('{"route_id": "firespirit"}')
+    app.route_text, app.route_note = Text(), Text()
+    app.selected_route = None
+    app.restore_route()
+    assert app.selected_route.id == "firespirit"
+    assert app.control.snapshot()["target_type_ids"] == [9, 68, 8104]
+    # Another family's saved group still restores nothing.
+    app.selected_route = None
+    app.control.update({"target_type_ids": [8, 67]})
+    app.restore_route()
+    assert app.selected_route is None
+
+
 def test_shipped_routes_are_distinct_complete_templates():
     routes = RouteLibrary().all()
     assert {r.id for r in routes} >= {"pheasant", "turtledove"}

@@ -2100,9 +2100,15 @@ class DesktopApp:
                 json.loads(self.route_selection_path.read_text())["route_id"]
             )
             control = self.control.snapshot()
+            saved = set(control["target_type_ids"])
+            # A release can grow a route's family: the ElfMessenger joined the
+            # FireSpirit route, and Toxic's saved [9, 68] then matched nothing,
+            # so every start failed "Selected route and monster group differ"
+            # (2026-09-28 18:16). The base type with older members is still
+            # this route's group, not another one's.
             if not control["target_ids"] and (
-                sorted(control["target_type_ids"]) == sorted(route.monster_type_ids)
-                or control["target_type_ids"] == [route.monster_type_ids[0]]
+                route.monster_type_ids[0] in saved
+                and saved <= set(route.monster_type_ids)
             ):
                 self.control.update({"target_type_ids": list(route.monster_type_ids)})
                 self.display_route(route)
