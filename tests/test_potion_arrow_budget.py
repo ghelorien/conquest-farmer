@@ -11,6 +11,14 @@ Failure modes (written before the change):
 6. "Short" means only under the return threshold (3 arrows), so a farmer
    with less than one pack is left unable to buy it (live 2026-09-27 15:20:
    53 arrows, 385 silver, 15 cheap potions bought, 193 left for a 200 pack).
+7. Potions stop short of the plan for an IronArrow pack (live 2026-09-28
+   00:26: 380 IronArrows, 4,262 silver; potions capped at 5 of 23 to keep
+   4,800, then the optional pack was deferred for its 3,000 floor), or an
+   empty IronArrow quiver is stranded with no silver for its LuckyArrow
+   fallback.
+8. A top-up counts as optional while the carried arrows last only minutes
+   (live 2026-09-28 00:25, Toxic: 184 IronArrows, about four minutes, pack
+   deferred and 6,082 banked).
 """
 
 import json
@@ -81,6 +89,98 @@ def test_the_arrow_reserve_is_one_pack_price_while_short_of_a_pack():
     assert arrow_reserve(counts(arrows=53), ROUTE, 200) == 200
     assert arrow_reserve(counts(arrows=200), ROUTE, 200) == 0
     assert arrow_reserve(counts(arrows=53), ROUTE, None) == 0
+
+
+IRON = NS(
+    supplies=NS(arrows_return_below=3, healing_return_below=1, arrow_type=1050001)
+)
+
+
+def test_potions_do_not_wait_for_an_iron_top_up_that_will_not_be_bought():
+    # 7: the live 00:26 restock, Painkillers at 60, IronArrows 4,800 a pack.
+    silver, potions = 4262, 3
+    while potions < 23 and not potion_budget_reached(
+        counts(arrows=380, potions=potions, silver=silver), IRON, 60, 4800
+    ):
+        silver, potions = silver - 60, potions + 1
+    assert potions == 23 and silver == 4262 - 20 * 60
+    assert arrow_reserve(counts(arrows=380, silver=4262), IRON, 4800) == 0
+
+
+def test_iron_packs_come_after_the_planned_potions():
+    # 7: supply_plan already splits the budget; an optional top-up keeps
+    # nothing back, a required refill one LuckyArrow pack (its fallback).
+    assert arrow_reserve(counts(arrows=380, silver=9000), IRON, 4800) == 0
+    assert arrow_reserve(counts(arrows=2, silver=6000), IRON, 4800) == 200
+    # Still never stranded: an empty IronArrow quiver with 305 silver and
+    # Resolutives at 18 keeps a LuckyArrow pack after five potions.
+    silver, potions = 305, 0
+    while not potion_budget_reached(
+        counts(arrows=2, potions=potions, silver=silver), IRON, 18, 4800
+    ):
+        silver, potions = silver - 18, potions + 1
+    assert potions == 5 and silver >= 200
+
+
+def _learned(route_id, arrows_per_min):
+    from conquest import supply_plan
+    from conquest.discord_notify import write_json
+
+    write_json(
+        supply_plan.RATES,
+        {"routes": {route_id: {"potions_per_min": 0.3, "arrows_per_min": arrows_per_min}}},
+    )
+
+
+def test_minutes_of_arrows_make_a_top_up_required():
+    # 8: Toxic 00:25, 184 IronArrows at ~46 a minute: four minutes of shooting.
+    from conquest.overnight import MIN_TOPUP_MINUTES, optional_top_up
+
+    route = NS(id="bandit", supplies=IRON.supplies)
+    assert optional_top_up(counts(arrows=184), route)  # unmeasured: optional
+    _learned("bandit", 46)
+    assert MIN_TOPUP_MINUTES == 10
+    assert not optional_top_up(counts(arrows=184), route)
+    assert optional_top_up(counts(arrows=460), route)
+    # Required: potions keep one LuckyArrow pack back, the fallback tier.
+    assert arrow_reserve(counts(arrows=184, silver=6282), route, 4800) == 200
+    # LuckyArrows never had a floor.
+    assert not optional_top_up(counts(arrows=184), NS(id="bandit", supplies=ROUTE.supplies))
+
+
+def test_a_required_iron_top_up_is_bought_without_the_floor():
+    # 8: the refill buys the pack Toxic left without at 00:25.
+    from conquest.overnight import OvernightLoop
+
+    _learned("bandit", 46)
+    loop = OvernightLoop.__new__(OvernightLoop)
+    from conquest.routes import RouteLibrary
+
+    loop.route = RouteLibrary().load("bandit")
+    assert loop.route.supplies.arrow_type == 1050001
+    bag = {
+        "silver": 6282,
+        "capacity": 40,
+        "items": [{"uid": 1, "type_id": 1000020, "amount": 1, "slot": 0}],
+        "equipped_ammo": {"uid": 9, "type_id": 1050001, "amount": 184, "limit": 1000},
+    }
+    bought, events = [], []
+
+    def town(action, **fields):
+        if action == "supplies":
+            return json.loads(json.dumps(bag))
+        if action == "shop":
+            return {"products": [{"type_id": 1050001, "price": 4800}]}
+        if action == "buy":
+            bought.append(fields["type_id"])
+            bag["silver"] -= 4800
+            bag["items"].append({"uid": 2, "type_id": 1050001, "amount": 1000, "slot": 1})
+            return {"bought": 1050001, "amount": 1000, "price": 4800, "silver": bag["silver"]}
+        raise AssertionError(action)
+
+    loop.town, loop.record = town, lambda event, **fields: events.append(event)
+    assert loop.buy_supply(5, 1050001) is True
+    assert bought == [1050001] and "optional_purchase_deferred" not in events
 
 
 def test_unknown_prices_keep_the_old_behaviour():

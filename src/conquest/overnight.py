@@ -153,6 +153,31 @@ def last_verified_price(type_id, path=None):
 # for a 200-silver pack and 2 arrows, and no hunt can earn it back. Five
 # potions and a full quiver hunt; nine potions and no arrows cannot.
 SAFE_HUNT_POTIONS = 5
+# An IronArrow or SpeedArrow top-up while the quiver can still shoot is
+# optional: buy_supply takes it only if this much silver stays after it.
+OPTIONAL_ARROW_FLOOR = 3000
+# Carried arrows lasting less than this at the route's learned rate make the
+# top-up required: the hunt would come straight back for arrows (live
+# 2026-09-28 00:25, Toxic: 184 IronArrows, about four minutes, and 6,082
+# silver banked).
+MIN_TOPUP_MINUTES = 10
+
+
+def optional_top_up(counts, route):
+    """Whether an IronArrow or SpeedArrow pack may wait for OPTIONAL_ARROW_FLOOR:
+    only while the carried arrows still hunt MIN_TOPUP_MINUTES at the route's
+    learned rate (supply_plan), or, unmeasured, from the return threshold."""
+    if route.supplies.arrow_type not in (1050001, 1050002):
+        return False
+    if counts["arrows"] < route.supplies.arrows_return_below:
+        return False
+    from conquest.discord_notify import read_json
+    from conquest.supply_plan import RATES
+
+    rates = read_json(RATES).get("routes", {}).get(getattr(route, "id", None)) or {}
+    rate = rates.get("arrows_per_min")
+    measured = type(rate) in (int, float) and rate > 0
+    return not (measured and counts["arrows"] < rate * MIN_TOPUP_MINUTES)
 
 
 def arrow_reserve(counts, route, arrow_price):
@@ -162,12 +187,27 @@ def arrow_reserve(counts, route, arrow_price):
     At 15:20 on 2026-09-27 Suicide came in with 53 arrows (about a minute of
     shooting), spent 192 of its 385 silver on potions and left 7 short of a
     200-silver pack.
+
+    IronArrows and SpeedArrows come after the planned potions (supply_plan
+    already splits the budget between them): an optional top-up keeps
+    nothing, and a required refill keeps one LuckyArrow pack, the tier it
+    falls back to when the wallet cannot pay (buy_refill_arrows). At 00:26 on
+    2026-09-28 Suicide came in with 380 IronArrows and 4,262 silver; potions
+    stopped at 5 of the planned 23 to keep 4,800, the pack was then deferred
+    for its floor, and it left with 5 potions and banked 4,002.
     """
     from conquest.arrow_upgrades import ARROW_REFILL_AMOUNTS, MAX_ARROW_PACKS
 
-    pack = ARROW_REFILL_AMOUNTS.get(route.supplies.arrow_type, 0) // MAX_ARROW_PACKS
+    kind = route.supplies.arrow_type
+    pack = ARROW_REFILL_AMOUNTS.get(kind, 0) // MAX_ARROW_PACKS
     short = counts["arrows"] < max(route.supplies.arrows_return_below, pack)
-    return arrow_price if arrow_price and short else 0
+    if not (arrow_price and short):
+        return 0
+    if kind == 1050000:
+        return arrow_price
+    if optional_top_up(counts, route):
+        return 0
+    return last_verified_price(1050000) or 200
 
 
 def potion_budget_reached(counts, route, potion_price, arrow_price):
@@ -1126,15 +1166,12 @@ class OvernightLoop:
                     activity="Preserving silver; buying only affordable essential supplies",
                 )
                 return False
-        if (
-            type_id in (1050001, 1050002)
-            and before["arrows"] >= self.route.supplies.arrows_return_below
-        ):
+        if type_id in (1050001, 1050002) and optional_top_up(before, self.route):
             shop = self.town("shop", vendor_type=vendor_type)
             products = [p for p in shop["products"] if p["type_id"] == type_id]
             if len(products) != 1:
                 raise ValueError("Selected arrow price is not verified")
-            if before["silver"] - products[0]["price"] < 3000:
+            if before["silver"] - products[0]["price"] < OPTIONAL_ARROW_FLOOR:
                 self.record(
                     "optional_purchase_deferred",
                     type_id=type_id,
