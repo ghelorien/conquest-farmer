@@ -1102,12 +1102,12 @@ class OvernightLoop:
             max_arrow_packs,
         )
 
-        if type_id in NORMAL_ARROWS and arrow_pack_count(snapshot) >= max_arrow_packs(
-            type_id
-        ):
+        if type_id in NORMAL_ARROWS and arrow_pack_count(
+            snapshot, type_id
+        ) >= max_arrow_packs(type_id):
             self.record(
                 "arrow_purchase_deferred",
-                arrow_packs=arrow_pack_count(snapshot),
+                arrow_packs=arrow_pack_count(snapshot, type_id),
                 activity="Keeping existing arrow packs; the pack limit is reached",
             )
             return False
@@ -2053,6 +2053,38 @@ class OvernightLoop:
                 activity=f"Using {NORMAL_ARROWS[kind]} for combat and restocking",
             )
 
+    def carried_arrow_fallback(self):
+        """Hunt on with another carried tier once the route's runs out.
+
+        A leveling archer that moved up to IronArrows keeps the LuckyArrows it
+        carried as a fallback; the Farmer starts combat on the best carried
+        tier. Only a spent route tier on the hunting map qualifies: every other
+        shortage, or a farmer already scrolled home, still restocks.
+        """
+        counts = supply_counts(self.town("supplies"), self.route)
+        if counts["arrows"] >= self.route.supplies.arrows_return_below:
+            return False
+        life = self.health()["embedded_controls"].get("life")
+        if not life or life["map_id"] != self.route.map_id:
+            return False
+        from conquest.arrow_upgrades import NORMAL_ARROWS
+
+        spent = self.route.supplies.arrow_type
+        self.adopt_ammunition()
+        kind = self.route.supplies.arrow_type
+        counts = supply_counts(self.town("supplies"), self.route)
+        if kind == spent or needs_town(counts, self.route, reserve=True):
+            return False
+        self.record(
+            "arrow_fallback",
+            arrow_type=kind,
+            previous_arrow_type=spent,
+            supplies=counts,
+            activity=f"{NORMAL_ARROWS[spent]} spent; hunting on with the carried "
+            f"{NORMAL_ARROWS[kind]}",
+        )
+        return True
+
     def prepare_supplies(self):
         self.living()
         self.stop_farm()
@@ -2189,6 +2221,8 @@ class OvernightLoop:
                     return
                 continue
             if outcome != "route_changed":
+                if self.carried_arrow_fallback():
+                    continue
                 self.restock()
 
     def bank_acceptance_delivery(self):
