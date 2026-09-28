@@ -126,7 +126,11 @@ class Crowd:
 
         Only a landing strictly closer to the goal qualifies: a sidestep lets
         the next reroute step straight back (live 09-26 10:21, (200,197) and
-        (200,199) alternated until the travel stalled).
+        (200,199) alternated until the travel stalled). Closer means a shorter
+        walk, not only a shorter straight line: beside the Phoenix Pharmacist
+        the nearest-looking open tile (193,247) was a pocket whose way on
+        doubles back through the corridor the NPC's sprite covers, and the
+        restock looped there for seven minutes (live 2026-09-28 06:25-06:32).
         """
         from conquest.navigation import clear_segment
         from conquest.scene_input import clear_route_point
@@ -151,11 +155,19 @@ class Crowd:
                 remaining = max(abs(point[0] - goal[0]), abs(point[1] - goal[1]))
                 if remaining < current:
                     candidates.append((remaining, distance, point))
+        walk = None
+        if candidates and hasattr(terrain, "travel_path"):
+            try:
+                walk = len(terrain.travel_path(source, goal))
+            except ValueError:
+                walk = None
         for _, _, point in sorted(candidates):
             if hasattr(terrain, "travel_path"):
                 try:
-                    terrain.travel_path(point, goal)
+                    steps = len(terrain.travel_path(point, goal))
                 except ValueError:
+                    continue
+                if walk is not None and steps >= walk:
                     continue
             return point
         return None
