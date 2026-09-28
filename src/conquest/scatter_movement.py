@@ -206,9 +206,10 @@ def scatter_landing(
 
             monsters = getattr(supervisor, "escape_monsters", ())
             king = getattr(supervisor, "king_clearance", BOSS_CLEARANCE)
-            if near_boss(point, monsters, king_clearance=king):
+            elite = getattr(supervisor, "elite_clearance", BOSS_CLEARANCE)
+            if near_boss(point, monsters, king_clearance=king, elite_clearance=elite):
                 continue
-            roomy = boss_room(point, monsters, king_clearance=king)
+            roomy = boss_room(point, monsters, king_clearance=king, elite_clearance=elite)
             repeated = sum(
                 max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= 2 for p, _ in recent
             )

@@ -52,6 +52,12 @@ ESCAPE_VERIFY_SECONDS = 0.45
 ESCAPE_BLOCK_SECONDS = 3
 ESCAPE_QUICK_RETRIES = 3
 ESCAPE_MIN_JUMP = 6
+# The longest escape or Scatter jump (ranged_escape tries 12, 10 and 8
+# tiles). Bosses are watched this much beyond their clearance and room: the
+# ElfAide, 16 tiles off and unwatched, had two escapes land 7-8 tiles from
+# it and took Toxic from 77% to 33% HP (FireSpirit field, 2026-09-28
+# 16:53:25-16:53:31).
+LANDING_REACH = 12
 # Below this HP share a crowded escape takes the least crowded open landing
 # even when none has fewer monsters than are attacking.
 ESCAPE_LOW_HP = 0.5
@@ -861,8 +867,11 @@ class NativeFarmSupervisor:
 
             # Bosses stay visible to the escape out to their clearance plus
             # the landing room: with only the 12-tile threat radius a RatKing
-            # (15-tile clearance) was ignored from 13-15 tiles.
+            # (15-tile clearance) was ignored from 13-15 tiles. And a jump
+            # lands up to LANDING_REACH away, so a boss that far beyond it
+            # still counts against every landing.
             king_clearance = getattr(self, "king_clearance", BOSS_CLEARANCE)
+            elite_clearance = getattr(self, "elite_clearance", BOSS_CLEARANCE)
             for monster in monsters:
                 selected = (
                     monster.entity_id in intent["target_ids"]
@@ -872,9 +881,10 @@ class NativeFarmSupervisor:
                     self.position is not None
                     and boss_name(monster.name)
                     and max(abs(a - b) for a, b in zip(monster.position, self.position))
-                    <= boss_clearance(monster.name, king_clearance)
+                    <= boss_clearance(monster.name, king_clearance, elite_clearance)
                     + BOSS_ROOM
                     - BOSS_CLEARANCE
+                    + LANDING_REACH
                 )
                 close = (
                     self.defending
@@ -1285,6 +1295,7 @@ class NativeFarmSupervisor:
                 drop.position,
                 getattr(self, "escape_monsters", ()),
                 king_clearance=getattr(self, "king_clearance", BOSS_CLEARANCE),
+                elite_clearance=getattr(self, "elite_clearance", BOSS_CLEARANCE),
             ):
                 # Both RatKings parked just outside the Ratling boundary
                 # (2026-09-28): no loot is worth walking into a boss's reach.
@@ -1483,7 +1494,11 @@ class NativeFarmSupervisor:
 
             monsters = getattr(self, "escape_monsters", ())
             king = getattr(self, "king_clearance", BOSS_CLEARANCE)
-            if any(near_boss(tile, monsters, king_clearance=king) for tile in path):
+            elite = getattr(self, "elite_clearance", BOSS_CLEARANCE)
+            if any(
+                near_boss(tile, monsters, king_clearance=king, elite_clearance=elite)
+                for tile in path
+            ):
                 return deferred("Loot path passes a boss")
             destination = native_waypoint(path, viewport=size_for(self.observer))
             dx, dy = destination[0] - position[0], destination[1] - position[1]
@@ -1811,11 +1826,17 @@ class NativeFarmSupervisor:
         from conquest.routes import BOSS_CLEARANCE, BOSS_ROOM, boss_clearance, boss_name
 
         # Bosses hit from range: leave one within its clearance (the route's
-        # king_clearance for the King tier, else BOSS_CLEARANCE) and never
-        # land inside another's.
+        # king_clearance for the King tier, its elite_clearance for Aides and
+        # Messengers) and never land inside another's.
         king_clearance = getattr(self, "king_clearance", BOSS_CLEARANCE)
+        elite_clearance = getattr(self, "elite_clearance", BOSS_CLEARANCE)
         boss_reach = [
-            (tuple(m.position), boss_clearance(getattr(m, "name", "") or "", king_clearance))
+            (
+                tuple(m.position),
+                boss_clearance(
+                    getattr(m, "name", "") or "", king_clearance, elite_clearance
+                ),
+            )
             for m in self.escape_monsters
             if boss_name(getattr(m, "name", "") or "")
         ]

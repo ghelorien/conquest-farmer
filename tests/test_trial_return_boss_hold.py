@@ -115,9 +115,12 @@ def test_distant_king_is_watched_without_an_hp_read(monkeypatch):
     from conquest import monster_health
     from conquest.memory_entities import MonsterObservation
 
+    from conquest.native_farm import LANDING_REACH
+
     supervisor, _, _, _ = setup(monkeypatch)
     supervisor.position = (20, 20)
-    king = MonsterObservation(2000, 90, "RatKing", (37, 20), (900, 400), 81, 7, type_id=8302)
+    # 29 tiles: a 12-tile landing toward it would end 17 tiles from it.
+    king = MonsterObservation(2000, 90, "RatKing", (49, 20), (900, 400), 81, 7, type_id=8302)
     near = MonsterObservation(1000, 25, "Pheasant", (22, 20), (600, 400), 81, 7, type_id=1)
     supervisor.observer.entities = SimpleNamespace(
         layout=None, read=lambda **kw: SimpleNamespace(monsters=[king, near])
@@ -126,10 +129,42 @@ def test_distant_king_is_watched_without_an_hp_read(monkeypatch):
     monkeypatch.setattr(
         monster_health, "read_monster_health", lambda a, l, m: reads.append(m.name) or 50
     )
-    supervisor.king_clearance = 15  # a 17-tile King is inside 15 + 4
+    assert LANDING_REACH == 12
+    supervisor.king_clearance = 15  # 29 tiles is inside 15 + 4 + 12
     supervisor.memory_targets()
     assert "RatKing" in [m.name for m in supervisor.escape_monsters]
     assert "RatKing" not in reads and supervisor.targets_observation_available
-    supervisor.king_clearance = 9  # 17 tiles is beyond 9 + 4
+    supervisor.king_clearance = 9  # 29 tiles is beyond 9 + 4 + 12
     supervisor.memory_targets()
     assert "RatKing" not in [m.name for m in supervisor.escape_monsters]
+
+
+def test_a_boss_a_jump_away_counts_against_the_landing(monkeypatch):
+    # The ElfAide 16 tiles off was unwatched and an escape landed 8 tiles
+    # from it (Toxic, FireSpirit field, 2026-09-28 16:53:25).
+    from test_native_farm import setup
+    from conquest import monster_health, native_farm
+    from conquest.memory_entities import MonsterObservation
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    supervisor.position = (20, 20)
+    aide = MonsterObservation(2000, 90, "ElfAide", (20, 36), (900, 400), 81, 7, type_id=8204)
+    crowd = [
+        MonsterObservation(1000 + i, 25 + i, "Pheasant", p, (600, 400), 81, 7, type_id=1)
+        for i, p in enumerate(((21, 20), (19, 21), (20, 19)))
+    ]
+    supervisor.observer.entities = SimpleNamespace(
+        layout=None, read=lambda **kw: SimpleNamespace(monsters=[aide, *crowd])
+    )
+    monkeypatch.setattr(monster_health, "read_monster_health", lambda a, l, m: 50)
+    supervisor.memory_targets()
+    assert "ElfAide" in [m.name for m in supervisor.escape_monsters]
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.scene_timestamp = 100.0
+    supervisor.recovery.terrain = SimpleNamespace(walkable=lambda p: True)
+    landing = supervisor.ranged_escape(
+        (20, 20), (0, 0, 60, 60), adjacent_trigger=1,
+        reach=native_farm.JUMP_SCATTER_REACH, scatter_range=8,
+    )
+    assert landing is not None
+    assert max(abs(landing[0] - 20), abs(landing[1] - 36)) > 9

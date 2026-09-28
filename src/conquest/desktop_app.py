@@ -2514,6 +2514,7 @@ class DesktopApp:
                 "hunting_anchor": route.hunting_anchor,
                 "boundary": route.hunting_boundary,
                 "king_clearance": route.king_clearance,
+                "elite_clearance": route.elite_clearance,
                 "patrol_search": route.patrol_search,
                 "route": route.patrol,
                 "approach_route": approach,

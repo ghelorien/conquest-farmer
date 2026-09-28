@@ -22,6 +22,7 @@ kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
 king_clearance: 15
+elite_clearance: 13
 hunting_boundary:
 - 497
 - 733

@@ -75,6 +75,8 @@ class TrialConfig(BaseModel):
     single_attack_range_tiles: int = Field(default=12, ge=1, le=20)
     # The route's clearance from King-tier bosses (routes.boss_clearance).
     king_clearance: int = Field(default=9, ge=9, le=24)
+    # The same for its Aides and Messengers.
+    elite_clearance: int = Field(default=9, ge=9, le=24)
     monster: Literal[
         "Pheasant",
         "Turtledove",
@@ -275,6 +277,7 @@ def run_trial(
     if supervisor:
         supervisor.combat_speed = speed
         supervisor.king_clearance = config.king_clearance
+        supervisor.elite_clearance = config.elite_clearance
     if supervisor and config.attack_button == "right":
         supervisor.scatter_standoff = max(2, config.attack_range_tiles - 2)
     if config.observation_mode == "memory_only" and supervisor is None:
@@ -1923,6 +1926,9 @@ def run_trial(
                         getattr(supervisor, "escape_monsters", ()),
                         king_clearance=getattr(
                             supervisor, "king_clearance", BOSS_CLEARANCE
+                        ),
+                        elite_clearance=getattr(
+                            supervisor, "elite_clearance", BOSS_CLEARANCE
                         ),
                     )
                     if return_held and time.monotonic() - return_hold_logged >= 5:

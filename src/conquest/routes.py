@@ -105,26 +105,40 @@ def king_tier(name):
     )
 
 
-def boss_clearance(name, king_clearance=BOSS_CLEARANCE):
+def boss_clearance(name, king_clearance=BOSS_CLEARANCE, elite_clearance=BOSS_CLEARANCE):
     """Tiles to keep from this boss: a route's ``king_clearance`` for the King
-    tier (never less than BOSS_CLEARANCE), BOSS_CLEARANCE for the rest."""
-    return max(king_clearance, BOSS_CLEARANCE) if king_tier(name) else BOSS_CLEARANCE
+    tier, its ``elite_clearance`` for Aides and Messengers (neither ever less
+    than BOSS_CLEARANCE)."""
+    return max(king_clearance if king_tier(name) else elite_clearance, BOSS_CLEARANCE)
 
 
-def near_boss(point, monsters, clearance=None, *, king_clearance=BOSS_CLEARANCE):
+def near_boss(
+    point,
+    monsters,
+    clearance=None,
+    *,
+    king_clearance=BOSS_CLEARANCE,
+    elite_clearance=BOSS_CLEARANCE,
+):
     """Whether ``point`` lies within a boss's clearance: ``clearance`` tiles
-    when given, else each boss's own (``king_clearance`` for the King tier)."""
+    when given, else each boss's own (boss_clearance with the route's)."""
     for m in monsters:
         name = getattr(m, "name", "") or ""
         if not boss_name(name):
             continue
-        reach = clearance if clearance is not None else boss_clearance(name, king_clearance)
+        reach = (
+            clearance
+            if clearance is not None
+            else boss_clearance(name, king_clearance, elite_clearance)
+        )
         if max(abs(m.position[0] - point[0]), abs(m.position[1] - point[1])) <= reach:
             return True
     return False
 
 
-def boss_room(point, monsters, *, king_clearance=BOSS_CLEARANCE):
+def boss_room(
+    point, monsters, *, king_clearance=BOSS_CLEARANCE, elite_clearance=BOSS_CLEARANCE
+):
     """Whether ``point`` keeps BOSS_ROOM - BOSS_CLEARANCE tiles beyond every
     boss's clearance (BOSS_ROOM from an ordinary one)."""
     margin = BOSS_ROOM - BOSS_CLEARANCE
@@ -132,7 +146,7 @@ def boss_room(point, monsters, *, king_clearance=BOSS_CLEARANCE):
         name = getattr(m, "name", "") or ""
         if boss_name(name) and max(
             abs(m.position[0] - point[0]), abs(m.position[1] - point[1])
-        ) < boss_clearance(name, king_clearance) + margin:
+        ) < boss_clearance(name, king_clearance, elite_clearance) + margin:
             return False
     return True
 
@@ -143,10 +157,16 @@ BOSS_INNER = 3
 
 
 def boss_zone(
-    source, destination, monsters, clearance=None, *, king_clearance=BOSS_CLEARANCE
+    source,
+    destination,
+    monsters,
+    clearance=None,
+    *,
+    king_clearance=BOSS_CLEARANCE,
+    elite_clearance=BOSS_CLEARANCE,
 ):
     """Tiles route travel keeps off: within each living boss's clearance
-    (``clearance`` when given, else boss_clearance with ``king_clearance``).
+    (``clearance`` when given, else boss_clearance with the route's).
 
     ``monsters`` are bridge scene records (dicts) or scene objects. A boss
     whose zone holds the destination is skipped (there is nothing to detour
@@ -168,7 +188,11 @@ def boss_zone(
             or get("current_hp", 1) == 0
         ):
             continue
-        full = clearance if clearance is not None else boss_clearance(name, king_clearance)
+        full = (
+            clearance
+            if clearance is not None
+            else boss_clearance(name, king_clearance, elite_clearance)
+        )
         bx, by = position[0], position[1]
         if max(abs(destination[0] - bx), abs(destination[1] - by)) <= full:
             continue
@@ -223,8 +247,13 @@ class SavedRoute(BaseModel):
     jump_scatter: bool = False
     attack_range_tiles: int = Field(default=16, ge=1, le=20)
     # Tiles combat and travel keep from a King-tier boss on this route
-    # (boss_clearance); Aides and Messengers keep BOSS_CLEARANCE.
+    # (boss_clearance).
     king_clearance: int = Field(default=BOSS_CLEARANCE, ge=BOSS_CLEARANCE, le=24)
+    # The same for its Aides and Messengers. The ElfAide (FireSpirit field)
+    # moves ~2 tiles/s and hit Toxic for 192 of 633 HP from 6 tiles twice in
+    # 1.7 s (2026-09-28 16:36:44), inside the 9-tile clearance it had just
+    # crossed.
+    elite_clearance: int = Field(default=BOSS_CLEARANCE, ge=BOSS_CLEARANCE, le=24)
     hunting_boundary: tuple[int, int, int, int]
     patrol_search: PatrolSearchConfig = Field(default_factory=PatrolSearchConfig)
     patrol: tuple[tuple[int, int], ...] = Field(min_length=1, max_length=128)

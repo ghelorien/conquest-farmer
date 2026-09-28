@@ -858,6 +858,7 @@ class OvernightLoop:
                 tuple(destination),
                 scene,
                 king_clearance=getattr(self.route, "king_clearance", 9),
+                elite_clearance=getattr(self.route, "elite_clearance", 9),
             )
             from conquest.viewport import scene_bounds, clear_scene
 
