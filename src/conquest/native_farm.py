@@ -855,10 +855,24 @@ class NativeFarmSupervisor:
             scatter_scene = []
             chase = []
             escape = []
+            from conquest.routes import BOSS_CLEARANCE, BOSS_ROOM, boss_clearance, boss_name
+
+            # Bosses stay visible to the escape out to their clearance plus
+            # the landing room: with only the 12-tile threat radius a RatKing
+            # (15-tile clearance) was ignored from 13-15 tiles.
+            king_clearance = getattr(self, "king_clearance", BOSS_CLEARANCE)
             for monster in monsters:
                 selected = (
                     monster.entity_id in intent["target_ids"]
                     or monster.type_id in intent["target_type_ids"]
+                )
+                watched_boss = (
+                    self.position is not None
+                    and boss_name(monster.name)
+                    and max(abs(a - b) for a, b in zip(monster.position, self.position))
+                    <= boss_clearance(monster.name, king_clearance)
+                    + BOSS_ROOM
+                    - BOSS_CLEARANCE
                 )
                 close = (
                     self.defending
@@ -877,10 +891,15 @@ class NativeFarmSupervisor:
                     <= 12
                 )
                 if (
-                    not (selected or close or adjacent or threat)
+                    not (selected or close or adjacent or threat or watched_boss)
                     or monster.alive is False
                     or monster.current_hp == 0
                 ):
+                    continue
+                if watched_boss and not (selected or close or adjacent or threat):
+                    # Keeping clear of a distant boss needs only its position;
+                    # its HP read must not gate this scene's targets.
+                    escape.append(monster)
                     continue
                 key = (monster.entity_id, monster.object_address)
                 from conquest.monster_health import read_monster_health
@@ -1892,6 +1911,62 @@ class NativeFarmSupervisor:
                     close, fewer=False, clearance=4, clear_of_all=clear
                 )
                 crowded = bool(candidates)
+        flight = False
+        if not candidates and boss_near:
+            # Last resort from a boss inside its clearance: take the walkable
+            # landing that most increases the distance from the nearest boss,
+            # off the hunting boundary and short of the full clearance if need
+            # be. Toxic died on Ratlings (2026-09-28 14:27:18) at (532,508),
+            # outside the boundary, where every landing inside it lay within
+            # the RatKing's 15 tiles: no escape was tried for 14 s while the
+            # King closed from 8 to 2 tiles and hit ~250 HP/s.
+            here = min(
+                max(abs(a - b) for a, b in zip(boss, position)) for boss, _ in boss_reach
+            )
+            width = getattr(terrain, "width", None)
+            height = getattr(terrain, "height", None)
+            for length in (12, 10, 8):
+                for dx, dy in (
+                    (length, 0),
+                    (-length, 0),
+                    (0, length),
+                    (0, -length),
+                    (length, length),
+                    (-length, -length),
+                    (length, -length),
+                    (-length, length),
+                ):
+                    dx, dy = native_movement_delta(
+                        dx, dy, viewport=size_for(self.observer), anchor=anchor
+                    )
+                    distance = max(abs(dx), abs(dy))
+                    if distance < ESCAPE_MIN_JUMP:
+                        continue
+                    point = (x + dx, y + dy)
+                    if point in blocked or (
+                        width is not None
+                        and height is not None
+                        and not (0 <= point[0] < width and 0 <= point[1] < height)
+                    ):
+                        continue
+                    sx, sy = dx // distance, dy // distance
+                    if not all(
+                        terrain.walkable((x + sx * i, y + sy * i))
+                        for i in range(distance + 1)
+                    ):
+                        continue
+                    room = min(
+                        max(abs(point[0] - bx), abs(point[1] - by))
+                        for (bx, by), _ in boss_reach
+                    )
+                    if room <= here:
+                        continue  # no further from the boss than now
+                    nearby = sum(
+                        max(abs(point[0] - mx), abs(point[1] - my)) <= 4
+                        for mx, my in living
+                    )
+                    candidates.append((room, -nearby, distance, point))
+            flight = bool(candidates)
         if not candidates:
             return None
         self.escape_context = {
@@ -1901,7 +1976,9 @@ class NativeFarmSupervisor:
             "recent_damage": damaged,
             "crowded": crowded,
             "boss_nearby": bool(boss_near),
-            "reason": "recent_damage"
+            "reason": "boss_flight"
+            if flight
+            else "recent_damage"
             if damaged
             else "boss_nearby"
             if boss_near and within_reach < adjacent_trigger

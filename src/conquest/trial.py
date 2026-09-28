@@ -401,6 +401,7 @@ def run_trial(
     counter_read_at = None
     last_scatter_cast = -float("inf")
     boss_hold_logged = -float("inf")
+    return_hold_logged = -float("inf")
     # Start with a cast if a living selected target is already in range.
     # Only a successful cast earns the next ordinary hunting jump.
     scatter_jump_due = False
@@ -1904,6 +1905,24 @@ def run_trial(
                         )
                     if scatter_destination is not None:
                         target = None
+                # A walk back into the hunting area waits while a boss has no
+                # room from us: Suicide's return walked it ~18 tiles back into
+                # the RatKing after a boss escape left the boundary, and it died
+                # there (2026-09-28 14:38). The escape itself stays active.
+                return_held = False
+                if supervisor and approaching and scatter_destination is None:
+                    from conquest.routes import BOSS_CLEARANCE, boss_room
+
+                    return_held = not boss_room(
+                        (x, y),
+                        getattr(supervisor, "escape_monsters", ()),
+                        king_clearance=getattr(
+                            supervisor, "king_clearance", BOSS_CLEARANCE
+                        ),
+                    )
+                    if return_held and time.monotonic() - return_hold_logged >= 5:
+                        return_hold_logged = time.monotonic()
+                        event("boundary_return_held_for_boss", position=[x, y])
                 if time.monotonic() - last_action >= config.interval:
                     event(
                         "observation",
@@ -2044,6 +2063,7 @@ def run_trial(
                         (config.route or approaching or scatter_destination)
                         and not observe_only
                         and not moving
+                        and not return_held
                     ):
                         if scatter_destination:
                             destination = scatter_destination
