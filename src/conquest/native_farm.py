@@ -1740,19 +1740,21 @@ class NativeFarmSupervisor:
         distances = [max(abs(a - b) for a, b in zip(p, position)) for p in living]
         adjacent = sum(d <= 1 for d in distances)
         within_reach = sum(d <= reach for d in distances)
-        from conquest.routes import BOSS_CLEARANCE, BOSS_ROOM, boss_name
+        from conquest.routes import BOSS_CLEARANCE, BOSS_ROOM, boss_clearance, boss_name
 
-        # Bosses hit from range: leave one within BOSS_CLEARANCE and never
+        # Bosses hit from range: leave one within its clearance (the route's
+        # king_clearance for the King tier, else BOSS_CLEARANCE) and never
         # land inside another's.
-        bosses = [
-            m.position
+        king_clearance = getattr(self, "king_clearance", BOSS_CLEARANCE)
+        boss_reach = [
+            (tuple(m.position), boss_clearance(getattr(m, "name", "") or "", king_clearance))
             for m in self.escape_monsters
             if boss_name(getattr(m, "name", "") or "")
         ]
         boss_near = [
             b
-            for b in bosses
-            if max(abs(a - c) for a, c in zip(b, position)) <= BOSS_CLEARANCE
+            for b, clearance in boss_reach
+            if max(abs(a - c) for a, c in zip(b, position)) <= clearance
         ]
         # Every hit over ESCAPE_DAMAGE_SHARE is reason to jump: tanking hits
         # only burns potions and town trips ("don't tank a few hits").
@@ -1812,8 +1814,8 @@ class NativeFarmSupervisor:
                     ):
                         continue
                     if any(
-                        max(abs(point[0] - bx), abs(point[1] - by)) <= BOSS_CLEARANCE
-                        for bx, by in bosses
+                        max(abs(point[0] - bx), abs(point[1] - by)) <= reach_of_boss
+                        for (bx, by), reach_of_boss in boss_reach
                     ):
                         continue  # inside a boss's reach
                     separation = min(
@@ -1835,8 +1837,9 @@ class NativeFarmSupervisor:
                     # (jump-Scatter) more of the pack still in Scatter range,
                     # then more clearance and longer jumps.
                     roomy = all(
-                        max(abs(point[0] - bx), abs(point[1] - by)) >= BOSS_ROOM
-                        for bx, by in bosses
+                        max(abs(point[0] - bx), abs(point[1] - by))
+                        >= reach_of_boss + BOSS_ROOM - BOSS_CLEARANCE
+                        for (bx, by), reach_of_boss in boss_reach
                     )
                     in_range = (
                         sum(reach < d <= scatter_range for d in distances)

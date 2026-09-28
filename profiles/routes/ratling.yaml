@@ -21,6 +21,7 @@ hunting_anchor:
 kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
+king_clearance: 15
 hunting_boundary:
 - 537
 - 445

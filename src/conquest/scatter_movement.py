@@ -202,12 +202,13 @@ def scatter_landing(
                 continue
             # Keep dense ordinary groups; never land within a boss's reach,
             # and prefer room from a roaming one before anything else.
-            from conquest.routes import boss_room, near_boss
+            from conquest.routes import BOSS_CLEARANCE, boss_room, near_boss
 
             monsters = getattr(supervisor, "escape_monsters", ())
-            if near_boss(point, monsters):
+            king = getattr(supervisor, "king_clearance", BOSS_CLEARANCE)
+            if near_boss(point, monsters, king_clearance=king):
                 continue
-            roomy = boss_room(point, monsters)
+            roomy = boss_room(point, monsters, king_clearance=king)
             repeated = sum(
                 max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= 2 for p, _ in recent
             )

@@ -2513,6 +2513,7 @@ class DesktopApp:
                 or level_goal.protections(),
                 "hunting_anchor": route.hunting_anchor,
                 "boundary": route.hunting_boundary,
+                "king_clearance": route.king_clearance,
                 "patrol_search": route.patrol_search,
                 "route": route.patrol,
                 "approach_route": approach,

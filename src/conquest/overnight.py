@@ -811,7 +811,12 @@ class OvernightLoop:
             from conquest.routes import boss_name, boss_zone
 
             scene = h["embedded_controls"].get("monsters") or ()
-            zone = boss_zone(source, tuple(destination), scene)
+            zone = boss_zone(
+                source,
+                tuple(destination),
+                scene,
+                king_clearance=getattr(self.route, "king_clearance", 9),
+            )
             from conquest.viewport import scene_bounds, clear_scene
 
             viewport = tuple(h.get("window", {}).get("client_size", (1036, 793)))

@@ -94,19 +94,47 @@ BOSS_CLEARANCE = 9
 BOSS_ROOM = BOSS_CLEARANCE + 4
 
 
-def near_boss(point, monsters, clearance=BOSS_CLEARANCE):
-    """Whether ``point`` lies within ``clearance`` tiles of a boss."""
-    return any(
-        boss_name(getattr(m, "name", "") or "")
-        and max(abs(m.position[0] - point[0]), abs(m.position[1] - point[1]))
-        <= clearance
-        for m in monsters
+def king_tier(name):
+    """A King-tier boss (…King/Queen/Boss/Leader/Chieftain), not an Aide or
+    Messenger. A RatKing roamed the Ratling field and trailed Suicide at 13-16
+    tiles, twice closing to 3 (2026-09-28 12:35-12:52)."""
+    import re
+
+    return boss_name(name) and bool(
+        re.search(r"(?:king|queen|boss|leader|chieftain)$", name, flags=re.IGNORECASE)
     )
 
 
-def boss_room(point, monsters):
-    """Whether ``point`` keeps BOSS_ROOM tiles from every boss in ``monsters``."""
-    return not near_boss(point, monsters, BOSS_ROOM - 1)
+def boss_clearance(name, king_clearance=BOSS_CLEARANCE):
+    """Tiles to keep from this boss: a route's ``king_clearance`` for the King
+    tier (never less than BOSS_CLEARANCE), BOSS_CLEARANCE for the rest."""
+    return max(king_clearance, BOSS_CLEARANCE) if king_tier(name) else BOSS_CLEARANCE
+
+
+def near_boss(point, monsters, clearance=None, *, king_clearance=BOSS_CLEARANCE):
+    """Whether ``point`` lies within a boss's clearance: ``clearance`` tiles
+    when given, else each boss's own (``king_clearance`` for the King tier)."""
+    for m in monsters:
+        name = getattr(m, "name", "") or ""
+        if not boss_name(name):
+            continue
+        reach = clearance if clearance is not None else boss_clearance(name, king_clearance)
+        if max(abs(m.position[0] - point[0]), abs(m.position[1] - point[1])) <= reach:
+            return True
+    return False
+
+
+def boss_room(point, monsters, *, king_clearance=BOSS_CLEARANCE):
+    """Whether ``point`` keeps BOSS_ROOM - BOSS_CLEARANCE tiles beyond every
+    boss's clearance (BOSS_ROOM from an ordinary one)."""
+    margin = BOSS_ROOM - BOSS_CLEARANCE
+    for m in monsters:
+        name = getattr(m, "name", "") or ""
+        if boss_name(name) and max(
+            abs(m.position[0] - point[0]), abs(m.position[1] - point[1])
+        ) < boss_clearance(name, king_clearance) + margin:
+            return False
+    return True
 
 
 # Beside a boss already, route travel keeps off only this close, so the walk
@@ -114,8 +142,11 @@ def boss_room(point, monsters):
 BOSS_INNER = 3
 
 
-def boss_zone(source, destination, monsters, clearance=BOSS_CLEARANCE):
-    """Tiles route travel keeps off: within ``clearance`` of each living boss.
+def boss_zone(
+    source, destination, monsters, clearance=None, *, king_clearance=BOSS_CLEARANCE
+):
+    """Tiles route travel keeps off: within each living boss's clearance
+    (``clearance`` when given, else boss_clearance with ``king_clearance``).
 
     ``monsters`` are bridge scene records (dicts) or scene objects. A boss
     whose zone holds the destination is skipped (there is nothing to detour
@@ -129,20 +160,22 @@ def boss_zone(source, destination, monsters, clearance=BOSS_CLEARANCE):
             else lambda key, default=None: getattr(monster, key, default)
         )
         position = get("position")
+        name = get("name") or ""
         if (
             not position
-            or not boss_name(get("name") or "")
+            or not boss_name(name)
             or get("alive") is False
             or get("current_hp", 1) == 0
         ):
             continue
+        full = clearance if clearance is not None else boss_clearance(name, king_clearance)
         bx, by = position[0], position[1]
-        if max(abs(destination[0] - bx), abs(destination[1] - by)) <= clearance:
+        if max(abs(destination[0] - bx), abs(destination[1] - by)) <= full:
             continue
         reach = (
             BOSS_INNER
-            if max(abs(source[0] - bx), abs(source[1] - by)) <= clearance
-            else clearance
+            if max(abs(source[0] - bx), abs(source[1] - by)) <= full
+            else full
         )
         tiles.update(
             (x, y)
@@ -189,6 +222,9 @@ class SavedRoute(BaseModel):
     kite_when_surrounded: bool = False
     jump_scatter: bool = False
     attack_range_tiles: int = Field(default=16, ge=1, le=20)
+    # Tiles combat and travel keep from a King-tier boss on this route
+    # (boss_clearance); Aides and Messengers keep BOSS_CLEARANCE.
+    king_clearance: int = Field(default=BOSS_CLEARANCE, ge=BOSS_CLEARANCE, le=24)
     hunting_boundary: tuple[int, int, int, int]
     patrol_search: PatrolSearchConfig = Field(default_factory=PatrolSearchConfig)
     patrol: tuple[tuple[int, int], ...] = Field(min_length=1, max_length=128)

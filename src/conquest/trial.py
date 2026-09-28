@@ -73,6 +73,8 @@ class TrialConfig(BaseModel):
     jump_scatter: bool = False
     single_isolated_targets: bool = False
     single_attack_range_tiles: int = Field(default=12, ge=1, le=20)
+    # The route's clearance from King-tier bosses (routes.boss_clearance).
+    king_clearance: int = Field(default=9, ge=9, le=24)
     monster: Literal[
         "Pheasant",
         "Turtledove",
@@ -272,6 +274,7 @@ def run_trial(
     speed = config.combat_speed or load_combat_speed(config.character)
     if supervisor:
         supervisor.combat_speed = speed
+        supervisor.king_clearance = config.king_clearance
     if supervisor and config.attack_button == "right":
         supervisor.scatter_standoff = max(2, config.attack_range_tiles - 2)
     if config.observation_mode == "memory_only" and supervisor is None:
