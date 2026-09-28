@@ -172,6 +172,50 @@ OPTIONAL_ARROW_FLOOR = 3000
 MIN_TOPUP_MINUTES = 10
 
 
+# A stack this small (three Scatter casts at most) may be sold when it holds
+# one of a tier's pack slots while less than a pack is carried. Real partial
+# packs still count against the limit and prevent top-ups (one equipped pack
+# and one spare; test_purchase_cap_counts_partial_packs_and_prevents_topups).
+REMNANT_ARROWS = 9
+
+
+def blocking_remnant(snapshot, kind):
+    """The smallest bag stack of REMNANT_ARROWS or fewer counted against
+    buying ``kind``, when all such arrows carried add up to less than one
+    ``kind`` pack; else None.
+
+    Partial packs count against the pack limit on purpose (one equipped pack
+    and one spare), but a scrap is no spare. Live 2026-09-28 03:59 (Toxic):
+    the equipped IronArrow stack (140) and a 3-arrow stack filled the
+    two-pack limit, the planned pack was refused and it left town with 143
+    arrows and 10,664 silver banked.
+    """
+    from conquest.arrow_upgrades import (
+        ARROW_REFILL_AMOUNTS,
+        MAX_ARROW_PACKS,
+        counted_tiers,
+    )
+
+    tiers = counted_tiers(kind)
+    items = [
+        i for i in snapshot["items"] if i["type_id"] in tiers and i["amount"] > 0
+    ]
+    ammo = snapshot.get("equipped_ammo") or {}
+    carried = sum(i["amount"] for i in items)
+    if ammo.get("type_id") in tiers and not any(
+        i.get("uid") == ammo.get("uid") for i in items
+    ):
+        carried += ammo.get("amount") or 0
+    if carried >= ARROW_REFILL_AMOUNTS.get(kind, 0) // MAX_ARROW_PACKS:
+        return None
+    small = [
+        i
+        for i in items
+        if i["amount"] <= REMNANT_ARROWS and i.get("uid") != ammo.get("uid")
+    ]
+    return min(small, key=lambda i: i["amount"], default=None)
+
+
 def optional_top_up(counts, route):
     """Whether an IronArrow or SpeedArrow pack may wait for OPTIONAL_ARROW_FLOOR:
     only while the carried arrows still hunt MIN_TOPUP_MINUTES at the route's
@@ -1209,6 +1253,19 @@ class OvernightLoop:
         if type_id in NORMAL_ARROWS and arrow_pack_count(
             snapshot, type_id
         ) >= max_arrow_packs(type_id):
+            remnant = blocking_remnant(snapshot, type_id)
+            if remnant is not None:
+                self.record(
+                    "town_activity",
+                    activity="Recycling an arrow remnant that holds a pack slot",
+                )
+                self.record(
+                    "sale",
+                    receipt=self.town(
+                        "sell_partial_arrow", vendor_type=5, uid=remnant["uid"]
+                    ),
+                )
+                return self.buy_supply(vendor_type, type_id)
             self.record(
                 "arrow_purchase_deferred",
                 arrow_packs=arrow_pack_count(snapshot, type_id),
