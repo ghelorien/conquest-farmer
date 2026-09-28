@@ -70,21 +70,40 @@ def leveling_tier(level, wallet):
     return best
 
 
-def arrow_pack_count(snapshot):
-    """Count physical arrow packs, including partial packs and equipped ammo."""
+def counted_tiers(kind=None):
+    """The normal tiers whose packs count against buying ``kind``.
+
+    A leveling archer's lower-tier stacks are its fallback once the better
+    tier runs out, not a reason to keep buying the lower one. Live 2026-09-27
+    22:54 (Suicide, level 32): it came in for potions with 415 LuckyArrows,
+    the two-pack cap turned its IronArrow upgrade away and the refill topped
+    the LuckyArrows back up to eight packs, so IronArrows never came.
+    """
+    if kind in ARROW_LEVELS:
+        from conquest.equipment import leveling_archer
+
+        if leveling_archer():
+            return {k for k in NORMAL_ARROWS if ARROW_LEVELS[k] >= ARROW_LEVELS[kind]}
+    return set(NORMAL_ARROWS)
+
+
+def arrow_pack_count(snapshot, kind=None):
+    """Count physical arrow packs, including partial packs and equipped ammo
+    (with ``kind``, only the tiers that count against buying it)."""
     if not isinstance(snapshot, dict):
         from dataclasses import asdict
 
         snapshot = asdict(snapshot)
+    tiers = counted_tiers(kind)
     items = [
         i
         for i in snapshot["items"]
-        if i["type_id"] in NORMAL_ARROWS and i["amount"] > 0
+        if i["type_id"] in tiers and i["amount"] > 0
     ]
     ammo = snapshot.get("equipped_ammo")
     equipped = bool(
         ammo
-        and ammo["type_id"] in NORMAL_ARROWS
+        and ammo["type_id"] in tiers
         and ammo["amount"] > 0
         and (
             ammo.get("uid") is None
@@ -100,7 +119,7 @@ def refill_target(kind):
 
 
 def require_arrow_purchase_room(snapshot, kind=None):
-    if arrow_pack_count(snapshot) >= max_arrow_packs(kind):
+    if arrow_pack_count(snapshot, kind) >= max_arrow_packs(kind):
         raise ValueError("Arrow purchase blocked: already carrying the maximum packs")
 
 
@@ -227,7 +246,7 @@ def review_arrows(loop, products, state, silver):
         if carried:
             uid = max(carried, key=lambda i: i["amount"])["uid"]
         else:
-            if arrow_pack_count(bag) >= MAX_ARROW_PACKS:
+            if arrow_pack_count(bag, product["type_id"]) >= MAX_ARROW_PACKS:
                 loop.record(
                     "arrow_upgrade_deferred",
                     activity="Using existing ammunition; two-pack purchase cap reached",

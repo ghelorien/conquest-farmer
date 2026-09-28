@@ -90,7 +90,7 @@ def shopping_budget(route, bag, level=None):
         usable_bag["equipped_ammo"] = None
     packs = min(
         math.ceil(max(0, route.supplies.arrows_restock_to - counts["arrows"]) / pack),
-        max(0, max_arrow_packs(kind) - arrow_pack_count(usable_bag)),
+        max(0, max_arrow_packs(kind) - arrow_pack_count(usable_bag, kind)),
     )
     # A full two-pack bag cannot buy another pack. Do not require a catalog
     # price for a purchase that the inventory cap already rules out.
