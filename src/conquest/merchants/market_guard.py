@@ -7,6 +7,15 @@ import json
 from conquest.character_context import state_path
 from conquest.merchants.journal import CHARACTERS
 
+TICK_SECONDS = 0.25
+# Client discovery (a whole-system process snapshot plus a window walk) runs
+# this often; bound readers are still checked every tick, and a failing one
+# refreshes the list on the next tick so a closed client is dropped inside the
+# two-second grace. Every tick it was 21% of this thread's samples with no
+# merchant running on the PC (Suicide's app, 2026-09-28).
+CLIENT_REFRESH_SECONDS = 1.0
+STATUS_SECONDS = 1.0
+
 
 def operator_override(
     runtime,
@@ -143,11 +152,24 @@ def protect(runtime, character, identity, reason, *, close=None):
 
 
 class MarketGuard:
-    def __init__(self, runtime):
+    def __init__(self, runtime, *, clock=time.monotonic):
         self.runtime = runtime
         self.readers = {}
         self.unknown_since = {}
         self.observations = {}
+        self.clock = clock
+        self.clients, self.clients_at, self.status_at = [], None, None
+
+    def merchant_clients(self):
+        now = self.clock()
+        failing = any(character in self.readers for character in self.unknown_since)
+        if (
+            failing
+            or self.clients_at is None
+            or now - self.clients_at >= CLIENT_REFRESH_SECONDS
+        ):
+            self.clients, self.clients_at = self.runtime.merchant_windows(), now
+        return self.clients
 
     def check(
         self, character, observer, *, clock=time.monotonic, read=None, close=None
@@ -236,7 +258,7 @@ class MarketGuard:
                 # Merchant clients can be deliberately hidden by their
                 # embedded host.  Match only their saved exact identity; do
                 # not broaden the normal visible-only farmer catalog.
-                clients = r.merchant_windows()
+                clients = self.merchant_clients()
                 for character in CHARACTERS:
                     identity = r.journal.get(character, "last_identity")
                     client = next((c for c in clients if c.identity == identity), None)
@@ -257,9 +279,9 @@ class MarketGuard:
                             )
                         except Exception:
                             started = self.unknown_since.setdefault(
-                                character, time.monotonic()
+                                character, self.clock()
                             )
-                            if time.monotonic() - started >= 2:
+                            if self.clock() - started >= 2:
                                 from conquest.merchants.recovery_safety import (
                                     active,
                                     observe,
@@ -291,19 +313,23 @@ class MarketGuard:
                 pass
             from conquest.discord_notify import write_json
 
-            try:
-                write_json(
-                    state_path("reports/merchants/market-guard.json"),
-                    {
-                        "running": True,
-                        "updated_at": time.time(),
-                        "interval_seconds": 0.25,
-                        "unknown_grace_seconds": 2,
-                        "observations": self.observations,
-                    },
-                )
-            except OSError:
-                pass
-            r.stop_event.wait(0.25)
+            now = self.clock()
+            if self.status_at is None or now - self.status_at >= STATUS_SECONDS:
+                self.status_at = now
+                try:
+                    write_json(
+                        state_path("reports/merchants/market-guard.json"),
+                        {
+                            "running": True,
+                            "updated_at": time.time(),
+                            "interval_seconds": TICK_SECONDS,
+                            "client_refresh_seconds": CLIENT_REFRESH_SECONDS,
+                            "unknown_grace_seconds": 2,
+                            "observations": self.observations,
+                        },
+                    )
+                except OSError:
+                    pass
+            r.stop_event.wait(TICK_SECONDS)
         for observer in self.readers.values():
             observer.close()
