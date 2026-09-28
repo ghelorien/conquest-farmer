@@ -1,6 +1,7 @@
 """Observe manual farmer trades using the existing pinned native memory reader."""
 
 import json
+import re
 from types import SimpleNamespace
 import time
 
@@ -11,6 +12,8 @@ from conquest.merchants.memory import GuiReader, string, unpack
 
 
 CLOSED_SESSION = "Memory session is closed"
+# win32 process identity found the attached process already exited.
+EXITED_PROCESS = re.compile(r"Process (\d+) exited during diagnostics$")
 # Windows FILETIME (100 ns since 1601) to Unix seconds.
 FILETIME_EPOCH = 11644473600
 
@@ -23,13 +26,18 @@ def release_hold_from_dead_process(runtime, snapshot, *, now=None):
     that process can still be open. Live 2026-09-27 (Toxic): the client died
     in a GPU reset at 22:10, the reconnect logged a new one in at 22:11:41,
     and the stale hold fenced every town action until an operator override.
+    At 23:13 Defender killed the client and the reader saw "Process 570848
+    exited during diagnostics" instead, with the same result.
 
-    Only that reason, only a fresh (2 s) snapshot of a process created after
-    the hold, and only with no trade and no request. The ordinary override
-    then starts the same rebaseline an operator's disposition would.
+    Only those reasons (the exited process never the snapshot's), only a
+    fresh (2 s) snapshot of a process created after the hold, and only with
+    no trade and no request. The ordinary override then starts the same
+    rebaseline an operator's disposition would.
     """
     hold = runtime._manual_get("Farmer", "manual_reader_hold")
-    if not hold or not str(hold.get("reason", "")).endswith(CLOSED_SESSION):
+    reason = str(hold.get("reason", "")) if hold else ""
+    exited = EXITED_PROCESS.search(reason)
+    if not reason.endswith(CLOSED_SESSION) and not exited:
         return False
     now = time.time() if now is None else now
     identity = snapshot.get("identity") or {}
@@ -39,6 +47,7 @@ def release_hold_from_dead_process(runtime, snapshot, *, now=None):
     started = created / 1e7 - FILETIME_EPOCH
     if (
         started <= hold.get("created_at", float("inf"))
+        or exited and int(exited.group(1)) == identity.get("pid")
         or snapshot.get("trade") is not None
         or snapshot.get("request") is not None
         or not 0 <= now - snapshot.get("timestamp", 0) <= 2
@@ -49,7 +58,7 @@ def release_hold_from_dead_process(runtime, snapshot, *, now=None):
         confirmation_reference=f"restart:{identity.get('pid')}:{created}",
         operator="automatic (new game process)",
         reason=(
-            f"Reader hold from a closed memory session at {hold.get('created_at')}; "
+            f"Reader hold from a dead game process at {hold.get('created_at')} ({reason}); "
             f"process {identity.get('pid')} started after it and shows no trade or request"
         ),
         now=now,

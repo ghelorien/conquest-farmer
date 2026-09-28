@@ -3,7 +3,9 @@ shows no trade and no request.
 
 Live 2026-09-27 (Toxic): the client died in a GPU reset at 22:10:34 ("Memory
 session is closed"), the reconnect logged a new one in at 22:11:41 and the
-stale hold fenced every town action until an operator override.
+stale hold fenced every town action until an operator override. At 23:13
+Defender killed the client ("Process 570848 exited during diagnostics") and
+the same happened.
 """
 
 from types import SimpleNamespace as NS
@@ -36,17 +38,24 @@ def runtime_with(reason):
     return runtime, calls
 
 
-def snapshot(created=NEW_PROCESS, trade=None, request=None, at=1790561718.0):
+def snapshot(created=NEW_PROCESS, trade=None, request=None, at=1790561718.0, pid=591900):
     return {
-        "identity": {"pid": 570848, "creation_time_100ns": created},
+        "identity": {"pid": pid, "creation_time_100ns": created},
         "trade": trade,
         "request": request,
         "timestamp": at,
     }
 
 
-def test_a_new_process_without_a_trade_settles_the_dead_processes_hold():
-    runtime, calls = runtime_with("Farmer manual memory unavailable: Memory session is closed")
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "Farmer manual memory unavailable: Memory session is closed",
+        "Farmer manual memory unavailable: Process 570848 exited during diagnostics",
+    ],
+)
+def test_a_new_process_without_a_trade_settles_the_dead_processes_hold(reason):
+    runtime, calls = runtime_with(reason)
     assert release_hold_from_dead_process(runtime, snapshot(), now=1790561718.5)
     assert calls[0][0] == "unbound:toxic"
     assert calls[0][1]["operator"] == "automatic (new game process)"
@@ -65,6 +74,12 @@ def test_a_new_process_without_a_trade_settles_the_dead_processes_hold():
         ("Farmer manual memory unavailable: Memory session is closed", snapshot(request={"participant": "Luna"}), 1790561718.5),
         # Stale evidence.
         ("Farmer manual memory unavailable: Memory session is closed", snapshot(), 1790561730.0),
+        # The process named as exited is the one now observed.
+        ("Farmer manual memory unavailable: Process 591900 exited during diagnostics", snapshot(), 1790561718.5),
+        # An exited process whose replacement predates the hold.
+        ("Farmer manual memory unavailable: Process 570848 exited during diagnostics", snapshot(created=OLD_PROCESS), 1790561718.5),
+        # Any other OS error keeps it.
+        ("Farmer manual memory unavailable: OpenProcess failed: Access is denied", snapshot(), 1790561718.5),
     ],
 )
 def test_everything_else_keeps_the_hold(reason, snap, now):
