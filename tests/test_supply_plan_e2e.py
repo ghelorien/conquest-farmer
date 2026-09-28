@@ -10,7 +10,11 @@ Failure modes, written before the code:
 2. A short or broken hunt (gear trip, death, restart) teaches wild rates.
 3. The plan is set but the Blacksmith review's adopt_ammunition resets the
    arrow target, so the plan never reaches the arrow purchases.
-4. Farmers that are not leveling on LuckyArrows change behaviour.
+4. Farmers that are not leveling change behaviour.
+5. A leveling IronArrow restock keeps the route's fixed potions (live
+   2026-09-27 22:54: bandit.yaml's 5 after a restart; Suicide came back on
+   one and died walking home at 23:12 with none left), or plans more than
+   IronArrow's two packs.
 """
 
 from types import SimpleNamespace as NS
@@ -169,11 +173,55 @@ def test_farmers_off_lucky_leveling_keep_their_fixed_targets(monkeypatch):
     loop = loop_for(lucky, [])
     assert supply_plan.balance(loop) is None
     assert loop.route.supplies == lucky.supplies
-    # Iron or Speed packs keep their own two-pack rule even while leveling.
+
+
+@pytest.mark.parametrize("silver, expected", [(9000, (13, 1)), (20000, (24, 2))])
+def test_a_leveling_ironarrow_restock_is_planned_within_two_packs(
+    monkeypatch, silver, expected
+):
+    # 5
+    from conquest import level_goal
+    from conquest.discord_notify import write_json
+
+    level_goal.start(level_goal.SCATTER_LEVEL)
     monkeypatch.setattr("conquest.equipment.leveling_archer", lambda: True)
-    iron = route.model_copy(
-        update={"supplies": route.supplies.model_copy(update={"arrow_type": 1050001})}
+    monkeypatch.setattr(
+        "conquest.overnight.last_verified_price",
+        lambda kind, path=None: {1000020: 60}.get(kind),
     )
-    loop = loop_for(iron, [])
-    assert supply_plan.balance(loop) is None
-    assert loop.route.supplies == iron.supplies
+    monkeypatch.setattr(
+        "conquest.arrow_upgrades.arrow_pack_price", {1050000: 200, 1050001: 4800}.get
+    )
+    route = RouteLibrary().load("bandit")
+    assert route.supplies.arrow_type == 1050001 and route.supplies.healing_restock_to == 5
+    # Suicide on Bandits: 0.274 potions and 48.8 arrows a minute.
+    write_json(
+        supply_plan.RATES,
+        {"routes": {"bandit": {"potions_per_min": 0.274, "arrows_per_min": 48.768}}},
+    )
+    # Back on one potion with a scroll, two LuckyArrow packs kept as the
+    # fallback (their slots are taken) and a spent IronArrow remnant equipped
+    # (recycled, not a paid pack).
+    items = [
+        {"uid": 1, "type_id": 1000020, "amount": 1},
+        {"uid": 2, "type_id": 1060020, "amount": 1},
+        {"uid": 3, "type_id": 1050000, "amount": 200},
+        {"uid": 4, "type_id": 1050000, "amount": 200},
+    ]
+    loop = NS(
+        route=route,
+        town=lambda action, **kw: {
+            "items": items,
+            "capacity": 40,
+            "silver": silver,
+            "equipped_ammo": {"uid": 99, "type_id": 1050001, "amount": 2},
+        },
+        record=lambda event, **fields: None,
+    )
+    minutes, potions, packs = supply_plan.balance(loop)
+    # 9,000 silver pays one 4,800 pack: ~20 minutes of IronArrows, potions
+    # 1 + ceil(0.274 * 20.5 * 2) = 13. 20,000 pays two: ~41 minutes, 24.
+    assert (potions, packs) == expected
+    assert loop.route.supplies.healing_restock_to == potions
+    assert loop.route.supplies.arrows_restock_to == packs * 1000
+    assert loop.planned_arrows == {1050001: packs * 1000}
