@@ -95,9 +95,10 @@ def test_endless_loot_work_cannot_starve_jump_scatter(
         supervisor.scatter_scene_targets = (target,)
         return [target]
 
-    def endless_silver(inventory, position, dispatch):
-        loot_calls.append(now[0])
-        return True  # always another pile to walk to
+    def endless_silver(inventory, position, dispatch, valuables_only=False):
+        loot_calls.append((now[0], valuables_only))
+        # Always another silver pile to walk to; nothing valuable on the ground.
+        return not valuables_only
 
     supervisor = SimpleNamespace(
         last_target=None,
@@ -137,5 +138,8 @@ def test_endless_loot_work_cannot_starve_jump_scatter(
         assert all(
             b - a >= trial.LOOT_YIELD_SECONDS - 0.2 for a, b in zip(casts, casts[1:])
         )
+        # An overdue cast still gives valuables their loot turn, silver none.
+        assert any(valuables for _, valuables in loot_calls)
     else:
         assert casts == []  # nothing in reach: loot keeps its turn
+        assert not any(valuables for _, valuables in loot_calls)

@@ -1548,12 +1548,13 @@ def run_trial(
                     and speed.coherent_projection
                     and hasattr(supervisor, "player_projection")
                 )
-                # Loot yields to an overdue Scatter. Silver chains and terrain
+                # Silver yields to an overdue Scatter. Silver chains and terrain
                 # walks toward one pile held casts for up to 17.75 s with seven
                 # WingedSnakes in reach (Toxic 2026-09-28 09:40), and each kill
                 # held input 0.45 s for its drop. Nearby silver still fits
                 # between casts; farther piles wait for a lull (kill sites are
-                # kept 20 s).
+                # kept 20 s). Valuables keep their turn (a Super MeteorEarring
+                # was lost while whole loot turns were skipped, 14:51).
                 scatter_overdue = (
                     supervisor
                     and config.jump_scatter
@@ -1574,7 +1575,6 @@ def run_trial(
                     and not observe_only
                     and not approaching
                     and not defending
-                    and not scatter_overdue
                 ):
                     supervisor.loot_boundary = (l, t, r, b)
 
@@ -1602,7 +1602,12 @@ def run_trial(
                             frame = Frame(observed_at, None, origin)
                         return dispatch(point, *args, **kwargs)
 
-                    if supervisor.loot_step(inventory, (x, y), loot_dispatch):
+                    if supervisor.loot_step(
+                        inventory,
+                        (x, y),
+                        loot_dispatch,
+                        **({"valuables_only": True} if scatter_overdue else {}),
+                    ):
                         time.sleep(0.05)
                         continue
                 strategy = None

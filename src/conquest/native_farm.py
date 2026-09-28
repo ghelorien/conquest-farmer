@@ -64,6 +64,8 @@ JUMP_SCATTER_REACH = 3
 # twelve Meteors seen on 2026-09-27 one was another player's, five were picked
 # and six were left, three of them after a click from 10-16 tiles missed.
 VALUABLE_CLICK_TILES = 6
+# Tiles past the hunting boundary a walk toward a valuable (never silver) may go.
+VALUABLE_BOUNDARY_SLACK = 12
 # Ground drops audit_loot remembers (by uid and address) before starting over.
 LOOT_AUDIT_MEMORY = 5000
 
@@ -1118,8 +1120,19 @@ class NativeFarmSupervisor:
                 pass  # an audit line is never worth a combat interruption
 
     def loot_step(
-        self, inventory, position, dispatch, *, money_only=False, max_distance=12
+        self,
+        inventory,
+        position,
+        dispatch,
+        *,
+        money_only=False,
+        max_distance=12,
+        valuables_only=False,
     ):
+        """One loot turn. ``valuables_only`` (an overdue Scatter goes first)
+        skips silver and the wait for kill drops but never a valuable: a Super
+        MeteorEarring 23 tiles off was lost while every loot turn was skipped
+        (Toxic 2026-09-28 14:51)."""
         from conquest.memory_ground import pickup_delta, wanted_drop
 
         now = time.monotonic()
@@ -1165,6 +1178,8 @@ class NativeFarmSupervisor:
                     self.loot_wait_until = max(self.loot_wait_until, now + delay)
                     self.close_loot_retry = (drop.uid, drop.object_address)
                 self.pending_loot = None
+            if valuables_only:
+                return bool(self.pending_loot) and not self.pending_loot[0].silver
             return bool(self.pending_loot) or now < self.loot_wait_until
         if self.last_loot_error is not None:
             self.notify("memory_loot_ready", {})
@@ -1203,7 +1218,8 @@ class NativeFarmSupervisor:
                 if money_only:
                     return False
             elif now - issued < (1.5 if drop.silver else 3.0):
-                return True
+                if not (valuables_only and drop.silver):
+                    return True
             else:
                 self.notify(
                     "memory_pickup_unverified",
@@ -1226,7 +1242,11 @@ class NativeFarmSupervisor:
         discarder = getattr(self, "discarder", None)
         ignored = discarder.records if discarder is not None else read_json(JOURNAL, [])
         for drop in drops:
-            if (money_only and not drop.silver) or not wanted_drop(drop):
+            if (
+                (money_only and not drop.silver)
+                or (valuables_only and drop.silver)
+                or not wanted_drop(drop)
+            ):
                 continue
             if drop.silver and not self.own_kill_drop(drop):
                 continue  # another player's (or an old) drop: not worth the walk
@@ -1375,6 +1395,8 @@ class NativeFarmSupervisor:
                 },
             )
             return True
+        if valuables_only:
+            return False  # no wait for kill drops while a Scatter is due
         return now < self.loot_wait_until
 
     def approach_loot(self, drop, position, dispatch):
@@ -1407,6 +1429,17 @@ class NativeFarmSupervisor:
         boundary = getattr(
             self, "loot_boundary", (0, 0, terrain.width - 1, terrain.height - 1)
         )
+        if not drop.silver:
+            # A valuable may lie a little past the hunt's edge: 8 Uniques
+            # dropped at x 363-384, beyond the WingedSnake boundary's 352, and
+            # were all deferred here (Toxic 2026-09-28).
+            slack = VALUABLE_BOUNDARY_SLACK
+            boundary = (
+                max(0, boundary[0] - slack),
+                max(0, boundary[1] - slack),
+                min(terrain.width - 1, boundary[2] + slack),
+                min(terrain.height - 1, boundary[3] + slack),
+            )
         try:
             if tuple(drop.position) == tuple(position):
                 # Standing on it: step to a free tile beside it first.
@@ -1949,9 +1982,12 @@ class NativeFarmSupervisor:
                         and not (0 <= point[0] < width and 0 <= point[1] < height)
                     ):
                         continue
-                    sx, sy = dx // distance, dy // distance
+                    # The whole line, also for an uneven delta from
+                    # native_movement_delta (12/11 walks both axes).
                     if not all(
-                        terrain.walkable((x + sx * i, y + sy * i))
+                        terrain.walkable(
+                            (x + round(dx * i / distance), y + round(dy * i / distance))
+                        )
                         for i in range(distance + 1)
                     ):
                         continue
