@@ -1238,6 +1238,7 @@ class NativeFarmSupervisor:
         anchor = None
         from conquest.discard_loot import ignored_drop, JOURNAL
         from conquest.discord_notify import read_json
+        from conquest.routes import BOSS_CLEARANCE, near_boss
 
         discarder = getattr(self, "discarder", None)
         ignored = discarder.records if discarder is not None else read_json(JOURNAL, [])
@@ -1279,6 +1280,15 @@ class NativeFarmSupervisor:
             distance = max(abs(dx), abs(dy))
             if distance > 40:
                 defer("outside_40_tile_search")
+                continue
+            if near_boss(
+                drop.position,
+                getattr(self, "escape_monsters", ()),
+                king_clearance=getattr(self, "king_clearance", BOSS_CLEARANCE),
+            ):
+                # Both RatKings parked just outside the Ratling boundary
+                # (2026-09-28): no loot is worth walking into a boss's reach.
+                defer("boss_nearby")
                 continue
             viewport = size_for(self.observer)
             if anchor is None:
@@ -1469,6 +1479,12 @@ class NativeFarmSupervisor:
                 for x, y in path
             ):
                 return deferred("Loot path leaves hunting boundary")
+            from conquest.routes import BOSS_CLEARANCE, near_boss
+
+            monsters = getattr(self, "escape_monsters", ())
+            king = getattr(self, "king_clearance", BOSS_CLEARANCE)
+            if any(near_boss(tile, monsters, king_clearance=king) for tile in path):
+                return deferred("Loot path passes a boss")
             destination = native_waypoint(path, viewport=size_for(self.observer))
             dx, dy = destination[0] - position[0], destination[1] - position[1]
             viewport = size_for(self.observer)

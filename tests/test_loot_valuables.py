@@ -53,6 +53,32 @@ def test_a_pending_silver_walk_does_not_hold_back_a_valuable(monkeypatch):
     assert clicks == [meteor]
 
 
+def test_no_loot_inside_a_boss_clearance(monkeypatch):
+    # Both RatKings parked just outside the Ratling boundary (2026-09-28).
+    supervisor, _, _, notes = setup(monkeypatch)
+    meteor = GroundItem(1, 1000, 1088001, (12, 10))
+    supervisor.ground_items = lambda: (meteor,)
+    supervisor.escape_monsters = (SimpleNamespace(name="RatKing", position=(24, 10)),)
+    supervisor.king_clearance = 15
+    no_click = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no click"))
+    supervisor.loot_step(BAG, (10, 10), no_click)
+    observed = [f for e, f in notes if e == "memory_loot_observed"][-1]
+    assert observed["valuable_drops"][0]["reason"] == "boss_nearby"
+
+
+def test_a_loot_walk_never_passes_a_boss(monkeypatch):
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 63))
+    # A Messenger 11 tiles from the Meteor but 9 from the walk down x=50.
+    supervisor.escape_monsters = (SimpleNamespace(name="RatMessenger", position=(41, 52)),)
+    step()
+    assert not any(event == "memory_pickup_approach" for event, _ in notes)
+    assert any(
+        fields.get("detail") == "Loot path passes a boss"
+        for event, fields in notes
+        if event == "memory_pickup_deferred"
+    )
+
+
 def test_a_valuable_walk_may_pass_the_hunting_boundary_by_the_slack(monkeypatch):
     # 5 tiles past the boundary's bottom edge: walked to.
     supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 63))
