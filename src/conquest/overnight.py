@@ -828,6 +828,7 @@ class OvernightLoop:
         blocked_jump_origin = None
         boss_wait_until = None
         boss_detouring = False
+        zone_crossed = False
         boss_resets = 0
         detour_cache = None
         laps = {}
@@ -1050,13 +1051,35 @@ class OvernightLoop:
                 )
                 # Landings and the runback's evasion keep off a boss zone too.
                 blocked = occupied | avoided | zone
-                target = (
-                    travel_waypoint(
-                        self.terrain, path, step_limit, avoid=blocked, viewport=viewport
-                    )
-                    if hasattr(self.terrain, "travel_path")
-                    else native_waypoint(path, step_limit, viewport=viewport)
-                )
+                if hasattr(self.terrain, "travel_path"):
+                    try:
+                        target = travel_waypoint(
+                            self.terrain, path, step_limit, avoid=blocked, viewport=viewport
+                        )
+                    except ValueError:
+                        if not zone:
+                            raise
+                        # Walk on past the bosses rather than stand still: three
+                        # BanditKings' 15-tile zones left no visible landing at
+                        # (324,329), every restart failed there with the farm off
+                        # while Bandits hit Toxic, and it died (2026-09-28 17:46).
+                        if not zone_crossed:
+                            zone_crossed = True
+                            self.record(
+                                "travel_boss_zone_crossed",
+                                source=list(source),
+                                activity="No landing clears the bosses; walking on past them",
+                            )
+                        zone = frozenset()
+                        target = travel_waypoint(
+                            self.terrain,
+                            path,
+                            step_limit,
+                            avoid=occupied | avoided,
+                            viewport=viewport,
+                        )
+                else:
+                    target = native_waypoint(path, step_limit, viewport=viewport)
                 from types import SimpleNamespace
                 from conquest.scene_input import (
                     memory_player_anchor,

@@ -16,6 +16,10 @@ Failure modes, written before the change:
    waiting for it to move, or waits forever.
 6. A detour's longer path is mistaken for a stall.
 7. The detour is not logged.
+8. No visible landing clears the bosses and the walk fails where it stands:
+   three BanditKings' 15-tile zones did that to Toxic at (324,329), every
+   restart failed on the spot with the farm off while Bandits hit it, and it
+   died there (2026-09-28 17:44-17:46).
 """
 
 import numpy as np
@@ -157,6 +161,25 @@ def test_the_wait_ends_when_the_boss_leaves(monkeypatch):
     OvernightLoop._travel(loop, (180, 30))
     assert position == [180, 30]
     assert clock[0] - started < overnight.BOSS_WAIT_SECONDS
+
+
+def test_no_landing_clear_of_the_bosses_walks_on_instead_of_failing(monkeypatch):
+    # 8
+    from conquest import navigation
+
+    loop, position, visited, events, _ = rig(monkeypatch, terrain(), [king(100, 30)])
+    real = navigation.travel_waypoint
+    full = boss_zone((20, 30), (180, 30), [king(100, 30)])
+
+    def no_landing_near_bosses(world, path, step, *, avoid=(), viewport=None):
+        if full & set(avoid):
+            raise ValueError("No visible route landing point")
+        return real(world, path, step, avoid=avoid, viewport=viewport)
+
+    monkeypatch.setattr(navigation, "travel_waypoint", no_landing_near_bosses)
+    OvernightLoop._travel(loop, (180, 30))
+    assert position == [180, 30]
+    assert [event for event, _ in events].count("travel_boss_zone_crossed") == 1
 
 
 def test_under_attack_the_walk_does_not_stand_and_wait(monkeypatch):
