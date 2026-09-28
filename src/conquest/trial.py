@@ -39,6 +39,9 @@ from conquest.recovery import (
 # (and healing uses the 75% threshold), and how close counts as "the spot".
 ESCAPE_MEMORY_SECONDS = 4
 ESCAPE_KEEP_OUT_TILES = 5
+# Seconds since the last Scatter after which loot waits for the next cast
+# while a living target is in reach (jump-Scatter farming).
+LOOT_YIELD_SECONDS = 2.5
 # Below this HP share within this long of a verified heal, potions are not
 # holding the fight: read a TwinCityGate scroll and restock instead. (14:06
 # on Poltergeists HP fell 42% -> 5% between two reads, so 30% was too late.)
@@ -1541,11 +1544,33 @@ def run_trial(
                     and speed.coherent_projection
                     and hasattr(supervisor, "player_projection")
                 )
+                # Loot yields to an overdue Scatter. Silver chains and terrain
+                # walks toward one pile held casts for up to 17.75 s with seven
+                # WingedSnakes in reach (Toxic 2026-09-28 09:40), and each kill
+                # held input 0.45 s for its drop. Nearby silver still fits
+                # between casts; farther piles wait for a lull (kill sites are
+                # kept 20 s).
+                scatter_overdue = (
+                    supervisor
+                    and config.jump_scatter
+                    and time.monotonic() - last_scatter_cast >= LOOT_YIELD_SECONDS
+                    and any(
+                        target.world_position is not None
+                        and (target.current_hp or 0) > 0
+                        and max(
+                            abs(a - b) for a, b in zip(target.world_position, (x, y))
+                        )
+                        <= config.attack_range_tiles
+                        for target in getattr(supervisor, "scatter_scene_targets", ())
+                        or ()
+                    )
+                )
                 if (
                     loot_before_scene
                     and not observe_only
                     and not approaching
                     and not defending
+                    and not scatter_overdue
                 ):
                     supervisor.loot_boundary = (l, t, r, b)
 
