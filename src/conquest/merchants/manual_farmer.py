@@ -67,6 +67,38 @@ def release_hold_from_dead_process(runtime, snapshot, *, now=None):
     return True
 
 
+# Seconds a "no manual hold" journal answer is reused while no trade window is
+# visible. The hold state lives in SQLite (manual_status, manual_handoff_status)
+# and was read on every combat observation under the observer lock: 71 ms of a
+# 175 ms observe (Toxic 2026-09-28), against 0.2 ms for the presence check.
+MANUAL_HELD_TTL = 1.0
+
+
+def manual_held(runtime, visible, *, now=None):
+    """Whether a manual session or a handoff holds the farmer.
+
+    Only a "not held" answer read while nothing was visible is reused, for at
+    most MANUAL_HELD_TTL. A visible trade window or request clears it (the
+    session it starts must be seen at once when the window closes), a held
+    answer is never reused, and a hold created elsewhere (a bridge override,
+    the handoff UI) is seen within the second; observe() also clears it on
+    a reader failure.
+    """
+    now = time.monotonic() if now is None else now
+    if visible:
+        runtime.manual_held_cache = None
+    else:
+        idle_since = getattr(runtime, "manual_held_cache", None)
+        if idle_since is not None and 0 <= now - idle_since < MANUAL_HELD_TTL:
+            return False
+    held = (
+        runtime.manual_status("Farmer") is not None
+        or runtime.manual_handoff_status() is not None
+    )
+    runtime.manual_held_cache = now if not (held or visible) else None
+    return held
+
+
 def presence(observer):
     """Map-independent modal presence; no inventory/participant inference."""
     observer.adapter.assert_identity()
@@ -352,10 +384,7 @@ def observe(runtime, observer=None):
         if observer.character != farmer_name():
             raise ValueError("Attached farmer identity does not match selected profile")
         visible = presence(observer)
-        held = (
-            runtime.manual_status("Farmer") is not None
-            or runtime.manual_handoff_status() is not None
-        )
+        held = manual_held(runtime, visible)
         if not visible and not held:
             _project_farming_only_request(runtime, False)
             runtime.manual_farmer_observation = {
@@ -372,6 +401,7 @@ def observe(runtime, observer=None):
 
         snapshot = manual_ownership(observer.adapter, observer.character)
     except (ValueError, OSError) as error:
+        runtime.manual_held_cache = None  # a reader failure may create a hold
         reason = "Farmer manual memory unavailable: " + str(error)
         runtime.manual_farmer_observation = {
             "available": False,
