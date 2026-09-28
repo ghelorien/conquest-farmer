@@ -35,8 +35,10 @@ Failure modes, written before the fix:
  F5  Level 95 with a usable IronArrow pack: the Iron pack is sold or
      discarded. (Buying/funding a SpeedArrow upgrade on a required visit when
      there is pack room is the existing, unchanged behaviour.)
- F6  Carrying two or more packs (live aftermath: Iron 1000 in the bag plus the
-     equipped Speed remnant): any arrow purchase.
+ F6  Carrying two or more packs: any arrow purchase. An equipped stack of
+     REMNANT_ARROWS or fewer is no pack (test_equipped_remnant), so the live
+     aftermath (Iron 1000 in the bag plus the 1-arrow Speed quiver) carries
+     one and tops the adopted Iron up to its two-pack refill.
  F7  The withdrawal budget is priced from the route default instead of the
      selected tier, so the selected pack is unaffordable at the shop.
  F8  The level-best tier is unaffordable (wallet plus stored silver below its
@@ -190,11 +192,6 @@ class Game:
             )
         )
 
-    def pack_count(self):
-        return sum(
-            1 for i in self.items if i["type_id"] in NAMES and i["amount"] > 0
-        ) + int(bool(self.equipped and self.equipped["amount"] > 0))
-
     def health(self):
         return {
             "target": dict(TARGET),
@@ -297,11 +294,10 @@ class Game:
                 price = 60
             else:
                 assert body["vendor_type"] == 5 and kind in NAMES
-                # Same pre-input refusals as town_trade's worker purchase.
-                if self.pack_count() >= 2:
-                    raise ValueError(
-                        "Arrow purchase blocked: already carrying the maximum packs"
-                    )
+                # town_trade's own pre-input refusal, not a copy of it.
+                from conquest.arrow_upgrades import require_arrow_purchase_room
+
+                require_arrow_purchase_room(self.supplies(), kind)
                 price = self.product(kind)["price"]
             if self.silver < price or len(self.items) >= 40:
                 self.add("buy_refused", type=NAMES.get(kind, kind), price=price)
@@ -385,6 +381,19 @@ SCENARIOS = {
         "potions": 5,
         "silver": 1200,
         "stored": 200000,
+    },
+    # Live 2026-09-28 (Toxic 11 of 11 restocks, Suicide 10:09/10:37): the
+    # route hunts until ammo_unavailable, walks home on a 1-arrow IronArrow
+    # quiver, plans two packs and used to leave with one.
+    "iron_quiver_spent_l38": {
+        "route": "bandit",
+        "map_id": 1011,
+        "level": 38,
+        "equipped": {"uid": 8, "type_id": IRON, "amount": 1, "limit": 1000},
+        "bag": [],
+        "potions": 5,
+        "silver": 10724,
+        "stored": 3375,
     },
     # F2/F3: turtledove saves LuckyArrow; level 40 must buy IronArrow.
     "level40_lucky_route_iron_remnant": {
@@ -603,20 +612,27 @@ def test_required_visit_buys_level_best_or_next_affordable_tier(
     if name == "live_speed_remnant_l95":
         # F1: SpeedArrow, never the route's saved IronArrow.
         assert selected == [SPEED] and final["selected_arrow"] == "SpeedArrow"
-        assert buys == ["SpeedArrow"]
+        # The 1-arrow quiver is no pack: two Speed packs refill the tier's
+        # 10,000 arrows.
+        assert buys == ["SpeedArrow", "SpeedArrow"]
         assert final["arrows_restock_to"] == 10000
-        # F7: the visit withdrew enough for the live SpeedArrow price.
-        assert 1200 + withdrawn >= 34000 + 3000
-        # F9: the equipped remnant is kept; the cap then stops a second pack.
+        # F7: the visit withdrew enough for both at the live SpeedArrow price.
+        assert 1200 + withdrawn >= 2 * 34000 + 3000
+        # F9: the equipped remnant is kept (an equipped quiver is never sold).
         assert not sold
         assert final["arrows"]["equipped"] == {"type_id": SPEED, "amount": 1}
-        assert any(e["event"] == "arrow_purchase_deferred" for e in events)
+        assert not any(e["event"] == "arrow_purchase_deferred" for e in events)
         assert artifact["error"] is None and final["cycles"] == 1
     elif name == "live_aftermath_iron_pack_and_speed_remnant_l95":
-        # F5/F6: adopt the Iron pack, keep it, buy no arrows at all.
+        # F5/F6: adopt the Iron pack and keep it; the Speed remnant is no
+        # pack, so one more Iron pack makes the two-pack refill.
         assert final["selected_arrow"] == "IronArrow"
-        assert buys == [] and not sold
-        assert final["arrows"] == artifact["inputs"]["carried_arrows"]
+        assert buys == ["IronArrow"] and not sold
+        carried = artifact["inputs"]["carried_arrows"]
+        assert final["arrows"]["equipped"] == carried["equipped"]
+        assert final["arrows"]["bag"] == carried["bag"] + [
+            {"type_id": IRON, "amount": 1000}
+        ]
         assert artifact["error"] is None and final["cycles"] == 1
     elif name == "usable_iron_equipped_l95":
         # F5: the usable Iron pack is kept (moved to the bag as the spare) when
@@ -633,15 +649,29 @@ def test_required_visit_buys_level_best_or_next_affordable_tier(
         assert buys == ["SpeedArrow"]
         assert final["arrows"]["equipped"]["type_id"] == SPEED
         assert artifact["error"] is None and final["cycles"] == 1
-    elif name == "level40_lucky_route_iron_remnant":
-        # F2/F3: the saved LuckyArrow default does not win at level 40.
+    elif name == "iron_quiver_spent_l38":
+        # Both planned packs, the spent quiver kept equipped, no deferral.
         assert final["selected_arrow"] == "IronArrow"
-        assert buys == ["IronArrow"]
+        assert buys == ["IronArrow", "IronArrow"] and not sold
+        assert final["arrows"] == {
+            "bag": [
+                {"type_id": IRON, "amount": 1000},
+                {"type_id": IRON, "amount": 1000},
+            ],
+            "equipped": {"type_id": IRON, "amount": 1},
+        }
+        assert not any(e["event"] == "arrow_purchase_deferred" for e in events)
+        assert artifact["error"] is None and final["cycles"] == 1
+    elif name == "level40_lucky_route_iron_remnant":
+        # F2/F3: the saved LuckyArrow default does not win at level 40. The
+        # 2-arrow quiver is no pack: both packs of the refill are bought.
+        assert final["selected_arrow"] == "IronArrow"
+        assert buys == ["IronArrow", "IronArrow"]
         assert artifact["error"] is None and final["cycles"] == 1
     elif name == "level20_iron_route_lucky_remnant":
         # F2/F4: Iron needs level 32; LuckyArrow is the only eligible tier.
         assert final["selected_arrow"] == "LuckyArrow"
-        assert buys == ["LuckyArrow"]
+        assert buys == ["LuckyArrow", "LuckyArrow"]
         assert artifact["error"] is None and final["cycles"] == 1
     elif name == "insufficient_silver_for_speed_l95":
         # F8: all stored silver is withdrawn, the worker refuses SpeedArrow
@@ -655,9 +685,9 @@ def test_required_visit_buys_level_best_or_next_affordable_tier(
         assert final["selected_arrow"] == "IronArrow"
         assert final["arrows_restock_to"] == 2000
     elif name == "insufficient_silver_for_iron_l40":
-        # F8: Iron unaffordable at level 40: LuckyArrow.
+        # F8: Iron unaffordable at level 40: LuckyArrow, both refill packs.
         assert selected == [IRON] and withdrawn == 2000
-        assert buys == ["LuckyArrow"]
+        assert buys == ["LuckyArrow", "LuckyArrow"]
         assert [(f["arrow_type"], f["price"]) for f in fallbacks] == [(LUCKY, 200)]
         assert final["selected_arrow"] == "LuckyArrow"
     else:  # pragma: no cover

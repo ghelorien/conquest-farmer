@@ -68,7 +68,11 @@ def test_empty_quiver_sells_scrolls_for_the_pack(tmp_path, monkeypatch, scrolls)
     sold = [e for e in artifact["route_events"] if e["event"] == "scroll_sold_for_arrows"]
     if scrolls == 2:
         # Refused, one scroll (194), refused, the second (260), then the pack.
-        assert kinds == ["buy_refused", "sell-scroll", "buy_refused", "sell-scroll", "buy"]
+        # The 1-arrow quiver is no pack, so a second pack is tried and refused
+        # before input: 60 silver left.
+        assert kinds == [
+            "buy_refused", "sell-scroll", "buy_refused", "sell-scroll", "buy", "buy_refused"
+        ]
         assert [e["silver"] for e in sold] == [194, 260]
         assert artifact["error"] is None and final["cycles"] == 1
         assert final["silver"] == 60
