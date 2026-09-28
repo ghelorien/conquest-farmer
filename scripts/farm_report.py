@@ -81,10 +81,18 @@ def trips(rows):
     result, current, route, arrow_type = [], None, None, LUCKY
     for event in rows:
         kind = event.get("event")
-        # A new route has no learned rates and logs no supply_plan: the
-        # restock's bracket check names the route hunted next.
-        if kind in ("supply_plan", "level_bracket_checked", "level_route_changed"):
-            route = event.get("route") or event.get("level_bracket") or route
+        named = None
+        if kind in ("supply_plan", "level_route_changed"):
+            named = event.get("route")
+        elif kind == "route_hold_active":
+            named = (event.get("route_hold") or {}).get("route_id")
+        elif kind == "level_bracket_checked" and route is None:
+            # Only a first guess: the bracket names the level's desired
+            # route, which a route hold (Toxic at 36, 2026-09-28) or a
+            # missing saved route keeps from being hunted.
+            named = event.get("level_bracket")
+        if named:
+            route = named
             if current is not None and not current["hunts"]:
                 current["route"] = route
             elif current is not None and route != current["route"].split(">")[-1]:

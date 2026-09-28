@@ -49,3 +49,22 @@ def test_a_bandit_trip_on_ironarrows(tmp_path):
     # 540 IronArrows at 4.8 and 2 potions at 60 against 1,441 picked up.
     assert trip["supply_cost"] == round(540 * 4.8 + 2 * 60)
     assert trip["net_per_min"] == round((1441 - (540 * 4.8 + 120)) / minutes)
+
+
+def test_a_held_route_is_not_relabelled_by_the_next_bracket():
+    # Live 2026-09-28: Toxic reached 36 under a Bandit route hold; the bracket
+    # check named Ratlings, which it never hunted.
+    rows = [
+        {"time": 0, "event": "supply_plan", "route": "bandit"},
+        {"time": 1, "event": "restock_complete", "supplies": {"arrows": 1000, "potions": 21, "silver": 200}},
+        hunting(60, 1000, 21, 200, 0, 35, 240000),
+        {"time": 100, "event": "route_hold_active", "route_hold": {"mode": "hold_route", "route_id": "bandit"}},
+        {"time": 200, "event": "level_bracket_checked", "level_bracket": "ratling"},
+        hunting(600, 500, 19, 1400, 60, 36, 5000),
+        {"time": 700, "event": "restock_complete", "supplies": {"arrows": 1000, "potions": 21, "silver": 200}},
+        hunting(760, 1000, 21, 200, 60, 36, 6000),
+        {"time": 800, "event": "level_route_changed", "route": "ratling"},
+        hunting(900, 900, 21, 300, 70, 36, 9000),
+    ]
+    routes = [trip["route"] for trip in farm_report.trips(rows)]
+    assert routes == ["bandit", "bandit>ratling"]
