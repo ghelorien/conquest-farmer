@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import struct
 import time
 
-from conquest.valuables import SPECIAL_LOOT_TYPES
+from conquest.valuables import SPECIAL_LOOT_TYPES, UNIQUE_AND_HIGHER
 from conquest.addressing import checked_address
 from conquest.memory_entities import sample_fields
 
@@ -46,10 +46,14 @@ def wanted_drop(drop):
 
         return collect_silver()
     gear = 100000 <= drop.type_id < 600000
+    # Unique (7), Elite (8) and Super (9) quality, or +1 to +12: the gear
+    # stash_candidate banks (Alex 2026-09-28: "You can pickup and bank any
+    # item unique and higher now").
     return drop.type_id in SPECIAL_LOOT_TYPES or (
         gear
         and (
-            drop.type_id % 10 == 9 or (type(drop.plus) is int and 1 <= drop.plus <= 12)
+            drop.type_id % 10 in UNIQUE_AND_HIGHER
+            or (type(drop.plus) is int and 1 <= drop.plus <= 12)
         )
     )
 

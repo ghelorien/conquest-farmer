@@ -22,7 +22,12 @@ from conquest.reconnect import login_screen
 # Unnecessary mana supplies for the archer. HP potions are never junk: every
 # tier is counted and drunk (potion_tiers). Never blanket-sell special IDs.
 JUNK_CONSUMABLES = frozenset((1001000, 1001010, 1001020))
-from conquest.valuables import SPECIAL_LOOT_TYPES, storage_only, urgent_storage
+from conquest.valuables import (
+    SPECIAL_LOOT_TYPES,
+    UNIQUE_AND_HIGHER,
+    storage_only,
+    urgent_storage,
+)
 
 PROTECTED_VALUABLES = SPECIAL_LOOT_TYPES
 
@@ -40,7 +45,10 @@ def stash_candidate(item):
         or (
             type(kind) is int
             and 100000 <= kind < 600000
-            and (kind % 10 in (8, 9) or (type(plus) is int and 1 <= plus <= 12))
+            and (
+                kind % 10 in UNIQUE_AND_HIGHER
+                or (type(plus) is int and 1 <= plus <= 12)
+            )
         )
     )
 

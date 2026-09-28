@@ -237,8 +237,10 @@ def test_slow_ground_observation_still_expires(monkeypatch):
         (480003, 0, False),
         (480006, 0, False),
         (480003, None, False),
-        (480007, 0, False),
-        (480008, 0, False),
+        # Unique and Elite too (Alex 2026-09-28: "pickup and bank any item
+        # unique and higher").
+        (480007, 0, True),
+        (480008, 0, True),
         (480009, 0, True),
         (480008, 1, True),
         (480008, 2, True),

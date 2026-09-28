@@ -63,6 +63,8 @@ JUMP_SCATTER_REACH = 3
 # twelve Meteors seen on 2026-09-27 one was another player's, five were picked
 # and six were left, three of them after a click from 10-16 tiles missed.
 VALUABLE_CLICK_TILES = 6
+# Ground drops audit_loot remembers (by uid and address) before starting over.
+LOOT_AUDIT_MEMORY = 5000
 
 @contextmanager
 def logical_coordinates():
@@ -1019,6 +1021,53 @@ class NativeFarmSupervisor:
         # empty. The memory allowlist excludes currency; care runs first.
         return self.loot_step(inventory, position, dispatch, max_distance=12)
 
+    def audit_loot(self, drops):
+        """Record each notable gear drop seen once, with the pickup verdict.
+
+        2,469 pickups to 2026-09-28 were silver and eight Meteors, not one
+        piece of gear, and nothing recorded what lay on the ground and why it
+        stayed: a missed +1 or Super item could not be told from no drop.
+        Unique and higher, any plus, and an unreadable plus are notable;
+        cross-check loot-audit.jsonl against pickups.jsonl by uid.
+        """
+        from conquest.memory_ground import wanted_drop
+
+        seen = getattr(self, "loot_audited", None)
+        if seen is None or len(seen) > LOOT_AUDIT_MEMORY:
+            seen = self.loot_audited = set()
+        rows = []
+        for drop in drops:
+            kind = drop.type_id
+            if not (type(kind) is int and 100000 <= kind < 600000):
+                continue
+            key = (drop.uid, drop.object_address)
+            if key in seen or not (
+                kind % 10 >= 7 or drop.plus is None or drop.plus >= 1
+            ):
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "time": time.time(),
+                    "uid": drop.uid,
+                    "type_id": kind,
+                    "plus": drop.plus,
+                    "position": list(drop.position),
+                    "map_id": getattr(self, "map_id", None),
+                    "wanted": wanted_drop(drop),
+                }
+            )
+        if rows:
+            import json
+            from pathlib import Path
+
+            path = Path(state_path("reports/desktop-farming/loot-audit.jsonl"))
+            try:
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.writelines(json.dumps(row) + "\n" for row in rows)
+            except OSError:
+                pass  # an audit line is never worth a combat interruption
+
     def loot_step(
         self, inventory, position, dispatch, *, money_only=False, max_distance=12
     ):
@@ -1054,6 +1103,7 @@ class NativeFarmSupervisor:
                         )
                         return False
                 drops = self.ground_items()
+            self.audit_loot(drops)
         except (ValueError, OSError) as error:
             if str(error) != self.last_loot_error:
                 self.notify("memory_loot_retry", {"detail": str(error)})

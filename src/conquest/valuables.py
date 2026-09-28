@@ -23,6 +23,10 @@ STORAGE_ONLY_TYPES = frozenset(
     (2000031, 2000032, 2000033, 2000034, 2000035, 2000036, 2000037, 2000038)
 )
 SPECIAL_LOOT_TYPES = DRAGONBALL_TYPES | {1088001, 720027}
+# Gear quality is the type ID's last digit (6 Refined, 7 Unique, 8 Elite,
+# 9 Super). Alex 2026-09-28: "You can pickup and bank any item unique and
+# higher now."
+UNIQUE_AND_HIGHER = frozenset((7, 8, 9))
 URGENT_EQUIPMENT_FAMILIES = frozenset((120, 121, 150, 151, 152, 160, 500))
 
 

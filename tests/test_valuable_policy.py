@@ -58,5 +58,7 @@ def test_previous_loot_preferences_are_preserved():
     assert wanted_drop(GroundItem(1, 100000, 1088001, (1, 1)))
     assert wanted_drop(GroundItem(1, 100000, 500009, (1, 1), plus=0))
     assert wanted_drop(GroundItem(1, 100000, 500008, (1, 1), plus=1))
-    assert not wanted_drop(GroundItem(1, 100000, 500008, (1, 1), plus=0))
+    # Unique and higher at +0 as well (Alex 2026-09-28); Refined +0 is not.
+    assert wanted_drop(GroundItem(1, 100000, 500008, (1, 1), plus=0))
+    assert not wanted_drop(GroundItem(1, 100000, 500006, (1, 1), plus=0))
     assert not wanted_drop(GroundItem(1, 100000, 1090000, (1, 1)))
