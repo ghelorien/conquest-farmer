@@ -313,3 +313,15 @@ def test_old_stop_cannot_cancel_new_on_but_emergency_still_stops():
     assert control.finish_session(revision, "requested_stop")
     assert not control.finish_session(revision, "emergency_stop")
     assert not control.snapshot()["enabled"]
+
+
+# 2026-09-28 (Toxic): at a 0.15 s cadence during native combat this thread's
+# observations kept the combat loop waiting 110 ms per observation for the
+# observer lock. It slows down only while the native loop observes for itself.
+def test_controls_thread_backs_off_while_the_native_loop_observes():
+    from conquest import control_runtime
+
+    runtime = ControlRuntime(FarmingControl(), None, None, None, "Toxic", observer=lambda: {})
+    assert runtime.interval() == control_runtime.OBSERVE_SECONDS == 0.15
+    runtime.external_execution = True
+    assert runtime.interval() == control_runtime.EXTERNAL_OBSERVE_SECONDS == 0.5

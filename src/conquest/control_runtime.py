@@ -12,6 +12,11 @@ from conquest.memory_entities import EntityLayout, MemoryEntityReader
 from conquest.memory_health import HealthLayout, HealthWorkerSession, MemoryHealthReader
 from conquest.kill_loot import KillLootCycle
 
+# Observation cadence of the controls thread, and while the native combat loop
+# (which observes for itself) is running.
+OBSERVE_SECONDS = 0.15
+EXTERNAL_OBSERVE_SECONDS = 0.5
+
 
 class ControlRuntime:
     def __init__(
@@ -219,12 +224,22 @@ class ControlRuntime:
         result["external_execution"] = self.external_execution
         return result
 
+    def interval(self):
+        """Seconds between observations.
+
+        Life/recovery checks should not wait on a slow combat cadence, but
+        while the native combat loop runs (external_execution) this thread
+        only refreshes the snapshot the route and the UI read about once a
+        second, and every observation holds the observer lock the combat loop
+        also needs: at 0.15 s the loop waited 110 ms per observation and cast
+        Scatter 17 times a minute (Toxic 2026-09-28).
+        """
+        return EXTERNAL_OBSERVE_SECONDS if self.external_execution else OBSERVE_SECONDS
+
     def _run(self):
         while not self.stop.is_set():
             self.step()
-            self.stop.wait(
-                0.15
-            )  # Life/recovery checks should not wait on a slow combat cadence.
+            self.stop.wait(self.interval())
 
     def start(self):
         self.thread = threading.Thread(
