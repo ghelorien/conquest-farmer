@@ -46,6 +46,48 @@ def read_status(path):
             time.sleep(0.025)
 
 
+def select_app_route(loop):
+    """Make the app's route selection the controller's route.
+
+    The app builds the farm from its own selection (boundary, patrol, King
+    clearance) and refuses targets from another route. A controller
+    restarted across a route-hold change loads the plan's route while the
+    app restores its saved one: Toxic, deployed at 15:53 on 2026-09-28 as
+    its hold moved to Ratlings, stood in Phoenix with "Selected route and
+    monster group differ" until the route was selected by hand.
+    """
+    app = state_path("reports/desktop-farming/app-state.json")
+    try:
+        state = read_status(app)
+    except OSError:
+        return False
+    if "selected_route" not in state or state["selected_route"] == loop.route.id:
+        return False
+    loop.stop_farm()
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            request(loop.info, "controls", {"route_id": loop.route.id})
+            break
+        except ValueError:
+            # Refused while the stopped farm thread winds down.
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.2)
+    while read_status(app).get("selected_route") != loop.route.id:
+        loop.check_stop()
+        if time.monotonic() > deadline:
+            raise ValueError("Route selection was not acknowledged")
+        time.sleep(0.1)
+    loop.record(
+        "app_route_selected",
+        route=loop.route.id,
+        previous_route=state["selected_route"],
+        activity=f"Selecting {loop.route.name} in the app",
+    )
+    return True
+
+
 def manual_request_fence(loop, error):
     """The pre-input refusal is only an unapproved-request fence.
 
@@ -1908,6 +1950,7 @@ class OvernightLoop:
 
         # Alex: the Conductress to Ape City is the fast way to the far fields.
         ride(self)
+        select_app_route(self)
         request(
             self.info,
             "controls",
