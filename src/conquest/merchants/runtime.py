@@ -15,6 +15,11 @@ from conquest.merchants.price_history import PriceHistory
 from conquest.merchants.recovery import Recovery, credential_path
 from conquest.merchants.manual_runtime import ManualRuntime
 
+# A client whose actor is another character is probed again after this long,
+# or as soon as it shows the login screen. Kalhiam's discovery opened a full
+# memory session on Suicide's client every second (2026-09-28).
+FOREIGN_CLIENT_SECONDS = 30
+
 
 def make_observer(client, character):
     from conquest.identity import fingerprint
@@ -431,6 +436,12 @@ class MerchantRuntime(ManualRuntime):
         with self.discovery_lock:
             matches = []
             login_clients = []
+            now = time.monotonic()
+            foreign = getattr(self, "foreign_1078", None)
+            if foreign is None:
+                foreign = self.foreign_1078 = {}
+            for key in [k for k, until in foreign.items() if until <= now]:
+                del foreign[key]
             for client in self.merchant_windows():
                 if any(
                     o.adapter.identity == client.identity
@@ -439,11 +450,20 @@ class MerchantRuntime(ManualRuntime):
                     continue
                 from conquest.reconnect import login_screen
 
+                verdict = (
+                    str(character),
+                    client.identity.get("pid"),
+                    client.identity.get("creation_time_100ns"),
+                )
                 if login_screen(client.hwnd):
                     # No logged-in actor exists to identify in memory. Only the
-                    # exact pinned recovery process may be rebound below.
+                    # exact pinned recovery process may be rebound below. Any
+                    # character may log in next.
+                    foreign.pop(verdict, None)
                     login_clients.append(client)
                     continue
+                if verdict in foreign:
+                    continue  # another character's client, read recently
                 try:
                     with MemorySession(
                         client.identity["pid"], CLIENT_SHA256_1078
@@ -464,6 +484,8 @@ class MerchantRuntime(ManualRuntime):
                     )
                 ):
                     matches.append((client, uid))
+                else:
+                    foreign[verdict] = now + FOREIGN_CLIENT_SECONDS
             if not matches and login_clients:
                 from conquest.merchants.return_1078 import pinned_identity
 
