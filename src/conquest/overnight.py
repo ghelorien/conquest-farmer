@@ -91,12 +91,19 @@ def potion_reserve(route, departed=None):
     with none meant arriving (or dying) on an empty bar (09-27). A trip that
     left town with few potions keeps at most half of them, so a poor restock
     hunts before it walks back instead of turning straight round.
+
+    The quarter is of the larger of the route's fill and what the hunt left
+    with: a restarted controller reads the route file's fill until the next
+    planned restock (bandit.yaml: 5, so a reserve of 1), and Suicide, gone out
+    with 18, turned home on its last potion and died on the way (2026-09-28
+    08:01-08:02).
     """
     from conquest import level_goal
 
     if not level_goal.protections():
         return 0
-    reserve = min(TRIP_POTION_RESERVE, route.supplies.healing_restock_to // 4)
+    fill = max(route.supplies.healing_restock_to, departed or 0)
+    reserve = min(TRIP_POTION_RESERVE, fill // 4)
     if departed is not None:
         reserve = min(reserve, departed // 2)
     return reserve
