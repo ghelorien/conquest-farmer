@@ -64,6 +64,23 @@ def boss_name(name):
     )
 
 
+# Tiles an archer keeps from a boss: bosses hit from range. On 2026-09-28
+# Toxic took ~140-damage hits every 1.5-2 s with no ordinary monster within
+# 5-6 tiles (Bandit field, 00:42-01:03), and died 2 tiles from the
+# WingedSnakeKing (40,000 HP) at 02:03.
+BOSS_CLEARANCE = 9
+
+
+def near_boss(point, monsters, clearance=BOSS_CLEARANCE):
+    """Whether ``point`` lies within ``clearance`` tiles of a boss."""
+    return any(
+        boss_name(getattr(m, "name", "") or "")
+        and max(abs(m.position[0] - point[0]), abs(m.position[1] - point[1]))
+        <= clearance
+        for m in monsters
+    )
+
+
 class Supplies(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     arrow_type: int = 1050000

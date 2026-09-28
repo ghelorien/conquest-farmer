@@ -200,15 +200,10 @@ def scatter_landing(
                 not fast and not clear_jump(terrain, position, point)
             ):
                 continue
-            # Keep dense ordinary groups; do not deliberately land beside bosses.
-            from conquest.routes import boss_name
+            # Keep dense ordinary groups; never land within a boss's reach.
+            from conquest.routes import near_boss
 
-            if any(
-                boss_name(m.name)
-                and max(abs(m.position[0] - point[0]), abs(m.position[1] - point[1]))
-                <= 2
-                for m in getattr(supervisor, "escape_monsters", ())
-            ):
+            if near_boss(point, getattr(supervisor, "escape_monsters", ())):
                 continue
             repeated = sum(
                 max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= 2 for p, _ in recent

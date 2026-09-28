@@ -414,6 +414,37 @@ def test_crowded_hit_still_jumps_clear_of_the_attacker(monkeypatch):
     assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is None
 
 
+# 2026-09-28: bosses hit from range. ~140-damage hits landed with no ordinary
+# monster within 5-6 tiles (Bandit field), and Toxic died 2 tiles from the
+# WingedSnakeKing at 02:03. A boss within BOSS_CLEARANCE is reason to jump,
+# and no landing lies within one.
+def test_jump_scatter_keeps_clear_of_a_boss(monkeypatch):
+    from test_native_farm import setup
+    from conquest import native_farm
+    from conquest.routes import BOSS_CLEARANCE, near_boss
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.scene_timestamp = 100.0
+    supervisor.recovery.terrain = NS(walkable=lambda p: True)
+    kwargs = dict(adjacent_trigger=1, reach=native_farm.JUMP_SCATTER_REACH, scatter_range=8)
+    king = NS(position=(25, 20), name="WingedSnakeKing")
+    supervisor.escape_monsters = (king,)
+    landing = supervisor.ranged_escape((20, 20), (0, 0, 50, 50), **kwargs)
+    assert landing is not None
+    assert max(abs(landing[0] - 25), abs(landing[1] - 20)) > BOSS_CLEARANCE
+    assert supervisor.escape_context["reason"] == "boss_nearby"
+    # An ordinary monster at the same distance is no reason to leave.
+    supervisor.escape_monsters = (NS(position=(25, 20), name="WingedSnake"),)
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50), **kwargs) is None
+    # Nor is a boss beyond its clearance.
+    supervisor.escape_monsters = (NS(position=(20 + BOSS_CLEARANCE + 1, 20), name="BanditKing"),)
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50), **kwargs) is None
+    # Scatter landings use the same clearance.
+    assert near_boss((20, 20), (king,)) and not near_boss((20, 20), (king,), clearance=4)
+    assert not near_boss((20, 20), (NS(position=(25, 20), name="WingedSnake"),))
+
+
 # 2026-09-28 00:19 (Toxic, level 36, Bandits): 19 monsters in view and no
 # landing with fewer of them nearby, so it kept shooting a Bandit two tiles
 # away above ESCAPE_LOW_HP until three hits in 1.5 s left 25%.

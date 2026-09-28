@@ -1660,17 +1660,32 @@ class NativeFarmSupervisor:
         distances = [max(abs(a - b) for a, b in zip(p, position)) for p in living]
         adjacent = sum(d <= 1 for d in distances)
         within_reach = sum(d <= reach for d in distances)
+        from conquest.routes import BOSS_CLEARANCE, boss_name
+
+        # Bosses hit from range: leave one within BOSS_CLEARANCE and never
+        # land inside another's.
+        bosses = [
+            m.position
+            for m in self.escape_monsters
+            if boss_name(getattr(m, "name", "") or "")
+        ]
+        boss_near = [
+            b
+            for b in bosses
+            if max(abs(a - c) for a, c in zip(b, position)) <= BOSS_CLEARANCE
+        ]
         # Every hit over ESCAPE_DAMAGE_SHARE is reason to jump: tanking hits
         # only burns potions and town trips ("don't tank a few hits").
         damaged = (
             now - self.last_damage_at <= DAMAGE_WINDOW
             and self.last_damage_at > self.escape_damage_consumed_at
         )
-        if within_reach < adjacent_trigger and not damaged:
+        if within_reach < adjacent_trigger and not damaged and not boss_near:
             return None
         threats = [
             p for p, d in zip(living, distances) if d <= (12 if damaged else reach)
         ]
+        threats += [b for b in boss_near if b not in threats]
         if not threats:
             return None
         x, y = position
@@ -1716,6 +1731,11 @@ class NativeFarmSupervisor:
                         for i in range(distance + 1)
                     ):
                         continue
+                    if any(
+                        max(abs(point[0] - bx), abs(point[1] - by)) <= BOSS_CLEARANCE
+                        for bx, by in bosses
+                    ):
+                        continue  # inside a boss's reach
                     separation = min(
                         max(abs(point[0] - mx), abs(point[1] - my))
                         for mx, my in threats
@@ -1769,6 +1789,7 @@ class NativeFarmSupervisor:
             # (00:19, 8 monsters within 3 tiles). Leave for the least crowded
             # landing clear of those monsters that nothing can hit.
             close = [p for p, d in zip(living, distances) if d <= JUMP_SCATTER_REACH]
+            close += [b for b in boss_near if b not in close]
             if close:
                 clear = JUMP_SCATTER_REACH
                 candidates = landings(close, fewer=False, clear_of_all=clear) or landings(
@@ -1783,8 +1804,11 @@ class NativeFarmSupervisor:
             "nearest_enemy": min(distances) if distances else None,
             "recent_damage": damaged,
             "crowded": crowded,
+            "boss_nearby": bool(boss_near),
             "reason": "recent_damage"
             if damaged
+            else "boss_nearby"
+            if boss_near and within_reach < adjacent_trigger
             else "enemies_within_one_tile"
             if reach == 1
             else "enemies_within_reach",
