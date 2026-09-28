@@ -19,7 +19,9 @@ hunting_anchor:
 - 532
 - 768
 kite_when_surrounded: true
+jump_scatter: true
 attack_range_tiles: 16
+king_clearance: 15
 hunting_boundary:
 - 497
 - 733
@@ -1053,9 +1055,9 @@ return_waypoints:
   - 195
 terrain_sha256: 433b3163a38d068e978fa6609c2d8e32f48bd27b188e15cddc3b3583ca9e9921
 supplies:
-  arrow_type: 1050000
+  arrow_type: 1050001
   arrows_return_below: 3
-  arrows_restock_to: 2000
+  arrows_restock_to: 10000
   healing_type: 1000020
   healing_return_below: 1
   healing_restock_to: 5
@@ -1077,3 +1079,6 @@ recover_after_death: true
 movement: jump
 notes: Hunting seed (532, 768) from installed UserHelpInfo.json. Phoenix staging anchor
   inside region town bounds. Restock vendors are memory-identified on map 1011. City arrivals visit the local town before hunting.
+  Not yet surveyed live. For Toxic's supervised first run (2026-09-28) it hunts as the
+  Ratling route does, jump Scatter, a King clearance of 15 and IronArrows, since any
+  FireSpirit-field bosses are still unknown.
