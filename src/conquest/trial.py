@@ -394,6 +394,7 @@ def run_trial(
     # wait or focus loss: that interval earns no rate allowance.
     counter_read_at = None
     last_scatter_cast = -float("inf")
+    boss_hold_logged = -float("inf")
     # Start with a cast if a living selected target is already in range.
     # Only a successful cast earns the next ordinary hunting jump.
     scatter_jump_due = False
@@ -1923,6 +1924,30 @@ def run_trial(
                         ):
                             time.sleep(0.03)
                             continue
+                        if attack_button == "right" and supervisor:
+                            from conquest.routes import near_boss
+
+                            # Scatter's fan hits every monster in reach, a boss
+                            # too, and a hit boss follows the farmer: the
+                            # BanditKing trailed Suicide 137 tiles in 14 min,
+                            # and Toxic made 210 boss escapes in 3 h across
+                            # the WingedSnake field (2026-09-28). Hold the cast
+                            # while a boss could be in the fan; the boss escape
+                            # moves us first.
+                            if near_boss(
+                                (x, y),
+                                getattr(supervisor, "escape_monsters", ()),
+                                config.attack_range_tiles + 1,
+                            ):
+                                if time.monotonic() - boss_hold_logged >= 2:
+                                    boss_hold_logged = time.monotonic()
+                                    event(
+                                        "scatter_held_for_boss",
+                                        position=[x, y],
+                                        reach=config.attack_range_tiles + 1,
+                                    )
+                                time.sleep(0.03)
+                                continue
                         issued = time.monotonic()
                         dispatch(
                             (target.x, target.y), button=attack_button, target=target
