@@ -2,11 +2,16 @@
 # (2026-09-27): "You should use scatter jump strategy now, no more left
 # clicks. Make sure you are doing it as rapidly as you used to, just new
 # strategy." Same profile as Parasite's measured jump-Scatter farming.
+# Toxic's Scatter uses two arrows a cast (5,541 of 5,611 casts on
+# 2026-09-28; 40 showed one, 19 three), as Kilhiam's did: with the default
+# three-arrow receipt no cast ever qualified, so each one held movement for
+# the full 0.8 s.
 character: Toxic
 combat_speed:
   action_interval: 0.15
   scatter_recast_seconds: 0.8
   scatter_receipt_seconds: 0.2
+  scatter_receipt_arrows: 2
   jump_arrival_seconds: 0.25
   jump_attack_guard_seconds: 0.28
   scatter_during_jump: true

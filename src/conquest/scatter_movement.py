@@ -213,8 +213,12 @@ def scatter_landing(
                 for p in live
                 if max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= radius
             )
+            # Among landings that reach as many targets, keep the pack further
+            # off: monsters close in during the jump, and a scatter jump became
+            # an escape before any cast 13% of the time with none planned
+            # within 5 tiles, 36% with two, 51% with five (Toxic, 2026-09-28).
             candidates.append(
-                ((utility, count, -repeated, centrality, distance), point)
+                ((utility, count, -repeated, -close, centrality, distance), point)
             )
     if not candidates:
         return None

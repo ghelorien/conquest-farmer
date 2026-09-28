@@ -2795,6 +2795,9 @@ class DesktopApp:
             except Exception:
                 # A display/schema change must not starve control, healing or reload events.
                 self.session_note.set("Session settings updating")
+            from conquest.thread_sampler import poll as poll_thread_profile
+
+            poll_thread_profile()  # .runtime/thread-profile.request; never raises
             keep_open = self._poll()
         except Exception as error:
             intent = self.control.snapshot()

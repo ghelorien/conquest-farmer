@@ -14,7 +14,7 @@ def test_landing_prefers_dense_group_and_only_long_clear_segments():
     supervisor = SimpleNamespace(recovery=SimpleNamespace(terrain=terrain))
     targets = [target(61, 50), target(62, 50), target(63, 51), target(38, 50)]
     landing = scatter_landing(supervisor, targets, (50, 50), (20, 20, 80, 80), 10)
-    assert landing[0] >= 58
+    assert landing[0] > 50  # the dense group's side, not the lone (38, 50)
     assert (
         sum(
             max(
@@ -26,7 +26,7 @@ def test_landing_prefers_dense_group_and_only_long_clear_segments():
         )
         >= 3
     )
-    assert 8 <= landing[0] - 50 <= 12
+    assert 8 <= max(abs(landing[0] - 50), abs(landing[1] - 50)) <= 12
     terrain.blocked[50, 53] = True
     landing = scatter_landing(supervisor, targets, (50, 50), (20, 20, 80, 80), 10)
     assert landing is None or clear_jump(terrain, (50, 50), landing)
@@ -160,6 +160,23 @@ def test_jump_scatter_never_lands_within_a_monsters_reach():
         >= 2
         for t in targets
     )
+
+
+def test_equal_reach_landing_keeps_the_pack_beyond_five_tiles():
+    # Monsters close in during a jump: with more of them planned within five
+    # tiles the next move was more often an escape than a cast (13% -> 51%).
+    terrain = TerrainMap(1011, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ())
+    supervisor = SimpleNamespace(recovery=SimpleNamespace(terrain=terrain))
+    targets = [target(66, 50), target(67, 50), target(66, 51)]
+    landing = scatter_landing(supervisor, targets, (50, 50), (20, 20, 80, 80), 10)
+    distances = [
+        max(abs(t.world_position[0] - landing[0]), abs(t.world_position[1] - landing[1]))
+        for t in targets
+    ]
+    # Every target still in reach, but none within five tiles of the landing
+    # (centrality alone picked a landing four tiles from the pack).
+    assert max(distances) <= 10 and min(distances) >= 6
+    assert supervisor.scatter_plan["nearby_targets_5"] == 0
 
 
 def test_finish_wounded_group_requires_fresh_same_identities_in_range(monkeypatch):

@@ -120,14 +120,19 @@ def test_missing_scatter_disables_jump_route_setting():
     assert settings["jump_scatter"] is False and settings["attack_button"] == "left"
 
 
-def test_toxic_farms_scatter_exactly_like_the_measured_jump_scatter_profile():
+def test_toxic_farms_scatter_like_the_measured_jump_scatter_profile():
     # Alex, after teaching Toxic Scatter: "use scatter jump strategy now, no
     # more left clicks ... as rapidly as you used to".
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1] / "profiles" / "farmers"
-    assert load_combat_speed("Toxic", root) == load_combat_speed("Parasite", root)
-    assert load_combat_speed("Toxic", root).force_jump_scatter is True
+    toxic = load_combat_speed("Toxic", root)
+    # Only its own measured receipt differs: two arrows a cast (2026-09-28).
+    assert toxic.scatter_receipt_arrows == 2
+    assert toxic.model_copy(update={"scatter_receipt_arrows": 3}) == load_combat_speed(
+        "Parasite", root
+    )
+    assert toxic.force_jump_scatter is True
 
 
 def test_leveling_scatter_routes_jump_scatter():
