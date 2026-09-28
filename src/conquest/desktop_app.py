@@ -58,10 +58,11 @@ from conquest.focus_recovery import (
 
 # In-place trial restarts for a lock error that escapes run_trial anyway.
 RUNNER_STORAGE_RESTARTS = 3
-# plan_note() parses every saved route. Refreshed on each 200 ms poll it was
-# most of the UI thread's CPU (Toxic 2026-09-28: the main thread at 68% of a
-# core, the combat thread starved of the GIL at 13%).
-SESSION_NOTE_SECONDS = 2.0
+# plan_note() parses every saved route (~220 ms here: each file open is slow).
+# Refreshed on each 200 ms poll it was most of the UI thread's CPU (Toxic
+# 2026-09-28: the main thread at 68% of a core, the combat thread starved of
+# the GIL at 13%); every 2 s it was still 11% of the main thread's samples.
+SESSION_NOTE_SECONDS = 10.0
 
 
 class EventQueue(logging.Handler):
