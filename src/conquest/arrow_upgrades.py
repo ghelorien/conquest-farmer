@@ -31,11 +31,13 @@ def preferred_arrow(level):
     )
 
 
-# A leveling archer moves to a dearer tier only while its wallet holds this
-# many packs of it. At level 32 IronArrows (4,800 per 1,000) nearly doubled
+# A leveling archer moves to a dearer tier while its wallet holds this many
+# packs of it. At level 32 IronArrows (4,800 per 1,000) nearly doubled
 # Toxic's damage per Scatter on Bandits but cost ~260 silver a minute against
-# ~135 picked up, while XP rose 4% (2026-09-27 21:34-21:45).
-LEVELING_TIER_PACKS = 5
+# ~135 picked up (2026-09-27 21:34-21:45); five packs were required for a
+# while, then Alex (22:36): "Use iron arrows from now on." One affordable
+# pack is enough; a wallet that cannot pay for one refills the next lower tier.
+LEVELING_TIER_PACKS = 1
 
 
 def arrow_pack_price(kind):
