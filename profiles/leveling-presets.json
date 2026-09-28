@@ -84,8 +84,8 @@
       41
     ],
     "monster_type_id": 8,
-    "saved_route": null,
-    "status": "needs_survey"
+    "saved_route": "ratling",
+    "status": "planned"
   },
   {
     "id": "firespirit",

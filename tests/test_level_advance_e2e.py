@@ -11,9 +11,10 @@ Failure modes this module must catch (written before the implementation):
 2. The farmer leaves a zone before its top level (for example at 5).
 3. After moving up at the top level, the next check moves it back down
    (level 6 -> Pheasants again) or moves it a second time.
-4. At the top of a zone whose next zone has no saved route (36 -> Ratling),
+4. At the top of a zone whose next zone has no saved route (51 -> GiantApe),
    the farmer abandons its route, travels, or stops farming instead of
-   continuing the current hunt.
+   continuing the current hunt. (36 -> Ratling had none until 2026-09-27;
+   Bandit to Ratling is a same-map move without a scroll home.)
 5. A route hold (a held Pheasant route, the overnight Bandit plan) is
    overridden by the top-of-zone rule.
 6. A move to another map (26 -> Winged Snakes in Phoenix) happens without
@@ -182,8 +183,8 @@ def test_level_advance_e2e(tmp_path, monkeypatch):
         (30, False, "wingedsnake", 1011),
         (31, True, "bandit", 1011),
         (35, False, "bandit", 1011),
-        (36, False, "bandit", 1011),
-        (40, False, "bandit", 1011),
+        (36, True, "ratling", 1011),
+        (40, False, "ratling", 1011),
         (41, True, "firespirit", 1011),
         (45, False, "firespirit", 1011),
         (46, False, "firespirit", 1011),
@@ -211,8 +212,15 @@ def test_level_advance_e2e(tmp_path, monkeypatch):
         'controls:{"route_id": "wingedsnake"}',
         "queue_route_optimization",
     ]
+    # Ratlings share the Bandits' map: no scroll home, no Conductress.
+    assert by_level[36]["calls"] == [
+        "stop_farm",
+        "travel_to_map:1011",
+        'controls:{"route_id": "ratling"}',
+        "queue_route_optimization",
+    ]
     # Modes 4 and 6: no saved route, or no verified connection, keeps hunting.
-    for level in (36, 40, 46, 50, 51, 140):
+    for level in (46, 50, 51, 140):
         assert by_level[level]["calls"] == []
         assert "level_route_pending" in by_level[level]["events"]
     assert all("level_route_changed" in s["events"] for s in climb if s["changed"])
