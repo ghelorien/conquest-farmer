@@ -1,17 +1,27 @@
-# Suicide (Back2Classic, build 1078), 2026-09-27: the same measured profile
-# as Toxic.yaml (Kilhiam's timings plus Parasite's observation options).
-# On it Toxic went from ~5-8 to ~15 kills/min on Apparitions with pauses
-# under 0.6/min each. Scatter options and cluster_lookahead wait until
-# Suicide has learned Scatter.
+# Suicide (Back2Classic, build 1078). Learned Scatter at level 23
+# (2026-09-27 16:26) but kept the pre-Scatter profile until 2026-09-28: a
+# 0.8 s cast receipt, no Scatter during jumps, no cluster lookahead. Now the
+# same measured jump-Scatter profile as Toxic.yaml. Every Scatter cast uses
+# exactly 2 arrows (433 of 434 casts, 08:30-09:00), so the receipt fires at
+# 2 arrows instead of waiting out the recast.
 character: Suicide
 combat_speed:
   action_interval: 0.15
+  scatter_recast_seconds: 0.8
+  scatter_receipt_seconds: 0.2
+  scatter_receipt_arrows: 2
   jump_arrival_seconds: 0.25
   jump_attack_guard_seconds: 0.28
+  scatter_during_jump: true
   coherent_projection: true
   selected_target_refresh: true
   packed_monster_records: true
+  fast_scatter_planning: true
   scene_reuse_seconds: 0.15
   torn_life_attempts: 3
   moving_observation_retry_seconds: 0.01
+  force_jump_scatter: true
+  cluster_lookahead: true
+  regional_search_expansion: true
   counter_gap_recovery: true
+  cross_region_scatter: true
