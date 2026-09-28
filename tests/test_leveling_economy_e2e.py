@@ -125,6 +125,15 @@ def test_carried_supplies_count_toward_the_wallet(monkeypatch):
         route=RouteLibrary().load("poltergeist"),
     )
     assert leveling_economy.wallet(loop) == 200 + 1749 + 1202 + 26 * 60
+    # IronArrows (4,800 per 1,000) count at what LuckyArrows replace them for.
+    prices[1050001] = 4800
+    iron = {**bag, "items": [{**i, "type_id": 1050001} if i["type_id"] == 1050000 else i for i in items],
+            "equipped_ammo": {**bag["equipped_ammo"], "type_id": 1050001}}
+    iron_route = loop.route.model_copy(
+        update={"supplies": loop.route.supplies.model_copy(update={"arrow_type": 1050001})}
+    )
+    iron_loop = NS(town=lambda action, **kw: iron, record=loop.record, route=iron_route)
+    assert leveling_economy.wallet(iron_loop) == 200 + 1749 + 1202 + 26 * 60
     # Unknown prices add nothing (never a guessed value).
     prices.clear()
     assert leveling_economy.wallet(loop) == 200 + 1749

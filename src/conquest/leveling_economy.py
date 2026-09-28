@@ -43,6 +43,11 @@ def wallet(loop):
     Silver alone judged every restock poor: at 19:57 Toxic turned 5,436
     silver into 8 arrow packs and potions, banked the rest and read 1,949,
     so the hold kept it off the WingedSnakes it had just paid for.
+
+    Arrows count at what LuckyArrows would replace them for: a dearer tier's
+    premium is spent like an upgrade. Valued at IronArrow prices (4.8 each),
+    Alex's IronArrows (22:36) burned the wallet ~225 a minute on paper and
+    the hold would have sent a level-33 archer to WingedSnakes to refill.
     """
     from conquest.arrow_upgrades import ARROW_REFILL_AMOUNTS, MAX_ARROW_PACKS
     from conquest.banking import STATUS
@@ -53,8 +58,9 @@ def wallet(loop):
     route = getattr(loop, "route", None)
     if route is not None:
         counts = supply_counts(bag, route)
-        pack = ARROW_REFILL_AMOUNTS.get(route.supplies.arrow_type, 0) // MAX_ARROW_PACKS
-        arrow_price = last_verified_price(route.supplies.arrow_type)
+        lucky = 1050000
+        pack = ARROW_REFILL_AMOUNTS.get(lucky, 0) // MAX_ARROW_PACKS
+        arrow_price = last_verified_price(lucky)
         if arrow_price and pack:
             value += counts["arrows"] * arrow_price // pack
         potion_price = last_verified_price(route.supplies.healing_type)
