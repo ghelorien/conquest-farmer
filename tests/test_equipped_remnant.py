@@ -14,6 +14,9 @@ Failure modes, written before the change:
 2. A real partial equipped pack (more than REMNANT_ARROWS) stops counting, so
    a third pack is bought.
 3. buy_supply refuses the second pack in Suicide's live bag.
+
+Since 2026-09-28 18:30 a leveling archer's quiver is a remnant up to a quarter
+pack (arrow_upgrades.equipped_remnant), and it carries LEVELING_IRON_PACKS.
 """
 
 from types import SimpleNamespace
@@ -50,7 +53,10 @@ def leveling(monkeypatch):
     monkeypatch.setattr(equipment, "leveling_archer", lambda: True)
 
 
-@pytest.mark.parametrize("equipped", [1, 2, REMNANT_ARROWS])
+# Suicide's 120-arrow quiver (17:55) and Toxic's 58-arrow one (17:51,
+# 2026-09-28) each filled one of two IronArrow pack slots: a leveling archer's
+# quiver counts only above a quarter pack (250 IronArrows).
+@pytest.mark.parametrize("equipped", [1, 2, REMNANT_ARROWS, 58, 120, 250])
 def test_an_equipped_remnant_is_not_a_pack(equipped):
     # 1
     live = bag([1000], equipped)
@@ -58,9 +64,28 @@ def test_an_equipped_remnant_is_not_a_pack(equipped):
     require_arrow_purchase_room(live, IRON)
 
 
-@pytest.mark.parametrize("equipped", [REMNANT_ARROWS + 1, 140, 1000])
+@pytest.mark.parametrize("equipped", [251, 400, 1000])
 def test_a_partial_equipped_pack_still_counts(equipped):
     # 2
+    live = bag([1000], equipped)
+    assert arrow_pack_count(live, IRON) == 2
+
+
+def test_a_leveling_archer_carries_five_ironarrow_packs():
+    from conquest.arrow_upgrades import LEVELING_IRON_PACKS
+
+    require_arrow_purchase_room(bag([1000] * (LEVELING_IRON_PACKS - 2), 1000), IRON)
+    full = bag([1000] * (LEVELING_IRON_PACKS - 1), 1000)
+    assert arrow_pack_count(full, IRON) == LEVELING_IRON_PACKS
+    with pytest.raises(ValueError, match="maximum packs"):
+        require_arrow_purchase_room(full, IRON)
+
+
+@pytest.mark.parametrize("equipped", [REMNANT_ARROWS + 1, 140])
+def test_america_keeps_the_two_pack_rule(monkeypatch, equipped):
+    from conquest import equipment
+
+    monkeypatch.setattr(equipment, "leveling_archer", lambda: False)
     live = bag([1000], equipped)
     assert arrow_pack_count(live, IRON) == 2
     with pytest.raises(ValueError, match="maximum packs"):

@@ -83,16 +83,20 @@ def leveling(monkeypatch):
 
 def test_lower_tier_stacks_do_not_count_against_a_better_tier(leveling, monkeypatch):
     carried = bag(lucky=(200,) * 7)
-    assert arrow_upgrades.arrow_pack_count(carried) == 8
-    # 1: seven LuckyArrow packs and an equipped one leave room for IronArrows.
+    # The 15-arrow quiver is a remnant (a quarter of a 200-arrow pack or less).
+    assert arrow_upgrades.arrow_pack_count(carried) == 7
+    # 1: seven LuckyArrow packs leave room for IronArrows.
     assert arrow_upgrades.arrow_pack_count(carried, IRON) == 0
     arrow_upgrades.require_arrow_purchase_room(carried, IRON)
-    # 2: two IronArrow packs are still the IronArrow limit.
-    carried["items"] += [stack(30, IRON, 1000, 30), stack(31, IRON, 1000, 31)]
+    # 2: LEVELING_IRON_PACKS IronArrow packs are the IronArrow limit.
+    carried["items"] += [
+        stack(30 + n, IRON, 1000, 30 + n)
+        for n in range(arrow_upgrades.LEVELING_IRON_PACKS)
+    ]
     with pytest.raises(ValueError, match="maximum packs"):
         arrow_upgrades.require_arrow_purchase_room(carried, IRON)
     # 3: a LuckyArrow refill counts every tier against its eight packs.
-    assert arrow_upgrades.arrow_pack_count(carried, LUCKY) == 10
+    assert arrow_upgrades.arrow_pack_count(carried, LUCKY) == 7 + arrow_upgrades.LEVELING_IRON_PACKS
     with pytest.raises(ValueError, match="maximum packs"):
         arrow_upgrades.require_arrow_purchase_room(carried, LUCKY)
     # 4: America farmers keep one equipped pack and one spare across tiers.

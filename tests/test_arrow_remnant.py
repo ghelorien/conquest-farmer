@@ -52,9 +52,20 @@ def test_anything_else_keeps_the_pack_limit(stacks, equipped):
     assert blocking_remnant(bag(stacks, equipped), IRON) is None
 
 
-def test_buy_supply_recycles_the_scrap_then_buys_the_pack(monkeypatch):
-    from conquest import savings
+@pytest.mark.parametrize(
+    "leveling, expected",
+    [
+        # Two packs, the 140-arrow quiver included: the scrap blocks the pack.
+        (False, ["supplies", "sell_partial_arrow", "supplies", "buy"]),
+        # A leveling archer's 140-arrow quiver is a remnant and it may carry
+        # LEVELING_IRON_PACKS, so the scrap blocks nothing (2026-09-28 18:30).
+        (True, ["supplies", "buy"]),
+    ],
+)
+def test_buy_supply_recycles_the_scrap_then_buys_the_pack(monkeypatch, leveling, expected):
+    from conquest import equipment, savings
 
+    monkeypatch.setattr(equipment, "leveling_archer", lambda: leveling)
     route = SimpleNamespace(
         id="wingedsnake",
         supplies=SimpleNamespace(
@@ -83,6 +94,6 @@ def test_buy_supply_recycles_the_scrap_then_buys_the_pack(monkeypatch):
     monkeypatch.setattr(overnight, "optional_top_up", lambda counts, route: False)
     monkeypatch.setattr(savings, "savings_plan", lambda: None)
     assert loop.buy_supply(5, IRON) is True
-    assert calls == ["supplies", "sell_partial_arrow", "supplies", "buy"]
+    assert calls == expected
     assert "arrow_purchase_deferred" not in events
     assert events[-1] == "purchase"

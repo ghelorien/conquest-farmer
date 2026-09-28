@@ -175,8 +175,10 @@ def test_farmers_off_lucky_leveling_keep_their_fixed_targets(monkeypatch):
     assert loop.route.supplies == lucky.supplies
 
 
-@pytest.mark.parametrize("silver, expected", [(9000, (13, 1)), (20000, (24, 2))])
-def test_a_leveling_ironarrow_restock_is_planned_within_two_packs(
+@pytest.mark.parametrize(
+    "silver, expected", [(9000, (13, 1)), (20000, (30, 3)), (60000, (28, 5))]
+)
+def test_a_leveling_ironarrow_restock_is_planned_within_what_silver_pays(
     monkeypatch, silver, expected
 ):
     # 5
@@ -220,7 +222,9 @@ def test_a_leveling_ironarrow_restock_is_planned_within_two_packs(
     )
     minutes, potions, packs = supply_plan.balance(loop)
     # 9,000 silver pays one 4,800 pack: ~20 minutes of IronArrows, potions
-    # 1 + ceil(0.274 * 20.5 * 2) = 13. 20,000 pays two: ~41 minutes, 24.
+    # 1 + ceil(0.274 * 20.5 * 2) = 13. 20,000 pays three: ~62 minutes, the
+    # bag's 30 slots of potions. 60,000 pays LEVELING_IRON_PACKS (five): the
+    # bag then holds 28 potions, ~98 minutes.
     assert (potions, packs) == expected
     assert loop.route.supplies.healing_restock_to == potions
     assert loop.route.supplies.arrows_restock_to == packs * 1000

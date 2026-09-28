@@ -18,16 +18,41 @@ REMNANT_ARROWS = 9
 # kills/min (level 20, 50 arrows/min) five packs lasted ~20 minutes while
 # the potions lasted ~37: eight packs (~32 minutes) balance the two.
 LEVELING_LUCKY_PACKS = 8
+# Leveling archers on 1,000-arrow IronArrow packs shoot ~62-64 arrows a
+# minute on FireSpirits (Toxic and Suicide, level 41, 2026-09-28). Two packs
+# lasted 17-31 minutes against a ~5-minute town trip (~1,050 tiles each way
+# from Phoenix). Five last ~75 minutes, and supply_plan.plan still fits them
+# to the bag and the wallet.
+LEVELING_IRON_PACKS = 5
 
 
 def max_arrow_packs(kind=None):
     """Packs of this normal tier the farmer may carry, the equipped one included."""
-    if kind == 1050000:
+    if kind in (1050000, 1050001):
         from conquest.equipment import leveling_archer
 
         if leveling_archer():
-            return LEVELING_LUCKY_PACKS
+            return LEVELING_LUCKY_PACKS if kind == 1050000 else LEVELING_IRON_PACKS
     return MAX_ARROW_PACKS
+
+
+def equipped_remnant(kind):
+    """Arrows at or under which an equipped quiver is a remnant, not a pack.
+
+    It takes no bag slot, so for a leveling archer's LuckyArrows and
+    IronArrows only a real partial pack (over a quarter of the tier's pack)
+    counts against the pack limit. Live 2026-09-28: a 120-arrow IronArrow
+    quiver (Suicide 17:55) and a 58-arrow one (Toxic 17:51) each filled one of
+    two 1,000-arrow pack slots, so each left town with one new pack instead of
+    two. A partial 5,000-arrow SpeedArrow pack, or an America farmer's quiver,
+    keeps REMNANT_ARROWS.
+    """
+    if kind in (1050000, 1050001):
+        from conquest.equipment import leveling_archer
+
+        if leveling_archer():
+            return max(REMNANT_ARROWS, ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS // 4)
+    return REMNANT_ARROWS
 
 
 def preferred_arrow(level):
@@ -96,7 +121,7 @@ def counted_tiers(kind=None):
 
 def arrow_pack_count(snapshot, kind=None):
     """Count physical arrow packs, including partial packs and equipped ammo
-    above REMNANT_ARROWS (with ``kind``, only the tiers that count against
+    above equipped_remnant (with ``kind``, only the tiers that count against
     buying it)."""
     if not isinstance(snapshot, dict):
         from dataclasses import asdict
@@ -112,7 +137,7 @@ def arrow_pack_count(snapshot, kind=None):
     equipped = bool(
         ammo
         and ammo["type_id"] in tiers
-        and ammo["amount"] > REMNANT_ARROWS
+        and ammo["amount"] > equipped_remnant(ammo["type_id"])
         and (
             ammo.get("uid") is None
             or not any(i.get("uid") == ammo["uid"] for i in items)

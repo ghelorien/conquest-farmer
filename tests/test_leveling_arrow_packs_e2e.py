@@ -12,7 +12,8 @@ Failure modes, written before the fix:
  A1 A leveling LuckyArrow archer is refused a third pack, so it leaves town
     with 400 arrows.
  A2 America farmers lose their two-pack rule.
- A3 IronArrow or SpeedArrow packs (1,000 or 5,000 arrows) exceed two packs.
+ A3 SpeedArrow packs (5,000 arrows) exceed two packs, or IronArrow packs
+    (1,000) exceed LEVELING_IRON_PACKS.
  A4 The restock withdrawal does not fund the extra packs.
  A5 The artifact is not repeatable.
  A6 The route's refill target stays at two packs: adopt_ammunition set
@@ -125,8 +126,10 @@ def test_leveling_lucky_archer_carries_eight_packs(tmp_path, monkeypatch):
     assert a["leveling_lucky"] == {"packs_after": 8, "bought": 6}
     # A2: America keeps one equipped and one spare.
     assert a["america_lucky"] == {"packs_after": 2, "bought": 0}
-    # A3: larger packs keep the two-pack rule even while leveling.
-    assert a["leveling_iron"]["packs_after"] == 2
+    # A3: 5,000-arrow SpeedArrow packs keep the two-pack rule even while
+    # leveling; 1,000-arrow IronArrow packs go to LEVELING_IRON_PACKS (~75
+    # minutes on FireSpirits, 2026-09-28).
+    assert a["leveling_iron"]["packs_after"] == arrow_upgrades.LEVELING_IRON_PACKS
     assert a["leveling_speed"]["packs_after"] == 2
     # A4: the withdrawal covers six more 200-silver packs than America's.
     assert a["budget"]["leveling"] - a["budget"]["america"] == 6 * 200
