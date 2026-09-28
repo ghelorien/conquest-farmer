@@ -6,9 +6,17 @@ from pathlib import Path
 import copy
 import json
 import os
+import time
 import uuid
 
 SCHEMA = 1
+# Validated registry contents per file version (size, write time, creation
+# time, file id). Every journal call and journal row resolves a character
+# through here: merchant-ui-data spent 19% of its samples re-reading
+# profiles.json (2026-09-28). Files written within SETTLED_SECONDS are always
+# re-read: a same-size rewrite inside one clock tick keeps its write time.
+SETTLED_SECONDS = 2
+_versions = {}
 ROLES = ("Farmer", "Merchant")
 # Only preferences exposed by the existing engines may cross a PC boundary.
 SETTING_TYPES = {
@@ -137,7 +145,35 @@ class ProfileRegistry:
         self.root = Path(root) if root is not None else data_root()
         self.path = self.root / "profiles.json"
 
+    def _version(self):
+        """(value, profiles) validated once per file version; never mutate."""
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
+            return self._load(), ()
+        signature = (
+            stat.st_size,
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+            stat.st_ino,
+            stat.st_dev,
+        )
+        key = str(self.path)
+        cached = _versions.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1], cached[2]
+        value = self._load()
+        profiles = tuple(CharacterProfile(**p) for p in value["profiles"])
+        if time.time() - stat.st_mtime >= SETTLED_SECONDS:
+            _versions[key] = (signature, value, profiles)
+        else:
+            _versions.pop(key, None)
+        return value, profiles
+
     def read(self):
+        return copy.deepcopy(self._version()[0])
+
+    def _load(self):
         if not self.path.exists():
             return {
                 "schema_version": SCHEMA,
@@ -183,18 +219,18 @@ class ProfileRegistry:
                 raise ValueError(
                     "Character settings are being changed in another app"
                 ) from None
-            value = self.read()
+            value = self._load()  # the file on disk, never a cached version
             yield value
             value["revision"] += 1
             write_json(self.path, value)
 
     def profiles(self):
-        return [CharacterProfile(**p) for p in self.read()["profiles"]]
+        return [copy.deepcopy(p) for p in self._version()[1]]
 
     def resolve(self, value, *, role=None, server=None):
         matches = [
             p
-            for p in self.profiles()
+            for p in self._version()[1]
             if (p.id == value or p.name.casefold() == str(value).casefold())
             and (role is None or p.role == role)
             and (server is None or p.server == server)
@@ -203,7 +239,7 @@ class ProfileRegistry:
             raise ValueError(
                 "Choose a profile ID; character name is missing or ambiguous"
             )
-        return matches[0]
+        return copy.deepcopy(matches[0])
 
     def add(self, name, server="America", role="Farmer", **kwargs):
         profile = CharacterProfile(
