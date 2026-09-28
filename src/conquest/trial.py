@@ -159,7 +159,16 @@ def ammunition_reload_needed(inventory, config, *, proactive=False):
 
 
 def scatter_attack_mode(config, speed, strategy, isolated, name):
-    """Choose Scatter before adaptive or isolated-target decisions when enabled."""
+    """Choose Scatter before adaptive or isolated-target decisions when enabled.
+
+    A Messenger is always shot with left clicks (Alex 2026-09-28: "if there
+    ever is a messenger version of the monster just kill it with left
+    clicks").
+    """
+    from conquest.routes import messenger
+
+    if messenger(name):
+        return "left"
     if speed.force_jump_scatter and config.jump_scatter:
         return "right"
     if strategy and isolated:
@@ -241,6 +250,24 @@ def choose_target(observed, hp, position, config, age):
         ):
             candidates.append((distance, target))
     return min(candidates, key=lambda pair: pair[0])[1] if candidates else None
+
+
+def messenger_target(observed, hp, position, config, age):
+    """The nearest targeted Messenger within left-click range, else None: it
+    is focused before the ordinary pack (Alex 2026-09-28, "just kill it with
+    left clicks")."""
+    from conquest.routes import messenger
+
+    elites = [m for m in observed if messenger(m.name)]
+    if not elites:
+        return None
+    return choose_target(
+        elites,
+        hp,
+        position,
+        config.model_copy(update={"attack_range_tiles": config.single_attack_range_tiles}),
+        age,
+    )
 
 
 def visible_movement_delta(dx, dy, *, horizontal_limit=280, vertical_limit=110):
@@ -1731,13 +1758,12 @@ def run_trial(
                             - 2,
                         )
                 else:
-                    target = choose_target(
-                        observed,
-                        hp,
-                        (x, y),
-                        targeting_config,
-                        time.monotonic() - frame.timestamp,
-                    )
+                    age = time.monotonic() - frame.timestamp
+                    target = messenger_target(
+                        observed, hp, (x, y), config, age
+                    ) or choose_target(observed, hp, (x, y), targeting_config, age)
+                    if target is not None:
+                        attack_button = mode(target.name)
                 if (
                     supervisor
                     and target is None
@@ -1872,6 +1898,7 @@ def run_trial(
                             close,
                             key=lambda t: math.dist((t.x, t.y), config.player_anchor),
                         )
+                        attack_button = mode(target.name)
                 scatter_destination = None
                 if (
                     supervisor

@@ -73,10 +73,12 @@ def test_level_36_hunts_ratlings_until_41(route):
 def test_only_the_ratling_family_is_targeted(route):
     # 2. FireRatL38 (type 67, level 38) is the family's L38 member, like
     # BanditL33 beside Bandit: untargeted it only hit Suicide from 4-9 tiles
-    # through its whole Ratling trial (live 2026-09-28 12:35-12:52).
-    assert route.monster_type_ids == (8, 67)
-    assert route_monster_names(route) == ("Ratling", "FireRatL38")
-    for kind in (8103, 8203, 8202):
+    # through its whole Ratling trial (live 2026-09-28 12:35-12:52). The
+    # RatMessenger joined it as a left-click target (Alex 2026-09-28: "if
+    # there ever is a messenger version of the monster just kill it").
+    assert route.monster_type_ids == (8, 67, 8103)
+    assert route_monster_names(route) == ("Ratling", "FireRatL38", "RatMessenger")
+    for kind in (8203, 8303, 8202):
         with pytest.raises(ValueError):
             route_monster_names(route.model_copy(update={"monster_type_ids": (8, kind)}))
 

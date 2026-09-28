@@ -6,6 +6,7 @@ restock_map_id: 1011
 monster_type_ids:
 - 9
 - 68
+- 8104
 recommended_levels:
 - 42
 - 46
@@ -24,10 +25,10 @@ attack_range_tiles: 16
 king_clearance: 15
 elite_clearance: 13
 hunting_boundary:
-- 497
-- 733
-- 567
-- 803
+- 500
+- 740
+- 585
+- 835
 patrol_search:
   idle_seconds: 5.0
   expansion_tiles: 12
@@ -36,14 +37,18 @@ patrol_search:
 patrol:
 - - 532
   - 768
+- - 548
+  - 785
+- - 530
+  - 800
 - - 552
-  - 748
-- - 552
-  - 788
-- - 512
-  - 788
-- - 512
-  - 750
+  - 815
+- - 535
+  - 828
+- - 515
+  - 805
+- - 520
+  - 782
 outbound_waypoints:
 - - 210
   - 195
@@ -1080,6 +1085,8 @@ recover_after_death: true
 movement: jump
 notes: Hunting seed (532, 768) from installed UserHelpInfo.json. Phoenix staging anchor
   inside region town bounds. Restock vendors are memory-identified on map 1011. City arrivals visit the local town before hunting.
-  Not yet surveyed live. For Toxic's supervised first run (2026-09-28) it hunts as the
-  Ratling route does, jump Scatter, a King clearance of 15 and IronArrows, since any
-  FireSpirit-field bosses are still unknown.
+  Surveyed live by Toxic's first run (2026-09-28 16:34-16:53, ~950k xp/h at level 41)
+  with 115 FireSpirits and FireSpiritL43s, densest at x510-570/y760-820 (35-49 a 10x10
+  cell at x530-550/y780-800), so the boundary reaches y835 and x585 and the patrol
+  crosses that core. ElfBoss (King tier), ElfAide and ElfMessenger roam inside it;
+  the ElfMessenger (3,600 HP) is a family target shot with left clicks (Alex).

@@ -68,6 +68,11 @@
       "type_id": 67,
       "name": "FireRatL38",
       "level": 38
+    },
+    {
+      "type_id": 8103,
+      "name": "RatMessenger",
+      "level": 37
     }
   ],
   "9": [
@@ -80,6 +85,11 @@
       "type_id": 68,
       "name": "FireSpiritL43",
       "level": 43
+    },
+    {
+      "type_id": 8104,
+      "name": "ElfMessenger",
+      "level": 42
     }
   ],
   "10": [

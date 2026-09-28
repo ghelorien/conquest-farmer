@@ -7,6 +7,9 @@ Failure modes, written before the change:
 2. An ordinary leveling family is taken for a boss because of its name's
    ending (HawKing, levels 92-96, would never be hunted).
 3. Kings stop being bosses.
+4. A Messenger its field's family targets (Alex 2026-09-28: "if there ever
+   is a messenger version of the monster just kill it with left clicks") is
+   still kept at a distance, or one no family lists is not.
 """
 
 import pytest
@@ -16,18 +19,28 @@ from conquest.routes import BOSS_CLEARANCE, boss_name, near_boss
 
 @pytest.mark.parametrize(
     "name",
-    ["RatAide", "RatMessenger", "BanditAide", "BanditMessenger", "WingedSnakeKing", "BanditKing"],
+    ["RatAide", "ElfAide", "BanditAide", "BanditMessenger", "WingedSnakeKing", "BanditKing", "ElfBoss"],
 )
 def test_elites_and_kings_are_bosses(name):
-    # 1, 3
+    # 1, 3, 4
     assert boss_name(name)
 
 
 @pytest.mark.parametrize(
-    "name", ["HawKing", "Ratling", "FireRatL38", "Bandit", "BanditL33", "WingedSnakeL28"]
+    "name",
+    [
+        "HawKing",
+        "Ratling",
+        "FireRatL38",
+        "Bandit",
+        "BanditL33",
+        "WingedSnakeL28",
+        "RatMessenger",
+        "ElfMessenger",
+    ],
 )
 def test_ordinary_monsters_are_not_bosses(name):
-    # 2
+    # 2, 4
     assert not boss_name(name)
 
 

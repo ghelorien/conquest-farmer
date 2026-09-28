@@ -252,7 +252,9 @@ def test_route_families_include_nearby_level_variants_but_never_bosses_or_far_hi
     assert route.monster_type_ids == (7, 66)
     assert route_monster_names(route) == ("Bandit", "BanditL33")
     assert RouteLibrary().load("wingedsnake").monster_type_ids == (6, 65)
-    assert RouteLibrary().load("firespirit").monster_type_ids == (9, 68)
+    # Its Messenger is a left-click target (Alex 2026-09-28); the Bandit
+    # family keeps its BanditMessenger (8102) a boss.
+    assert RouteLibrary().load("firespirit").monster_type_ids == (9, 68, 8104)
     for kind in (8302, 1401, 55, 79, 8102, 8202):
         with pytest.raises(ValueError):
             route_monster_names(

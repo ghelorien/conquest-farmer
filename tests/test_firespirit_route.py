@@ -48,9 +48,20 @@ def test_level_41_moves_on_to_fire_spirits(route):
 
 
 def test_only_the_fire_spirit_family_is_targeted(route):
-    # 2
-    assert route.monster_type_ids == (9, 68)
-    assert route_monster_names(route) == ("FireSpirit", "FireSpiritL43")
+    # 2. The ElfMessenger (3,600 HP) is a left-click target (Alex 2026-09-28);
+    # the ElfAide and ElfBoss stay bosses.
+    assert route.monster_type_ids == (9, 68, 8104)
+    assert route_monster_names(route) == ("FireSpirit", "FireSpiritL43", "ElfMessenger")
+    for kind in (8204, 8304):
+        with pytest.raises(ValueError):
+            route_monster_names(route.model_copy(update={"monster_type_ids": (9, kind)}))
+
+
+def test_the_hunting_area_covers_the_surveyed_core(route):
+    # Toxic's survey (2026-09-28 16:34-16:53): 35-49 FireSpirits a 10x10 cell
+    # at x530-550/y780-800 and 14 still at y820, past the seed's y803 edge.
+    left, top, right, bottom = route.hunting_boundary
+    assert left <= 510 and top <= 760 and right >= 570 and bottom >= 830
 
 
 def test_town_connector_and_patrol_are_walkable(route, terrain):

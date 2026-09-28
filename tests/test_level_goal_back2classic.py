@@ -523,10 +523,13 @@ def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
     level_goal.stop()
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
     assert not wanted_drop(silver)
-    # A Back2Classic character keeps funding itself after the goal ends.
+    # Past the goal a Back2Classic character leaves silver too (Alex
+    # 2026-09-28, Toxic and Suicide at 41: "No need to pickup silver anymore
+    # only unique + items"), and still takes a Unique.
     monkeypatch.setattr(level_goal, "back2classic", lambda: True)
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
-    assert wanted_drop(silver)
+    assert not wanted_drop(silver)
+    assert wanted_drop(GroundItem(3, 100000, 500007, (1, 1), plus=0))
 
 
 def test_early_heals_and_jumping_away_outlive_the_goal_on_back2classic(monkeypatch):

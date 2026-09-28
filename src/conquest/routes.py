@@ -94,6 +94,16 @@ BOSS_CLEARANCE = 9
 BOSS_ROOM = BOSS_CLEARANCE + 4
 
 
+def messenger(name):
+    """A Messenger-tier elite (81xx: RatMessenger, ElfMessenger...). Where its
+    field's family lists it, it is a target killed with left clicks, not a
+    boss (Alex 2026-09-28: "if there ever is a messenger version of the
+    monster just kill it with left clicks")."""
+    import re
+
+    return bool(re.search(r"messenger$", name or "", flags=re.IGNORECASE))
+
+
 def king_tier(name):
     """A King-tier boss (…King/Queen/Boss/Leader/Chieftain), not an Aide or
     Messenger. A RatKing roamed the Ratling field and trailed Suicide at 13-16

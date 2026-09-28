@@ -68,8 +68,8 @@ def test_no_loot_inside_a_boss_clearance(monkeypatch):
 
 def test_a_loot_walk_never_passes_a_boss(monkeypatch):
     supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 63))
-    # A Messenger 11 tiles from the Meteor but 9 from the walk down x=50.
-    supervisor.escape_monsters = (SimpleNamespace(name="RatMessenger", position=(41, 52)),)
+    # An Aide 11 tiles from the Meteor but 9 from the walk down x=50.
+    supervisor.escape_monsters = (SimpleNamespace(name="RatAide", position=(41, 52)),)
     step()
     assert not any(event == "memory_pickup_approach" for event, _ in notes)
     assert any(

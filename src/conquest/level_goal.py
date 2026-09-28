@@ -52,12 +52,14 @@ _silver_cache = (-float("inf"), False)
 
 
 def collect_silver():
-    """Pick up dropped silver while the goal runs or on Back2Classic, where a
-    character funds itself from drops at every level (checked every 2 s)."""
+    """Pick up dropped silver only while the goal runs, where a fresh
+    character funds itself from drops (checked every 2 s). Past it the walks
+    cost kills: Alex 2026-09-28, Toxic and Suicide at 41, "No need to pickup
+    silver anymore only unique + items"."""
     global _silver_cache
     now = time.monotonic()
     if now - _silver_cache[0] >= 2:
-        _silver_cache = (now, bool(goal()) or back2classic())
+        _silver_cache = (now, bool(goal()))
     return _silver_cache[1]
 
 

@@ -41,7 +41,7 @@ class GroundItem:
 def wanted_drop(drop):
     """User's ground allowlist; unknown enhancement never authorizes pickup."""
     if drop.type_id in MONEY_TYPES:
-        # Back2Classic: a fresh character funds itself from dropped silver.
+        # Only a fresh character on the level goal funds itself from silver.
         from conquest.level_goal import collect_silver
 
         return collect_silver()
