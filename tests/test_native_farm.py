@@ -344,6 +344,64 @@ def test_healing_inventory_open_failure_reobserves_but_uncertain_consumption_doe
     ]
 
 
+class _Bag:
+    def __init__(self, amount):
+        self.items = [SimpleNamespace(uid=42, type_id=1000020, amount=amount)] if amount else []
+
+    def count(self, kind):
+        return sum(i.amount for i in self.items if i.type_id == kind)
+
+
+class _HealUnderHits:
+    """consume-healing that reports the unverified error, with a bag that
+    shows ``used`` potions gone afterwards (None: the bag cannot be read)."""
+
+    def __init__(self, used):
+        self.used, self.calls, self.clicked = used, [], False
+        self.inventory = SimpleNamespace(read=self.read)
+
+    def read(self):
+        if self.clicked and self.used is None:
+            raise ValueError("Inventory owner identity changed during observation")
+        return _Bag(5 - (self.used if self.clicked else 0))
+
+    def __call__(self, body):
+        self.calls.append(body["action"])
+        if body["action"] == "consume-healing":
+            self.clicked = True
+            raise ValueError("Healing consumption unverified; no repeat input issued")
+
+
+# 2026-09-28 00:44 (Toxic, level 37, Bandits): a potion used at 43% under
+# hits left HP no higher; the unverified error stopped the farm runner and
+# Toxic died where it stood. The bag count settles it without a repeat input.
+@pytest.mark.parametrize(
+    "used,expect",
+    [(1, "receipt"), (0, "reobserve"), (None, "error"), (2, "error")],
+)
+def test_a_heal_under_hits_is_settled_by_the_potion_count(monkeypatch, used, expect):
+    monkeypatch.setattr(native_farm, "logical_coordinates", nullcontext)
+    monkeypatch.setattr(native_farm.time, "sleep", lambda s: None)
+    supervisor = native_farm.NativeFarmSupervisor.__new__(
+        native_farm.NativeFarmSupervisor
+    )
+    trade = _HealUnderHits(used)
+    supervisor.observer = SimpleNamespace(town_trade=trade)
+    supervisor.dispatch = lambda callback: callback()
+    if expect == "receipt":
+        receipt = supervisor.heal_potion(42)
+        assert receipt["consumed"] and receipt["hp_unconfirmed"]
+        assert receipt["remaining"] == 4 and receipt["type_id"] == 1000020
+    elif expect == "reobserve":
+        with pytest.raises(CaptureUnavailable, match="potion not used"):
+            supervisor.heal_potion(42)
+    else:
+        with pytest.raises(ValueError, match="consumption unverified"):
+            supervisor.heal_potion(42)
+    # One potion click at most, and the Inventory is still closed after it.
+    assert trade.calls == ["consume-healing", "close"]
+
+
 def test_stationary_damage_enters_defense_and_expires_after_damage_stops(monkeypatch):
     supervisor, _, life, _ = setup(monkeypatch)
     now = [100.0]

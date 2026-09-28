@@ -110,6 +110,10 @@ def deque_items(session, address, limit):
     return rows, header
 
 
+# Window scroll offsets may exceed the ±8192 px position/size bound.
+GUI_SCROLL_LIMIT = 1_000_000
+
+
 class GuiObservationChanged(ValueError):
     """The renderer changed a previously valid GUI sample while reading it."""
 
@@ -287,9 +291,13 @@ class GuiReader:
             geometry = struct.unpack_from("<4f", raw, 0x18)
             scroll = struct.unpack_from("<2f", raw, 0x64)
             if (
-                not all(
-                    math.isfinite(v) and -8192 <= v <= 8192
-                    for v in (*geometry, *scroll)
+                not all(math.isfinite(v) and -8192 <= v <= 8192 for v in geometry)
+                # Scroll grows with content: a night's chat history scrolled
+                # its region to 9,435 px, and the error fenced every town
+                # action and the revive (Toxic 2026-09-28 00:45).
+                or not all(
+                    math.isfinite(v) and -8192 <= v <= GUI_SCROLL_LIMIT
+                    for v in scroll
                 )
                 or min(geometry[2:]) <= 0
             ):

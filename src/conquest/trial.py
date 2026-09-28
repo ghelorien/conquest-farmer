@@ -1199,7 +1199,10 @@ def run_trial(
                             verified_heals += 1
                             event(
                                 "healing_outcome",
-                                outcome="verified",
+                                # A potion used under hits that left HP no higher.
+                                outcome="consumed_hp_unconfirmed"
+                                if receipt.get("hp_unconfirmed")
+                                else "verified",
                                 item_uid=potion.uid,
                                 receipt=receipt,
                             )

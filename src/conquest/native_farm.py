@@ -77,6 +77,59 @@ def logical_coordinates():
         setter(previous)
 
 
+UNVERIFIED_HEAL = "Healing consumption unverified; no repeat input issued"
+# Post-click bag reads that may race an inventory refresh before giving up.
+HEAL_EVIDENCE_READS = 3
+
+
+def potion_carried(trade, uid):
+    """(type_id, carried count) of the potion about to be used, or None."""
+    inventory = getattr(trade, "inventory", None)
+    if inventory is None:
+        return None
+    try:
+        bag = inventory.read()
+    except (ValueError, OSError, CaptureUnavailable):
+        return None
+    kind = next((i.type_id for i in bag.items if i.uid == uid), None)
+    return None if kind is None else (kind, bag.count(kind))
+
+
+def settle_unverified_heal(trade, uid, carried, error):
+    """Settle a combat heal that used a potion without HP rising.
+
+    A hit landing with the potion leaves HP no higher, so the consumption
+    check reads unverified, and the error stopped the whole farm runner with
+    monsters around: Toxic (level 37, Bandits) healed at 43% on 2026-09-28
+    00:44:35, the runner stopped at 00:44:38 and it died where it stood. The
+    carried count settles it without repeating any input: one fewer potion is
+    a used potion (receipt), an unchanged count is an unused one (reobserve).
+    Anything else keeps the original error.
+    """
+    kind, before = carried
+    for attempt in range(HEAL_EVIDENCE_READS):
+        try:
+            after = trade.inventory.read().count(kind)
+            break
+        except (ValueError, OSError, CaptureUnavailable):
+            if attempt == HEAL_EVIDENCE_READS - 1:
+                return None
+            time.sleep(0.05)
+    if after == before - 1:
+        return {
+            "consumed": True,
+            "uid": uid,
+            "type_id": kind,
+            "remaining": after,
+            "hp_unconfirmed": True,
+        }
+    if after == before:
+        raise CaptureUnavailable(
+            "Healing: potion not used; reobserving: " + str(error)
+        ) from error
+    return None
+
+
 class NativeFarmSupervisor:
     def __init__(self, observer, control, recovery, notify):
         self.observer, self.control, self.recovery, self.notify = (
@@ -279,6 +332,7 @@ class NativeFarmSupervisor:
                 trade = self.observer.town_trade
                 self.supply_panel_pending = True
                 try:
+                    carried = potion_carried(trade, uid)
                     try:
                         return trade({"action": "consume-healing", "uid": uid})
                     except TownObservationUnavailable as error:
@@ -294,6 +348,10 @@ class NativeFarmSupervisor:
                             raise CaptureUnavailable(
                                 "Healing: reobserving before item use: " + str(error)
                             ) from error
+                        if str(error) == UNVERIFIED_HEAL and carried is not None:
+                            receipt = settle_unverified_heal(trade, uid, carried, error)
+                            if receipt is not None:
+                                return receipt
                         raise
                 finally:
                     # Cleanup is reversible and retried separately. Never mask

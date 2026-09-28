@@ -414,6 +414,40 @@ def test_gui_reader_accepts_live_frames_that_advance_between_rpcs():
     assert GuiReader.windows(gui) == []
 
 
+# A night's chat history scrolled its region to 9,435 px (Toxic 2026-09-28
+# 00:45); the ±8192 bound on scroll failed every GUI read, the revive included.
+@pytest.mark.parametrize(
+    "geometry,scroll,valid",
+    [
+        ((11, 69, 357, 149), (0, 9435), True),
+        ((11, 69, 357, 149), (0, float("nan")), False),
+        ((11, 69, 357, 149), (0, 2e6), False),
+        ((11, 9000, 357, 149), (0, 0), False),
+        ((11, 69, 357, 0), (0, 0), False),
+    ],
+)
+def test_gui_reader_accepts_a_long_scroll_but_not_bad_geometry(geometry, scroll, valid):
+    memory = Memory()
+    context, array, window, name = 0x11000, 0x15000, 0x16000, 0x17000
+    memory.put(0x10000, "<Q", context)
+    memory.put(context + 0x3E38, "<I", 105)
+    memory.put(context + 0x3E58, "<IIQ", 1, 1, array)
+    memory.put(array, "<Q", window)
+    memory.put(window, "<Q", name)
+    memory.data[name : name + 34] = b"Chat##Message/##ScrollingRegion\0\0\0"
+    memory.put(window + 0x18, "<4f", *geometry)
+    memory.put(window + 0x64, "<2f", *scroll)
+    memory.data[window + 0x97] = 1
+    memory.put(window + 0x248, "<I", 105)
+    gui = SimpleNamespace(session=memory, base=0x10000 - 0x6966F0, context_rva=0x6966F0)
+    if valid:
+        (found,) = GuiReader.windows(gui)
+        assert found["scroll"] == (0.0, 9435.0)
+    else:
+        with pytest.raises(ValueError, match="Invalid GUI geometry"):
+            GuiReader.windows(gui)
+
+
 @pytest.mark.parametrize("change", ["reorder", "replace", "duplicate", "context"])
 def test_gui_registry_distinguishes_draw_order_from_membership(change):
     from conquest.merchants.memory import GuiObservationChanged
