@@ -11,6 +11,7 @@ from contextlib import contextmanager
 import json
 from pathlib import Path
 import sqlite3
+import threading
 import time
 import hashlib
 
@@ -57,6 +58,7 @@ def character_name(value):
 class Journal:
     def __init__(self, path=state_path("reports/merchants/journal.sqlite3")):
         self.path = Path(path)
+        self.readers = threading.local()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.db() as db:
             db.executescript("""
@@ -107,14 +109,28 @@ class Journal:
         finally:
             db.close()
 
+    def reader(self):
+        """This thread's autocommit connection, for single-statement reads only.
+
+        It never writes and holds no transaction between statements, so it
+        sees each commit at once and never pins the WAL. The farm loop reads
+        the journal on every observation; opening a connection per read was
+        11% of its samples (2026-09-28).
+        """
+        db = getattr(self.readers, "db", None)
+        if db is None:
+            db = self.readers.db = sqlite3.connect(
+                self.path, timeout=5, isolation_level=None
+            )
+        return db
+
     def get(self, character, name, default=None):
         character = character_name(character)
-        with self.db() as db:
-            row = db.execute(
-                "SELECT value FROM state WHERE character=? AND name=?",
-                (character, name),
-            ).fetchone()
-        return json.loads(row[0]) if row else default
+        rows = self.reader().execute(
+            "SELECT value FROM state WHERE character=? AND name=?",
+            (character, name),
+        ).fetchall()
+        return json.loads(rows[0][0]) if rows else default
 
     def set(self, character, name, value):
         character = character_name(character)

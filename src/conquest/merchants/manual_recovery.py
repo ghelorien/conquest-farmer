@@ -327,6 +327,13 @@ def consume_farmer(journal, evidence, *, now=None):
         raise ValueError(
             "Fresh farmer map, inventory and valuable evidence is required"
         )
+    # Called on every inventory observation and nearly always idle: look
+    # first, without the write lock another writer may be holding for up to
+    # the busy timeout. A pending replan is re-read under the lock below.
+    if hasattr(journal, "reader") and not journal.reader().execute(
+        "SELECT 1 FROM manual_replans WHERE farmer_pending=1 LIMIT 1"
+    ).fetchall():
+        return []
     with journal.db() as db:
         db.execute("BEGIN IMMEDIATE")
         rows = list(
