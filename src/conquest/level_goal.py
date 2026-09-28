@@ -20,8 +20,10 @@ GOAL = Path(state_path(".runtime/level-goal.json"))
 # stored with the goal so the UI can change it if the server differs.
 SCATTER_LEVEL = 23
 GEAR_STEP = 5
-# Combat heal threshold while the goal runs (share of max HP).
-HEAL_BELOW = 0.6
+# Combat heal threshold while the goal runs (share of max HP). 0.6 let three
+# Bandit hits in 1.5 s take Toxic (level 36) from 80% to 25% before a potion
+# landed (2026-09-28 00:19): the first hit left 61%, just above the old line.
+HEAL_BELOW = 0.7
 
 
 def goal():
@@ -42,7 +44,7 @@ def protections():
     """Heal early and always jump away from damage: while the goal runs, and
     on Back2Classic at every level, where a character funds itself on small
     potions. The goal ends at level 23, which would otherwise drop the heal
-    threshold from 60% to the route's 40%, beside the 45% emergency scroll."""
+    threshold from 70% to the route's 40%, beside the 45% emergency scroll."""
     return bool(goal()) or back2classic()
 
 

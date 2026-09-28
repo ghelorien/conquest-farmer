@@ -1625,7 +1625,7 @@ class NativeFarmSupervisor:
         }
         self.escape_blocked = blocked
 
-        def landings(threats, *, fewer=True, clearance=6):
+        def landings(threats, *, fewer=True, clearance=6, clear_of_all=None):
             found = []
             for length in (12, 10, 8):
                 for dx, dy in (
@@ -1667,6 +1667,8 @@ class NativeFarmSupervisor:
                     distances = [
                         max(abs(point[0] - mx), abs(point[1] - my)) for mx, my in living
                     ]
+                    if clear_of_all is not None and min(distances) <= clear_of_all:
+                        continue  # a monster could hit us where we land
                     nearby = sum(d <= 4 for d in distances)
                     if fewer and nearby >= len(threats):
                         continue
@@ -1701,6 +1703,20 @@ class NativeFarmSupervisor:
                     candidates = landings(attackers, fewer=False) or landings(
                         attackers, fewer=False, clearance=4
                     )
+        if not candidates and scatter_range:
+            # Jump-Scatter never stands inside a pack. In a dense one no
+            # landing has fewer monsters nearby, and above ESCAPE_LOW_HP the
+            # archer kept shooting monsters 1-2 tiles away: Bandits took Toxic
+            # from 81% to 33% (2026-09-28 00:09) and from 80% to 25% in 1.5 s
+            # (00:19, 8 monsters within 3 tiles). Leave for the least crowded
+            # landing clear of those monsters that nothing can hit.
+            close = [p for p, d in zip(living, distances) if d <= JUMP_SCATTER_REACH]
+            if close:
+                clear = JUMP_SCATTER_REACH
+                candidates = landings(close, fewer=False, clear_of_all=clear) or landings(
+                    close, fewer=False, clearance=4, clear_of_all=clear
+                )
+                crowded = bool(candidates)
         if not candidates:
             return None
         self.escape_context = {

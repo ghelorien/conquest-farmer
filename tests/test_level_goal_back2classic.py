@@ -414,6 +414,41 @@ def test_crowded_hit_still_jumps_clear_of_the_attacker(monkeypatch):
     assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50)) is None
 
 
+# 2026-09-28 00:19 (Toxic, level 36, Bandits): 19 monsters in view and no
+# landing with fewer of them nearby, so it kept shooting a Bandit two tiles
+# away above ESCAPE_LOW_HP until three hits in 1.5 s left 25%.
+def test_jump_scatter_leaves_a_pack_no_landing_thins_out(monkeypatch):
+    from test_native_farm import setup
+    from conquest import native_farm
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.scene_timestamp = 100.0
+    reach = native_farm.JUMP_SCATTER_REACH
+    # Only the line west is open, and every west landing has (8, 16) four
+    # tiles away: none has fewer monsters nearby than the one in reach.
+    supervisor.recovery.terrain = NS(walkable=lambda p: p[1] == 20 and p[0] <= 20)
+    supervisor.escape_monsters = (NS(position=(22, 20)), NS(position=(8, 16)))
+    kwargs = dict(adjacent_trigger=1, reach=reach)
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50), **kwargs) is None
+    landing = supervisor.ranged_escape((20, 20), (0, 0, 50, 50), scatter_range=8, **kwargs)
+    assert landing is not None and landing[1] == 20
+    assert max(abs(landing[0] - 22), abs(landing[1] - 20)) >= 6
+    assert min(
+        max(abs(landing[0] - m.position[0]), abs(landing[1] - m.position[1]))
+        for m in supervisor.escape_monsters
+    ) > reach
+    assert supervisor.escape_context["crowded"] is True
+    assert supervisor.escape_context["reason"] == "enemies_within_reach"
+    # Every landing within another monster's reach: stay rather than jump
+    # beside it.
+    supervisor.escape_monsters = (NS(position=(22, 20)), NS(position=(10, 18)))
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50), scatter_range=8, **kwargs) is None
+    # Nothing within reach: keep shooting.
+    supervisor.escape_monsters = (NS(position=(24, 20)), NS(position=(8, 16)))
+    assert supervisor.ranged_escape((20, 20), (0, 0, 50, 50), scatter_range=8, **kwargs) is None
+
+
 # Alex: "we need to be able to pickup the money on the ground"
 def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
     from conquest.memory_ground import GroundItem, wanted_drop
@@ -434,7 +469,8 @@ def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
 
 
 def test_early_heals_and_jumping_away_outlive_the_goal_on_back2classic(monkeypatch):
-    # The goal ends at 23; the 60% heal must not fall to the route's 40%.
+    # The goal ends at 23; the 70% heal must not fall to the route's 40%.
+    assert level_goal.HEAL_BELOW == 0.7
     monkeypatch.setattr(level_goal, "back2classic", lambda: False)
     assert not level_goal.protections()
     level_goal.start(23)
