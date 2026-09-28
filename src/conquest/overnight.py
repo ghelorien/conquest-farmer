@@ -1229,6 +1229,20 @@ class OvernightLoop:
             )
             return self.buy_supply(5, fallback)
 
+    def scroll_to_restock_town(self):
+        """Read a TwinCityGate home only when the restock town is Twin City.
+
+        The scroll always lands in Twin City. Since it may be read on Phoenix
+        Castle (the way back from there), a WingedSnake restock would scroll
+        to Twin City and pay a Conductress fare back to the Phoenix shops a
+        40-second walk reaches.
+        """
+        if self.route.restock_map_id != 1002:
+            return False
+        from conquest.return_scroll import return_to_town
+
+        return return_to_town(self)
+
     def sell_scroll_for_arrows(self):
         """Sell one carried TwinCityGate for the pack an empty quiver needs,
         once funding has drawn the bank (True once one is sold).
@@ -1300,9 +1314,7 @@ class OvernightLoop:
         services = city_for(self.route.restock_map_id).get("services")
         if not services:
             raise ValueError("Restock vendors are not mapped in the destination city")
-        from conquest.return_scroll import return_to_town
-
-        return_to_town(self)
+        self.scroll_to_restock_town()
         from conquest.world_travel import travel_to_map
 
         travel_to_map(self, self.route.restock_map_id)
