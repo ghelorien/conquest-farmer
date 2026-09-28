@@ -1,7 +1,8 @@
 """Size a leveling restock from what this route actually consumes.
 
-Potions and LuckyArrow packs share the bag. Live on 2026-09-27, Toxic used
-0.41 potions and 50 arrows a minute on Apparitions (level 20), and 2.3
+Potions and arrow packs (LuckyArrows, IronArrows) share the bag. Live on
+2026-09-27, Toxic used 0.41 potions and 50 arrows a minute on Apparitions
+(level 20), and 2.3
 potions and 50 arrows a minute on Poltergeists (level 21). The fixed 20
 potions and 8 packs therefore lasted ~32 minutes on the first route but ~7
 on the second, where every town trip was for potions while most arrows came
@@ -145,24 +146,39 @@ def balance(loop):
     learned = end_hunt(loop.route.id, counts)
     supplies = loop.route.supplies
     kind = supplies.arrow_type
-    if kind != 1050000 or not leveling_archer():
+    if kind not in NORMAL_ARROWS or not leveling_archer():
         return None
     rates = learned or read_json(RATES).get("routes", {}).get(loop.route.id)
     if not rates:
         return None
+    from conquest.arrow_upgrades import arrow_pack_price, counted_tiers
+    from conquest.overnight import last_verified_price
+
+    # IronArrows too (live 2026-09-27 22:54): unplanned, a restarted
+    # controller kept bandit.yaml's 5 potions, Suicide left with 5 and a
+    # one-potion way back, and died walking home at 23:12 with none left.
+    pack_price = (
+        last_verified_price(kind)
+        or arrow_pack_price(kind)
+        or (200 if kind == 1050000 else None)
+    )
+    if not pack_price:
+        return None
+    # Lower-tier stacks kept as a fallback hold their slots.
+    tiers = counted_tiers(kind)
     others = sum(
         1
         for item in snapshot["items"]
         if item["type_id"] not in HEALING_POTIONS
-        and item["type_id"] not in NORMAL_ARROWS
+        and (item["type_id"] not in NORMAL_ARROWS or item["type_id"] not in tiers)
         and item["type_id"] != SCROLL
     )
     bag_slots = snapshot["capacity"] - supplies.minimum_free_slots - others - SCROLL_SLOTS
     pack_size = ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS
     from conquest.arrow_upgrades import arrow_pack_count
     from conquest.banking import STATUS, transport_reserve
-    from conquest.overnight import last_verified_price
 
+    ammo = snapshot.get("equipped_ammo")
     # Silver this restock may spend on potions and packs: carried and banked,
     # less the Conductress fare and, without one carried, a return scroll.
     scroll_carried = any(
@@ -184,9 +200,22 @@ def balance(loop):
         budget=budget,
         potion_price=last_verified_price(supplies.healing_type)
         or HEALING_POTIONS.get(supplies.healing_type, (None, None, 60))[2],
-        pack_price=last_verified_price(kind) or 200,
+        pack_price=pack_price,
         carried_potions=counts["potions"],
-        carried_packs=arrow_pack_count(snapshot),
+        # A remnant that cannot fire Scatter is recycled, not a paid pack
+        # (an IronArrow pack is 4,800 silver).
+        carried_packs=arrow_pack_count(
+            {
+                **snapshot,
+                "items": [
+                    i
+                    for i in snapshot["items"]
+                    if i["type_id"] not in NORMAL_ARROWS or i["amount"] >= 3
+                ],
+                "equipped_ammo": ammo if ammo and ammo["amount"] >= 3 else None,
+            },
+            kind,
+        ),
     )
     if best is None:
         return None
