@@ -1003,6 +1003,42 @@ def test_both_bandit_groups_selected_but_king_is_only_observed_for_escape(monkey
     assert "BanditKing" not in [m.name for m in supervisor.chase_monsters]
 
 
+def test_a_moving_boss_is_still_kept_for_escape(monkeypatch):
+    # Live 2026-09-28 07:19/07:22 (Suicide): the WingedSnakeKing roamed at
+    # (320-330,100-117) and its HP read failed whenever it moved, so it never
+    # reached escape_monsters and boss clearance never fired.
+    from conquest import monster_health
+    from conquest.memory_entities import MonsterObservation
+
+    supervisor, control, _, _ = setup(monkeypatch)
+    control.update({"target_type_ids": [6, 65]})
+    supervisor.position = (320, 100)
+    monsters = [
+        MonsterObservation(1000, 1, "WingedSnake", (322, 101), (600, 400), 667, 27, type_id=6),
+        MonsterObservation(2000, 2, "WingedSnakeKing", (327, 106), (700, 380), 40000, 27, type_id=8301),
+        MonsterObservation(3000, 3, "WingedSnakeL28", (318, 98), (560, 420), 1144, 28, type_id=65),
+    ]
+
+    def hp(session, layout, monster):
+        if monster.name in ("WingedSnakeKing", "WingedSnakeL28"):
+            raise ValueError("Monster changed before health observation")
+        return 500
+
+    monkeypatch.setattr(monster_health, "read_monster_health", hp)
+    supervisor.observer.entities = SimpleNamespace(
+        layout=None, read=lambda: SimpleNamespace(monsters=monsters)
+    )
+    targets = supervisor.memory_targets()
+    assert [t.name for t in targets] == ["WingedSnake"]
+    escape = [m.name for m in supervisor.escape_monsters]
+    # The boss stays for escape without an HP; a moving ordinary monster does not.
+    assert "WingedSnakeKing" in escape and "WingedSnakeL28" not in escape
+    assert "WingedSnakeKing" not in [m.name for m in supervisor.chase_monsters]
+    from conquest.routes import near_boss
+
+    assert near_boss(supervisor.position, supervisor.escape_monsters)
+
+
 def test_target_name_filter_accepts_only_explicit_route_variants():
     from conquest.trial import choose_target
     from conquest.vision import Target

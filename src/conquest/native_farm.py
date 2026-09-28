@@ -892,6 +892,14 @@ class NativeFarmSupervisor:
                         continue
                 except (ValueError, OSError):
                     self.targets_observation_available = False
+                    from conquest.routes import boss_name
+
+                    if boss_name(monster.name):
+                        # Keeping clear of a boss needs only its position. A
+                        # roaming WingedSnakeKing failed this read whenever it
+                        # moved, so boss clearance never saw it (Suicide died
+                        # beside it at 07:19 and 07:22 on 2026-09-28).
+                        escape.append(monster)
                     continue
                 # Retain the qualified HP used for this target decision. Region
                 # occupancy must not see the original scene record's unknown
