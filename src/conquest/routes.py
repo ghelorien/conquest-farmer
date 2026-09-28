@@ -42,6 +42,13 @@ def _monster_families():
     )
 
 
+@lru_cache(maxsize=1)
+def _family_names():
+    return frozenset(
+        m["name"] for family in _monster_families().values() for m in family
+    )
+
+
 def route_monster_names(route):
     base = route.monster_type_ids[0]
     members = {m["type_id"]: m["name"] for m in monster_family(base)}
@@ -57,10 +64,21 @@ def route_monster_name(route):
 
 
 def boss_name(name):
+    """Whether a monster name is a boss or elite: never a target, kept at a
+    distance. The elite tiers around the leveling fields are Messenger (81xx),
+    Aide (82xx) and King (83xx): RatAide and RatMessenger share the Ratling
+    field and BanditAide the Bandit one. An ordinary leveling family is never
+    a boss, whatever its name ends with (HawKing, levels 92-96)."""
     import re
 
+    if name in _family_names():
+        return False
     return bool(
-        re.search(r"(?:king|queen|boss|leader|chieftain)$", name, flags=re.IGNORECASE)
+        re.search(
+            r"(?:king|queen|boss|leader|chieftain|aide|messenger)$",
+            name,
+            flags=re.IGNORECASE,
+        )
     )
 
 
