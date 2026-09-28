@@ -180,6 +180,15 @@ OPTIONAL_ARROW_FLOOR = 3000
 MIN_TOPUP_MINUTES = 10
 
 
+# Route travel walks around a boss in the scene (routes.boss_zone). With no
+# way around it waits this long for the boss to move, then walks on; a
+# detour re-baselines the no-progress watchdog at most BOSS_DETOUR_RESETS
+# times a trip. Toxic's WingedSnake walk ran through the King's roaming box
+# and runbacks crossed the Bandit field past its Kings (2026-09-28).
+BOSS_WAIT_SECONDS = 20
+BOSS_DETOUR_RESETS = 3
+
+
 # A bag stack of REMNANT_ARROWS or fewer may be sold when it holds one of a
 # tier's pack slots while less than a pack is carried. Real partial packs
 # still count against the limit and prevent top-ups (one equipped pack and
@@ -775,6 +784,10 @@ class OvernightLoop:
         market_failed = set()
         obstruction_origin = None
         blocked_jump_origin = None
+        boss_wait_until = None
+        boss_detouring = False
+        boss_resets = 0
+        detour_cache = None
         laps = {}
         lap_at = [time.monotonic()]
 
@@ -795,6 +808,10 @@ class OvernightLoop:
             life = h["embedded_controls"]["life"]
             source = tuple(life["position"])
             occupied.discard(source)
+            from conquest.routes import boss_name, boss_zone
+
+            scene = h["embedded_controls"].get("monsters") or ()
+            zone = boss_zone(source, tuple(destination), scene)
             from conquest.viewport import scene_bounds, clear_scene
 
             viewport = tuple(h.get("window", {}).get("client_size", (1036, 793)))
@@ -884,6 +901,61 @@ class OvernightLoop:
                         "town_path_retry",
                         activity="Retrying the town corridor with running steps",
                     )
+                if zone and any(tuple(p) in zone for p in path):
+                    key = frozenset(occupied | avoided | zone)
+                    if detour_cache and detour_cache[0] == key and source in detour_cache[1]:
+                        detour = detour_cache[1][detour_cache[1].index(source) :]
+                    else:
+                        try:
+                            detour = planner(
+                                source, tuple(destination), avoid=occupied | avoided | zone
+                            )
+                        except ValueError:
+                            detour = None
+                        detour_cache = (key, detour) if detour else None
+                    bosses = [
+                        [m["name"], list(m["position"])]
+                        for m in scene
+                        if boss_name(m.get("name") or "") and m.get("position")
+                    ]
+                    if detour is not None:
+                        path = detour
+                        if not boss_detouring:
+                            boss_detouring = True
+                            self.record(
+                                "travel_boss_detour",
+                                bosses=bosses,
+                                source=list(source),
+                                destination=list(destination),
+                                activity="Walking around a boss near the route",
+                            )
+                            if boss_resets < BOSS_DETOUR_RESETS:
+                                # The longer way round is not a stall.
+                                boss_resets += 1
+                                progress_deadline.best = None
+                    else:
+                        urgent = getattr(
+                            getattr(self, "runback_watch", None), "urgent", False
+                        )
+                        if boss_wait_until is None and not urgent:
+                            boss_wait_until = time.monotonic() + BOSS_WAIT_SECONDS
+                            self.record(
+                                "travel_boss_wait",
+                                bosses=bosses,
+                                source=list(source),
+                                activity="A boss blocks the only way on; waiting for it to move",
+                            )
+                        if (
+                            not urgent
+                            and boss_wait_until is not None
+                            and time.monotonic() < boss_wait_until
+                        ):
+                            time.sleep(1)
+                            continue
+                        zone = frozenset()  # Waited long enough (or hit): walk on.
+                else:
+                    boss_detouring = False
+                    boss_wait_until = None
                 lap("planner")
                 remaining = sum(
                     max(abs(a[0] - b[0]), abs(a[1] - b[1]))
@@ -928,7 +1000,8 @@ class OvernightLoop:
                     or time.monotonic() < recovery_run_until
                     else 12
                 )
-                blocked = occupied | avoided
+                # Landings and the runback's evasion keep off a boss zone too.
+                blocked = occupied | avoided | zone
                 target = (
                     travel_waypoint(
                         self.terrain, path, step_limit, avoid=blocked, viewport=viewport

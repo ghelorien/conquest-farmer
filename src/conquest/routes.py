@@ -109,6 +109,50 @@ def boss_room(point, monsters):
     return not near_boss(point, monsters, BOSS_ROOM - 1)
 
 
+# Beside a boss already, route travel keeps off only this close, so the walk
+# can still leave its zone.
+BOSS_INNER = 3
+
+
+def boss_zone(source, destination, monsters, clearance=BOSS_CLEARANCE):
+    """Tiles route travel keeps off: within ``clearance`` of each living boss.
+
+    ``monsters`` are bridge scene records (dicts) or scene objects. A boss
+    whose zone holds the destination is skipped (there is nothing to detour
+    to); one whose zone holds ``source`` keeps only BOSS_INNER tiles.
+    """
+    tiles = set()
+    for monster in monsters:
+        get = (
+            monster.get
+            if isinstance(monster, dict)
+            else lambda key, default=None: getattr(monster, key, default)
+        )
+        position = get("position")
+        if (
+            not position
+            or not boss_name(get("name") or "")
+            or get("alive") is False
+            or get("current_hp", 1) == 0
+        ):
+            continue
+        bx, by = position[0], position[1]
+        if max(abs(destination[0] - bx), abs(destination[1] - by)) <= clearance:
+            continue
+        reach = (
+            BOSS_INNER
+            if max(abs(source[0] - bx), abs(source[1] - by)) <= clearance
+            else clearance
+        )
+        tiles.update(
+            (x, y)
+            for x in range(bx - reach, bx + reach + 1)
+            for y in range(by - reach, by + reach + 1)
+        )
+    tiles.discard(tuple(source))
+    return frozenset(tiles)
+
+
 class Supplies(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     arrow_type: int = 1050000
