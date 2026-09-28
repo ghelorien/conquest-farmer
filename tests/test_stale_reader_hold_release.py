@@ -15,6 +15,7 @@ import pytest
 from conquest.merchants.manual_farmer import (
     FILETIME_EPOCH,
     release_hold_from_dead_process,
+    release_hold_on_user_farming_on,
 )
 
 HOLD_AT = 1790561434.69  # 22:10:34
@@ -86,3 +87,112 @@ def test_everything_else_keeps_the_hold(reason, snap, now):
     runtime, calls = runtime_with(reason)
     assert not release_hold_from_dead_process(runtime, snap, now=now)
     assert calls == []
+
+
+# Live 2026-09-28 (Suicide, Back2Classic): a trade read failed at 17:12:53
+# while Alex played by hand; his Farming On at 17:28:24 was fenced until an
+# operator override at 17:30.
+TRADE_HOLD_AT = 1790629973.31
+FARMING_ON_AT = 1790630904.0
+TRADE_READ_FAILURE = (
+    "Farmer manual memory unavailable: 1078 trade silver is not a proved numeric value"
+)
+
+
+def farmer_runtime(pressed):
+    calls = []
+    hold = {
+        "id": "unbound:suicide",
+        "reason": TRADE_READ_FAILURE,
+        "created_at": TRADE_HOLD_AT,
+        "holds_automation": True,
+    }
+    runtime = NS(
+        _manual_get=lambda character, name: hold
+        if (character, name) == ("Farmer", "manual_reader_hold")
+        else None,
+        override_manual=lambda session_id, **kw: calls.append((session_id, kw)),
+        manual_farmer_observation={},
+    )
+    if pressed is not None:
+        runtime.user_farming_on_at = pressed
+    return runtime, calls
+
+
+def live_snapshot(server="Back2Classic", trade=None, request=None, at=FARMING_ON_AT + 0.4):
+    # The same process that held the session: no restart.
+    return {
+        "server": server,
+        "identity": {"pid": 14172, "creation_time_100ns": OLD_PROCESS},
+        "trade": trade,
+        "request": request,
+        "timestamp": at,
+    }
+
+
+def test_the_users_farming_on_settles_a_live_processes_reader_hold():
+    runtime, calls = farmer_runtime(FARMING_ON_AT)
+    assert release_hold_on_user_farming_on(runtime, live_snapshot(), now=FARMING_ON_AT + 0.5)
+    assert calls[0][0] == "unbound:suicide"
+    assert calls[0][1]["operator"] == "user (Farming On)"
+    assert calls[0][1]["confirmation_reference"] == f"farming-on:{FARMING_ON_AT}"
+    assert runtime.manual_farmer_observation["stale_hold_released"] == "unbound:suicide"
+
+
+@pytest.mark.parametrize(
+    "pressed, snap, now",
+    [
+        # No Farming On from the user (a bridge restart never records one).
+        (None, live_snapshot(), FARMING_ON_AT + 0.5),
+        # Farming On before the hold: the hold came from a later trade.
+        (TRADE_HOLD_AT - 60.0, live_snapshot(), FARMING_ON_AT + 0.5),
+        # America: a visitor session or delivery may depend on the trade.
+        (FARMING_ON_AT, live_snapshot(server="America"), FARMING_ON_AT + 0.5),
+        # A trade or request still open.
+        (FARMING_ON_AT, live_snapshot(trade={"id": 1}), FARMING_ON_AT + 0.5),
+        (FARMING_ON_AT, live_snapshot(request={"participant": "Luna"}), FARMING_ON_AT + 0.5),
+        # Stale evidence.
+        (FARMING_ON_AT, live_snapshot(), FARMING_ON_AT + 10.0),
+    ],
+)
+def test_the_farming_on_release_keeps_the_hold_otherwise(pressed, snap, now):
+    runtime, calls = farmer_runtime(pressed)
+    assert not release_hold_on_user_farming_on(runtime, snap, now=now)
+    assert calls == []
+
+
+def on_app(monkeypatch, tmp_path):
+    from queue import Queue
+
+    from conquest import storage_halt
+    from conquest.control import FarmingControl
+    from conquest.desktop_app import DesktopApp
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(storage_halt, "clear_by_user", lambda: None)
+    monkeypatch.setattr(storage_halt, "active", lambda: False)
+    app = DesktopApp.__new__(DesktopApp)
+    app.control = FarmingControl()
+    app.memory_text = NS(set=lambda text: None)
+    app.record = lambda **fields: None
+    app.update_kill_metrics = lambda action="refresh": None
+    app.host = NS(saved=False)
+    app.runtime = None
+    app.thread = None
+    app.messages = Queue()
+    app.unified = NS(grant=None, coordinator=NS(resume=lambda: None), runtime=NS())
+    return app
+
+
+def test_the_apps_farming_on_records_the_users_press(monkeypatch, tmp_path):
+    app = on_app(monkeypatch, tmp_path)
+    app.update_ids(True)
+    assert app.control.snapshot()["enabled"]
+    assert type(app.unified.runtime.user_farming_on_at) is float
+
+
+def test_a_bridge_restart_is_not_the_users_press(monkeypatch, tmp_path):
+    app = on_app(monkeypatch, tmp_path)
+    app.update_control({"enabled": True, "explicit_restart": True})
+    assert app.control.snapshot()["enabled"]
+    assert not hasattr(app.unified.runtime, "user_farming_on_at")

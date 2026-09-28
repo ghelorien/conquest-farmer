@@ -67,6 +67,53 @@ def release_hold_from_dead_process(runtime, snapshot, *, now=None):
     return True
 
 
+def release_hold_on_user_farming_on(runtime, snapshot, *, now=None):
+    """Settle a farming-only server's reader hold with the user's own Farming On.
+
+    Live 2026-09-28 (Suicide, Back2Classic): while Alex played by hand, one
+    read of an open trade failed at 17:12:53 ("1078 trade silver is not a
+    proved numeric value") and left a hold in the same live process. He
+    pressed Farming On at 17:28, and every town action was refused ("Manual
+    trade observation requires a fresh read before town actions") until an
+    operator override at 17:30.
+
+    Pressing Farming On (the app's button or F10, never a bridge restart)
+    after the hold is the user's disposition of what he did by hand. Only on a
+    farming-only server, where no visitor session or delivery can depend on
+    the trade; only a Farming On after the hold was created; and only a fresh
+    (2 s) snapshot with no trade and no request. The ordinary override then
+    starts the same rebaseline an operator's disposition would.
+    """
+    from conquest.client_attachment import FARMING_ONLY_SERVERS
+
+    pressed = getattr(runtime, "user_farming_on_at", None)
+    hold = runtime._manual_get("Farmer", "manual_reader_hold")
+    if not hold or type(pressed) is not float:
+        return False
+    now = time.time() if now is None else now
+    if (
+        snapshot.get("server") not in FARMING_ONLY_SERVERS
+        or pressed <= hold.get("created_at", float("inf"))
+        or snapshot.get("trade") is not None
+        or snapshot.get("request") is not None
+        or not 0 <= now - snapshot.get("timestamp", 0) <= 2
+    ):
+        return False
+    runtime.override_manual(
+        hold["id"],
+        confirmation_reference=f"farming-on:{pressed}",
+        operator="user (Farming On)",
+        reason=(
+            f"Reader hold at {hold.get('created_at')} ({hold.get('reason')}); "
+            f"the user turned farming on at {pressed} and a fresh read shows "
+            "no trade or request"
+        ),
+        now=now,
+    )
+    runtime.manual_farmer_observation["stale_hold_released"] = hold["id"]
+    return True
+
+
 # Seconds a "no manual hold" journal answer is reused while no trade window is
 # visible. The hold state lives in SQLite (manual_status, manual_handoff_status)
 # and was read on every combat observation under the observer lock: 71 ms of a
@@ -445,7 +492,9 @@ def observe(runtime, observer=None):
             decline_farming_only_request(runtime, observer, snapshot)
         return True
     _project_farming_only_request(runtime, False)
-    release_hold_from_dead_process(runtime, snapshot)
+    release_hold_from_dead_process(runtime, snapshot) or release_hold_on_user_farming_on(
+        runtime, snapshot
+    )
     routed = runtime.process_probe_owned("Farmer", snapshot)
     if routed:
         from conquest.merchants.manual_runtime import OBSERVATION_DEFERRED

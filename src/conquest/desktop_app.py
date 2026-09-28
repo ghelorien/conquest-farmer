@@ -2220,6 +2220,9 @@ class DesktopApp:
         if enabled and getattr(self, "unified", None):
             self.unified.grant = None
             self.unified.coordinator.resume()
+            # The user's own Farming On settles a stale reader hold left while
+            # he played by hand (manual_farmer.release_hold_on_user_farming_on).
+            self.unified.runtime.user_farming_on_at = time.time()
         if enabled:
             from conquest.storage_halt import clear_by_user
 
