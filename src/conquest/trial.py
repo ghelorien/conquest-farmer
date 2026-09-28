@@ -128,6 +128,19 @@ def ammunition_per_attack(config):
     )
 
 
+def expired_observation(supervisor, message):
+    """The error for a frame too old to act on, before any input is sent.
+
+    Memory farming re-observes, as it does for any expired action; a stop
+    there leaves the archer standing among monsters until the route restarts
+    (Toxic, 2026-09-28 02:03: "Reload observation expired" with 4 arrows
+    equipped and a 200-arrow stack carried, dead before the restart).
+    """
+    if supervisor:
+        return CaptureUnavailable(message + "; reobserving")
+    return ValueError(message)
+
+
 def ammunition_reload_needed(inventory, config, *, proactive=False):
     ammo = inventory.equipped_ammo
     # Do not leave 23–25 arrows behind in every pack when patrolling.
@@ -1216,7 +1229,9 @@ def run_trial(
                             time.monotonic() - frame.timestamp > 0.35
                             or camera.geometry() != frame.origin
                         ):
-                            raise ValueError("Healing observation expired")
+                            raise expired_observation(
+                                supervisor, "Healing observation expired"
+                            )
                         dispatch_key(
                             {
                                 "guard": {
@@ -1303,7 +1318,9 @@ def run_trial(
                         time.monotonic() - frame.timestamp > 0.35
                         or camera.geometry() != frame.origin
                     ):
-                        raise ValueError("Reload observation expired")
+                        raise expired_observation(
+                            supervisor, "Reload observation expired"
+                        )
                     issued = time.monotonic()
                     if supervisor and hasattr(supervisor, "reload_arrows"):
                         supervisor.reload_arrows(inventory, config.ammo_type)

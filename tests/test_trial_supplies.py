@@ -105,3 +105,19 @@ def test_better_selected_reserve_reloads_instead_of_stopping_on_old_equipped_tie
         supply_stop_reason(replace(bag, items=(POTION,)), config, 10.5)
         == "ammo_unavailable"
     )
+
+
+# 2026-09-28 02:03 (Toxic, WingedSnakes): a reload frame 0.35 s stale stopped
+# the memory farm runner with 4 arrows equipped and a stack carried; it died
+# standing there before the route restarted. Memory farming re-observes.
+@pytest.mark.parametrize("message", ["Reload observation expired", "Healing observation expired"])
+def test_a_stale_frame_before_reload_or_heal_reobserves_in_memory_farming(message):
+    from conquest.capture import CaptureUnavailable
+    from conquest.trial import expired_observation
+
+    error = expired_observation(SimpleNamespace(), message)
+    assert isinstance(error, CaptureUnavailable)
+    assert str(error) == message + "; reobserving"
+    # The screen-driven trial keeps its fail-closed stop.
+    error = expired_observation(None, message)
+    assert type(error) is ValueError and str(error) == message
