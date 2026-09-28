@@ -87,6 +87,11 @@ def boss_name(name):
 # 5-6 tiles (Bandit field, 00:42-01:03), and died 2 tiles from the
 # WingedSnakeKing (40,000 HP) at 02:03.
 BOSS_CLEARANCE = 9
+# Landings prefer this much room from every boss. The WingedSnakeKing roams
+# the middle of the WingedSnake field (~0.44 tiles/s, Toxic 2026-09-28
+# 10:16): landing just outside BOSS_CLEARANCE meant another boss escape
+# moments later (63 of 209 escapes in 14 minutes).
+BOSS_ROOM = BOSS_CLEARANCE + 4
 
 
 def near_boss(point, monsters, clearance=BOSS_CLEARANCE):
@@ -97,6 +102,11 @@ def near_boss(point, monsters, clearance=BOSS_CLEARANCE):
         <= clearance
         for m in monsters
     )
+
+
+def boss_room(point, monsters):
+    """Whether ``point`` keeps BOSS_ROOM tiles from every boss in ``monsters``."""
+    return not near_boss(point, monsters, BOSS_ROOM - 1)
 
 
 class Supplies(BaseModel):

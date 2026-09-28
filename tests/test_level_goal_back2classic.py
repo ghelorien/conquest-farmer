@@ -445,6 +445,35 @@ def test_jump_scatter_keeps_clear_of_a_boss(monkeypatch):
     assert not near_boss((20, 20), (NS(position=(25, 20), name="WingedSnake"),))
 
 
+# The WingedSnakeKing roams the middle of the WingedSnake field: landing just
+# outside BOSS_CLEARANCE meant another boss escape moments later (63 of 209
+# escapes in 14 minutes, Toxic 2026-09-28 10:00).
+def test_boss_escape_prefers_room_over_a_pack_still_in_range(monkeypatch):
+    from test_native_farm import setup
+    from conquest import native_farm
+    from conquest.routes import BOSS_ROOM
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.scene_timestamp = 100.0
+    supervisor.recovery.terrain = NS(walkable=lambda p: True)
+    king = NS(position=(25, 20), name="WingedSnakeKing")
+    # A pack that the landing (13, 13), 12 tiles from the King, keeps in
+    # Scatter range; ranked on range alone, the escape took it.
+    pack = tuple(NS(position=(6 + i, 6), name="WingedSnake") for i in range(4))
+    supervisor.escape_monsters = (king, *pack)
+    landing = supervisor.ranged_escape(
+        (20, 20),
+        (0, 0, 50, 50),
+        adjacent_trigger=1,
+        reach=native_farm.JUMP_SCATTER_REACH,
+        scatter_range=8,
+    )
+    assert landing is not None and landing != (13, 13)
+    assert max(abs(landing[0] - 25), abs(landing[1] - 20)) >= BOSS_ROOM
+    assert supervisor.escape_context["reason"] == "boss_nearby"
+
+
 # 2026-09-28 00:19 (Toxic, level 36, Bandits): 19 monsters in view and no
 # landing with fewer of them nearby, so it kept shooting a Bandit two tiles
 # away above ESCAPE_LOW_HP until three hits in 1.5 s left 25%.

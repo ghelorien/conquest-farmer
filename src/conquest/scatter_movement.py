@@ -200,11 +200,14 @@ def scatter_landing(
                 not fast and not clear_jump(terrain, position, point)
             ):
                 continue
-            # Keep dense ordinary groups; never land within a boss's reach.
-            from conquest.routes import near_boss
+            # Keep dense ordinary groups; never land within a boss's reach,
+            # and prefer room from a roaming one before anything else.
+            from conquest.routes import boss_room, near_boss
 
-            if near_boss(point, getattr(supervisor, "escape_monsters", ())):
+            monsters = getattr(supervisor, "escape_monsters", ())
+            if near_boss(point, monsters):
                 continue
+            roomy = boss_room(point, monsters)
             repeated = sum(
                 max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= 2 for p, _ in recent
             )
@@ -218,7 +221,10 @@ def scatter_landing(
             # an escape before any cast 13% of the time with none planned
             # within 5 tiles, 36% with two, 51% with five (Toxic, 2026-09-28).
             candidates.append(
-                ((utility, count, -repeated, -close, centrality, distance), point)
+                (
+                    (roomy, utility, count, -repeated, -close, centrality, distance),
+                    point,
+                )
             )
     if not candidates:
         return None
@@ -244,12 +250,14 @@ def scatter_landing(
     landing_close = sum(
         max(abs(p[0] - destination[0]), abs(p[1] - destination[1])) <= 5 for p in live
     )
+    roomy, utility, count = score[:3]
     supervisor.scatter_plan = {
-        "lookahead": score[0] > score[1],
-        "immediate_targets": score[1],
-        "discounted_group_score": score[0],
+        "lookahead": utility > count,
+        "immediate_targets": count,
+        "discounted_group_score": utility,
         "contact_targets": landing_contact,
         "nearby_targets_5": landing_close,
+        "boss_room": roomy,
     }
     supervisor.scatter_landings = recent + [(position, now)]
     return destination

@@ -179,6 +179,33 @@ def test_equal_reach_landing_keeps_the_pack_beyond_five_tiles():
     assert supervisor.scatter_plan["nearby_targets_5"] == 0
 
 
+def test_landing_keeps_room_from_a_roaming_boss_before_counting_targets():
+    # The WingedSnakeKing roams the middle of the field: a landing just past
+    # BOSS_CLEARANCE was another boss escape moments later (Toxic 2026-09-28).
+    from conquest.routes import BOSS_ROOM
+
+    terrain = TerrainMap(1011, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ())
+    king = SimpleNamespace(name="WingedSnakeKing", position=(43, 30))
+    supervisor = SimpleNamespace(recovery=SimpleNamespace(terrain=terrain))
+    targets = [target(62, 50), target(63, 51), target(62, 49), target(38, 50)]
+    # Unaware of the King, the best landing sits 12 tiles from it.
+    plain = scatter_landing(supervisor, targets, (50, 50), (20, 20, 80, 80), 10)
+    assert max(abs(plain[0] - 43), abs(plain[1] - 30)) < BOSS_ROOM
+    supervisor.escape_monsters = (king,)
+    landing = scatter_landing(supervisor, targets, (50, 50), (20, 20, 80, 80), 10)
+    assert landing is not None
+    assert max(abs(landing[0] - 43), abs(landing[1] - 30)) >= BOSS_ROOM
+    assert supervisor.scatter_plan["boss_room"] is True
+    assert (
+        sum(
+            max(abs(t.world_position[0] - landing[0]), abs(t.world_position[1] - landing[1]))
+            <= 10
+            for t in targets
+        )
+        >= 3
+    )
+
+
 def test_finish_wounded_group_requires_fresh_same_identities_in_range(monkeypatch):
     from conquest import scatter_movement as sm
 

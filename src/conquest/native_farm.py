@@ -1740,7 +1740,7 @@ class NativeFarmSupervisor:
         distances = [max(abs(a - b) for a, b in zip(p, position)) for p in living]
         adjacent = sum(d <= 1 for d in distances)
         within_reach = sum(d <= reach for d in distances)
-        from conquest.routes import BOSS_CLEARANCE, boss_name
+        from conquest.routes import BOSS_CLEARANCE, BOSS_ROOM, boss_name
 
         # Bosses hit from range: leave one within BOSS_CLEARANCE and never
         # land inside another's.
@@ -1831,15 +1831,28 @@ class NativeFarmSupervisor:
                     if fewer and nearby >= len(threats):
                         continue
                     # Prefer fewer nearby enemies, including those outside the
-                    # original surround, then (jump-Scatter) more of the pack
-                    # still in Scatter range, then more clearance and longer jumps.
+                    # original surround, then room from a roaming boss, then
+                    # (jump-Scatter) more of the pack still in Scatter range,
+                    # then more clearance and longer jumps.
+                    roomy = all(
+                        max(abs(point[0] - bx), abs(point[1] - by)) >= BOSS_ROOM
+                        for bx, by in bosses
+                    )
                     in_range = (
                         sum(reach < d <= scatter_range for d in distances)
                         if scatter_range
                         else 0
                     )
                     found.append(
-                        (-nearby, in_range, min(distances), separation, distance, point)
+                        (
+                            -nearby,
+                            roomy,
+                            in_range,
+                            min(distances),
+                            separation,
+                            distance,
+                            point,
+                        )
                     )
             return found
 
