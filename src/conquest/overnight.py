@@ -153,6 +153,10 @@ def last_verified_price(type_id, path=None):
 # for a 200-silver pack and 2 arrows, and no hunt can earn it back. Five
 # potions and a full quiver hunt; nine potions and no arrows cannot.
 SAFE_HUNT_POTIONS = 5
+# In-place restarts of a combat runner stopped by an observation or input
+# error, per window, before the route falls back to its own full restart.
+RUNNER_RESTARTS = 3
+RUNNER_RESTART_WINDOW = 120
 # An IronArrow or SpeedArrow top-up while the quiver can still shoot is
 # optional: buy_supply takes it only if this much silver stays after it.
 OPTIONAL_ARROW_FLOOR = 3000
@@ -530,6 +534,45 @@ class OvernightLoop:
                         "town_observation_retry", action=action, detail=str(error)
                     )
                 time.sleep(0.25)
+
+    def restart_runner(self, data):
+        """Restart a combat runner stopped by an observation or input error.
+
+        The route's own restart takes 20-40 s while the archer stands among
+        the monsters: Toxic died that way on 2026-09-28 at 00:44 (an
+        unverified heal) and 02:03 (a stale reload frame). Restart combat in
+        place instead, the way every hunt starts, while the character is
+        alive and at most RUNNER_RESTARTS times per RUNNER_RESTART_WINDOW;
+        otherwise the route restarts as before.
+        """
+        life = data.get("life")
+        if not life or life.get("dead_candidate"):
+            return False
+        now = time.monotonic()
+        recent = [
+            t
+            for t in getattr(self, "runner_restarts", ())
+            if now - t < RUNNER_RESTART_WINDOW
+        ]
+        if len(recent) >= RUNNER_RESTARTS:
+            return False
+        self.runner_restarts = [*recent, now]
+        self.record(
+            "runner_restarted",
+            detail=data["control"].get("note"),
+            activity="Restarting combat after a runner error",
+        )
+        self.stop_farm()
+        request(
+            self.info,
+            "controls",
+            {
+                "enabled": True,
+                "target_type_ids": list(self.route.monster_type_ids),
+                "target_ids": [],
+            },
+        )
+        return True
 
     def stop_farm(self):
         request(self.info, "controls", {"enabled": False})
@@ -1758,6 +1801,10 @@ class OvernightLoop:
                     )
                     self.stop_farm()
                     return
+                if reason.startswith("observation_or_input_failure") and self.restart_runner(
+                    data
+                ):
+                    continue
                 raise ValueError(note)
             self.focus(h)
             life = data.get("life")
