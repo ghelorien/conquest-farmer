@@ -157,6 +157,11 @@ SAFE_HUNT_POTIONS = 5
 # error, per window, before the route falls back to its own full restart.
 RUNNER_RESTARTS = 3
 RUNNER_RESTART_WINDOW = 120
+# Potions used this fast send the farmer to town while some are left: busy
+# Bandit fights used 2.5-3.3 in two minutes; at 01:00-01:03 on 2026-09-28
+# Toxic used 16 in three, turned for town on its last one and died on the way.
+HEAVY_BURN_POTIONS = 6
+HEAVY_BURN_WINDOW = 120
 # An IronArrow or SpeedArrow top-up while the quiver can still shoot is
 # optional: buy_supply takes it only if this much silver stays after it.
 OPTIONAL_ARROW_FLOOR = 3000
@@ -534,6 +539,22 @@ class OvernightLoop:
                         "town_observation_retry", action=action, detail=str(error)
                     )
                 time.sleep(0.25)
+
+    def heavy_burn(self, potions, now=None):
+        """Whether this hunt used HEAVY_BURN_POTIONS within HEAVY_BURN_WINDOW.
+
+        Only decreases count: potions picked up or bought never offset use.
+        """
+        now = time.monotonic() if now is None else now
+        samples = [
+            (t, p)
+            for t, p in getattr(self, "potion_samples", ())
+            if now - t <= HEAVY_BURN_WINDOW
+        ]
+        samples.append((now, potions))
+        self.potion_samples = samples
+        used = sum(max(0, a - b) for (_, a), (_, b) in zip(samples, samples[1:]))
+        return used >= HEAVY_BURN_POTIONS
 
     def restart_runner(self, data):
         """Restart a combat runner stopped by an observation or input error.
@@ -1760,6 +1781,7 @@ class OvernightLoop:
         reached = None
         last_report = 0
         departed = None  # potions carried at the first supply read of this hunt
+        self.potion_samples = []
         while True:
             h = self.health()
             data = h["embedded_controls"]
@@ -1893,6 +1915,16 @@ class OvernightLoop:
             )
             if departed is None:
                 departed = supplies["potions"]
+            if self.heavy_burn(supplies["potions"]):
+                self.phase = "restocking"
+                self.record(
+                    "return_required",
+                    reason="heavy_damage",
+                    supplies=supplies,
+                    activity=f"{HEAVY_BURN_POTIONS}+ potions used in {HEAVY_BURN_WINDOW // 60} minutes; returning to town while some are left",
+                )
+                self.stop_farm()
+                return
             if (
                 needs_town(supplies, self.route, departed=departed, reserve=True)
                 or forced
