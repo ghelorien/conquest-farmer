@@ -31,6 +31,43 @@ def preferred_arrow(level):
     )
 
 
+# A leveling archer moves to a dearer tier only while its wallet holds this
+# many packs of it. At level 32 IronArrows (4,800 per 1,000) nearly doubled
+# Toxic's damage per Scatter on Bandits but cost ~260 silver a minute against
+# ~135 picked up, while XP rose 4% (2026-09-27 21:34-21:45).
+LEVELING_TIER_PACKS = 5
+
+
+def arrow_pack_price(kind):
+    """A pack's price from the recorded Blacksmith catalog, or None."""
+    from conquest.archer_shop_catalog import catalog
+
+    prices = [
+        p["price"]
+        for city in (catalog().get("cities") or {}).values()
+        if isinstance(city, dict)
+        for p in (city.get("5") or {}).get("products") or []
+        if p.get("type_id") == kind and type(p.get("price")) is int and p["price"] > 0
+    ]
+    return min(prices) if prices else None
+
+
+def leveling_tier(level, wallet):
+    """The best level-eligible normal tier the wallet sustains
+    (LEVELING_TIER_PACKS of its packs); LuckyArrow always."""
+    best = 1050000
+    for kind, required in ARROW_LEVELS.items():
+        price = arrow_pack_price(kind)
+        if (
+            required <= level
+            and price
+            and price * LEVELING_TIER_PACKS <= wallet
+            and required > ARROW_LEVELS[best]
+        ):
+            best = kind
+    return best
+
+
 def arrow_pack_count(snapshot):
     """Count physical arrow packs, including partial packs and equipped ammo."""
     if not isinstance(snapshot, dict):
@@ -163,6 +200,21 @@ def choose_arrow_upgrade(products, state, silver, reserve=3000, *, carried=()):
 def review_arrows(loop, products, state, silver):
     bag = loop.town("supplies")
     owned = {i["type_id"] for i in bag["items"] if i["amount"] >= 3}
+    from conquest.equipment import leveling_archer
+
+    if leveling_archer():
+        from conquest.banking import STATUS
+        from conquest.discord_notify import read_json
+
+        cap = leveling_tier(
+            state["level"], silver + read_json(STATUS).get("stored_silver", 0)
+        )
+        products = [
+            p
+            for p in products
+            if p.get("type_id") not in ARROW_LEVELS
+            or ARROW_LEVELS[p["type_id"]] <= ARROW_LEVELS[cap]
+        ]
     product = choose_arrow_upgrade(products, state, silver, carried=owned)
     if product:
         carried = [

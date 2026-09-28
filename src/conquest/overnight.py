@@ -2016,10 +2016,23 @@ class OvernightLoop:
         supplies = self.town("supplies")
         reserves = [i["type_id"] for i in supplies["items"] if i["amount"] >= 3]
         # With nothing usable, refill the level-best tier. Only savings mode
-        # keeps its configured tier (Lucky, or user-authorized Iron).
+        # keeps its configured tier (Lucky, or user-authorized Iron), and a
+        # leveling archer the best tier its wallet sustains.
+        default = self.route.supplies.arrow_type if savings_plan() else None
+        from conquest.equipment import leveling_archer
+
+        if default is None and leveling_archer() and type(state.get("level")) is int:
+            from conquest.arrow_upgrades import leveling_tier
+            from conquest.banking import STATUS
+            from conquest.discord_notify import read_json
+
+            default = leveling_tier(
+                state["level"],
+                supplies.get("silver", 0) + read_json(STATUS).get("stored_silver", 0),
+            )
         kind = current_arrow(
             state,
-            self.route.supplies.arrow_type if savings_plan() else None,
+            default,
             reserves,
             equipped_ammo=supplies.get("equipped_ammo"),
         )
