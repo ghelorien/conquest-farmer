@@ -181,8 +181,11 @@ def test_level_advance_e2e(tmp_path, monkeypatch):
         (25, False, "poltergeist", 1002),
         (26, True, "wingedsnake", 1011),
         (30, False, "wingedsnake", 1011),
-        (31, True, "bandit", 1011),
-        (35, False, "bandit", 1011),
+        # The Bandit bracket (and the Ratling bracket's economy refill) hunts
+        # the southeast circuit: the whole-field route crosses every
+        # BanditKing's ground (2026-09-28).
+        (31, True, "bandit-southeast", 1011),
+        (35, False, "bandit-southeast", 1011),
         (36, True, "ratling", 1011),
         (40, False, "ratling", 1011),
         (41, True, "firespirit", 1011),
