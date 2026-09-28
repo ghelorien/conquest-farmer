@@ -60,6 +60,7 @@ class MemorySession:
         self.expected_sha256 = expected_sha256
         self.executable = executable
         self.handle = None
+        self.handle_verified = False
         self.identity = None
         self.modules = []
         self.read_api = bind(
@@ -96,6 +97,7 @@ class MemorySession:
             raise self.backend.error("OpenProcess(QUERY_INFORMATION | VM_READ)")
         try:
             self.assert_identity()
+            self._verify_handle()
             self.modules = self._modules()
             main = next(
                 (
@@ -119,11 +121,38 @@ class MemorySession:
         if self.handle:
             self.backend.close_handle(self.handle)
             self.handle = None
+        self.handle_verified = False
 
     def __exit__(self, *_):
         self.close()
 
+    def _verify_handle(self):
+        """Bind the identity to the held handle: same process creation time."""
+        times = [w.FILETIME() for _ in range(4)]
+        if not self.backend.times(self.handle, *(c.byref(t) for t in times)):
+            raise self.backend.error("GetProcessTimes")
+        created = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        if created != self.identity["creation_time_100ns"]:
+            raise ValueError(
+                "Process exited or restarted; calibration addresses are invalid"
+            )
+        self.handle_verified = True
+
     def assert_identity(self):
+        # Windows never reuses a PID while a handle to its process is open, so
+        # once __enter__ matched the held handle to the identity, a live exit
+        # code on that handle proves the same process. The full identity()
+        # opens another handle and makes four more calls, each releasing the
+        # GIL: 16-18% of the combat thread's samples (2026-09-28).
+        if self.handle and self.handle_verified:
+            code = w.DWORD()
+            if not self.backend.exit_code(self.handle, c.byref(code)):
+                raise self.backend.error("GetExitCodeProcess")
+            if code.value != 259:  # STILL_ACTIVE
+                # identity()'s own wording: manual_farmer releases a reader
+                # hold on "Process <pid> exited during diagnostics".
+                raise OSError(f"Process {self.pid} exited during diagnostics")
+            return
         if self.backend.identity(self.pid) != self.identity:
             raise ValueError(
                 "Process exited or restarted; calibration addresses are invalid"
