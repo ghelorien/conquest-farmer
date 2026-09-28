@@ -3,6 +3,10 @@
 A hit boss follows the farmer: the BanditKing trailed Suicide 137 tiles in
 14 minutes, and Toxic made 210 boss escapes in 3 h on WingedSnakes
 (2026-09-28).
+
+The fan reaches 8 tiles on 1078 whatever the route's attack_range_tiles (16
+on every live route): a hold out to 17 tiles held every cast while a boss
+stood 10-17 tiles off, where no boss escape (9 tiles) moves the farmer.
 """
 
 import logging
@@ -21,11 +25,20 @@ class Capture(logging.Handler):
 
 
 @pytest.mark.parametrize(
-    "boss_at,casts",
-    [((432, 455), False), ((423, 464), False), ((433, 455), True), (None, True)],
+    "boss_at,casts,attack_range",
+    [
+        ((432, 455), False, 8),
+        ((423, 464), False, 8),
+        ((433, 455), True, 8),
+        (None, True, 8),
+        # Live routes target out to 16 tiles; the fan still reaches 8.
+        ((432, 455), False, 16),
+        ((435, 455), True, 16),
+        ((423, 440), True, 16),
+    ],
 )
 def test_scatter_waits_while_a_boss_is_within_its_reach(
-    tmp_path, monkeypatch, boss_at, casts
+    tmp_path, monkeypatch, boss_at, casts, attack_range
 ):
     import yaml, win32api
     from types import SimpleNamespace
@@ -44,7 +57,7 @@ def test_scatter_waits_while_a_boss_is_within_its_reach(
         adaptive_scatter=True,
         jump_scatter=False,
         attack_button="right",
-        attack_range_tiles=8,
+        attack_range_tiles=attack_range,
         route=[],
         healing_enabled=False,
         loot_allowlist=[],
@@ -124,7 +137,7 @@ def test_scatter_waits_while_a_boss_is_within_its_reach(
             ("name", "position", "max_hp", "kill_counter", "level", "map"), 1
         ),
     )
-    logger = logging.getLogger(f"boss-guard-{boss_at}")
+    logger = logging.getLogger(f"boss-guard-{boss_at}-{attack_range}")
     capture = Capture()
     logger.addHandler(capture)
     logger.setLevel(logging.INFO)

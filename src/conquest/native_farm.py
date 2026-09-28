@@ -36,7 +36,8 @@ KILL_SITE_KEEP_MS = 20000
 # tiles on 1078) plus a step of where the archer cast from (live 2026-09-27
 # 17:57-18:00: 17 jump-Scatter kills on Poltergeists, not one pickup).
 KILL_DROP_SCATTER_SECONDS = 3
-KILL_DROP_SCATTER_RADIUS = 9
+SCATTER_REACH = 8
+KILL_DROP_SCATTER_RADIUS = SCATTER_REACH + 1
 # An unconfirmed pickup of our own silver is retried this soon. Jump-Scatter
 # escapes cut pickup walks short (live 2026-09-27 18:52: three of five silver
 # clicks unconfirmed); the former minute outlived the drop's own-kill window.

@@ -1925,6 +1925,7 @@ def run_trial(
                             time.sleep(0.03)
                             continue
                         if attack_button == "right" and supervisor:
+                            from conquest.native_farm import SCATTER_REACH
                             from conquest.routes import near_boss
 
                             # Scatter's fan hits every monster in reach, a boss
@@ -1933,18 +1934,22 @@ def run_trial(
                             # and Toxic made 210 boss escapes in 3 h across
                             # the WingedSnake field (2026-09-28). Hold the cast
                             # while a boss could be in the fan; the boss escape
-                            # moves us first.
+                            # moves us first. The fan reaches SCATTER_REACH
+                            # whatever the route targets (16 tiles): holding
+                            # out to 17 idled the farmer beside a boss 10-17
+                            # tiles off, where no boss escape moves it.
+                            fan_reach = min(config.attack_range_tiles, SCATTER_REACH) + 1
                             if near_boss(
                                 (x, y),
                                 getattr(supervisor, "escape_monsters", ()),
-                                config.attack_range_tiles + 1,
+                                fan_reach,
                             ):
                                 if time.monotonic() - boss_hold_logged >= 2:
                                     boss_hold_logged = time.monotonic()
                                     event(
                                         "scatter_held_for_boss",
                                         position=[x, y],
-                                        reach=config.attack_range_tiles + 1,
+                                        reach=fan_reach,
                                     )
                                 time.sleep(0.03)
                                 continue
