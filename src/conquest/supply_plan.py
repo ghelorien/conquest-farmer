@@ -13,6 +13,7 @@ so that potions and arrows run out together. Without a measurement the
 route's fixed targets stay.
 """
 
+import math
 import time
 from pathlib import Path
 
@@ -27,6 +28,13 @@ MIN_MINUTES = 3
 # TwinCityGate scrolls the restock keeps (return_scroll.stock buys two).
 SCROLL_SLOTS = 2
 MIN_PACKS = 2
+# When arrows end the hunt, potions beyond twice its measured use (above the
+# way-back reserve, never under MIN_HUNT_POTIONS) only spend silver and bag
+# room: jump-Scatter on WingedSnakes used no potion in 17 minutes (20:11-20:28,
+# 2026-09-27), yet the restock bought 27 and left Suicide 5 free slots, so one
+# loot drop meant a town trip.
+POTION_MARGIN = 2
+MIN_HUNT_POTIONS = 10
 
 
 def begin_hunt(route_id, counts, now=None):
@@ -112,6 +120,10 @@ def plan(
         )
         if best is None or minutes > best[0] + 1e-9:
             best = (minutes, potions, packs)
+    if best is not None and math.isfinite(best[0]):
+        minutes, potions, packs = best
+        needed = reserve + math.ceil(potion_rate * minutes * POTION_MARGIN)
+        best = (minutes, min(potions, max(needed, MIN_HUNT_POTIONS)), packs)
     return best
 
 

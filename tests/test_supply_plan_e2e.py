@@ -38,6 +38,25 @@ def test_split_runs_both_supplies_out_together_within_the_bag():
     assert (potions, packs) == (27, 8) and minutes == pytest.approx(32)
 
 
+def test_arrow_limited_hunts_leave_the_spare_bag_for_loot():
+    # WingedSnakes with jump-Scatter (20:11-20:28): no potion in 17 minutes,
+    # ~43 arrows a minute. Eight packs end the hunt at ~37 minutes; the old
+    # plan still filled the bag with 27 potions (5 free slots on Suicide).
+    wingedsnake = {"potions_per_min": 0.05, "arrows_per_min": 43}
+    minutes, potions, packs = supply_plan.plan(
+        wingedsnake, bag_slots=34, pack_size=200, max_packs=8, reserve=5
+    )
+    assert packs == 8 and minutes == pytest.approx(37.2, abs=0.1)
+    assert potions == supply_plan.MIN_HUNT_POTIONS  # 5 + ceil(0.05 * 37.2 * 2) = 9
+    # 34 - 7 spare packs - 10 potions: 17 more slots for loot than before.
+    assert 34 - (packs - 1) - potions == 17
+    # A measured need above the floor is kept, twice over: 5 + ceil(0.2 * 37.2 * 2).
+    thirsty = {"potions_per_min": 0.2, "arrows_per_min": 43}
+    assert supply_plan.plan(
+        thirsty, bag_slots=34, pack_size=200, max_packs=8, reserve=5
+    )[1] == 5 + 15
+
+
 def test_scarce_silver_is_split_like_the_bag():
     # 15:36: short of silver the restock bought ~30 potions first and paid for
     # 318 arrows, six minutes of shooting on Apparitions.
