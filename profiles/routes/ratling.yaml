@@ -5,6 +5,7 @@ map_id: 1011
 restock_map_id: 1011
 monster_type_ids:
 - 8
+- 67
 recommended_levels:
 - 37
 - 41
@@ -518,6 +519,9 @@ qualification: planned
 recover_after_death: true
 movement: jump
 notes: 'Ratlings (type 8, level 37) from the 2026-09-11 memory survey: 99 sightings
-  at x541-576/y449-523 on Phoenix Castle, mixed with FireRatL38, RatAide and RatMessenger
-  (not targeted). Town connector and patrol are terrain paths on the installed map.
-  Density and survival need live validation.'
+  at x541-576/y449-523 on Phoenix Castle, mixed with FireRatL38 (type 67, targeted
+  as the family''s L38 member since the 2026-09-28 trial, where untargeted they kept
+  hitting from 4-9 tiles), RatAide and RatMessenger (bosses, not targeted). A RatKing
+  roams the western half and followed the farmer to 3 tiles (2026-09-28 12:45 and
+  12:52); a second one sits near (623,495). Town connector and patrol are terrain
+  paths on the installed map.'

@@ -9,7 +9,7 @@ RatMessenger.
 Failure modes, written before the route:
 1. Level 36 still selects Bandits (or nothing), or 41 does not move on.
 2. The route targets anything but the Ratling family (RatAide, RatMessenger
-   and BanditAide are bosses; FireRatL38 is not in the family).
+   and BanditAide are bosses), or leaves out its FireRatL38 member.
 3. The hunting area misses the surveyed Ratlings.
 4. The town connector or patrol crosses a blocked tile or a gap longer than a
    movement segment (12 tiles), or does not run town to anchor and back.
@@ -71,10 +71,12 @@ def test_level_36_hunts_ratlings_until_41(route):
 
 
 def test_only_the_ratling_family_is_targeted(route):
-    # 2
-    assert route.monster_type_ids == (8,)
-    assert route_monster_names(route) == ("Ratling",)
-    for kind in (67, 8103, 8203, 8202):
+    # 2. FireRatL38 (type 67, level 38) is the family's L38 member, like
+    # BanditL33 beside Bandit: untargeted it only hit Suicide from 4-9 tiles
+    # through its whole Ratling trial (live 2026-09-28 12:35-12:52).
+    assert route.monster_type_ids == (8, 67)
+    assert route_monster_names(route) == ("Ratling", "FireRatL38")
+    for kind in (8103, 8203, 8202):
         with pytest.raises(ValueError):
             route_monster_names(route.model_copy(update={"monster_type_ids": (8, kind)}))
 
