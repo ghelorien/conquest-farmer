@@ -523,13 +523,29 @@ class NativeFarmSupervisor:
         from conquest.merchants.coordination import manual_session_blocked
         from conquest.merchants.coordination import observe_manual_farmer
 
+        # Per-part timing into the loop's native_loop_timing (observe_*): the
+        # whole observe averaged ~190 ms in the app against ~25 ms for the same
+        # reads from a separate process (2026-09-28), so the combat loop only
+        # reacted about twice a second.
+        timing = getattr(self, "loop_timing", None)
+        mark = [time.perf_counter()]
+
+        def lap(name):
+            if timing is not None:
+                now = time.perf_counter()
+                timing.sample("observe_" + name, now - mark[0])
+                mark[0] = now
+
         manual = bool(observe_manual_farmer(self.observer)) or manual_session_blocked(
             "Farmer"
         )
         if not manual:
             require_idle()
+        lap("manual")
         with logical_coordinates(), self.observer.lock:
+            lap("lock_wait")
             life = self.read_life()
+            lap("life")
             if hasattr(life, "position"):
                 self.position = tuple(life.position)
                 self.map_id = life.map_id
@@ -569,7 +585,9 @@ class NativeFarmSupervisor:
                 except (AttributeError, ValueError, OSError):
                     pass  # XP telemetry must not delay combat or death recovery.
                 self.last_metrics = time.monotonic()
+                lap("experience")
             window = self.observer.operations.target.snapshot()
+            lap("window")
             intent = self.control.snapshot()
             if intent["revision"] != self.revision:
                 return {
@@ -597,6 +615,7 @@ class NativeFarmSupervisor:
             status = self.recovery.step(
                 {**asdict(life), "dead_candidate": life.dead_candidate}, focused
             )
+            lap("recovery")
             phase = (getattr(self.recovery, "episode", None) or {}).get("phase")
             if (
                 self.recovery_death_seen
@@ -651,11 +670,13 @@ class NativeFarmSupervisor:
                         "waiting": True,
                         "health_ratio": life.current_hp / life.max_hp,
                     }
+            lap("panels")
             if getattr(self, "runback_watch", None):
                 self.runback_watch.observe(
                     {**asdict(life), "dead_candidate": life.dead_candidate},
                     paused=waiting,
                 )
+            lap("runback")
             if waiting:
                 self.pending_loot = None
                 self.loot_wait_until = 0

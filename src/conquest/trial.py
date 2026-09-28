@@ -350,6 +350,9 @@ def run_trial(
     from conquest.native_loop_timing import NativeLoopTiming
 
     timing = NativeLoopTiming() if supervisor else None
+    if supervisor is not None:
+        # observe() adds its own per-part totals (observe_*) to the same summary.
+        supervisor.loop_timing = timing
 
     def event(name, **payload):
         with timing.measure("event_commit") if timing else nullcontext():

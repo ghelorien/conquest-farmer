@@ -1,6 +1,7 @@
 """Exact-build, read-only layout selection shared by memory primitives."""
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
@@ -181,15 +182,21 @@ def actual_player_layout(session):
     ).player
 
 
-def health_reader_layout(session):
+@lru_cache(maxsize=8)
+def _health_layout(profile):
+    """Parsed once per release: every life read and input guard asked for it,
+    and parsing the YAML cost ~1-3 ms each time."""
     import yaml
     from conquest.memory_health import HealthLayout
 
-    layout = read_build_layout(session)
     root = Path(__file__).resolve().parents[2] / "profiles"
     return HealthLayout.model_validate(
-        yaml.safe_load((root / layout.health_profile).read_text(encoding="utf-8"))
+        yaml.safe_load((root / profile).read_text(encoding="utf-8"))
     )
+
+
+def health_reader_layout(session):
+    return _health_layout(read_build_layout(session).health_profile)
 
 
 def entity_reader_layout(session):
