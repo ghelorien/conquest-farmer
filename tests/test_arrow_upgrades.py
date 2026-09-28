@@ -265,11 +265,9 @@ def test_owned_speed_upgrade_does_not_require_purchase_money():
 def test_two_speed_packs_block_buy_even_when_equipped_pack_is_partial():
     from conquest.arrow_upgrades import require_arrow_purchase_room
 
-    # A partial pack, not a remnant of REMNANT_ARROWS or fewer
-    # (test_equipped_remnant).
     bag = {
         "items": [{"uid": 2, "type_id": 1050002, "amount": 5000, "limit": 5000}],
-        "equipped_ammo": {"uid": 1, "type_id": 1050002, "amount": 40, "limit": 5000},
+        "equipped_ammo": {"uid": 1, "type_id": 1050002, "amount": 4, "limit": 5000},
     }
     with pytest.raises(ValueError, match="maximum packs"):
         require_arrow_purchase_room(bag)

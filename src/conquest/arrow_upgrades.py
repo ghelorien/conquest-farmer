@@ -5,13 +5,6 @@ ARROW_LEVELS = {1050000: 1, 1050001: 32, 1050002: 73}
 # Latest preference: one equipped pack and one spare, across all normal tiers.
 MAX_ARROW_PACKS = 2
 ARROW_REFILL_AMOUNTS = {1050000: 400, 1050001: 2000, 1050002: 10000}
-# A stack this small (four Scatter casts at most) is a remnant, not a pack.
-# An equipped remnant never counts against the pack limit. A route hunts
-# until ammo_unavailable, so it walks home on one: Suicide's 2-arrow quiver
-# (and Toxic's 1-arrow one) filled the "equipped" slot of the two, and both
-# left town with one pack instead of the two planned (2026-09-28 10:09 and
-# 10:24). A bag remnant is sold instead (overnight.blocking_remnant).
-REMNANT_ARROWS = 9
 # A leveling archer on 200-arrow LuckyArrow packs emptied two packs in about
 # 18 minutes (live 2026-09-27), so every town trip was for arrows. The
 # two-pack preference was set for 5,000-arrow SpeedArrow packs. At 15
@@ -96,8 +89,7 @@ def counted_tiers(kind=None):
 
 def arrow_pack_count(snapshot, kind=None):
     """Count physical arrow packs, including partial packs and equipped ammo
-    above REMNANT_ARROWS (with ``kind``, only the tiers that count against
-    buying it)."""
+    (with ``kind``, only the tiers that count against buying it)."""
     if not isinstance(snapshot, dict):
         from dataclasses import asdict
 
@@ -112,7 +104,7 @@ def arrow_pack_count(snapshot, kind=None):
     equipped = bool(
         ammo
         and ammo["type_id"] in tiers
-        and ammo["amount"] > REMNANT_ARROWS
+        and ammo["amount"] > 0
         and (
             ammo.get("uid") is None
             or not any(i.get("uid") == ammo["uid"] for i in items)

@@ -13,7 +13,6 @@ from conquest.routes import RouteLibrary
 from conquest.travel_care import TravelCare, TravelStateChanged
 from conquest.town_trade import junk_type, sale_candidate, TownObservationUnavailable
 from conquest.potion_tiers import HEALING_POTIONS
-from conquest.arrow_upgrades import REMNANT_ARROWS
 from conquest.worker import request
 from conquest.capture import CaptureUnavailable
 
@@ -180,11 +179,11 @@ OPTIONAL_ARROW_FLOOR = 3000
 MIN_TOPUP_MINUTES = 10
 
 
-# A bag stack of REMNANT_ARROWS or fewer may be sold when it holds one of a
-# tier's pack slots while less than a pack is carried. Real partial packs
-# still count against the limit and prevent top-ups (one equipped pack and
-# one spare; test_purchase_cap_counts_partial_packs_and_prevents_topups).
-# REMNANT_ARROWS lives in arrow_upgrades: an equipped remnant is not a pack.
+# A stack this small (three Scatter casts at most) may be sold when it holds
+# one of a tier's pack slots while less than a pack is carried. Real partial
+# packs still count against the limit and prevent top-ups (one equipped pack
+# and one spare; test_purchase_cap_counts_partial_packs_and_prevents_topups).
+REMNANT_ARROWS = 9
 
 
 def blocking_remnant(snapshot, kind):

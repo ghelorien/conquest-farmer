@@ -431,8 +431,7 @@ def test_two_speed_packs_require_no_refill_funds_when_equipped_is_partial(monkey
             {"uid": 1, "type_id": 1050002, "amount": 5000, "limit": 5000},
             {"uid": 2, "type_id": 1000020, "amount": 5, "limit": 1},
         ],
-        # A partial pack, not a remnant (test_equipped_remnant).
-        "equipped_ammo": {"uid": 3, "type_id": 1050002, "amount": 40, "limit": 5000},
+        "equipped_ammo": {"uid": 3, "type_id": 1050002, "amount": 4, "limit": 5000},
         "capacity": 40,
         "silver": 200,
     }
