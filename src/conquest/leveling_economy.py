@@ -37,10 +37,30 @@ CHECK_SECONDS = 60
 
 
 def wallet(loop):
-    from conquest.banking import STATUS
+    """Silver carried and banked plus what the carried arrows and potions
+    cost (last verified prices).
 
-    carried = loop.town("supplies")["silver"]
-    return carried + read_json(STATUS).get("stored_silver", 0)
+    Silver alone judged every restock poor: at 19:57 Toxic turned 5,436
+    silver into 8 arrow packs and potions, banked the rest and read 1,949,
+    so the hold kept it off the WingedSnakes it had just paid for.
+    """
+    from conquest.arrow_upgrades import ARROW_REFILL_AMOUNTS, MAX_ARROW_PACKS
+    from conquest.banking import STATUS
+    from conquest.overnight import last_verified_price, supply_counts
+
+    bag = loop.town("supplies")
+    value = bag["silver"] + read_json(STATUS).get("stored_silver", 0)
+    route = getattr(loop, "route", None)
+    if route is not None:
+        counts = supply_counts(bag, route)
+        pack = ARROW_REFILL_AMOUNTS.get(route.supplies.arrow_type, 0) // MAX_ARROW_PACKS
+        arrow_price = last_verified_price(route.supplies.arrow_type)
+        if arrow_price and pack:
+            value += counts["arrows"] * arrow_price // pack
+        potion_price = last_verified_price(route.supplies.healing_type)
+        if potion_price:
+            value += counts["potions"] * potion_price
+    return value
 
 
 def economy_route(loop, level, selected, entry):

@@ -97,6 +97,39 @@ def test_scatter_archer_levels_on_the_dearer_bracket_and_refills(tmp_path, monke
     assert route.id == "wingedsnake" and loop.events == ["economy_hold_ended"]
 
 
+def test_carried_supplies_count_toward_the_wallet(monkeypatch):
+    # 19:57: 5,436 silver became 8 arrow packs and potions; silver alone read
+    # 1,949 and the hold kept Toxic off the WingedSnakes.
+    from conquest import overnight
+    from conquest.routes import RouteLibrary
+
+    prices = {1050000: 200, 1000020: 60}
+    monkeypatch.setattr(overnight, "last_verified_price", lambda t, path=None: prices.get(t))
+    write_json(banking.STATUS, {"stored_silver": 1749})
+    items = [
+        {"uid": i, "type_id": 1050000, "amount": 200, "limit": 200, "plus": 0, "slot": i}
+        for i in range(6)
+    ] + [
+        {"uid": 100 + i, "type_id": 1000020, "amount": 1, "limit": 1, "plus": 0, "slot": 10 + i}
+        for i in range(26)
+    ]
+    bag = {
+        "silver": 200,
+        "items": items,
+        "equipped_ammo": {"uid": 99, "type_id": 1050000, "amount": 2, "limit": 200},
+        "capacity": 40,
+    }
+    loop = NS(
+        town=lambda action, **kw: bag,
+        record=lambda event, **fields: None,
+        route=RouteLibrary().load("poltergeist"),
+    )
+    assert leveling_economy.wallet(loop) == 200 + 1749 + 1202 + 26 * 60
+    # Unknown prices add nothing (never a guessed value).
+    prices.clear()
+    assert leveling_economy.wallet(loop) == 200 + 1749
+
+
 def test_leaving_the_cheaper_bracket_needs_high_but_the_dearer_one_holds_to_low():
     # 2/6: at 3,200 silver (19:40) Toxic on Poltergeists would have gone to
     # the WingedSnakes and been sent straight back below 3,000.
