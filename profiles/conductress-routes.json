@@ -32,12 +32,12 @@
       "npc_position": [228, 255],
       "option": "Twin City",
       "destination_map": 1002,
-      "arrival_map": 1002,
-      "arrival_position": null,
+      "arrival_map": 1011,
+      "arrival_position": [11, 376],
       "price": 100,
-      "verified": true,
-      "observed_at": null,
-      "evidence": "Phoenix Conductress identity, approach, fare and dialog records verified live for the Market trips (meteor-banking.json origins 1011 outbound); her Twin City option is option 0 of that dialog. The Twin City landing tile is unobserved: the ride verifies the arrival map and the exact fare. Phoenix's west portal (5, 376) cannot be clicked at the edge camera (Suicide 2026-09-29).",
+      "verified": false,
+      "observed_at": 1790687892.0,
+      "evidence": "Not a way into Twin City. Live 2026-09-29 09:18 and 09:19 (Toxic, ec9e847): the Twin City option charged 100 silver and dropped the farmer at Phoenix's west gate (11, 376) on map 1011, beside portal 0 (5, 376), mirroring the Twin City Conductress's Phoenix Castle ride. The way on is that portal, drawn under the chat box at the edge camera. Identity, approach and dialog records are the Market trips' (meteor-banking.json origins 1011 outbound).",
       "service": {
         "approach": [228, 249],
         "identity": {

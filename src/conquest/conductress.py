@@ -78,9 +78,9 @@ def take_service_trip(loop, trip):
     the Phoenix Market trips use: exact NPC identity, exact dialog records,
     the chosen option, then the arrival map and the exact fare.
 
-    Phoenix's west portal (5, 376) lies under the status panel at the edge
-    camera and cannot be clicked, so Phoenix leaves for Twin City by its
-    Conductress (Suicide stuck there 2026-09-29 08:40-08:53).
+    Only verified trips get here. Phoenix's "Twin City" option is saved
+    unverified: live on 2026-09-29 it charged 100 silver and dropped the
+    farmer at Phoenix's own west gate (11, 376), beside portal 0.
     """
     from conquest.banking import ensure_transport
     from conquest.meteor_banking import trip as service_trip

@@ -192,14 +192,32 @@ def test_uncertain_teleport_is_not_paid_again(monkeypatch, tmp_path, dialog):
     assert calls == []
 
 
-def test_phoenix_leaves_for_twin_city_by_its_conductress(monkeypatch):
-    # Phoenix's west portal (5, 376) cannot be clicked at the edge camera
-    # (Suicide stuck 2026-09-29): the saved trip rides her Twin City option
-    # through the live-verified saved-service path of the Market trips.
+def test_a_conductress_outside_twin_city_rides_the_saved_service(monkeypatch, tmp_path):
+    # A verified trip from another city goes through the live-verified
+    # saved-service path of the Phoenix Market trips.
     import json
     from pathlib import Path
     from conquest import banking, meteor_banking
 
+    market = json.loads(Path("profiles/meteor-banking.json").read_text(encoding="utf-8"))
+    outbound = market["origins"]["1011"]["outbound"]
+    trip = {
+        "source_map": 1011,
+        "npc_name": "Conductress",
+        "option": "Market",
+        "destination_map": 1036,
+        "arrival_map": 1036,
+        "price": 100,
+        "verified": True,
+        "service": {
+            "approach": outbound["approach"],
+            "identity": outbound["identity"],
+            "records": outbound["dialogs"][0]["records"],
+        },
+    }
+    path = tmp_path / "trips.json"
+    path.write_text(json.dumps({"trips": [trip]}), encoding="utf-8")
+    monkeypatch.setattr(c, "TRIPS", path)
     plans, events = [], []
     monkeypatch.setattr(meteor_banking, "trip", lambda loop, plan: plans.append(plan))
     monkeypatch.setattr(banking, "ensure_transport", lambda loop, minimum: None)
@@ -208,17 +226,32 @@ def test_phoenix_leaves_for_twin_city_by_its_conductress(monkeypatch):
         living=lambda: {"embedded_controls": {"life": life}},
         record=lambda event, **fields: events.append(event),
     )
-    assert c.take_saved_trip(loop, 1002) is True
+    assert c.take_saved_trip(loop, 1036) is True
     [plan] = plans
-    market = json.loads(Path("profiles/meteor-banking.json").read_text(encoding="utf-8"))
-    outbound = market["origins"]["1011"]["outbound"]
-    assert (plan["source_map"], plan["destination_map"], plan["fare"]) == (1011, 1002, 100)
+    assert (plan["source_map"], plan["destination_map"], plan["fare"]) == (1011, 1036, 100)
     assert plan["identity"] == outbound["identity"]
     assert plan["approach"] == outbound["approach"]
-    assert plan["dialogs"] == [
-        {"records": outbound["dialogs"][0]["records"], "option": "Twin City"}
-    ]
+    assert plan["dialogs"] == outbound["dialogs"]
     assert events == ["conductress_departing", "conductress_arrived"]
+
+
+def test_phoenix_twin_city_ride_is_never_paid_for():
+    # Live 2026-09-29 (Toxic): Phoenix's "Twin City" option charged 100 and
+    # dropped the farmer at Phoenix's own west gate, twice. It stays saved
+    # as evidence, unverified, so travel never buys it.
+    import json
+    from pathlib import Path
+
+    trips = json.loads(Path("profiles/conductress-routes.json").read_text(encoding="utf-8"))
+    [ride] = [t for t in trips["trips"] if t["source_map"] == 1011]
+    assert ride["option"] == "Twin City" and ride["verified"] is False
+    assert (ride["arrival_map"], ride["arrival_position"]) == (1011, [11, 376])
+    life = {"map_id": 1011, "object_address": 1, "position": [228, 250]}
+    no_calls = SimpleNamespace(
+        living=lambda: {"embedded_controls": {"life": life}},
+        record=lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no ride")),
+    )
+    assert c.take_saved_trip(no_calls, 1002) is False
 
 
 def test_the_ape_city_trip_rides_to_ape_mountain_then_portal_9():
