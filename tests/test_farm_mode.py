@@ -105,6 +105,21 @@ def test_farming_drinks_from_sixty_percent(mode_file):
     assert farm_mode.heal_threshold(0.75) == 0.75  # an approach tops up higher
 
 
+def test_the_apps_mode_picker_saves_the_mode(mode_file):
+    from conquest.desktop_app import DesktopApp
+
+    app = DesktopApp.__new__(DesktopApp)
+    notes = []
+    app.memory_text = NS(set=notes.append)
+    app.farm_mode_labels = {"leveling": "Leveling · careful", "farming": "Farming · max kills"}
+    app.farm_mode_text = NS(get=lambda: "Farming · max kills")
+    app.select_farm_mode()
+    assert farm_mode.farming() and "maximum kills" in notes[-1]
+    app.farm_mode_text = NS(get=lambda: "Leveling · careful")
+    app.select_farm_mode()
+    assert not farm_mode.farming()
+
+
 def escape_supervisor(monsters):
     s = NativeFarmSupervisor.__new__(NativeFarmSupervisor)
     s.escape_ready_at = 0

@@ -669,6 +669,26 @@ def test_every_verified_pickup_is_notified_once_with_plus_and_timestamp(tmp_path
     assert all(r["kind"] == "pickup" for r in n.state["queue"])
 
 
+def test_silver_and_plain_pickups_are_never_posted(tmp_path):
+    # 392 of Suicide's last 400 pickups were silver (2026-09-28): only
+    # valuables reach the channel.
+    path = tmp_path / "pickups.jsonl"
+    path.write_text("")
+    n = Notifications()
+    n.drops(path, 100)
+    rows = [
+        {"type_id": 1090020, "silver": True, "increase": 122, "timestamp": 101},
+        {"type_id": 1091000, "silver": True, "increase": 5, "timestamp": 102},
+        {"type_id": 500005, "plus": 0, "increase": 1, "timestamp": 103},
+        {"type_id": 1088001, "increase": 1, "timestamp": 104},
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    n.drops(path, 110)
+    assert len(n.state["queue"]) == 1
+    assert "Meteor" in n.state["queue"][0]["content"]
+    assert n.state["drop_offset"] == path.stat().st_size
+
+
 def test_recovered_drop_notification_does_not_invent_pickup_time(tmp_path):
     path = tmp_path / "pickups.jsonl"
     path.write_text("")

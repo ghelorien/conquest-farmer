@@ -871,7 +871,11 @@ class Notifications:
                 self.state["drop_offset"] = source.tell()
                 try:
                     row = json.loads(line)
-                    if row.get("increase", 0) > 0:
+                    # Only valuables reach the channel. Silver pickups (the
+                    # Back2Classic silver floor collects silver again while a
+                    # bank is dry: 392 of Suicide's last 400 pickups on
+                    # 2026-09-28) would bury the Meteors and Unique drops.
+                    if row.get("increase", 0) > 0 and notable_drop(row):
                         prefix = {
                             "recovered_inventory": "Recovered missing pickup",
                             "inventory_gain": "Acquired",

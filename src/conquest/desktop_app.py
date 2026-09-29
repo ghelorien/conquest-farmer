@@ -310,6 +310,27 @@ class DesktopApp:
         ttk.Button(
             goal_row, text="Start goal", command=self.start_level_goal, padding=2
         ).pack(side="right", padx=(0, 4))
+        from conquest import farm_mode
+
+        # Alex 2026-09-28: a leveling mode "more scared of dying" and a
+        # farming mode for maximum kills per hour (farm_mode.py).
+        mode_row = ttk.Frame(self.route_details_frame)
+        mode_row.pack(fill="x", pady=(4, 0))
+        ttk.Label(mode_row, text="Mode").pack(side="left")
+        self.farm_mode_labels = {
+            "leveling": "Leveling · careful",
+            "farming": "Farming · max kills",
+        }
+        self.farm_mode_text = tk.StringVar(value=self.farm_mode_labels[farm_mode.mode()])
+        mode_picker = ttk.Combobox(
+            mode_row,
+            textvariable=self.farm_mode_text,
+            state="readonly",
+            values=list(self.farm_mode_labels.values()),
+            width=20,
+        )
+        mode_picker.pack(side="left", padx=(4, 0))
+        mode_picker.bind("<<ComboboxSelected>>", self.select_farm_mode)
         self.restore_route()
         self.level_presets = json.loads(
             Path("profiles/leveling-presets.json").read_text(encoding="utf-8")
@@ -484,6 +505,28 @@ class DesktopApp:
             self.detail_text.set(
                 "Discord notifier could not start; farming is unaffected"
             )
+
+    def select_farm_mode(self, _event=None):
+        from conquest import farm_mode
+
+        chosen = next(
+            (
+                mode
+                for mode, label in self.farm_mode_labels.items()
+                if label == self.farm_mode_text.get()
+            ),
+            None,
+        )
+        try:
+            farm_mode.set_mode(chosen)
+        except (ValueError, OSError) as error:
+            self.memory_text.set(str(error))
+            return
+        self.memory_text.set(
+            "Farming mode: maximum kills per hour"
+            if chosen == "farming"
+            else "Leveling mode: careful escapes"
+        )
 
     def save_merchant_transfers(self):
         from conquest.merchants.farmer_preferences import (
