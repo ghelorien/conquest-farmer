@@ -7,7 +7,7 @@ monster_type_ids: [11, 70]
 recommended_levels: [52, 56]
 town_anchor: [554, 545]
 restock_anchor: [550, 547]
-hunting_anchor: [575, 305]
+hunting_anchor: [572, 332]
 kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
@@ -26,16 +26,18 @@ patrol_search:
   maximum_expansions: 1
   sweep_spacing_tiles: 20
 patrol:
+  - [572, 332]
   - [575, 305]
   - [580, 295]
   - [566, 300]
   - [566, 314]
   - [579, 322]
-  - [572, 332]
   - [580, 340]
   - [568, 340]
 # Terrain path from Ape City town to the plain's open south at (600, 350),
-# then north-west to the anchor, 20+ tiles from every surveyed boss.
+# then north-west to the anchor, 20+ tiles from every surveyed boss. The
+# anchor is the strip's south end: the live approach to (575, 305) passed
+# 11 tiles from King 404775 and held in the pack (2026-09-29 18:27).
 outbound_waypoints:
   - [554, 545]
   - [556, 545]
@@ -295,19 +297,15 @@ outbound_waypoints:
   - [605, 351]
   - [604, 350]
   - [600, 350]
-  - [590, 342]
-  - [578, 336]
-  - [576, 328]
-  - [575, 320]
-  - [575, 312]
-  - [575, 305]
+  - [593, 345]
+  - [586, 340]
+  - [579, 336]
+  - [572, 332]
 return_waypoints:
-  - [575, 305]
-  - [575, 312]
-  - [575, 320]
-  - [576, 328]
-  - [578, 336]
-  - [590, 342]
+  - [572, 332]
+  - [579, 336]
+  - [586, 340]
+  - [593, 345]
   - [600, 350]
   - [604, 350]
   - [605, 351]
