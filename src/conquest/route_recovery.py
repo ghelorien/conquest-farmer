@@ -312,6 +312,33 @@ def route_chat(observer):
     return read_route_chat(observer.adapter)
 
 
+# Display panels a dead farmer may close (panel_close.click_close).
+REVIVE_COVER_PANELS = ("Inventory", "Shop", "Warehouse")
+
+
+def covering_panel(windows):
+    """The display panel lying over the ReviveButton's ##SkillsPopup, or None."""
+    popup = next((w for w in windows if w["name"] == "##SkillsPopup"), None)
+    if popup is None:
+        return None
+    px, py, pw, ph = popup["geometry"]
+    for name in REVIVE_COVER_PANELS:
+        for window in windows:
+            if window["name"] != name:
+                continue
+            x, y, w, h = window["geometry"]
+            if x < px + pw and px < x + w and y < py + ph and py < y + h:
+                return name
+    return None
+
+
+def revive_cover(observer):
+    """Read the live GUI once for a display panel over the Revive popup."""
+    from conquest.merchants.memory import GuiReader
+
+    return covering_panel(GuiReader.for_session(observer.adapter).windows())
+
+
 class EmbeddedRecoveryInput:
     def __init__(self, observer, control, *, terrain=None, layout=None):
         self.observer, self.control, self.terrain = observer, control, terrain
@@ -404,6 +431,16 @@ class EmbeddedRecoveryInput:
         if kind == "revive":
             if not life.revive_ready_candidate:
                 raise CaptureUnavailable("Revive is not ready; reobserve before input")
+            covering = revive_cover(observer)
+            if covering is not None:
+                # A display panel left open at death lies over the ReviveButton
+                # popup (a travel heal's Inventory; Toxic in Ape City,
+                # 2026-09-29 10:44), so every revive hover failed. Close it
+                # (allowed while dead) and revive on the next pass.
+                from conquest.panel_close import click_close
+
+                click_close(observer.town_trade, covering)
+                raise CaptureUnavailable(f"Closed {covering} over Revive; reobserving")
             try:
                 point = revive_point(observer.adapter, viewport)
             except ValueError as error:
