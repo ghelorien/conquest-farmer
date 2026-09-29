@@ -10,6 +10,12 @@ and a 0.2-second reposition threshold after three arrows are verified consumed.
 The separate Scatter recast cooldown remains 0.8 seconds. Other farmers retain
 their own settings or the defaults.
 
+The Back2Classic server skips a Scatter sent less than 1.0 second after the
+last one that went off: the skipped cast uses no arrows and hits nothing.
+Toxic measured it on 2026-09-29 (2,429 casts: 1 of 654 landed 0.75-0.95 s
+after a landed cast, 44% at 1.00-1.05 s, 98-100% from 1.05 s) and waits
+1.05 seconds; at 0.8 seconds every other cast was wasted.
+
 Timing parameters are `action_interval`, `scatter_recast_seconds`,
 `scatter_receipt_seconds`, `scatter_receipt_arrows`, `jump_arrival_seconds`, `jump_attack_guard_seconds`,
 `torn_life_attempts`, and `moving_observation_retry_seconds`. Durations are in

@@ -6,10 +6,15 @@
 # 2026-09-28; 40 showed one, 19 three), as Kilhiam's did: with the default
 # three-arrow receipt no cast ever qualified, so each one held movement for
 # the full 0.8 s.
+# The Back2Classic server skips a Scatter sent less than 1.0 s after the last
+# one that went off (no arrows used, nothing hit): of 2,429 casts on
+# 2026-09-29 04:10-05:25, 1 of 654 landed 0.75-0.95 s after a landed cast, 44%
+# at 1.00-1.05 s and 98-100% from 1.05 s. At the 0.8 s recast every other
+# cast was wasted, so a pack took 1.7 s of casting instead of 1.05 s.
 character: Toxic
 combat_speed:
   action_interval: 0.15
-  scatter_recast_seconds: 0.8
+  scatter_recast_seconds: 1.05
   scatter_receipt_seconds: 0.2
   scatter_receipt_arrows: 2
   jump_arrival_seconds: 0.25

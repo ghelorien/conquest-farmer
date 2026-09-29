@@ -127,11 +127,14 @@ def test_toxic_farms_scatter_like_the_measured_jump_scatter_profile():
 
     root = Path(__file__).resolve().parents[1] / "profiles" / "farmers"
     toxic = load_combat_speed("Toxic", root)
-    # Only its own measured receipt differs: two arrows a cast (2026-09-28).
+    # Only its own measurements differ: two arrows a cast (2026-09-28), and
+    # the Back2Classic server skips a Scatter sooner than 1.0 s after the
+    # last one that went off (2026-09-29), so it waits 1.05 s between casts.
     assert toxic.scatter_receipt_arrows == 2
-    assert toxic.model_copy(update={"scatter_receipt_arrows": 3}) == load_combat_speed(
-        "Parasite", root
-    )
+    assert toxic.scatter_recast_seconds == 1.05
+    assert toxic.model_copy(
+        update={"scatter_receipt_arrows": 3, "scatter_recast_seconds": 0.8}
+    ) == load_combat_speed("Parasite", root)
     assert toxic.force_jump_scatter is True
 
 
