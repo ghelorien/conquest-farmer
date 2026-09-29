@@ -202,6 +202,27 @@ def test_apparition_route_targets_level_18_and_exact_monster_group():
         route_monster_name(route.model_copy(update={"monster_type_ids": (2, 4)}))
 
 
+def test_giantape_family_can_start_native_farming():
+    # Suicide's first GiantApe start failed "Choose one supported leveling
+    # monster family": 11 was missing from MONSTER_NAMES (2026-09-29).
+    from conquest.routes import MONSTER_NAMES, route_monster_names
+    from conquest.trial import TrialConfig
+
+    assert MONSTER_NAMES[11] == "GiantApe"
+    route = RouteLibrary().load("giantape")
+    assert route_monster_names(route) == ("GiantApe", "GiantApeL53")
+    config = TrialConfig(
+        character="Suicide",
+        player_profile="player.yaml",
+        inventory_profile="inventory.yaml",
+        template="template.png",
+        client_size=(1416, 876),
+        boundary=route.hunting_boundary,
+        monster="GiantApe",
+    )
+    assert config.monster == "GiantApe"
+
+
 def test_macaque_family_is_available_for_saved_route_selection():
     from conquest.routes import MONSTER_NAMES, route_monster_names, monster_family
     from conquest.trial import TrialConfig
