@@ -34,8 +34,11 @@ from conquest.discord_notify import read_json, write_json
 
 MARKET = 1036
 ARTISAN = "MagicArtisan"
-# ini/tips.json #15; the live identity comes from service-locate.
-ARTISAN_TILE = (260, 247)
+# Live scan 2026-09-29 16:37 (Toxic in the Market): MagicArtisan model 5016
+# at (179, 208), beside GodlyArtisan (193, 212) and the Warehouseman
+# (182, 180). ini/tips.json's (260, 247) is stale: nobody is there. The live
+# identity still comes from service-locate.
+ARTISAN_TILE = (179, 208)
 # MillionaireLee's verified approach: every Market trip has walked to it.
 EXCHANGE_APPROACH = (230, 240)
 # Service NPCs are clicked from up to 18 tiles and travel stops within 12 of
@@ -168,12 +171,8 @@ def close_dialog(loop):
 
 
 def reach_artisan(loop):
-    """Walk to the Magic Artisan through MillionaireLee's verified approach."""
-    loop.travel(
-        EXCHANGE_APPROACH,
-        activity="Walking through the Market toward the Magic Artisan",
-        arrival_radius=2,
-    )
+    """Walk to the Magic Artisan's nearest reachable tile; travel stops early
+    once she can be clicked."""
     try:
         npc = loop.town("service-locate", name=ARTISAN)["npc"]
     except ValueError as error:
