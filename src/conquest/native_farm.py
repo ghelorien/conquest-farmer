@@ -521,7 +521,14 @@ class NativeFarmSupervisor:
         if not life.dead_candidate and life.max_hp:
             self.health_share = life.current_hp / life.max_hp
         if previous and not life.dead_candidate and life.current_hp < previous[0]:
-            if previous[0] - life.current_hp > ESCAPE_DAMAGE_SHARE * life.max_hp:
+            from conquest.farm_mode import jump_worthy_hit
+
+            if jump_worthy_hit(
+                previous[0] - life.current_hp,
+                life.current_hp,
+                life.max_hp,
+                ESCAPE_DAMAGE_SHARE,
+            ):
                 self.last_damage_at = time.monotonic()
             if previous[1] == position:
                 self.defend_until = time.monotonic() + 8

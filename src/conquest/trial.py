@@ -940,15 +940,19 @@ def run_trial(
                     # left three of five silver clicks unconfirmed (18:52).
                     pickup = getattr(supervisor, "pending_loot", None)
                     looting = bool(pickup) and time.monotonic() - pickup[2] < 3
+                    from conquest.farm_mode import escape_trigger
+
+                    # Leveling jump-Scatter leaves before any monster can hit
+                    # it; farming only when surrounded at contact.
+                    adjacent_trigger, reach = escape_trigger(
+                        config.jump_scatter, looting, JUMP_SCATTER_REACH
+                    )
                     escape = supervisor.ranged_escape(
                         (x, y),
                         (l, t, r, b),
                         anchor=config.player_anchor,
-                        # Jump-Scatter leaves before any monster can hit it.
-                        adjacent_trigger=1 if config.jump_scatter else 2,
-                        reach=JUMP_SCATTER_REACH
-                        if config.jump_scatter and not looting
-                        else 1,
+                        adjacent_trigger=adjacent_trigger,
+                        reach=reach,
                         scatter_range=config.attack_range_tiles
                         if config.jump_scatter
                         else None,
@@ -1205,6 +1209,9 @@ def run_trial(
                     )
                     else config.heal_below
                 )
+                from conquest.farm_mode import heal_threshold
+
+                healing_threshold = heal_threshold(healing_threshold)
                 if (
                     config.healing_enabled
                     and hp < healing_threshold
