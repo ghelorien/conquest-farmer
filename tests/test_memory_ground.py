@@ -237,9 +237,12 @@ def test_slow_ground_observation_still_expires(monkeypatch):
         (480003, 0, False),
         (480006, 0, False),
         (480003, None, False),
-        # Unique and Elite too (Alex 2026-09-28: "pickup and bank any item
-        # unique and higher").
-        (480007, 0, True),
+        # Any +1 to +12 gear (Alex 2026-09-29: "I still want all +1's and
+        # +2's regardless of (unique, elite etc)"); unenhanced gear from Elite
+        # up, or from Unique up for rings, bracelets, necklaces, bags and boots
+        # ("only elite or higher items unless they are rings, boots, bags,
+        # bracelets, necklace").
+        (480007, 0, False),
         (480008, 0, True),
         (480009, 0, True),
         (480008, 1, True),
@@ -248,6 +251,14 @@ def test_slow_ground_observation_still_expires(monkeypatch):
         (480003, 1, True),
         (480003, 12, True),
         (480003, 13, False),
+        (150007, 0, True),
+        (150003, 1, True),
+        (152003, 12, True),
+        (120007, 0, True),
+        (121003, 2, True),
+        (160007, 0, True),
+        (160003, 13, False),
+        (150003, 0, False),
         (1088000, None, True),
         (1088001, None, True),
         (1090000, None, False),

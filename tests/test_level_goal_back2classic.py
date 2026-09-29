@@ -536,7 +536,9 @@ def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
     monkeypatch.setattr(level_goal, "back2classic", lambda: True)
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
     assert not wanted_drop(silver)
-    assert wanted_drop(GroundItem(3, 100000, 500007, (1, 1), plus=0))
+    # An Elite bow: gear pickups do not depend on the goal (only Elite and
+    # higher outside accessories since 2026-09-29).
+    assert wanted_drop(GroundItem(3, 100000, 500008, (1, 1), plus=0))
     # ...until its bank cannot pay for one IronArrow pack (Toxic, 150 at
     # 21:26): an empty wallet cannot restock, so silver counts again.
     bank.write_text(json.dumps({"stored_silver": 150}))

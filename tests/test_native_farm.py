@@ -857,6 +857,7 @@ def test_looter_skips_nearby_junk_and_selects_allowed_enhanced_item(monkeypatch)
 
     supervisor, _, _, _ = setup(monkeypatch)
     junk = GroundItem(10, 1000, 480003, (10, 10), plus=0)
+    # A +1 normal club: every +N item stays wanted (Alex 2026-09-29).
     wanted = GroundItem(11, 2000, 480003, (12, 10), plus=1)
     supervisor.ground_items = lambda: (junk, wanted)
     calls = []
@@ -1333,6 +1334,7 @@ def test_inventory_gain_records_plus_item_without_ground_click_or_ground_reader(
 ):
     supervisor, _, _, events = setup(monkeypatch)
     existing = SimpleNamespace(uid=1, type_id=1088001, amount=1, plus=0)
+    # A +2 normal poleaxe: every +N item stays wanted (Alex 2026-09-29).
     new = SimpleNamespace(uid=2, type_id=530013, amount=1599, plus=2)
     before = SimpleNamespace(items=(existing,))
     supervisor.observe_inventory(before)

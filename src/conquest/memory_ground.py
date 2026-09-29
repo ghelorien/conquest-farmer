@@ -4,7 +4,12 @@ from dataclasses import dataclass
 import struct
 import time
 
-from conquest.valuables import SPECIAL_LOOT_TYPES, UNIQUE_AND_HIGHER
+from conquest.valuables import (
+    ACCESSORY_FAMILIES,
+    ELITE_AND_HIGHER,
+    SPECIAL_LOOT_TYPES,
+    UNIQUE_AND_HIGHER,
+)
 from conquest.addressing import checked_address
 from conquest.memory_entities import sample_fields
 
@@ -45,17 +50,22 @@ def wanted_drop(drop):
         from conquest.level_goal import collect_silver
 
         return collect_silver()
-    gear = 100000 <= drop.type_id < 600000
-    # Unique (7), Elite (8) and Super (9) quality, or +1 to +12: the gear
-    # stash_candidate banks (Alex 2026-09-28: "You can pickup and bank any
-    # item unique and higher now").
-    return drop.type_id in SPECIAL_LOOT_TYPES or (
-        gear
-        and (
-            drop.type_id % 10 in UNIQUE_AND_HIGHER
-            or (type(drop.plus) is int and 1 <= drop.plus <= 12)
-        )
-    )
+    if drop.type_id in SPECIAL_LOOT_TYPES:
+        return True
+    if not 100000 <= drop.type_id < 600000:
+        return False
+    if type(drop.plus) is int and 1 <= drop.plus <= 12:
+        # Alex 2026-09-29: "I still want all +1's and +2's regardless of
+        # (unique, elite etc)": any enhanced gear, whatever family or quality.
+        return True
+    if drop.type_id // 1000 in ACCESSORY_FAMILIES:
+        # Unique (7), Elite (8) and Super (9) quality (Alex 2026-09-28: "You
+        # can pickup and bank any item unique and higher now").
+        return drop.type_id % 10 in UNIQUE_AND_HIGHER
+    # Alex 2026-09-29: "from now on only elite or higher items unless they are
+    # rings, boots, bags, bracelets, necklace". What is already carried or
+    # banked keeps town_trade.stash_candidate's broader rule.
+    return drop.type_id % 10 in ELITE_AND_HIGHER
 
 
 class MemoryGroundReader:

@@ -27,6 +27,13 @@ SPECIAL_LOOT_TYPES = DRAGONBALL_TYPES | {1088001, 720027}
 # 9 Super). Alex 2026-09-28: "You can pickup and bank any item unique and
 # higher now."
 UNIQUE_AND_HIGHER = frozenset((7, 8, 9))
+# Alex 2026-09-29: "from now on only elite or higher items unless they are
+# rings, boots, bags, bracelets, necklace", then "I still want all +1's and
+# +2's regardless of (unique, elite etc)". On the ground: any +1 to +12 gear;
+# unenhanced necklaces (120), bags (121), rings (150), heavy rings (151),
+# bracelets (152) and boots (160) from Unique up; everything else from Elite.
+ELITE_AND_HIGHER = frozenset((8, 9))
+ACCESSORY_FAMILIES = frozenset((120, 121, 150, 151, 152, 160))
 URGENT_EQUIPMENT_FAMILIES = frozenset((120, 121, 150, 151, 152, 160, 500))
 
 
