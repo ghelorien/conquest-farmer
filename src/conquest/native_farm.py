@@ -1110,6 +1110,7 @@ class NativeFarmSupervisor:
         cross-check loot-audit.jsonl against pickups.jsonl by uid.
         """
         from conquest.memory_ground import wanted_drop
+        from conquest.valuables import loot_gear
 
         seen = getattr(self, "loot_audited", None)
         if seen is None or len(seen) > LOOT_AUDIT_MEMORY:
@@ -1117,7 +1118,7 @@ class NativeFarmSupervisor:
         rows = []
         for drop in drops:
             kind = drop.type_id
-            if not (type(kind) is int and 100000 <= kind < 600000):
+            if not loot_gear(kind):
                 continue
             key = (drop.uid, drop.object_address)
             if key in seen or not (

@@ -16,7 +16,7 @@ ITEM_NAMES = {
     1088000: "DragonBall",
     1088001: "Meteor",
 }
-from conquest.valuables import DRAGONBALL_NAMES
+from conquest.valuables import DRAGONBALL_NAMES, loot_gear
 
 ITEM_NAMES.update(DRAGONBALL_NAMES)
 # Local client definitions supply display names; live memory supplies identity.
@@ -36,7 +36,7 @@ def item_label(fields):
         return "Silver"
     kind = fields["type_id"]
     name = ITEM_NAMES.get(kind, f"Item {kind}")
-    if 100000 <= kind < 600000:
+    if loot_gear(kind):
         quality = {6: "Refined", 7: "Unique", 8: "Elite", 9: "Super"}.get(kind % 10)
         if quality:
             name = f"{quality} {name}"

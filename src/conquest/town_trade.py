@@ -25,6 +25,7 @@ JUNK_CONSUMABLES = frozenset((1001000, 1001010, 1001020))
 from conquest.valuables import (
     SPECIAL_LOOT_TYPES,
     UNIQUE_AND_HIGHER,
+    loot_gear,
     storage_only,
     urgent_storage,
 )
@@ -43,8 +44,7 @@ def stash_candidate(item):
         urgent_storage(item)
         or kind in PROTECTED_VALUABLES
         or (
-            type(kind) is int
-            and 100000 <= kind < 600000
+            loot_gear(kind)
             and (
                 kind % 10 in UNIQUE_AND_HIGHER
                 or (type(plus) is int and 1 <= plus <= 12)

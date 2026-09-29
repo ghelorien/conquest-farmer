@@ -9,6 +9,7 @@ from conquest.valuables import (
     ELITE_AND_HIGHER,
     SPECIAL_LOOT_TYPES,
     UNIQUE_AND_HIGHER,
+    loot_gear,
 )
 from conquest.addressing import checked_address
 from conquest.memory_entities import sample_fields
@@ -52,7 +53,7 @@ def wanted_drop(drop):
         return collect_silver()
     if drop.type_id in SPECIAL_LOOT_TYPES:
         return True
-    if not 100000 <= drop.type_id < 600000:
+    if not loot_gear(drop.type_id):
         return False
     if type(drop.plus) is int and 1 <= drop.plus <= 12:
         # Alex 2026-09-29: "I still want all +1's and +2's regardless of

@@ -37,6 +37,16 @@ ACCESSORY_FAMILIES = frozenset((120, 121, 150, 151, 152, 160))
 URGENT_EQUIPMENT_FAMILIES = frozenset((120, 121, 150, 151, 152, 160, 500))
 
 
+def loot_gear(kind):
+    """Gear type IDs for loot policy: 100000-599999 and the shields (900xxx).
+
+    The client table's 511 shields (SoftShield 900300 up) carry the same
+    quality digit (900307 Unique, 900308 Elite, 900309 Super). Merchant and
+    warehouse equipment checks keep their own qualified 100000-599999 range.
+    """
+    return type(kind) is int and (100000 <= kind < 600000 or 900000 <= kind < 901000)
+
+
 def urgent_storage(item):
     """Carried designated gear and Dragonballs go directly to storage."""
     get = (

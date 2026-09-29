@@ -16,6 +16,8 @@ Failure modes, written before the change:
    left, or a plain one is picked up.
 5. Meteors, DragonBalls or other specials stop being picked up.
 6. What is already carried stops being banked (town_trade.stash_candidate).
+7. Shields (900xxx, outside the 100000-599999 gear range) are never picked
+   up, banked, audited or posted, even at +1 or Elite (found by Laptop1).
 """
 
 from types import SimpleNamespace as NS
@@ -100,3 +102,59 @@ def test_carried_unique_gear_is_still_banked():
 
     assert stash_candidate({"type_id": 421047, "plus": 0, "slot": 3})
     assert stash_candidate({"type_id": 421023, "plus": 1, "slot": 4})
+
+
+@pytest.mark.parametrize(
+    "type_id, plus, wanted",
+    [
+        (900005, 1, True),  # +1 Normal shield (Laptop1's case)
+        (900007, 0, False),  # plain Unique shield (Laptop1's case)
+        (900305, 1, True),  # +1 Normal SoftShield
+        (900303, 2, True),  # +2 SoftShield
+        (900307, 0, False),  # Unique SoftShield
+        (900308, 0, True),  # Elite SoftShield
+        (900309, 0, True),  # Super SoftShield
+        (900305, 0, False),  # plain SoftShield
+        (900305, None, False),  # plain SoftShield, plus unreadable
+        (901008, 1, False),  # past the shield family
+        (800000, 1, False),  # BladeSoulLv5, not gear
+    ],
+)
+def test_shields_follow_the_non_accessory_rule(type_id, plus, wanted):
+    # 7
+    assert wanted_drop(drop(type_id, plus)) is wanted
+
+
+def test_picked_up_shields_are_banked_audited_and_posted(tmp_path, monkeypatch):
+    # 7: a shield the filter picks up must also reach storage and the logs.
+    import json
+
+    from conquest import native_farm
+    from conquest.discord_notify import notable_drop
+    from conquest.farm_telemetry import item_label
+    from conquest.memory_ground import GroundItem
+    from conquest.town_trade import sale_candidate, stash_candidate
+
+    assert stash_candidate({"type_id": 900305, "plus": 1, "slot": 3})
+    assert stash_candidate({"type_id": 900308, "plus": 0, "slot": 4})
+    assert not stash_candidate({"type_id": 900305, "plus": 0, "slot": 5})
+    assert not sale_candidate({"type_id": 900305, "plus": 0, "slot": 5})
+    assert notable_drop({"type_id": 900308})
+    assert notable_drop({"type_id": 900305, "plus": 1})
+    assert not notable_drop({"type_id": 900305, "plus": 0})
+    label = item_label({"type_id": 900308, "plus": 1})
+    assert label.startswith("Elite ") and label.endswith(" +1")
+
+    monkeypatch.setattr(native_farm, "state_path", lambda rel: tmp_path / rel)
+    (tmp_path / "reports/desktop-farming").mkdir(parents=True)
+    native_farm.NativeFarmSupervisor.audit_loot(
+        NS(map_id=1011),
+        [
+            GroundItem(1, 0x1001, 900305, (10, 10), plus=1),
+            GroundItem(2, 0x1002, 900305, (11, 10), plus=0),
+        ],
+    )
+    lines = (tmp_path / "reports/desktop-farming/loot-audit.jsonl").read_text()
+    assert [(r["uid"], r["wanted"]) for r in map(json.loads, lines.splitlines())] == [
+        (1, True)
+    ]
