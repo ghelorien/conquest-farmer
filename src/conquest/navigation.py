@@ -195,6 +195,28 @@ class TerrainMap:
         return result
 
 
+def first_reachable(terrain, candidates, source):
+    """The first of `candidates` a route joins to `source`, else the first.
+
+    Each search starts at the candidate, so a walkable cell sealed inside a
+    building fails after its few cells instead of a whole-map search. Ape
+    City's Warehouseman (2026-09-29): from the GiantApe plain the walkable
+    cell beside him nearest the farmer, (578, 538), has no route to anywhere.
+    The restock's first travel failed with four GiantApes 2 tiles away, and
+    Suicide died during the route restart.
+    """
+    planner = getattr(terrain, "travel_path", None)
+    if planner is None or not candidates:
+        return candidates[0] if candidates else None
+    for candidate in candidates:
+        try:
+            planner(tuple(candidate), tuple(source))
+        except ValueError:
+            continue
+        return candidate
+    return candidates[0]
+
+
 def line_tiles(start, end):
     dx, dy = end[0] - start[0], end[1] - start[1]
     length = max(abs(dx), abs(dy))

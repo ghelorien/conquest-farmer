@@ -366,9 +366,14 @@ supplies:
   arrows_return_below: 3
   arrows_restock_to: 4000
   healing_type: 1000020
-  healing_return_below: 1
-  healing_restock_to: 5
-  healing_threshold: 0.85
+  # Head home with potions for the ~600-tile road; 15:58 (2026-09-29) left
+  # at 1 and the restock's first travel failed in the pack.
+  healing_return_below: 3
+  healing_restock_to: 20
+  # GiantApe hits take 18% (up to ~40%): at 0.85 each 500 HP Amrita went in
+  # at 82% HP, three in 6 s for ~450 HP of damage. After an escape the trial
+  # still heals below 0.75.
+  healing_threshold: 0.65
   minimum_free_slots: 4
 tasks:
   - travel_to_hunt
@@ -388,5 +393,11 @@ notes: >-
   Measured 2026-09-29 13:55-13:56 (Suicide L52, HornBow, IronArrow, 825 HP):
   GiantApes have ~2,700 HP and lost ~90 per Scatter hit (~30 hits each); one
   closed to 2 tiles and hit for 185 (22% of max HP). ape_guard moved the hold
-  back to macaque after 0 kills in 2 minutes. Not viable before a bow and
-  armor upgrade (QinBow/LongBow, better necklace, hat and coat).
+  back to macaque after only 14 s of fighting, too short to judge.
+  Second run 2026-09-29 15:57:00-15:58:31 (Suicide L52, IronArrow): ~85 per
+  Scatter hit on the target, no damage for the first 84 s, 2 kills and ~1.4M
+  xp/h from damage XP (Macaque at L52: 535k xp/h, 1,211 xp/kill at a level
+  gap of 5). It left for town at 1 potion. The restock's first travel picked
+  the Warehouseman cell sealed in his building (578, 538; open_warehouse now
+  takes the nearest reachable one), the route restart stood still among four
+  GiantApes (178-345 per hit) and Suicide died at (593, 308).

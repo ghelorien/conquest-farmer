@@ -159,11 +159,16 @@ def open_warehouse(loop):
         ]
         if not candidates:
             raise ValueError("No walkable approach to Warehouseman")
-        target = min(
-            candidates,
-            key=lambda p: (
-                abs(p[0] - life["position"][0]) + abs(p[1] - life["position"][1])
+        from conquest.navigation import first_reachable
+
+        source = tuple(life["position"])
+        target = first_reachable(
+            loop.terrain,
+            sorted(
+                candidates,
+                key=lambda p: abs(p[0] - source[0]) + abs(p[1] - source[1]),
             ),
+            source,
         )
         loop.travel(
             target, activity="Heading to Warehouseman for silver banking", vendor_type=0
@@ -222,9 +227,15 @@ def open_warehouse(loop):
                     ]
                     if not nearby:
                         raise ValueError("No checked closer warehouse approach")
-                    target = min(
-                        nearby,
-                        key=lambda p: (max(abs(a - b) for a, b in zip(p, current)), p),
+                    from conquest.navigation import first_reachable
+
+                    target = first_reachable(
+                        loop.terrain,
+                        sorted(
+                            nearby,
+                            key=lambda p: (max(abs(a - b) for a, b in zip(p, current)), p),
+                        ),
+                        current,
                     )
                     loop.record(
                         "warehouse_closer_approach",
