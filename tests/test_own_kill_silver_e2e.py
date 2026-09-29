@@ -100,7 +100,8 @@ def test_own_kill_silver_e2e(monkeypatch, tmp_path):
     )
     # 6: valuables keep their rule, whoever killed the monster.
     rows["meteor_anywhere"] = picks(
-        supervisor, [GroundItem(7, 70, METEOR, (14, 16), KILL - 60_000)]
+        # Created a minute before our kill, within VALUABLE_CLICK_TILES.
+        supervisor, [GroundItem(7, 70, METEOR, (13, 13), KILL - 60_000)]
     )
     # 8: a kill with no target tile falls back to the farmer's own area.
     clock[0] = KILL + 30_000
