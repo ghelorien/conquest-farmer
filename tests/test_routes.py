@@ -214,9 +214,14 @@ def test_macaque_family_is_available_for_saved_route_selection():
     assert route.recommended_levels == (47, 51)
     assert route_monster_names(route) == ("Macaque", "MacaqueL48")
     assert route.supplies.healing_threshold == 0.85
-    assert route.hunting_boundary == (600, 612, 688, 670)
+    # Off the MonkeyKings' north-west (y <= 617) and east (x >= 681) haunts
+    # (Suicide died on the old 612 north edge, 2026-09-29).
+    assert route.hunting_boundary == (600, 628, 672, 670)
     # Unsurveyed Ape City bosses: FireSpirit's measured clearances.
     assert (route.king_clearance, route.elite_clearance) == (15, 13)
+    # The town legs run the x 564-567 corridor, never the north-west corner.
+    legs = route.outbound_waypoints + route.return_waypoints
+    assert all(not (595 <= x <= 635 and 585 <= y <= 620) for x, y in legs)
     config = TrialConfig(
         character="Kilhiam",
         player_profile="player.yaml",

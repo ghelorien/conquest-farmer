@@ -15,53 +15,73 @@ attack_range_tiles: 16
 # handling): keep FireSpirit's measured clearances until they are.
 king_clearance: 15
 elite_clearance: 13
-hunting_boundary: [600, 612, 688, 670]
+# North edge 628 and east edge 672 keep the hunt off the MonkeyKings' haunts:
+# two roam the north-west corner (605-632, 597-617) and one the east side
+# (681-695, 648-651); Suicide died at (640,610) on the old 612 edge
+# (2026-09-29 11:17), like the 09-23 death near (653,604).
+hunting_boundary: [600, 628, 672, 670]
 patrol_search:
   idle_seconds: 7.5
   expansion_tiles: 4
   maximum_expansions: 1
   sweep_spacing_tiles: 20
+# Inside the 628/672 boundary (terrain-checked 2026-09-29).
 patrol:
   - [620, 645]
   - [640, 645]
-  - [650, 645]
-  - [662, 640]
-  - [670, 639]
-  - [650, 620]
-  - [630, 620]
-  - [622, 624]
-  - [616, 628]
+  - [655, 645]
+  - [666, 640]
+  - [660, 655]
+  - [640, 660]
+  - [620, 660]
+  - [608, 650]
+  - [612, 635]
+# Through the corridor at x 564-567 south of Ape City, then east along y 641:
+# at least 24 tiles from every Monkey boss seen. The old waypoints ran
+# (583,584)-(595,588)-(603,598)-(609,616) through the north-west MonkeyKings'
+# corner, and a King held Suicide at (591,587) for 2.5 minutes (2026-09-29).
 outbound_waypoints:
   - [554, 545]
   - [559, 546]
-  - [562, 554]
-  - [565, 558]
-  - [567, 568]
-  - [570, 576]
-  - [571, 580]
-  - [583, 584]
-  - [595, 588]
-  - [600, 589]
-  - [603, 598]
-  - [606, 607]
-  - [609, 616]
-  - [612, 624]
-  - [615, 632]
-  - [618, 640]
+  - [561, 550]
+  - [563, 555]
+  - [564, 556]
+  - [564, 568]
+  - [564, 580]
+  - [564, 592]
+  - [564, 604]
+  - [566, 609]
+  - [567, 610]
+  - [567, 622]
+  - [567, 634]
+  - [567, 641]
+  - [579, 641]
+  - [591, 641]
+  - [600, 641]
+  - [601, 645]
+  - [613, 645]
   - [620, 645]
 return_waypoints:
   - [620, 645]
-  - [616, 633]
-  - [612, 621]
-  - [608, 609]
-  - [603, 597]
-  - [600, 589]
-  - [588, 585]
-  - [576, 581]
-  - [571, 580]
-  - [567, 568]
+  - [608, 645]
+  - [601, 645]
+  - [600, 641]
+  - [588, 641]
+  - [576, 641]
+  - [567, 641]
+  - [567, 629]
+  - [567, 617]
+  - [567, 610]
+  - [566, 609]
+  - [564, 608]
+  - [564, 596]
+  - [564, 584]
+  - [564, 572]
+  - [564, 560]
   - [564, 556]
-  - [558, 545]
+  - [563, 555]
+  - [561, 550]
+  - [559, 546]
   - [554, 545]
 terrain_sha256: 2feb3cdcf2a5cfe8a3358f15103c9994b83094e319f7d780908da5e85658ca80
 supplies:
