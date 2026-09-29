@@ -56,6 +56,38 @@
           {"kind": 4, "option": 255, "text": ""}
         ]
       }
+    },
+    {
+      "source_map": 1020,
+      "npc_name": "Conductress",
+      "npc_position": [566, 622],
+      "option": "Twin City",
+      "destination_map": 1002,
+      "arrival_map": 1020,
+      "arrival_position": null,
+      "exit_portal": 1,
+      "price": 100,
+      "verified": false,
+      "observed_at": 1790706179.0,
+      "evidence": "Identity from Laptop2's passive npc_survey on Suicide, 2026-09-29 14:22:59 from (605,634): model 286, tile (566,622), uid 101574, type 0, species 0, in the corridor south of Ape City town. Unridden: gear_circuit takes it only toward Twin City and needs its landing within 30 tiles of 1020 portal 1 (376,8), as Phoenix's Twin City ride lands beside its portal 0. Dialog records are Phoenix's; a differing dialog sends no choice and no fare and is recorded (gear_circuit_ride_dialog).",
+      "service": {
+        "approach": [567, 615],
+        "identity": {
+          "map_id": 1020,
+          "type_id": 0,
+          "name": "Conductress",
+          "model": 286,
+          "position": [566, 622]
+        },
+        "records": [
+          {"kind": 0, "option": 0, "text": "Where are you heading? I can teleport you for a price of 100 silver."},
+          {"kind": 1, "option": 0, "text": "Twin City"},
+          {"kind": 1, "option": 1, "text": "Market"},
+          {"kind": 1, "option": 2, "text": "Just passing by."},
+          {"kind": 3, "option": 255, "text": ""},
+          {"kind": 4, "option": 255, "text": ""}
+        ]
+      }
     }
   ]
 }

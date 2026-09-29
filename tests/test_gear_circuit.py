@@ -249,6 +249,28 @@ def test_a_landing_far_from_the_exit_portal_goes_home_by_gate(qualified, monkeyp
     assert farmer.map_id == 1020 and farmer.position == [550, 547]
 
 
+def test_the_saved_ape_city_ride_is_the_surveyed_conductress_beside_portal_1():
+    # Laptop2's passive survey on Suicide, 14:22:59: model 286 at (566, 622).
+    from conquest.conductress import take_saved_trip
+    from conquest.market_services import MODELS
+    from conquest.navigation import read_terrain
+    from conquest.world_travel import CLIENT_ROOT
+
+    ride = g.saved_ride(1020, 1002)
+    assert ride["option"] == "Twin City" and ride["exit_portal"] == 1
+    assert ride["verified"] is False and ride["price"] == 100
+    identity = ride["service"]["identity"]
+    assert identity["model"] in MODELS["Conductress"] and identity["position"] == [566, 622]
+    terrain = read_terrain(CLIENT_ROOT, 1020)
+    assert (376, 8, 1) in terrain.portals
+    assert terrain.walkable(tuple(ride["service"]["approach"]))
+    terrain.path((554, 545), tuple(ride["service"]["approach"]))  # from town
+    # Map travel never buys it: it is no way into Twin City by itself.
+    life = {"map_id": 1020, "object_address": 1, "position": [567, 615]}
+    no_ride = NS(living=lambda: {"embedded_controls": {"life": life}})
+    assert take_saved_trip(no_ride, 1002) is False
+
+
 def test_ape_city_gate_receipt_and_where_gates_read():
     from dataclasses import replace
 
