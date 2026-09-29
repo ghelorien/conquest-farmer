@@ -73,6 +73,23 @@ def test_no_jump_in_town_or_without_a_close_living_monster(loop, position, monst
     assert loop.steps == [] and loop.events == []
 
 
+def test_no_landing_inside_a_far_boss_clearance(loop):
+    loop.route = NS(town_anchor=TOWN, king_clearance=15, elite_clearance=13)
+    king = {"name": "MonkeyKing", "position": [PLAIN[0], PLAIN[1] - 20]}  # 20 north
+    assert loop.evade_in_field(health(PLAIN, [ape((PLAIN[0], PLAIN[1] + 1)), king]))
+    [(target, _)] = loop.steps
+    assert max(abs(a - b) for a, b in zip(target, king["position"])) > 15
+
+
+def test_a_boss_inside_its_clearance_calls_for_a_jump_away(loop):
+    loop.route = NS(town_anchor=TOWN, king_clearance=15, elite_clearance=13)
+    king = {"name": "MonkeyKing", "position": [PLAIN[0] + 3, PLAIN[1]]}
+    assert loop.evade_in_field(health(PLAIN, [king]))
+    [(target, _)] = loop.steps
+    before = max(abs(a - b) for a, b in zip(PLAIN, king["position"]))
+    assert max(abs(a - b) for a, b in zip(target, king["position"])) > before
+
+
 def test_jumps_are_spaced(loop, monkeypatch):
     clock = [100.0]
     monkeypatch.setattr(overnight.time, "monotonic", lambda: clock[0])

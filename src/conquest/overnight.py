@@ -2809,7 +2809,9 @@ class OvernightLoop:
         plain north of Ape City: it drank its last potion and died 8 s into
         the 20 s pause (the 11:17 death on the Macaque field was the same
         gap). Uses the runback's escape_step: a clear visible landing with
-        less danger, nearer the town on ties. Returns whether it jumped.
+        less danger, nearer the town on ties. A boss inside the route's
+        clearance for it also calls for the jump; no landing or path enters
+        another boss's clearance. Returns whether it jumped.
         """
         now = time.monotonic()
         if now - getattr(self, "field_evaded_at", -FIELD_EVADE_SECONDS) < FIELD_EVADE_SECONDS:
@@ -2828,13 +2830,35 @@ class OvernightLoop:
         box = town_box(life["map_id"])
         if box and box[0] <= source[0] <= box[2] and box[1] <= source[1] <= box[3]:
             return False
-        monsters = controls.get("monsters") or []
-        if not any(
-            m.get("position")
-            and m.get("alive") is not False
-            and max(abs(a - b) for a, b in zip(m["position"], source)) <= FIELD_EVADE_TILES
-            for m in monsters
-        ):
+        from conquest.routes import BOSS_CLEARANCE, boss_clearance, boss_name
+
+        king = getattr(self.route, "king_clearance", BOSS_CLEARANCE)
+        elite = getattr(self.route, "elite_clearance", BOSS_CLEARANCE)
+        living = [
+            m for m in controls.get("monsters") or []
+            if m.get("position") and m.get("alive") is not False
+        ]
+        distance = lambda m: max(abs(a - b) for a, b in zip(m["position"], source))
+        # A boss inside its clearance weighs as five monsters, so the landing
+        # leaves it; every other boss's clearance is no landing and no path.
+        threats, avoid, close = list(living), set(), False
+        for m in living:
+            name = m.get("name") or ""
+            if not boss_name(name):
+                close = close or distance(m) <= FIELD_EVADE_TILES
+                continue
+            reach = boss_clearance(name, king, elite)
+            if distance(m) <= reach:
+                threats += [m] * 4
+                close = True
+                continue
+            bx, by = m["position"]
+            avoid.update(
+                (x, y)
+                for x in range(max(bx - reach, source[0] - 13), min(bx + reach, source[0] + 13) + 1)
+                for y in range(max(by - reach, source[1] - 13), min(by + reach, source[1] + 13) + 1)
+            )
+        if not close:
             return False
         from types import SimpleNamespace
         from conquest.runback_monitor import escape_step
@@ -2848,7 +2872,8 @@ class OvernightLoop:
             source,
             tuple(getattr(self.route, "town_anchor", None) or source),
             anchor,
-            monsters,
+            threats,
+            avoid=avoid,
             viewport=tuple(health.get("window", {}).get("client_size", (1036, 793))),
         )
         if escape is None:
