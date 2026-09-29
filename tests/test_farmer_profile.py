@@ -138,6 +138,18 @@ def test_toxic_farms_scatter_like_the_measured_jump_scatter_profile():
     assert toxic.force_jump_scatter is True
 
 
+def test_suicide_farms_with_toxics_profile_and_the_server_cooldown():
+    # Both are Back2Classic archers: the same measured jump-Scatter profile,
+    # including the 1.05 s recast (Suicide's own casts on 2026-09-29: 3 of 611
+    # landed under 1.00 s after a landed cast, 99-100% from 1.05 s).
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "profiles" / "farmers"
+    suicide = load_combat_speed("Suicide", root)
+    assert suicide.scatter_recast_seconds == 1.05
+    assert suicide == load_combat_speed("Toxic", root)
+
+
 def test_leveling_scatter_routes_jump_scatter():
     from conquest.routes import RouteLibrary
 

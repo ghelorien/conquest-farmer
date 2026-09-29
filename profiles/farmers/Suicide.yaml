@@ -4,10 +4,15 @@
 # same measured jump-Scatter profile as Toxic.yaml. Every Scatter cast uses
 # exactly 2 arrows (433 of 434 casts, 08:30-09:00), so the receipt fires at
 # 2 arrows instead of waiting out the recast.
+# The Back2Classic server skips a Scatter sent less than 1.0 s after the last
+# one that went off (no arrows used, nothing hit). Suicide's 2,456 casts on
+# 2026-09-29 04:17-05:15: 3 of 611 landed under 1.00 s after a landed cast,
+# 56% at 1.00-1.05 s, 99-100% from 1.05 s; only 74% landed at the 0.8 s
+# recast. It waits 1.05 s, as Toxic does.
 character: Suicide
 combat_speed:
   action_interval: 0.15
-  scatter_recast_seconds: 0.8
+  scatter_recast_seconds: 1.05
   scatter_receipt_seconds: 0.2
   scatter_receipt_arrows: 2
   jump_arrival_seconds: 0.25
