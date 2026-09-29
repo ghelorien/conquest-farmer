@@ -1172,7 +1172,7 @@ def test_valuable_loot_is_attempted_during_combat_without_waiting_for_clear_scen
     from conquest.memory_ground import GroundItem
 
     supervisor, _, _, _ = setup(monkeypatch)
-    meteor = GroundItem(1, 1000, 1088001, (15, 10))
+    meteor = GroundItem(1, 1000, 1088001, (13, 10))  # within VALUABLE_CLICK_TILES
     supervisor.ground_items = lambda: (meteor,)
     clicks = []
     assert supervisor.combat_loot_step(
@@ -1295,10 +1295,19 @@ def test_a_meteor_ten_tiles_away_is_walked_to_not_clicked(monkeypatch):
     assert max(abs(approach["destination"][0] - 50), abs(approach["destination"][1] - 60)) >= 1
 
 
-def test_a_meteor_within_six_tiles_is_clicked(monkeypatch):
-    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 55))
+def test_a_meteor_within_three_tiles_is_clicked(monkeypatch):
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 53))
     assert step()
     assert clicks[0][1].get("drop") is not None and supervisor.pending_loot
+
+
+def test_a_meteor_five_tiles_away_is_walked_to_before_the_click(monkeypatch):
+    # Suicide 2026-09-27..29: 21 of 25 valuable clicks from 1-3 tiles were
+    # picked up, 33 of 60 from 4-6 tiles.
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 55))
+    assert step()
+    assert supervisor.pending_loot is None and "drop" not in clicks[0][1]
+    assert [e for e, _ in notes if e.startswith("memory_pickup")] == ["memory_pickup_approach"]
 
 
 def test_a_farmer_standing_on_a_meteor_steps_beside_it_first(monkeypatch):

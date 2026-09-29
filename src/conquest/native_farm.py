@@ -69,7 +69,13 @@ JUMP_SCATTER_REACH = 3
 # Valuables other than silver are clicked from at most this many tiles: of
 # twelve Meteors seen on 2026-09-27 one was another player's, five were picked
 # and six were left, three of them after a click from 10-16 tiles missed.
-VALUABLE_CLICK_TILES = 6
+# Suicide 2026-09-27..29: 21 of 25 valuable clicks from 1-3 tiles were picked
+# up, 33 of 60 from 4-6 tiles; each miss costs 4 s and usually the approach.
+VALUABLE_CLICK_TILES = 3
+# Unverified clicks on one valuable before it waits VALUABLE_MISS_COOLDOWN
+# seconds, so a drop that cannot be picked up never holds the turn for good.
+VALUABLE_CLICK_MISSES = 3
+VALUABLE_MISS_COOLDOWN = 30
 # Tiles past the hunting boundary a walk toward a valuable (never silver) may go.
 VALUABLE_BOUNDARY_SLACK = 12
 # Alex 2026-09-29: "There should be a 25 tile radius for valuables". A
@@ -185,6 +191,8 @@ class NativeFarmSupervisor:
         # step or click toward a valuable; see valuable_chase_holds.
         self.valuable_chase = None
         self.loot_cooldowns = {}
+        # Unverified clicks per valuable still on the ground (VALUABLE_CLICK_MISSES).
+        self.loot_misses = {}
         self.loot_wait_until = 0
         self.pickups = 0
         self.last_loot_error = None
@@ -1261,13 +1269,32 @@ class NativeFarmSupervisor:
                     "memory_pickup_unverified",
                     {"uid": drop.uid, "type_id": drop.type_id},
                 )
+                key = (drop.uid, drop.object_address)
                 delay = SILVER_RETRY_SECONDS if drop.silver else 1
-                self.loot_cooldowns[(drop.uid, drop.object_address)] = now + delay
                 if not drop.silver:
-                    self.loot_wait_until = max(self.loot_wait_until, now + delay)
-                    self.close_loot_retry = (drop.uid, drop.object_address)
+                    self.close_loot_retry = key
+                    misses = getattr(self, "loot_misses", {})
+                    misses[key] = misses.get(key, 0) + 1
+                    self.loot_misses = misses
+                    if misses[key] >= VALUABLE_CLICK_MISSES:
+                        # Not ours to pick up for now (another player's, or
+                        # always covered): combat gets its turns meanwhile.
+                        delay = VALUABLE_MISS_COOLDOWN
+                        del misses[key]
+                        self.end_valuable_chase(drop)
+                    else:
+                        self.loot_wait_until = max(self.loot_wait_until, now + delay)
+                        if exists:
+                            # The retry from beside it keeps the chase, so
+                            # combat does not walk away during the cooldown.
+                            self.chase_valuable(drop)
+                self.loot_cooldowns[key] = now + delay
                 self.pending_loot = None
         self.loot_cooldowns = {k: v for k, v in self.loot_cooldowns.items() if v > now}
+        present = {(d.uid, d.object_address) for d in drops}
+        self.loot_misses = {
+            k: v for k, v in getattr(self, "loot_misses", {}).items() if k in present
+        }
         candidates = []
         approaches = []
         deferred = []
@@ -1604,6 +1631,13 @@ class NativeFarmSupervisor:
                 },
             )
             return True
+        except CaptureUnavailable as error:
+            # The farmer or camera is still moving from the last step and no
+            # input was sent: keep the chase, or combat takes the turn and
+            # walks away. "Player projection changed before loot input" ended
+            # nearly every chase; a Meteor 6 tiles off took 25 s while the
+            # farmer drifted 12+ tiles away between steps (Suicide 2026-09-29).
+            return deferred("Valuable approach: " + str(error), lasting=False)
         except ValueError as error:
             return deferred("Valuable approach: " + str(error))
 
