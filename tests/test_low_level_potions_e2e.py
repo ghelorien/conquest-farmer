@@ -34,7 +34,17 @@ from conquest.routes import RouteLibrary
 
 PAINKILLER = 1000020
 PACK = {1050000: 200, 1050001: 1000, 1050002: 5000}
-LOW = ("pheasant", "turtledove", "robin", "apparition", "poltergeist", "wingedsnake")
+LOW = (
+    "pheasant",
+    "turtledove",
+    "robin",
+    "apparition",
+    "poltergeist",
+    "wingedsnake",
+    # The WingedSnake herd's two halves (2026-09-29): same monsters and levels.
+    "wingedsnake-west",
+    "wingedsnake-east",
+)
 
 
 def bag(route, potions, arrows=None):
@@ -120,7 +130,7 @@ def test_low_level_potions_e2e(tmp_path, monkeypatch):
     assert set(LOW) <= set(routes)
     for route_id, row in routes.items():
         low = route_id in LOW
-        # Modes 1 and 2: 20 on the six low-level routes only; levels 1-31 exactly.
+        # Modes 1 and 2: 20 on the low-level routes only; levels 1-31 exactly.
         assert low == (row["levels"][1] <= 31), route_id
         assert row["healing_restock_to"] == (20 if low else 5), route_id
         # Mode 4: the town budget covers the whole refill (60 silver each).
