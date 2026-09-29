@@ -55,6 +55,14 @@ _silver_cache = (-float("inf"), False)
 # restock at all; LuckyArrows plus pickups keep it hunting until the bank
 # is back over the floor.
 SILVER_FLOOR = 5000
+# Per-character switch {"enabled": true}: pick silver up above the floor too.
+# Alex 2026-09-29 on Macaque: "if you can afford to sustain arrows with the
+# silver drops on the ground that would be optimal".
+SILVER_PICKUP = Path(state_path(".runtime/silver-pickup.json"))
+
+
+def silver_pickup_requested():
+    return read_json(SILVER_PICKUP).get("enabled") is True
 
 
 def banked_silver():
@@ -66,16 +74,21 @@ def banked_silver():
 
 def collect_silver():
     """Pick up dropped silver while the goal runs, where a fresh character
-    funds itself from drops, or while a Back2Classic farmer's bank is below
-    SILVER_FLOOR (checked every 2 s). Otherwise the walks cost kills: Alex
-    2026-09-28, Toxic and Suicide at 41, "No need to pickup silver anymore
-    only unique + items" (he funds the arrows)."""
+    funds itself from drops, while a Back2Classic farmer's bank is below
+    SILVER_FLOOR, or while its SILVER_PICKUP switch is on (checked every 2 s).
+    Otherwise the walks cost kills: Alex 2026-09-28, Toxic and Suicide at 41,
+    "No need to pickup silver anymore only unique + items" (he funds the
+    arrows). Only silver from our own kills is walked to (own_kill_drop)."""
     global _silver_cache
     now = time.monotonic()
     if now - _silver_cache[0] >= 2:
         _silver_cache = (
             now,
-            bool(goal()) or (back2classic() and banked_silver() < SILVER_FLOOR),
+            bool(goal())
+            or (
+                back2classic()
+                and (banked_silver() < SILVER_FLOOR or silver_pickup_requested())
+            ),
         )
     return _silver_cache[1]
 

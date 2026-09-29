@@ -550,6 +550,34 @@ def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
     assert not wanted_drop(silver)
 
 
+def test_the_silver_pickup_switch_collects_above_the_floor(monkeypatch):
+    # Alex 2026-09-29 on Macaque: "if you can afford to sustain arrows with
+    # the silver drops on the ground that would be optimal".
+    import json
+
+    from conquest import banking
+    from conquest.memory_ground import GroundItem, wanted_drop
+
+    silver = GroundItem(1, 100000, 1090000, (1, 1))
+    bank = level_goal.GOAL.with_name("bank-status.json")
+    monkeypatch.setattr(banking, "STATUS", bank)
+    bank.write_text(json.dumps({"stored_silver": 14190}))
+    monkeypatch.setattr(level_goal, "back2classic", lambda: True)
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    assert not wanted_drop(silver)  # above the floor, switch absent
+    level_goal.SILVER_PICKUP.write_text(json.dumps({"enabled": True}))
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    assert wanted_drop(silver)
+    level_goal.SILVER_PICKUP.write_text(json.dumps({"enabled": False}))
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    assert not wanted_drop(silver)
+    # The switch is a Back2Classic rule only.
+    level_goal.SILVER_PICKUP.write_text(json.dumps({"enabled": True}))
+    monkeypatch.setattr(level_goal, "back2classic", lambda: False)
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    assert not wanted_drop(silver)
+
+
 def test_early_heals_and_jumping_away_outlive_the_goal_on_back2classic(monkeypatch):
     # The goal ends at 23; the 70% heal must not fall to the route's 40%.
     assert level_goal.HEAL_BELOW == 0.7
