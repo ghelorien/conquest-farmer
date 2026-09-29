@@ -148,9 +148,15 @@ def circuit_due(plan, level, previous):
 
 def upgrade_circuit(loop):
     plan = active_plan()
-    if not plan or loop.route.id != plan["route_id"]:
+    if not plan or plan.get("mode") == "hold_route":
+        # Leveling or a route hold: a restock town without gear shops (Ape
+        # City) sends the farmer to Twin City's when an upgrade is due.
+        from conquest.gear_circuit import run
+
+        return run(loop)
+    if loop.route.id != plan["route_id"]:
         return False
-    if plan.get("mode") in ("save_silver", "hold_route"):
+    if plan.get("mode") == "save_silver":
         return False
     state = loop.town("gear")
     previous = read_json(CIRCUIT)

@@ -867,6 +867,12 @@ class TownTrade:
             from conquest.return_scroll import use
 
             return use(self)
+        if action == "gate-scroll" and set(body) == {"action", "type_id"}:
+            from conquest.return_scroll import GATES, use
+
+            if body["type_id"] not in GATES.values():
+                raise ValueError("Unsupported city gate scroll")
+            return use(self, body["type_id"])
         if action == "open-bank" and set(body) == {"action"}:
             from conquest.memory_warehouse import WarehouseMoneyReader
 
@@ -1363,13 +1369,14 @@ class TownTrade:
             return {"closed": True}
         if action == "buy" and set(body) == {"action", "vendor_type", "type_id"}:
             from conquest.potion_tiers import HEALING_POTIONS
+            from conquest.return_scroll import GATES, GATE_PRICE
 
             if body["type_id"] not in (
                 *HEALING_POTIONS,
                 1050000,
                 1050001,
                 1050002,
-                1060020,
+                *GATES.values(),
             ):
                 raise ValueError("Unsupported healing or normal archer ammunition")
             npc = self.vendor(body["vendor_type"])
@@ -1384,8 +1391,8 @@ class TownTrade:
 
                 if not eligible_arrow(product, read_equipment(self.observer)):
                     raise ValueError("Arrow tier is not usable at the current level")
-            if product.type_id == 1060020 and (
-                product.price != 200 or body["vendor_type"] != 3
+            if product.type_id in GATES.values() and (
+                product.price != GATE_PRICE or body["vendor_type"] != 3
             ):
                 raise ValueError("Return scroll requires the verified Pharmacist price")
             if product.price <= 0:

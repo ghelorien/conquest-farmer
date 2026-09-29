@@ -9,7 +9,9 @@ from conquest.conductress import read_dialog, dialog_option_point
 
 # Models from the installed npc.json, checked again in the live actor scene.
 MODELS = {
-    "Conductress": {280, 287},
+    # npc.json type 28 plus the facing digit: Twin City's is 280, Phoenix's
+    # 287; Ape City's was unseen when its gear trip was written.
+    "Conductress": set(range(280, 290)),
     "MillionaireLee": {4290, 4294, 4297},
     "Warehouseman": {80, 87, 200, 210},
     "Mark.Controller": {417},

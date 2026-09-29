@@ -287,8 +287,10 @@ def equip_receipt(uid, slot, before_bag, before_gear, after_bag, after_gear):
 
 
 class EquipmentReview:
-    def __init__(self, loop):
+    def __init__(self, loop, *, minimum_reserve=0):
         self.loop = loop
+        # Silver no purchase may touch (gear_circuit keeps its floor).
+        self.minimum_reserve = minimum_reserve
 
     def visit(self, vendor):
         from conquest.savings import savings_plan
@@ -343,6 +345,7 @@ class EquipmentReview:
                     reserve = shopping_budget(loop.route, bag, state["level"])
                 except ValueError:
                     reserve = RESERVE_SILVER
+            reserve = max(reserve, self.minimum_reserve)
             choices = choose_upgrades(options, state, bag["silver"], reserve)
             loop.record(
                 "equipment_review",
