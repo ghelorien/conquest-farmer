@@ -49,17 +49,34 @@ def protections():
 
 
 _silver_cache = (-float("inf"), False)
+# Below this much banked silver a Back2Classic farmer picks silver up again:
+# less than one IronArrow pack (4,800). Toxic's bank ran down to 150 on
+# 2026-09-28 21:26 before Alex's promised top-up, and an empty wallet cannot
+# restock at all; LuckyArrows plus pickups keep it hunting until the bank
+# is back over the floor.
+SILVER_FLOOR = 5000
+
+
+def banked_silver():
+    from conquest.banking import STATUS
+
+    value = read_json(STATUS).get("stored_silver")
+    return value if type(value) is int else 0
 
 
 def collect_silver():
-    """Pick up dropped silver only while the goal runs, where a fresh
-    character funds itself from drops (checked every 2 s). Past it the walks
-    cost kills: Alex 2026-09-28, Toxic and Suicide at 41, "No need to pickup
-    silver anymore only unique + items"."""
+    """Pick up dropped silver while the goal runs, where a fresh character
+    funds itself from drops, or while a Back2Classic farmer's bank is below
+    SILVER_FLOOR (checked every 2 s). Otherwise the walks cost kills: Alex
+    2026-09-28, Toxic and Suicide at 41, "No need to pickup silver anymore
+    only unique + items" (he funds the arrows)."""
     global _silver_cache
     now = time.monotonic()
     if now - _silver_cache[0] >= 2:
-        _silver_cache = (now, bool(goal()))
+        _silver_cache = (
+            now,
+            bool(goal()) or (back2classic() and banked_silver() < SILVER_FLOOR),
+        )
     return _silver_cache[1]
 
 

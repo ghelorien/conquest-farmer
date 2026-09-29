@@ -525,11 +525,27 @@ def test_goal_picks_up_dropped_silver_only_while_active(monkeypatch):
     assert not wanted_drop(silver)
     # Past the goal a Back2Classic character leaves silver too (Alex
     # 2026-09-28, Toxic and Suicide at 41: "No need to pickup silver anymore
-    # only unique + items"), and still takes a Unique.
+    # only unique + items"), and still takes a Unique...
+    import json
+
+    from conquest import banking
+
+    bank = level_goal.GOAL.with_name("bank-status.json")
+    monkeypatch.setattr(banking, "STATUS", bank)
+    bank.write_text(json.dumps({"stored_silver": 27432}))
     monkeypatch.setattr(level_goal, "back2classic", lambda: True)
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
     assert not wanted_drop(silver)
     assert wanted_drop(GroundItem(3, 100000, 500007, (1, 1), plus=0))
+    # ...until its bank cannot pay for one IronArrow pack (Toxic, 150 at
+    # 21:26): an empty wallet cannot restock, so silver counts again.
+    bank.write_text(json.dumps({"stored_silver": 150}))
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    assert wanted_drop(silver)
+    # America keeps its own rule: no Back2Classic floor.
+    monkeypatch.setattr(level_goal, "back2classic", lambda: False)
+    monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    assert not wanted_drop(silver)
 
 
 def test_early_heals_and_jumping_away_outlive_the_goal_on_back2classic(monkeypatch):
