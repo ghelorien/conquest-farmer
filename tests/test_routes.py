@@ -215,6 +215,8 @@ def test_macaque_family_is_available_for_saved_route_selection():
     assert route_monster_names(route) == ("Macaque", "MacaqueL48")
     assert route.supplies.healing_threshold == 0.85
     assert route.hunting_boundary == (600, 612, 688, 670)
+    # Unsurveyed Ape City bosses: FireSpirit's measured clearances.
+    assert (route.king_clearance, route.elite_clearance) == (15, 13)
     config = TrialConfig(
         character="Kilhiam",
         player_profile="player.yaml",
