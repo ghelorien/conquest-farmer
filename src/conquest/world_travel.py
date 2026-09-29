@@ -268,6 +268,15 @@ def return_from_market(loop, destination):
     policy = read_json(POLICY)
     origin = getattr(loop.route, "restock_map_id", destination)
     plan = policy.get("origins", {}).get(str(origin), {}).get("return")
+    if not plan:
+        # Mark.Controller sends a farmer back to its city; the Magic Artisan
+        # visit from Ape City has no Meteor-trip origin of its own.
+        from conquest.market_artisan import exit_plan
+
+        try:
+            plan = exit_plan(origin)
+        except ValueError:
+            plan = None
     if (
         not plan
         or not plan.get("verified")

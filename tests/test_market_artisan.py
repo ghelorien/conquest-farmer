@@ -53,6 +53,33 @@ def test_market_exit_is_mark_controller_back_home():
     assert plan["destination_map"] == 1020 and plan["fare"] == 0
 
 
+def test_a_restart_in_the_market_leaves_for_ape_city_by_mark_controller(monkeypatch, tmp_path):
+    # An Artisan visit interrupted in the Market restarts through
+    # travel_to_map, whose Market exit needed a Meteor-trip origin plan that
+    # Ape City never had.
+    import json
+    from pathlib import Path
+
+    from conquest import meteor_banking, world_travel
+
+    saved = json.loads(Path("profiles/meteor-banking.json").read_text(encoding="utf-8"))
+    m.write_json(meteor_banking.POLICY, saved)
+    # The departure journal is character state: keep it out of the checkout.
+    monkeypatch.setattr(world_travel, "state_path", lambda p: str(tmp_path / Path(p).name))
+    rides = []
+    monkeypatch.setattr(meteor_banking, "trip", lambda loop, plan, **k: rides.append(plan))
+    monkeypatch.setattr("conquest.city_travel.ensure_city_visit", lambda *a, **k: None)
+    monkeypatch.setattr("conquest.town_trade.stash_candidate", lambda item: False)
+    loop = NS(
+        route=NS(restock_map_id=1020),
+        town=lambda action, **k: {"items": []},
+        living=lambda: {"target": {"pid": 1}},
+        record=lambda *a, **k: None,
+    )
+    world_travel.return_from_market(loop, 1020)
+    assert rides[0]["npc"] == "Mark.Controller" and rides[0]["destination_map"] == 1020
+
+
 @pytest.mark.parametrize(
     "text, price",
     [

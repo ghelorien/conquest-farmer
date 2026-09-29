@@ -379,11 +379,26 @@ def run(loop):
         activity=f"Taking the {worn.get('name')} to the Magic Artisan in the Market",
     )
     from conquest.meteor_banking import trip
+    from conquest.city_travel import city_for
+    from conquest.return_scroll import GATES, buy_gate
 
     prior = loop.phase
     loop.phase = "restocking"
     outcome, left = None, False
     try:
+        # Mark.Controller's landing on the home map is unobserved: carry the
+        # gate home in case it is far out (the ride's (381, 21) is beyond the
+        # GiantApe plain).
+        if home in GATES:
+            loop.travel(tuple(city_for(home)["services"]["pharmacist"]))
+            loop.town("open", vendor_type=3)
+            try:
+                gates = buy_gate(loop, home, keep=1)
+            finally:
+                loop.town("close", window="Shop")
+                loop.town("close", window="Inventory")
+            if gates < 1:
+                raise ValueError("No gate home for the Market visit")
         trip(loop, plan)
         left = True
         try:
@@ -420,11 +435,35 @@ def run(loop):
     try:
         if left:
             store_leftovers(loop)
-            from conquest.meteor_banking import trip as ride
+            try:
+                trip(loop, exit_plan(home))
+            except ValueError as error:
+                # Out of the Market but not on the home map (the controller
+                # may send an Ape City visitor elsewhere): the gate goes home.
+                stray = loop.living()["embedded_controls"]["life"]
+                if stray["map_id"] == MARKET:
+                    raise
+                loop.record(
+                    "market_exit_elsewhere",
+                    map_id=stray["map_id"],
+                    position=stray["position"],
+                    detail=str(error),
+                    activity="Market exit landed on another map; reading the gate home",
+                )
+            from conquest.return_scroll import in_town, read_gate
+            from types import SimpleNamespace
 
-            ride(loop, exit_plan(home))
-            from conquest.city_travel import city_for
-
+            life = loop.living()["embedded_controls"]["life"]
+            loop.record(
+                "market_exit_landing",
+                position=life["position"],
+                map_id=life["map_id"],
+                activity=f"Back from the Market at {life['position']}",
+            )
+            if not in_town(SimpleNamespace(**life), home) and not read_gate(loop, home):
+                raise ValueError(
+                    f"Market exit landed outside town at {life['position']} and no gate home was read"
+                )
             loop.travel(tuple(city_for(home)["services"]["pharmacist"]))
     finally:
         loop.phase = prior
