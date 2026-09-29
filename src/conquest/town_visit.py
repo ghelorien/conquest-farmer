@@ -694,13 +694,24 @@ class TownVisit:
                 "Required town return needs the exact game process identity"
             )
         if row.get("phase") == "returning_to_hunt":
-            if (
-                row.get("return_map_id") != hunt_map_id
-                or row.get("return_target") != target
-            ):
+            if row.get("return_target") != target:
                 raise ValueError(
                     "Required town return target changed; review the unfinished visit"
                 )
+            if row.get("return_map_id") != hunt_map_id:
+                # The town work is verified complete (require_town_work_complete)
+                # and the route moved to another map: the old map's return can
+                # never be observed. Suicide's Macaque hold after a Phoenix gear
+                # trip looped "Required town return target changed" into a
+                # failure cooldown in the Macaque field (2026-09-29). Restart the
+                # return on the new map; it still needs a new verified kill.
+                row.update(
+                    return_map_changed_from=row.get("return_map_id"),
+                    return_started_at=self.clock(),
+                    return_map_id=hunt_map_id,
+                    return_baseline=self.probe(),
+                )
+                write_json(self.path, row)
             return (
                 row  # Restart/hunt re-entry does not discard the first return baseline.
             )

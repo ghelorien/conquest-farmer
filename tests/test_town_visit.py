@@ -391,6 +391,31 @@ def test_hunt_reentry_cannot_replace_an_unfinished_return_identity(trip, change)
     assert visit.path.read_bytes() == before
 
 
+def test_a_route_change_to_another_map_restarts_the_completed_return(trip):
+    # Suicide 2026-09-29: a Phoenix gear trip's restock was complete, then the
+    # Macaque hold moved the hunt to map 1020; the return to 1011 could never
+    # be observed and every restart failed "Required town return target
+    # changed". The return now restarts on the new map from a fresh baseline.
+    visit, now, sample, health = returned(trip)
+    first = visit.state()
+    now[0] = 1030
+    sample.update(observed_at=1030, cursor=20, kills=25)
+    row = visit.returning(1020, target=health["target"])
+    assert row["phase"] == "returning_to_hunt" and row["return_map_id"] == 1020
+    assert row["return_map_changed_from"] == 1000
+    assert row["town_visit_id"] == first["town_visit_id"]
+    assert row["return_baseline"]["kills"] == 25 and row["return_started_at"] == 1030
+    # A re-entry on the new map keeps that baseline.
+    assert visit.returning(1020, target=health["target"])["return_baseline"]["kills"] == 25
+
+
+def test_a_map_change_never_skips_unfinished_town_work(trip):
+    visit, now, sample, health = trip
+    visit.begin("restock", hunt_map_id=1000)
+    with pytest.raises(ValueError, match="Unfinished town work"):
+        visit.returning(1020, target=health["target"])
+
+
 def test_readonly_checkpoint_uses_verified_rows_without_touching_counter_files(
     tmp_path,
 ):
