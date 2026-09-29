@@ -71,6 +71,18 @@ def test_twin_city_restock_needs_no_trip():
     assert g.planned(worn(), 78_000, 1002) == []
 
 
+def test_a_lone_necklace_at_49_waits_for_the_level_50_bow():
+    plan = g.planned(worn(level=49), 78_000, 1020)
+    assert [p["name"] for p in plan] == ["CrystalNecklace"]
+    assert not g.worth_trip(plan)
+    assert g.worth_trip(g.planned(worn(), 78_000, 1020))
+    farmer = Farmer()
+    farmer.town = lambda action, **kw: (
+        worn(level=49) if action == "gear" else Farmer.town(farmer, action, **kw)
+    )
+    assert g.run(farmer) is False and farmer.calls == []
+
+
 class Farmer:
     """A farmer in Ape City town after its restock, all silver withdrawn."""
 

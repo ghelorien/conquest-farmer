@@ -69,6 +69,16 @@ def planned(state, silver, home):
     ]
 
 
+def worth_trip(plan):
+    """A trip costs ~5 minutes of hunting (~130k XP on Macaques) and ~500
+    silver: go for damage (bow or ring) or at least two defense upgrades, not
+    a lone CrystalNecklace at 49 (QinBow and IvoryRing unlock at 50)."""
+    from conquest.equipment import category
+
+    slots = [category(p["type_id"]) for p in plan]
+    return any(slot in ("bow", "ring") for slot in slots) or len(slots) >= 2
+
+
 def trips_at(level):
     data = read_json(STATE)
     return data.get("trips", 0) if data.get("level") == level else 0
@@ -248,7 +258,7 @@ def run(loop):
     silver = loop.town("supplies")["silver"] + banked
     plan = planned(state, silver, home)
     level = state["level"]
-    if not plan or trips_at(level) >= TRIPS_PER_LEVEL:
+    if not worth_trip(plan) or trips_at(level) >= TRIPS_PER_LEVEL:
         return False
     names = [p["name"] for p in plan]
     policy = read_json(POLICY)
