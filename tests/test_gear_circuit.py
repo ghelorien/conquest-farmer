@@ -305,6 +305,46 @@ def test_the_saved_ape_city_ride_is_the_surveyed_conductress_beside_portal_1():
     assert take_saved_trip(no_ride, 1002) is False
 
 
+def test_a_portal_side_that_refuses_every_step_tries_the_next(monkeypatch):
+    # 2026-09-29 15:35: from the ride's landing (381, 21) the east approach
+    # (379, 8) of 1020 portal 1 held Toxic at y 10-12 until bounded recovery
+    # gave up; it had stood on (376, 11), south of the portal.
+    from conquest import world_travel as w
+    from conquest.travel_progress import TravelStalled
+
+    terrain = w.read_terrain(w.CLIENT_ROOT, 1020)
+    first = w.approach_candidates(terrain, (381, 21), 1)
+    assert first[0][0] == (376, 11)  # the reached side leads now
+    tried, jumps = [], []
+    state = {"map": 1020, "position": [381, 21], "stamp": 0}
+
+    def travel(point, **kw):
+        tried.append(tuple(point))
+        if len(tried) == 1:
+            raise TravelStalled("Route made no improving progress after bounded recovery")
+        state["position"] = list(point)
+
+    def living():
+        return {"embedded_controls": {"life": {"map_id": state["map"], "position": state["position"], "object_address": 7, "dead_candidate": False}}}
+
+    def health():
+        state["stamp"] += 1
+        return {"embedded_controls": {"life": {**living()["embedded_controls"]["life"], "timestamp": state["stamp"]}, "observed_at": w.time.time()}}
+
+    def request(info, operation, body):
+        jumps.append(body["destination"])
+        state.update(map=1002, position=[555, 957])
+        return {}
+
+    events = []
+    loop = NS(living=living, health=health, travel=travel, info=None, record=lambda e, **k: events.append(e))
+    monkeypatch.setattr(w, "request", request)
+    edge = w.cross_portal(loop, 1, 1002)
+    assert len(tried) == 2 and tried[1] != tried[0]
+    assert jumps == [[376, 8]] and edge["destination_map"] == 1002
+    assert "portal_approach_retry" in events
+
+
 def test_ape_city_gate_receipt_and_where_gates_read():
     from dataclasses import replace
 

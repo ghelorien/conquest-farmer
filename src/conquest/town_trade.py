@@ -1144,6 +1144,10 @@ class TownTrade:
             return self.discarder.discard(body["uid"])
         if action == "warehouse-deposit" and set(body) == {"action", "uid"}:
             return self.warehouse_deposit(body["uid"])
+        if action == "use-meteor-scroll" and set(body) == {"action", "uid"}:
+            from conquest.meteor_unpack import unpack
+
+            return unpack(self, body["uid"])
         if action == "warehouse-withdraw-meteor" and set(body) == {"action", "uid"}:
             from conquest.memory_warehouse import withdrawal_received
 
@@ -1151,11 +1155,13 @@ class TownTrade:
             reader = MemoryWarehouseReader(self.observer.adapter)
             before = self.inventory.read()
             stored = reader.read()
+            # A loose Meteor, or the farmer's own MeteorScroll for the Magic
+            # Artisan (market_artisan unpacks it into ten Meteors).
             candidates = [
                 i
                 for i in stored.items
                 if i.uid == body["uid"]
-                and i.type_id == 1088001
+                and i.type_id in (1088001, 720027)
                 and i.amount == i.limit == 1
             ]
             if len(candidates) != 1 or len(before.items) >= before.capacity:

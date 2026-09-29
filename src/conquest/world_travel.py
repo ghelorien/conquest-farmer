@@ -41,7 +41,10 @@ def connection_path(source, destination, edges=None):
     )
 
 
-def approach_portal(terrain, source, portal_id):
+def approach_candidates(terrain, source, portal_id):
+    """Every approach with a terrain path, nearest first (Manhattan, then
+    Chebyshev: from Ape City's (381, 21) landing that puts (376, 11), which
+    Toxic reached, before (379, 8), which it never could)."""
     matches = [p for p in terrain.portals if p[2] == portal_id]
     if len(matches) != 1:
         raise ValueError("Portal ID is absent or ambiguous")
@@ -61,15 +64,26 @@ def approach_portal(terrain, source, portal_id):
                 (0, -3),
             )
         ),
-        key=lambda p: abs(p[0] - source[0]) + abs(p[1] - source[1]),
+        key=lambda p: (
+            abs(p[0] - source[0]) + abs(p[1] - source[1]),
+            max(abs(p[0] - source[0]), abs(p[1] - source[1])),
+        ),
     )
+    found = []
     for point in candidates:
         try:
             terrain.path(tuple(source), point)
         except ValueError:
             continue
-        return point, matches[0]
-    raise ValueError("No walkable approach to this portal")
+        found.append((point, matches[0]))
+    return found
+
+
+def approach_portal(terrain, source, portal_id):
+    found = approach_candidates(terrain, source, portal_id)
+    if not found:
+        raise ValueError("No walkable approach to this portal")
+    return found[0]
 
 
 def cross_portal(loop, portal_id, expected_map=None):
@@ -78,8 +92,27 @@ def cross_portal(loop, portal_id, expected_map=None):
     actor = before["object_address"]
     terrain = read_terrain(CLIENT_ROOT, source_map)
     loop.terrain = terrain
-    approach, portal = approach_portal(terrain, before["position"], portal_id)
-    loop.travel(approach)
+    options = approach_candidates(terrain, before["position"], portal_id)
+    if not options:
+        raise ValueError("No walkable approach to this portal")
+    from conquest.travel_progress import TravelStalled
+
+    # A walkable-looking side can still refuse every step: 1020 portal 1's
+    # east approach (379, 8) held Toxic at y 10-12 until bounded recovery
+    # gave up (2026-09-29 15:35), while (376, 11) south of it was reached.
+    for index, (approach, portal) in enumerate(options):
+        try:
+            loop.travel(approach)
+            break
+        except TravelStalled as error:
+            if error.code != "no_progress" or index + 1 == len(options):
+                raise
+            loop.record(
+                "portal_approach_retry",
+                approach=list(approach),
+                detail=str(error),
+                activity="Portal approach made no progress; trying another side",
+            )
     before = loop.living()["embedded_controls"]["life"]
     if before["map_id"] != source_map or before["object_address"] != actor:
         raise ValueError("Character or map changed before portal entry")

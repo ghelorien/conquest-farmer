@@ -149,11 +149,13 @@ def circuit_due(plan, level, previous):
 def upgrade_circuit(loop):
     plan = active_plan()
     if not plan or plan.get("mode") == "hold_route":
-        # Leveling or a route hold: a restock town without gear shops (Ape
-        # City) sends the farmer to Twin City's when an upgrade is due.
+        # Leveling or a route hold: a requested Magic Artisan visit first,
+        # else a restock town without gear shops (Ape City) sends the farmer
+        # to Twin City's when an upgrade is due. One trip per restock.
+        from conquest import market_artisan
         from conquest.gear_circuit import run
 
-        return run(loop)
+        return market_artisan.run(loop) or run(loop)
     if loop.route.id != plan["route_id"]:
         return False
     if plan.get("mode") == "save_silver":

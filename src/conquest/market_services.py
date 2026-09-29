@@ -18,6 +18,9 @@ MODELS = {
     # Archer class trainer (npc.json type 165: model 1650 + facing digit),
     # visited once to learn Scatter (scatter_training).
     "ArcherGod": set(range(1650, 1660)),
+    # Market equipment upgrades (npc.json type 501; ini/tips.json places her
+    # at (260,247)), visited by market_artisan.
+    "MagicArtisan": set(range(5010, 5020)),
 }
 
 
