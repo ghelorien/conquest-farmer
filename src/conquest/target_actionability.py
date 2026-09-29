@@ -49,11 +49,16 @@ class TargetActionability:
         return data
 
 
-def target_actionability(point, gui_size, client_size, windows=(), *, route_chat=None):
+def target_actionability(
+    point, gui_size, client_size, windows=(), *, route_chat=None, chat_blocks=True
+):
     """Classify a projected target before any input intent is persisted.
 
-    ``route_chat`` (a viewport.ChatPassThrough) lets route movement click
-    through the live chat's message area; other targeting never passes it.
+    Route movement passes ``chat_blocks=False`` like route_recovery's own
+    clear_scene check, and ``route_chat`` (a viewport.ChatPassThrough) for the
+    live chat's message area; other targeting passes neither. Portal 9's jump
+    at Twin City's clamped south edge fell in clear_scene's bottom-left chat
+    box (this client draws no chat there) and was refused (2026-09-29).
     """
     gui = validate_size(gui_size)
     client = validate_size(client_size)
@@ -71,7 +76,7 @@ def target_actionability(point, gui_size, client_size, windows=(), *, route_chat
         reason = "outside_gui"
     elif not (0 <= physical[0] < client[0] and 0 <= physical[1] < client[1]):
         reason = "outside_client"
-    elif not clear_scene(logical, gui) and not (
+    elif not clear_scene(logical, gui, chat_blocks=chat_blocks) and not (
         route_chat is not None and route_chat.passes(logical)
     ):
         reason = "scene_control"

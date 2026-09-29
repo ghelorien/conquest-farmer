@@ -307,14 +307,9 @@ class RouteRecovery:
 
 def route_chat(observer):
     """The live chat message area route clicks may pass through, or None."""
-    from conquest.merchants.memory import GuiReader
-    from conquest.viewport import ChatPassThrough
+    from conquest.viewport import read_route_chat
 
-    try:
-        windows = GuiReader.for_session(observer.adapter).windows()
-    except (AttributeError, ValueError, OSError):
-        return None
-    return ChatPassThrough.from_windows(windows)
+    return read_route_chat(observer.adapter)
 
 
 class EmbeddedRecoveryInput:
@@ -504,6 +499,7 @@ class EmbeddedRecoveryInput:
                     size,
                     windows,
                     route_chat=chat[0] if chat else None,
+                    chat_blocks=False,
                 )
 
             if kind != "revive":

@@ -95,6 +95,55 @@ def test_toxic_chat_geometry_is_read_live():
     assert chat.passes((600, 150)) and not chat.passes((600, 60))
 
 
+def test_route_movement_ignores_the_stale_bottom_left_chat_box():
+    # Portal 9's jump at Twin City's clamped south edge fell in clear_scene's
+    # bottom-left chat box, which this client does not draw (2026-09-29).
+    point = (400, 700)
+    assert not target_actionability(point, SIZE, SIZE)["actionable"]
+    assert target_actionability(point, SIZE, SIZE, chat_blocks=False)["actionable"]
+    # The XP popup row and the control bar still block route clicks.
+    assert not target_actionability((708, 720), SIZE, SIZE, chat_blocks=False)["actionable"]
+    assert not target_actionability((400, 800), SIZE, SIZE, chat_blocks=False)["actionable"]
+
+
+@pytest.mark.parametrize("chat_present", [True, False])
+def test_travel_steps_onto_the_gate_approach_through_the_chat(monkeypatch, chat_present):
+    # The controller's planner: at the clamped Phoenix gate (anchor (288,192))
+    # the approach two tiles west and one north projects to (256,144) in the
+    # chat messages. Refusing it shortened every step and oscillated between
+    # (9,377) and (10,377).
+    from types import SimpleNamespace
+
+    from conquest import scene_input, viewport
+    from conquest.overnight import OvernightLoop
+    from conquest.routes import RouteLibrary
+
+    loop = OvernightLoop.__new__(OvernightLoop)
+    loop.route = RouteLibrary().load("turtledove")
+    loop.terrain = TerrainMap(1011, 30, 30, np.zeros((30, 30), dtype=bool), "", (), ())
+    position = [10, 10]
+    monkeypatch.setattr(scene_input, "memory_player_anchor", lambda *a: (288, 192))
+    monkeypatch.setattr(
+        viewport,
+        "read_route_chat",
+        lambda session: ChatPassThrough.from_windows(SUICIDE) if chat_present else None,
+    )
+    loop.living = lambda: {"embedded_controls": {"life": {"position": list(position)}}}
+    loop.care = SimpleNamespace(check=lambda h: None, session=None)
+    loop.record = lambda *a, **k: None
+    steps = []
+
+    def step(destination, expected_position):
+        steps.append(tuple(destination))
+        position[:] = destination
+        return {"reached": True}
+
+    loop.stepper = SimpleNamespace(step_to=step)
+    loop.travel((8, 9))
+    assert position == [8, 9]
+    assert (steps[0] == (8, 9)) is chat_present
+
+
 def test_route_run_into_the_chat_messages_is_sent(monkeypatch, tmp_path):
     # The route input itself: a run whose tile projects into the messages is
     # clicked; one that projects onto the input row is refused.

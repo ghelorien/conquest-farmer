@@ -833,6 +833,18 @@ class OvernightLoop:
         detour_cache = None
         laps = {}
         lap_at = [time.monotonic()]
+        route_chat = []  # viewport.ChatPassThrough, read once when first needed
+
+        def chat_passes(point):
+            # The chat's message area passes route clicks through. At Phoenix's
+            # west gate the clamped camera draws the (8,376) approach at
+            # (256,144) inside it; refusing it shortened every step to (9,377)
+            # and the detour stepped back to (10,377) (Suicide 2026-09-29).
+            if not route_chat:
+                from conquest.viewport import read_route_chat
+
+                route_chat.append(read_route_chat(self.care.session))
+            return route_chat[0] is not None and route_chat[0].passes(point)
 
         def lap(name):
             # Where each travel iteration spends its time; reported when slow.
@@ -1152,7 +1164,7 @@ class OvernightLoop:
                         )
                 dx, dy = target[0] - source[0], target[1] - source[1]
                 px, py = anchor[0] + (dx - dy) * 32, anchor[1] + (dx + dy) * 16
-                if not clear_route_point((px, py), bounds):
+                if not clear_route_point((px, py), bounds) and not chat_passes((px, py)):
                     shorter = visible_route_delta((dx, dy), anchor, bounds)
                     if shorter is None:
                         # At a clamped camera edge, a corner's endpoint can be

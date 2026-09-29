@@ -107,6 +107,16 @@ class ChatPassThrough:
         )
 
 
+def read_route_chat(session):
+    """The live ChatPassThrough for route movement, or None (read-only)."""
+    from conquest.merchants.memory import GuiReader
+
+    try:
+        return ChatPassThrough.from_windows(GuiReader.for_session(session).windows())
+    except (AttributeError, ValueError, OSError):
+        return None
+
+
 def require_world_point(point, size):
     from conquest.capture import CaptureUnavailable
 
