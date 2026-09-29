@@ -210,6 +210,54 @@ def test_warehouse_approach_uses_live_reachability(reachable):
     ]
 
 
+def sealed_cell_terrain():
+    """A wall between the farmer (north) and a Warehouseman at (20, 20), with
+    one walkable cell sealed inside it, nearer the farmer than any open one."""
+    import numpy as np
+    from conquest.navigation import TerrainMap
+
+    blocked = np.zeros((40, 40), dtype=bool)
+    blocked[15:18, 10:31] = True
+    blocked[16, 20] = False
+    return TerrainMap(9999, 40, 40, blocked, "", (), ())
+
+
+def test_warehouse_approach_skips_a_sealed_cell_toward_the_farmer():
+    # Ape City 2026-09-29: from the GiantApe plain the nearest walkable cell
+    # beside the Warehouseman, (578, 538), had no route to anywhere; the
+    # restock's first travel failed with four GiantApes 2 tiles away.
+    calls = []
+
+    def town(action, **fields):
+        calls.append((action, fields))
+        if action == "vendor-status":
+            return {"reachable": False}
+        if action == "warehouse-locate":
+            return {"position": [20, 20]}
+        return {}
+
+    loop = NS(
+        living=lambda: {
+            "embedded_controls": {"life": {"map_id": 9999, "position": [20, 2]}}
+        },
+        town=town,
+        terrain=sealed_cell_terrain(),
+        travel=lambda target, **fields: calls.append(("travel", target)),
+    )
+    b.open_warehouse(loop)
+    assert [target for action, target in calls if action == "travel"] == [(20, 18)]
+
+
+def test_first_reachable_keeps_the_first_choice_without_a_route():
+    from conquest.navigation import first_reachable
+
+    terrain = sealed_cell_terrain()
+    assert first_reachable(terrain, [(20, 16), (20, 18)], (20, 2)) == (20, 18)
+    # Nothing reachable, or a terrain with no planner: the old nearest choice.
+    assert first_reachable(terrain, [(20, 16)], (20, 2)) == (20, 16)
+    assert first_reachable(NS(walkable=lambda p: True), [(1, 1), (2, 2)], (0, 0)) == (1, 1)
+
+
 def test_market_bank_removes_intercepting_shop_before_alternate_target(monkeypatch):
     monkeypatch.setattr(b.time, "sleep", lambda _: None)
     panels = {"Shop"}
