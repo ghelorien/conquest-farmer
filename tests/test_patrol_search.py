@@ -27,8 +27,10 @@ def test_expansion_stays_inside_map_and_stops_at_saved_limit():
 def test_saved_routes_retain_idle_search_policy():
     from conquest.routes import RouteLibrary
 
-    # Macaque's tight patrol was narrowed to 4 tiles in 59410b2.
-    narrowed = {"apparition": 8, "macaque": 4}
+    # Macaque's tight patrol was narrowed to 4 tiles in 59410b2. The WingedSnake
+    # halves expand 1 tile so the two farmers' boxes overlap by at most 2
+    # (2026-09-29: 12 tiles made them overlap by 24).
+    narrowed = {"apparition": 8, "macaque": 4, "wingedsnake-west": 1, "wingedsnake-east": 1}
     for route in RouteLibrary().all():
         assert 5 <= route.patrol_search.idle_seconds <= 10
         assert route.patrol_search.expansion_tiles == narrowed.get(route.id, 12)

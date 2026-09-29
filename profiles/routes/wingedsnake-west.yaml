@@ -28,7 +28,7 @@ hunting_boundary:
 - 126
 patrol_search:
   idle_seconds: 5.0
-  expansion_tiles: 12
+  expansion_tiles: 1
   maximum_expansions: 1
   sweep_spacing_tiles: 20
 patrol:

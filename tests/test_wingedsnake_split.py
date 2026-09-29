@@ -84,6 +84,19 @@ def test_town_connector_and_patrol_are_walkable(routes, terrain, name):
         terrain.path(route.hunting_anchor, point)
 
 
+def test_the_patrol_expansion_keeps_the_halves_apart(routes):
+    # The idle expansion widens a box for good 5 s after arrival: at 12 tiles
+    # the halves overlapped by 24 and Toxic took 66 of 1,086 kills in the east
+    # strip (2026-09-29 04:42-05:16). At most 2 tiles may overlap.
+    west, east = routes["wingedsnake-west"], routes["wingedsnake-east"]
+    grow = [
+        r.patrol_search.expansion_tiles * r.patrol_search.maximum_expansions
+        for r in (west, east)
+    ]
+    overlap = (west.hunting_boundary[2] + grow[0]) - (east.hunting_boundary[0] - grow[1])
+    assert overlap <= 2
+
+
 @pytest.mark.parametrize("name", ["wingedsnake-west", "wingedsnake-east"])
 def test_the_halves_hunt_like_wingedsnake_with_iron_arrows(routes, name):
     # 4
@@ -99,10 +112,12 @@ def test_the_halves_hunt_like_wingedsnake_with_iron_arrows(routes, name):
         "attack_range_tiles",
         "king_clearance",
         "elite_clearance",
-        "patrol_search",
         "movement",
     ):
         assert getattr(route, field) == getattr(base, field), field
+    assert route.patrol_search.model_copy(
+        update={"expansion_tiles": base.patrol_search.expansion_tiles}
+    ) == base.patrol_search
     assert route.supplies.arrow_type == 1050001
 
 
