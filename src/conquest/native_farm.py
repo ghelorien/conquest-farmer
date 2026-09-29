@@ -1194,7 +1194,7 @@ class NativeFarmSupervisor:
                         )
                         return False
                 drops = self.ground_items()
-            chase = self.valuable_chase
+            chase = getattr(self, "valuable_chase", None)
             if chase is not None and not any(
                 (d.uid, d.object_address) == chase[0] for d in drops
             ):
@@ -1459,7 +1459,7 @@ class NativeFarmSupervisor:
         )
 
     def end_valuable_chase(self, drop):
-        chase = self.valuable_chase
+        chase = getattr(self, "valuable_chase", None)
         if chase is not None and chase[0] == (drop.uid, drop.object_address):
             self.valuable_chase = None
 
@@ -1470,7 +1470,7 @@ class NativeFarmSupervisor:
         radius for valuables"). It ends once the drop leaves the ground, its
         pickup is refused, no way there is left, or no step or click came for
         VALUABLE_CHASE_SECONDS."""
-        chase = self.valuable_chase
+        chase = getattr(self, "valuable_chase", None)
         if chase is None:
             return False
         _, target, stamp = chase
