@@ -80,6 +80,19 @@ def test_a_restart_in_the_market_leaves_for_ape_city_by_mark_controller(monkeypa
     assert rides[0]["npc"] == "Mark.Controller" and rides[0]["destination_map"] == 1020
 
 
+def test_her_approach_is_the_nearest_tile_on_the_arrival_side_of_the_fence():
+    # Live 16:11: no walkable tile beside the tip's (260, 247) is reachable
+    # from MillionaireLee's approach; the terrain fences row y 237.
+    from conquest.navigation import read_terrain
+    from conquest.world_travel import CLIENT_ROOT
+
+    terrain = read_terrain(CLIENT_ROOT, 1036)
+    tile = m.approach_tile(terrain, m.ARTISAN_TILE, m.EXCHANGE_APPROACH)
+    assert terrain.walkable(tile) and tile[1] <= 236
+    assert max(abs(a - b) for a, b in zip(tile, m.ARTISAN_TILE)) <= m.REACH_TILES
+    terrain.path(m.EXCHANGE_APPROACH, tile)
+
+
 @pytest.mark.parametrize(
     "text, price",
     [

@@ -38,6 +38,10 @@ ARTISAN = "MagicArtisan"
 ARTISAN_TILE = (260, 247)
 # MillionaireLee's verified approach: every Market trip has walked to it.
 EXCHANGE_APPROACH = (230, 240)
+# Service NPCs are clicked from up to 18 tiles and travel stops within 12 of
+# one (overnight._travel's service_name check): stand at most this far away.
+REACH_TILES = 12
+SEARCH_STEPS = 150
 METEOR = 1088001
 SCROLL = 720027
 REQUEST = Path(state_path(".runtime/artisan-request.json"))
@@ -192,21 +196,30 @@ def reach_artisan(loop):
     return located
 
 
-def approach_tile(terrain, target, source):
-    """A walkable tile 3-6 tiles from her, reachable from `source`, nearest it."""
+def approach_tile(terrain, target, source, reach=REACH_TILES):
+    """The reachable tile nearest her, within `reach` tiles, then the shortest
+    walk. The Market's terrain fences off its south-east (row y 237 and
+    column x 237): MillionaireLee (242, 242) is clicked across it from
+    (230, 240), and the tip's (260, 247) has no walkable tile beside her that
+    the arrival side reaches (live 2026-09-29 16:11)."""
+    from collections import deque
+
+    start = tuple(source)
+    steps = {start: 0}
+    queue = deque([start])
+    while queue:
+        x, y = point = queue.popleft()
+        if steps[point] >= SEARCH_STEPS:
+            continue
+        for near in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if near not in steps and terrain.walkable(near):
+                steps[near] = steps[point] + 1
+                queue.append(near)
     best = None
-    for dx in range(-6, 7):
-        for dy in range(-6, 7):
-            tile = (target[0] + dx, target[1] + dy)
-            if max(abs(dx), abs(dy)) < 3 or not terrain.walkable(tile):
-                continue
-            try:
-                path = terrain.path(tuple(source), tile)
-            except ValueError:
-                continue
-            key = (len(path), max(abs(dx), abs(dy)))
-            if best is None or key < best[0]:
-                best = (key, tile)
+    for tile, walk in steps.items():
+        away = max(abs(tile[0] - target[0]), abs(tile[1] - target[1]))
+        if 2 <= away <= reach and (best is None or (away, walk) < best[0]):
+            best = ((away, walk), tile)
     if best is None:
         raise ValueError("No walkable approach to the Magic Artisan")
     return best[1]
