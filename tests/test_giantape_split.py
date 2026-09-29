@@ -98,6 +98,18 @@ def test_town_connector_and_patrol_are_walkable_and_clear_of_bosses(routes, terr
         terrain.path(route.hunting_anchor, point)
 
 
+@pytest.mark.parametrize("start", [(554, 545), (606, 324), (650, 341)])
+def test_the_live_approach_to_the_anchor_stays_clear_of_every_king(routes, terrain, start):
+    # 3b. The boundary return plans terrain.travel_path to the anchor, not the
+    # waypoints: toward (575, 305) it passed 11 tiles from King 404775 and
+    # held there in the pack, 6 potions in 2 minutes (2026-09-29 18:27). From
+    # town, and from where that approach entered the plain.
+    route = routes["giantape-west"]
+    for tile in terrain.travel_path(start, route.hunting_anchor):
+        assert all(gap(tile, king) > route.king_clearance for king in KINGS), tile
+        assert gap(tile, AIDE) > route.elite_clearance, tile
+
+
 def test_the_strip_hunts_like_giantape(routes):
     # 4
     base, route = routes["giantape"], routes["giantape-west"]
