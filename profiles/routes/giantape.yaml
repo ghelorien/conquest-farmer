@@ -366,10 +366,8 @@ supplies:
   arrows_return_below: 3
   arrows_restock_to: 4000
   healing_type: 1000020
-  # Head home with potions for the ~600-tile road; 15:58 (2026-09-29) left
-  # at 1 and the restock's first travel failed in the pack.
-  healing_return_below: 3
-  healing_restock_to: 20
+  healing_return_below: 1
+  healing_restock_to: 5
   # GiantApe hits take 18% (up to ~40%): at 0.85 each 500 HP Amrita went in
   # at 82% HP, three in 6 s for ~450 HP of damage. After an escape the trial
   # still heals below 0.75.
