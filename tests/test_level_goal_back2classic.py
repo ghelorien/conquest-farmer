@@ -28,6 +28,7 @@ from conquest.town_trade import junk_type
 @pytest.fixture(autouse=True)
 def runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(level_goal, "GOAL", tmp_path / "level-goal.json")
+    monkeypatch.setattr(level_goal, "SILVER_PICKUP", tmp_path / "silver-pickup.json")
     monkeypatch.setattr(potion_tiers, "TIER", tmp_path / "healing-tier.json")
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
     from conquest import session_plan
