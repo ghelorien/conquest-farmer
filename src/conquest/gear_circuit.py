@@ -43,6 +43,7 @@ TRIPS_PER_LEVEL = 2
 # A Conductress landing this close to its exit portal walks to it; Phoenix's
 # ride landed 6 tiles from portal 0 (11, 376 beside 5, 376).
 EXIT_WALK_TILES = 30
+LANDING_SECONDS = 6.0
 STATE = Path(state_path(".runtime/gear-circuit.json"))
 
 
@@ -101,6 +102,40 @@ def saved_ride(source, destination):
     return rides[0] if len(rides) == 1 else None
 
 
+def landing(loop, ride, seconds=None):
+    """Wait for the ride's landing beside its exit portal.
+
+    The fare shows before the teleport: live 2026-09-29 15:14:21 the ride
+    "arrived" still on the approach (567, 615), and the farmer stood at
+    (381, 21), 13 tiles from portal 1, a moment later. Only a short walk
+    from the landing is allowed; a far one would walk the plain, and the
+    gate home is the way back from anywhere.
+    """
+    from conquest.navigation import read_terrain
+    from conquest.world_travel import CLIENT_ROOT
+
+    source = ride["source_map"]
+    portals = [
+        p for p in read_terrain(CLIENT_ROOT, source).portals if p[2] == ride["exit_portal"]
+    ]
+    if len(portals) != 1:
+        raise ValueError(f"Portal {ride['exit_portal']} is absent from map {source}")
+    deadline = time.monotonic() + (LANDING_SECONDS if seconds is None else seconds)
+    while True:
+        life = loop.living()["embedded_controls"]["life"]
+        if life["map_id"] == SHOP_CITY or (
+            life["map_id"] == source
+            and max(abs(a - b) for a, b in zip(life["position"], portals[0][:2]))
+            <= EXIT_WALK_TILES
+        ):
+            return life
+        if time.monotonic() >= deadline:
+            raise ValueError(
+                f"Conductress landing {life['position']} is not beside portal {ride['exit_portal']}"
+            )
+        time.sleep(0.2)
+
+
 def reach_twin_city(loop, home):
     from conquest.return_scroll import read_gate
 
@@ -133,24 +168,8 @@ def reach_twin_city(loop, home):
             except ValueError:
                 pass
         raise
-    life = loop.living()["embedded_controls"]["life"]
+    life = landing(loop, ride)
     if life["map_id"] != SHOP_CITY:
-        from conquest.navigation import read_terrain
-        from conquest.world_travel import CLIENT_ROOT
-
-        portals = [
-            p
-            for p in read_terrain(CLIENT_ROOT, life["map_id"]).portals
-            if p[2] == ride["exit_portal"]
-        ]
-        # Only a short walk from her landing: a far landing would walk the
-        # plain; the gate home is the way back from anywhere.
-        if len(portals) != 1 or max(
-            abs(a - b) for a, b in zip(life["position"], portals[0][:2])
-        ) > EXIT_WALK_TILES:
-            raise ValueError(
-                f"Conductress landing {life['position']} is not beside portal {ride['exit_portal']}"
-            )
         edge = cross_portal(loop, ride["exit_portal"], SHOP_CITY)
         loop.record(
             "gear_circuit_portal",

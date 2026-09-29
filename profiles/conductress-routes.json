@@ -64,12 +64,12 @@
       "option": "Twin City",
       "destination_map": 1002,
       "arrival_map": 1020,
-      "arrival_position": null,
+      "arrival_position": [381, 21],
       "exit_portal": 1,
       "price": 100,
       "verified": false,
-      "observed_at": 1790706179.0,
-      "evidence": "Identity from Laptop2's passive npc_survey on Suicide, 2026-09-29 14:22:59 from (605,634): model 286, tile (566,622), uid 101574, type 0, species 0, in the corridor south of Ape City town. Unridden: gear_circuit takes it only toward Twin City and needs its landing within 30 tiles of 1020 portal 1 (376,8), as Phoenix's Twin City ride lands beside its portal 0. Dialog records are Phoenix's; a differing dialog sends no choice and no fare and is recorded (gear_circuit_ride_dialog).",
+      "observed_at": 1790709261.0,
+      "evidence": "Identity from Laptop2's passive npc_survey on Suicide, 2026-09-29 14:22:59 from (605,634): model 286, tile (566,622), uid 101574, type 0, species 0, in the corridor south of Ape City town. Ridden by Toxic 15:14:21 (42c4043): these exact dialog records, a 100-silver fare, and the landing (381,21), 13 tiles from 1020 portal 1 (376,8) and the same tile Twin City's portal 9 arrives on. The fare showed before the teleport, so the landing is awaited. Saved unverified because it is no way into Twin City by itself: take_saved_trip never buys it, and gear_circuit rides it and then crosses portal 1.",
       "service": {
         "approach": [567, 615],
         "identity": {

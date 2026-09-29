@@ -230,9 +230,43 @@ def test_the_saved_ride_lands_beside_its_exit_portal(qualified, monkeypatch):
     assert g.read_json(g.STATE)["way"] == "ride" and farmer.map_id == 1020
 
 
+def test_the_landing_shows_after_the_fare(qualified, monkeypatch):
+    # Live 2026-09-29 15:14:21: the fare showed while the farmer still stood on
+    # the approach (567, 615); it stood at (381, 21), beside portal 1, a moment
+    # later. The first trip gave up on the approach and read its gate home.
+    ride = {"source_map": 1020, "destination_map": 1002, "exit_portal": 1, "service": {}}
+    monkeypatch.setattr(g, "saved_ride", lambda source, destination: ride)
+    crossed = []
+
+    def take(loop, trip):
+        loop.position = [567, 615]
+        reads = iter([[567, 615]] * 3 + [[381, 21]])
+        living = loop.living
+
+        def later():
+            if not crossed:
+                loop.position = next(reads, loop.position)
+            return living()
+
+        loop.living = later
+
+    def cross(loop, portal_id, expected):
+        crossed.append(portal_id)
+        loop.map_id, loop.position = expected, [555, 957]
+        return {"portal_id": portal_id}
+
+    monkeypatch.setattr("conquest.conductress.take_service_trip", take)
+    monkeypatch.setattr("conquest.world_travel.cross_portal", cross)
+    farmer = Farmer(twin_gates=0)
+    assert g.run(farmer) is True
+    assert crossed == [1] and "gear_circuit_failed" not in farmer.events
+    assert g.read_json(g.STATE)["way"] == "ride"
+
+
 def test_a_landing_far_from_the_exit_portal_goes_home_by_gate(qualified, monkeypatch):
     ride = {"source_map": 1020, "destination_map": 1002, "exit_portal": 1, "service": {}}
     monkeypatch.setattr(g, "saved_ride", lambda source, destination: ride)
+    monkeypatch.setattr(g, "LANDING_SECONDS", 0.5)
 
     def take(loop, trip):
         loop.position = [600, 280]  # the GiantApe plain, not portal 1 (376, 8)
