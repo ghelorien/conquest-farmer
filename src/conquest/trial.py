@@ -270,6 +270,14 @@ def messenger_target(observed, hp, position, config, age):
     )
 
 
+def valuable_walk_outside(supervisor, approaching, position):
+    """Whether the farmer may stand outside the hunting boundary because its
+    supervisor is walking to a valuable within native_farm.VALUABLE_RADIUS;
+    no boundary return starts while it holds."""
+    holds = getattr(supervisor, "valuable_chase_holds", None)
+    return holds is not None and not approaching and bool(holds(position))
+
+
 def visible_movement_delta(dx, dy, *, horizontal_limit=280, vertical_limit=110):
     """Shorten a jump to stay in the calibrated unobstructed play area."""
     scale = min(
@@ -432,6 +440,7 @@ def run_trial(
     last_scatter_cast = -float("inf")
     boss_hold_logged = -float("inf")
     return_hold_logged = -float("inf")
+    valuable_walk_logged = -float("inf")
     # Start with a cast if a living selected target is already in range.
     # Only a successful cast earns the next ordinary hunting jump.
     scatter_jump_due = False
@@ -623,7 +632,16 @@ def run_trial(
                     event("farming_area_reached", position=[x, y])
                 if approaching:
                     l, t, r, b = config.approach_boundary
-                if recovery is None and not (l <= x <= r and t <= y <= b):
+                outside = recovery is None and not (l <= x <= r and t <= y <= b)
+                if outside and valuable_walk_outside(supervisor, approaching, (x, y)):
+                    # Alex 2026-09-29: "There should be a 25 tile radius for
+                    # valuables". The walk to one goes on past the boundary;
+                    # the return starts once the chase ends.
+                    outside = False
+                    if time.monotonic() - valuable_walk_logged >= 5:
+                        valuable_walk_logged = time.monotonic()
+                        event("valuable_walk_outside_boundary", position=[x, y])
+                if outside:
                     if (
                         supervisor is None
                         or observe_only

@@ -1,10 +1,12 @@
 """Valuables keep their loot turn while an overdue Scatter makes silver wait,
-and a walk toward one may go a little past the hunting boundary.
+and a walk toward one may leave the hunting boundary: by the slack, and
+anywhere within VALUABLE_RADIUS of the farmer.
 
 Toxic 2026-09-28: a Super MeteorEarring 23 tiles off was lost at 14:51 while
 whole loot turns were skipped for the Scatter, and 8 Uniques at x 363-384,
 past the WingedSnake boundary's 352, were deferred as "Loot path leaves
-hunting boundary".
+hunting boundary". Alex 2026-09-29: "There should be a 25 tile radius for
+valuables".
 """
 
 from types import SimpleNamespace
@@ -95,3 +97,43 @@ def test_a_valuable_walk_may_pass_the_hunting_boundary_by_the_slack(monkeypatch)
         for event, fields in notes
         if event == "memory_pickup_deferred"
     )
+
+
+def test_a_valuable_within_25_tiles_is_walked_to_past_the_slack(monkeypatch):
+    # Alex 2026-09-29: "There should be a 25 tile radius for valuables".
+    # 16 tiles past the bottom edge (beyond the 12-tile slack), 24 from us.
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 74))
+    supervisor.loot_boundary = (40, 40, 60, 58)
+    assert native_farm.VALUABLE_RADIUS == 25
+    assert step()
+    assert any(event == "memory_pickup_approach" for event, _ in notes)
+    # The trial keeps walking outside the boundary while this holds.
+    assert supervisor.valuable_chase_holds((50, 50))
+    assert supervisor.valuable_chase_holds((50, 66))
+
+
+def test_a_valuable_chase_ends_when_the_drop_leaves_the_ground(monkeypatch):
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 74))
+    supervisor.loot_boundary = (40, 40, 60, 58)
+    assert step() and supervisor.valuable_chase_holds((50, 50))
+    supervisor.ground_items = lambda: ()  # picked up by someone else, or gone
+    supervisor.loot_step(BAG, (50, 50), lambda *a, **kw: None)
+    assert not supervisor.valuable_chase_holds((50, 50))
+
+
+def test_a_valuable_chase_lapses_without_a_step(monkeypatch):
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 74))
+    supervisor.loot_boundary = (40, 40, 60, 58)
+    assert step()
+    later = native_farm.time.monotonic() + native_farm.VALUABLE_CHASE_SECONDS + 1
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: later)
+    assert not supervisor.valuable_chase_holds((50, 50))
+
+
+def test_a_valuable_chase_holds_only_within_the_radius(monkeypatch):
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 74))
+    supervisor.loot_boundary = (40, 40, 60, 58)
+    assert step()
+    # Carried more than 25 tiles from the drop (say, by an escape): the
+    # boundary return takes over.
+    assert not supervisor.valuable_chase_holds((50, 48))

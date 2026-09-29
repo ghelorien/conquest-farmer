@@ -72,6 +72,14 @@ JUMP_SCATTER_REACH = 3
 VALUABLE_CLICK_TILES = 6
 # Tiles past the hunting boundary a walk toward a valuable (never silver) may go.
 VALUABLE_BOUNDARY_SLACK = 12
+# Alex 2026-09-29: "There should be a 25 tile radius for valuables". A
+# valuable (never silver) within this many tiles of the farmer is walked to
+# wherever it lies: the loot audit showed Uniques and +1s at x 355-389, past
+# the WingedSnake boundary's 352, that were never picked up (2026-09-28).
+VALUABLE_RADIUS = 25
+# Such a walk holds the trial's boundary return this long after its last step
+# or click, so leaving the box does not turn it straight back.
+VALUABLE_CHASE_SECONDS = 3
 # Ground drops audit_loot remembers (by uid and address) before starting over.
 LOOT_AUDIT_MEMORY = 5000
 
@@ -173,6 +181,9 @@ class NativeFarmSupervisor:
         self.scene_timestamp = 0
         self.ground = None
         self.pending_loot = None
+        # ((uid, object address), drop position, monotonic time) of the last
+        # step or click toward a valuable; see valuable_chase_holds.
+        self.valuable_chase = None
         self.loot_cooldowns = {}
         self.loot_wait_until = 0
         self.pickups = 0
@@ -1168,6 +1179,7 @@ class NativeFarmSupervisor:
                     ):
                         drop, _, _ = self.pending_loot
                         ownership.reject(drop, self.map_id)
+                        self.end_valuable_chase(drop)
                         self.pending_loot = None
                         self.pending_loot_feedback = None
                         self.notify(
@@ -1182,6 +1194,11 @@ class NativeFarmSupervisor:
                         )
                         return False
                 drops = self.ground_items()
+            chase = self.valuable_chase
+            if chase is not None and not any(
+                (d.uid, d.object_address) == chase[0] for d in drops
+            ):
+                self.valuable_chase = None  # picked, taken by someone, or gone
             self.audit_loot(drops)
         except (ValueError, OSError) as error:
             if str(error) != self.last_loot_error:
@@ -1232,6 +1249,7 @@ class NativeFarmSupervisor:
                         fields["inventory_uid"] = gained[0].uid
                     self.notify("memory_pickup_verified", fields)
                 self.pending_loot = None
+                self.end_valuable_chase(drop)
                 if money_only:
                     return False
             elif now - issued < (1.5 if drop.silver else 3.0):
@@ -1412,6 +1430,8 @@ class NativeFarmSupervisor:
                 return False
             self.pending_loot = (drop, inventory, time.monotonic())
             self.pending_loot_feedback = baseline
+            if not drop.silver:
+                self.chase_valuable(drop)
             self.notify(
                 "memory_pickup_attempt",
                 {
@@ -1423,9 +1443,42 @@ class NativeFarmSupervisor:
                 },
             )
             return True
+        # A valuable chase keeps the turn through a moving farmer or a changing
+        # ground record (never past VALUABLE_CHASE_SECONDS), so combat does not
+        # jump back into the box between its steps.
+        chasing = not money_only and self.valuable_chase_holds(position)
         if valuables_only:
-            return False  # no wait for kill drops while a Scatter is due
-        return now < self.loot_wait_until
+            return chasing  # no wait for kill drops while a Scatter is due
+        return chasing or now < self.loot_wait_until
+
+    def chase_valuable(self, drop):
+        self.valuable_chase = (
+            (drop.uid, drop.object_address),
+            tuple(drop.position),
+            time.monotonic(),
+        )
+
+    def end_valuable_chase(self, drop):
+        chase = self.valuable_chase
+        if chase is not None and chase[0] == (drop.uid, drop.object_address):
+            self.valuable_chase = None
+
+    def valuable_chase_holds(self, position):
+        """Whether a walk toward a valuable within VALUABLE_RADIUS is under
+        way, so the trial lets it leave the hunting boundary instead of
+        walking straight back (Alex 2026-09-29: "There should be a 25 tile
+        radius for valuables"). It ends once the drop leaves the ground, its
+        pickup is refused, no way there is left, or no step or click came for
+        VALUABLE_CHASE_SECONDS."""
+        chase = self.valuable_chase
+        if chase is None:
+            return False
+        _, target, stamp = chase
+        return (
+            time.monotonic() - stamp <= VALUABLE_CHASE_SECONDS
+            and max(abs(target[0] - position[0]), abs(target[1] - position[1]))
+            <= VALUABLE_RADIUS
+        )
 
     def approach_loot(self, drop, position, dispatch):
         """Reposition toward a freshly observed valuable instead of skipping it."""
@@ -1433,7 +1486,11 @@ class NativeFarmSupervisor:
         if now < getattr(self, "loot_approach_ready", 0):
             return True
 
-        def deferred(reason):
+        def deferred(reason, *, lasting=True):
+            # A lasting reason (no way there) ends a valuable chase; a moving
+            # farmer or a changing ground record only waits for the next turn.
+            if lasting:
+                self.end_valuable_chase(drop)
             signature = (drop, tuple(position), reason)
             if signature != getattr(self, "last_loot_approach_deferred", None):
                 self.last_loot_approach_deferred = signature
@@ -1490,12 +1547,15 @@ class NativeFarmSupervisor:
                     return False  # already beside it: the click comes next
             if len(path) < 2 or len(path) > 100:
                 return deferred("Loot path outside bounded approach length")
-            if any(
-                not (
-                    boundary[0] <= x <= boundary[2] and boundary[1] <= y <= boundary[3]
+
+            def allowed(x, y):
+                inside = boundary[0] <= x <= boundary[2] and boundary[1] <= y <= boundary[3]
+                return inside or (
+                    not drop.silver
+                    and max(abs(x - position[0]), abs(y - position[1])) <= VALUABLE_RADIUS
                 )
-                for x, y in path
-            ):
+
+            if not all(allowed(x, y) for x, y in path):
                 return deferred("Loot path leaves hunting boundary")
             from conquest.routes import BOSS_CLEARANCE, near_boss
 
@@ -1516,19 +1576,21 @@ class NativeFarmSupervisor:
 
             delta = visible_route_delta((dx, dy), anchor, scene_bounds(viewport))
             if delta is None:
-                return deferred("Loot approach has no visible step")
+                return deferred("Loot approach has no visible step", lasting=False)
             dx, dy = delta
             destination = (position[0] + dx, position[1] + dy)
             point = (anchor[0] + (dx - dy) * 32, anchor[1] + (dx + dy) * 16)
             # Planning never authorizes a stale identity or stale player tile.
             with self.observer.lock:
                 if drop not in self.ground_items():
-                    return deferred("Ground item changed before approach")
+                    return deferred("Ground item changed before approach", lasting=False)
                 if tuple(self.read_life().position) != tuple(position):
-                    return deferred("Player moved before loot approach")
+                    return deferred("Player moved before loot approach", lasting=False)
             dispatch(point, control=max(abs(dx), abs(dy)) >= 8)
             self.last_loot_approach_deferred = None
             self.loot_approach_ready = time.monotonic() + 0.6
+            if not drop.silver:
+                self.chase_valuable(drop)
             self.notify(
                 "memory_pickup_approach",
                 {
