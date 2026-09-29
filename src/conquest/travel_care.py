@@ -18,6 +18,8 @@ class TravelStateChanged(ValueError):
 # Consecutive display-panel closes that proved no button was pressed (hover
 # race, busy input) before the original error is raised again.
 CLOSE_NOT_READY_LIMIT = 3
+# Quick rereads of the carried inventory before a care tick is skipped.
+INVENTORY_READ_ATTEMPTS = 4
 
 
 class PanelTravelChanged(TravelStateChanged):
@@ -125,6 +127,33 @@ class TravelCare:
             return False
         self.next_panel_check = 0
         return True
+
+    def read_inventory(self):
+        """The carried inventory, or None after INVENTORY_READ_ATTEMPTS races.
+
+        Potions drunk under attack change the carried deque while it is read.
+        One "Inventory contains null or duplicate item pointers" raised out of
+        check() restarted the whole route and left Suicide standing among six
+        Macaques with no care; it died at (640,610) (2026-09-29 11:16). A
+        skipped care tick keeps the travel moving and heals on the next one.
+        """
+        for attempt in range(INVENTORY_READ_ATTEMPTS):
+            try:
+                return self.inventory.read()
+            except ValueError as error:
+                last = str(error)
+                if attempt + 1 < INVENTORY_READ_ATTEMPTS:
+                    time.sleep(0.05)
+        if last != getattr(self, "last_inventory_retry", None):
+            self.last_inventory_retry = last
+            self.notify(
+                {
+                    "event": "travel_care_inventory_retry",
+                    "detail": last,
+                    "activity": "Inventory read raced; healing on the next check",
+                }
+            )
+        return None
 
     def check(self, health):
         if health["embedded_controls"].get("manual_mouse") or health[
@@ -270,7 +299,9 @@ class TravelCare:
                 raise PanelTravelChanged(result["closed_panel"])
         if self.pending:
             before, hp, issued = self.pending
-            after = self.inventory.read()
+            after = self.read_inventory()
+            if after is None:
+                return  # Recheck the heal on the next tick; keep moving.
             if potion_count(after) < before and life["current_hp"] > hp:
                 self.notify(
                     {
@@ -299,7 +330,9 @@ class TravelCare:
         if life["current_hp"] >= life["max_hp"] * 0.75 or now - self.last_heal < 1:
             self.xp_step(health)
             return
-        inventory = self.inventory.read()
+        inventory = self.read_inventory()
+        if inventory is None:
+            return  # Heal on the next tick; the travel keeps moving meanwhile.
         if potion_count(inventory) <= 0:
             if not getattr(self, "empty_healing_reported", False):
                 self.empty_healing_reported = True

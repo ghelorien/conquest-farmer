@@ -55,6 +55,7 @@ NON_TRANSACTIONAL = frozenset(
         "travel_heal_unconfirmed",
         "travel_heal_close_deferred",
         "travel_healing_empty",
+        "travel_care_inventory_retry",
         "travel_panel_closed",
         "travel_revive",
         "xp_skill_state",
