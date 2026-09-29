@@ -231,11 +231,14 @@ class TownTrade:
         self.npcs = MemoryNpcReader(observer.entities)
         self.inventory = MemoryInventoryReader.for_session(observer.adapter)
 
-    def life(self, minimum_health=0, *, any_map=False):
+    def life(self, minimum_health=0, *, any_map=False, allow_dead=False):
         o = self.observer
         if login_screen(o.operations.target.hwnd):
             raise CaptureUnavailable("Reconnect before town actions")
         life = o.read_life()
+        if allow_dead and (life.dead_candidate or life.current_hp <= 0):
+            # Only a display-panel close asks for this (see click).
+            return life
         if (
             life.dead_candidate
             or (life.map_id not in (1002, 1011, 1020) and not any_map)
@@ -596,9 +599,21 @@ class TownTrade:
                 "verified_in_warehouse": True,
             }
 
-    def click(self, point, button="left", *, before_press=None, before_mouse_down=None):
+    def click(
+        self,
+        point,
+        button="left",
+        *,
+        before_press=None,
+        before_mouse_down=None,
+        allow_dead=False,
+    ):
+        # allow_dead: only panel_close's display-panel close, which has no
+        # game effect. A travel heal left the Inventory open over the Revive
+        # button when Toxic died in Ape City (2026-09-29 10:44), and no town
+        # click could close it while dead, so Revive never became hoverable.
         try:
-            self.life(any_map=True)
+            self.life(any_map=True, allow_dead=allow_dead)
         except ValueError as error:
             # This check precedes the button event, even if opening a panel
             # earlier in the operation set input_attempted.

@@ -65,8 +65,11 @@ def click_close(trade, name, *, validate=None, before_mouse_down=None):
         if layout is not None:
             layout.assert_current(revision)
 
+    # A display panel's close has no game effect, so it is allowed while dead:
+    # an open Inventory covers the Revive button (2026-09-29).
     trade.click(
         point,
         before_press=lambda: wait_hover_validation(guard, check),
         before_mouse_down=before_mouse_down,
+        allow_dead=True,
     )

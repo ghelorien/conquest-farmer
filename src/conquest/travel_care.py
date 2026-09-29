@@ -210,6 +210,24 @@ class TravelCare:
         if life["dead_candidate"]:
             self.pending = None
             if life["revive_ready_candidate"] and now - self.last_revive >= 2:
+                if self.revive_state.get("phase") == "preinput_rejected":
+                    # A display panel left open at death can lie over the
+                    # ReviveButton popup (a travel heal's Inventory; Toxic in
+                    # Ape City, 2026-09-29 10:44), and every revive hover then
+                    # fails before input. After such a rejection, close display
+                    # panels (allowed while dead) before trying again; the
+                    # revive's own hover check still decides the click.
+                    try:
+                        request(
+                            self.info,
+                            "town",
+                            {
+                                "action": "clear-travel-panels",
+                                "expires_at": time.time() + 4,
+                            },
+                        )
+                    except ValueError:
+                        pass
                 previous_attempts = (
                     self.revive_state.get("attempts", 0)
                     if self.revive_state.get("phase") == "submitted"

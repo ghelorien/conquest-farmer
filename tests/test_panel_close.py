@@ -26,7 +26,7 @@ def test_registry_race_before_close_is_retryable_without_press(monkeypatch, race
     )
     monkeypatch.setattr(p, "wait_hover_validation", lambda guard, check: guard())
 
-    def click(point, *, before_press, before_mouse_down=None):
+    def click(point, *, before_press, before_mouse_down=None, allow_dead=False):
         before_press()
         pressed.append(point)
 
@@ -54,7 +54,7 @@ def test_post_press_failure_is_not_reclassified(monkeypatch):
     monkeypatch.setattr(p, "wait_hover_validation", lambda guard, check: guard())
     pressed = []
 
-    def click(point, *, before_press, before_mouse_down=None):
+    def click(point, *, before_press, before_mouse_down=None, allow_dead=False):
         before_press()
         pressed.append(point)
         raise GuiObservationChanged("After button press")
@@ -86,7 +86,7 @@ def test_exact_close_widget_must_be_verified_before_press(monkeypatch, case):
     )
     monkeypatch.setattr(p, "wait_hover_validation", lambda guard, check: guard())
 
-    def click(point, *, before_press, before_mouse_down=None):
+    def click(point, *, before_press, before_mouse_down=None, allow_dead=False):
         before_press()
         pressed.append(point)
 
