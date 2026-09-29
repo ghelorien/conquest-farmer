@@ -548,7 +548,40 @@ class OvernightLoop:
                     self.care.check(h)
                 except TravelStateChanged:
                     pass
+            elif life and life["dead_candidate"]:
+                # Travel care revives only with Farming Off, and the app cannot
+                # start farming on a dead archer: this wait was silent for 40
+                # minutes on 2026-09-29 (11:51-12:31). Say so, once a minute.
+                now = time.monotonic()
+                if now - getattr(self, "dead_farming_on_logged", -60) >= 60:
+                    self.dead_farming_on_logged = now
+                    self.record(
+                        "living_wait_dead_farming_on",
+                        death_position=life.get("position"),
+                        activity="Dead with Farming On; travel care revives only with Farming Off",
+                    )
             time.sleep(0.15)  # The wrapper reconnects; never use disconnected stats.
+
+    def revive_before_route(self):
+        """Revive a farmer found dead at route (re)start, with Farming Off.
+
+        A deploy relaunched the controller on a dead Toxic (2026-09-29
+        11:51): living() waits forever with Farming On, and the app cannot
+        start farming on a dead archer, so nothing revived it until an
+        operator toggled Farming Off. Same order as restock_restart.resume:
+        Farming Off, then living() lets travel care press Revive.
+        """
+        life = self.health()["embedded_controls"].get("life")
+        if not life or not life.get("dead_candidate"):
+            return False
+        self.record(
+            "revive_before_route",
+            death_position=life.get("position"),
+            activity="Dead at route start; reviving with Farming Off",
+        )
+        self.stop_farm()
+        self.living()
+        return True
 
     def town(self, action, **fields):
         vendor = {3: "Pharmacist", 5: "Blacksmith"}.get(
@@ -2522,6 +2555,9 @@ class OvernightLoop:
         # any transaction, proved from its journals; revives a dead farmer via
         # living() first, marks it once, then runs restock() again; never replayed.
         restart_zero_transaction_restock(self)
+        # A controller (re)started on a dead farmer revives it first, with
+        # Farming Off (see revive_before_route).
+        self.revive_before_route()
         # Never leave town merely because a restarted worker sees stocked
         # supplies. The previous process may have stopped before banking or
         # may have submitted a transfer whose result needs reconciliation.
