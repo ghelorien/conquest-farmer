@@ -1,6 +1,9 @@
 """Client geometry for memory coordinates; never reads screen pixels."""
 
+from dataclasses import dataclass
+
 DEFAULT_SIZE = (1036, 793)
+CHAT_MESSAGES = "Chat##Message/##ScrollingRegion"
 
 
 def validate_size(size):
@@ -56,6 +59,52 @@ def clear_scene(point, size=DEFAULT_SIZE, *, chat_blocks=True):
         and not over_xp_popup
         and not over_skill_menu
     )
+
+
+@dataclass(frozen=True)
+class ChatPassThrough:
+    """The live chat's message area, which passes route clicks to the world.
+
+    Alex 2026-09-27: "The chat box is clickable you can press through it", and
+    2026-09-29: "Force click there you need to be able to do it on your own".
+    This client draws the chat at the top left, where clear_scene reserves a
+    status panel: HP, stamina and XP sit in ##Control at the bottom. Live
+    2026-09-29: Suicide's Chat##Message (4,3,511,181) with messages
+    (12,51,495,96); Toxic's (-3,21,714,213) with (5,69,698,128). At Phoenix's
+    west gate the clamped camera draws portal 0 at (160,96) and its (8,376)
+    approach at (256,144), both inside the messages, so the gate could not be
+    walked. Route movement only: the chat's tabs, input row and buttons lie
+    outside the message area, and any other window over the point blocks.
+    """
+
+    messages: tuple
+    covers: tuple = ()
+    margin: int = 2
+
+    @classmethod
+    def from_windows(cls, windows):
+        # The live name carries an ID suffix ("..._BD4470D8" on Suicide).
+        found = [w for w in windows if str(w.get("name")).startswith(CHAT_MESSAGES)]
+        if len(found) != 1:
+            return None
+        return cls(
+            tuple(found[0]["geometry"]),
+            tuple(
+                tuple(w["geometry"])
+                for w in windows
+                if not str(w.get("name")).startswith("Chat##Message")
+            ),
+        )
+
+    def passes(self, point):
+        x, y = point
+        left, top, width, height = self.messages
+        m = self.margin
+        if not (left + m <= x <= left + width - m and top + m <= y <= top + height - m):
+            return False
+        return not any(
+            cx <= x < cx + cw and cy <= y < cy + ch for cx, cy, cw, ch in self.covers
+        )
 
 
 def require_world_point(point, size):

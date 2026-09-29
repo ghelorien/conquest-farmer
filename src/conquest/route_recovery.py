@@ -305,6 +305,18 @@ class RouteRecovery:
         )
 
 
+def route_chat(observer):
+    """The live chat message area route clicks may pass through, or None."""
+    from conquest.merchants.memory import GuiReader
+    from conquest.viewport import ChatPassThrough
+
+    try:
+        windows = GuiReader.for_session(observer.adapter).windows()
+    except (AttributeError, ValueError, OSError):
+        return None
+    return ChatPassThrough.from_windows(windows)
+
+
 class EmbeddedRecoveryInput:
     def __init__(self, observer, control, *, terrain=None, layout=None):
         self.observer, self.control, self.terrain = observer, control, terrain
@@ -370,6 +382,17 @@ class EmbeddedRecoveryInput:
         require_idle()
         observer.focus_client()  # Ctrl must reach the client, not the Tk sidebar.
 
+        chat = []  # route_chat, read at most once and only when needed
+
+        def route_clear(route_point, size):
+            # The chat box passes route clicks through (Alex, 2026-09-27); at
+            # Phoenix's west edge every step to its portal fell on it.
+            if clear_scene(route_point, size, chat_blocks=False):
+                return True
+            if not chat:
+                chat.append(route_chat(observer))
+            return chat[0] is not None and chat[0].passes(route_point)
+
         def player_anchor(current_life):
             from conquest.scene_input import memory_player_anchor
 
@@ -415,9 +438,7 @@ class EmbeddedRecoveryInput:
                 raise ValueError("Short return segments must use running")
             anchor = player_anchor(life)
             point = (anchor[0] + (dx - dy) * 32, anchor[1] + (dx + dy) * 16)
-            # The chat box passes route clicks through (Alex, 2026-09-27); at
-            # Phoenix's west edge every step to its portal fell on it.
-            if not clear_scene(point, viewport, chat_blocks=False):
+            if not route_clear(point, viewport):
                 raise ValueError("Projected route tile is outside the clear scene")
         else:
             raise ValueError("Unknown recovery action")
@@ -454,7 +475,7 @@ class EmbeddedRecoveryInput:
                 fresh_anchor[0] + (dx - dy) * 32,
                 fresh_anchor[1] + (dx + dy) * 16,
             )
-            if not clear_scene(fresh_point, fresh_viewport, chat_blocks=False):
+            if not route_clear(fresh_point, fresh_viewport):
                 raise CaptureUnavailable("Projected route tile left the clear scene")
             return fresh_point
 
@@ -477,7 +498,13 @@ class EmbeddedRecoveryInput:
                     {"name": panel[0], "geometry": panel[2]}
                     for panel in layout_state.panels
                 ]
-                require_target_actionable(route_point, viewport, size, windows)
+                require_target_actionable(
+                    route_point,
+                    viewport,
+                    size,
+                    windows,
+                    route_chat=chat[0] if chat else None,
+                )
 
             if kind != "revive":
                 route_actionability(point, revision)

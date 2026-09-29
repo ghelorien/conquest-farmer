@@ -49,8 +49,12 @@ class TargetActionability:
         return data
 
 
-def target_actionability(point, gui_size, client_size, windows=()):
-    """Classify a projected target before any input intent is persisted."""
+def target_actionability(point, gui_size, client_size, windows=(), *, route_chat=None):
+    """Classify a projected target before any input intent is persisted.
+
+    ``route_chat`` (a viewport.ChatPassThrough) lets route movement click
+    through the live chat's message area; other targeting never passes it.
+    """
     gui = validate_size(gui_size)
     client = validate_size(client_size)
     if (
@@ -67,7 +71,9 @@ def target_actionability(point, gui_size, client_size, windows=()):
         reason = "outside_gui"
     elif not (0 <= physical[0] < client[0] and 0 <= physical[1] < client[1]):
         reason = "outside_client"
-    elif not clear_scene(logical, gui):
+    elif not clear_scene(logical, gui) and not (
+        route_chat is not None and route_chat.passes(logical)
+    ):
         reason = "scene_control"
     else:
         for window in windows or ():
