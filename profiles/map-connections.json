@@ -33,6 +33,21 @@
       "destination_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
       "verified": true,
       "observed_at": 1788921513.8036478
+    },
+    {
+      "source_map": 1002,
+      "portal_id": 9,
+      "portal_position": [
+        555,
+        964
+      ],
+      "destination_map": 1020,
+      "arrival_position": null,
+      "source_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
+      "destination_terrain_sha256": "2feb3cdcf2a5cfe8a3358f15103c9994b83094e319f7d780908da5e85658ca80",
+      "verified": true,
+      "observed_at": null,
+      "evidence": "Alex 2026-09-29: the Twin City Conductress reaches Ape City (from level 47). Her Ape Mountain ride lands at (555, 957), beside this installed-map portal. The first crossing is unobserved: cross_portal requires map 1020 on arrival and raises otherwise; record arrival_position and observed_at from its map_arrived event."
     }
   ]
 }

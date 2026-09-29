@@ -17,9 +17,10 @@ Failure modes this module must catch (written before the implementation):
    Bandit to Ratling is a same-map move without a scroll home.)
 5. A route hold (a held Pheasant route, the overnight Bandit plan) is
    overridden by the top-of-zone rule.
-6. A move to another map (26 -> Winged Snakes in Phoenix) happens without
-   travelling there first, or a zone without a verified connection (Macaques
-   in Ape City) is entered anyway.
+6. A move to another map (26 -> Winged Snakes in Phoenix, 46 -> Macaques in
+   Ape City through the Twin City Conductress since 2026-09-29) happens
+   without travelling there first, or a zone without a verified connection
+   is entered anyway.
 7. Level 140, the top of the last zone, raises or selects a zone that does
    not exist.
 8. The app is not told about the new route (no route_id control), so the app
@@ -190,10 +191,11 @@ def test_level_advance_e2e(tmp_path, monkeypatch):
         (40, False, "ratling", 1011),
         (41, True, "firespirit", 1011),
         (45, False, "firespirit", 1011),
-        (46, False, "firespirit", 1011),
-        (50, False, "firespirit", 1011),
-        (51, False, "firespirit", 1011),
-        (140, False, "firespirit", 1011),
+        # Ape City through the Twin City Conductress (Alex 2026-09-29).
+        (46, True, "macaque", 1020),
+        (50, False, "macaque", 1020),
+        (51, False, "macaque", 1020),
+        (140, False, "macaque", 1020),
     ]
     by_level = {}
     for step in climb:
@@ -222,8 +224,16 @@ def test_level_advance_e2e(tmp_path, monkeypatch):
         'controls:{"route_id": "ratling"}',
         "queue_route_optimization",
     ]
-    # Modes 4 and 6: no saved route, or no verified connection, keeps hunting.
-    for level in (46, 50, 51, 140):
+    # Ape City is another map: home first, then the Conductress and portal 9.
+    assert by_level[46]["calls"] == [
+        "stop_farm",
+        "return_to_town",
+        "travel_to_map:1020",
+        'controls:{"route_id": "macaque"}',
+        "queue_route_optimization",
+    ]
+    # Modes 4 and 6: no saved route (GiantApe onward) keeps hunting.
+    for level in (51, 140):
         assert by_level[level]["calls"] == []
         assert "level_route_pending" in by_level[level]["events"]
     assert all("level_route_changed" in s["events"] for s in climb if s["changed"])

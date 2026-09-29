@@ -12,6 +12,19 @@
       "price": 100,
       "verified": true,
       "observed_at": 1788921023.0
+    },
+    {
+      "source_map": 1002,
+      "npc_name": "Conductress",
+      "npc_position": [435, 440],
+      "option": "Ape Mountain",
+      "destination_map": 1020,
+      "arrival_map": 1002,
+      "arrival_position": [555, 957],
+      "price": 100,
+      "verified": true,
+      "observed_at": 1790530615.0304365,
+      "evidence": "Toxic's conductress_shortcut ride 2026-09-27 (arrived (555, 957), exact 100-silver fare); the Ape City portal 9 at (555, 964) is beside the landing"
     }
   ]
 }
