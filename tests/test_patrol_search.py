@@ -35,6 +35,8 @@ def test_saved_routes_retain_idle_search_policy():
         "apparition": 8,
         "macaque": 4,
         "giantape": 4,
+        # One field per farmer on the GiantApe plain, like the snake halves.
+        "giantape-north": 1,
         "wingedsnake-west": 1,
         "wingedsnake-east": 1,
     }
