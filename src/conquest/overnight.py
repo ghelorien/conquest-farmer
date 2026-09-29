@@ -25,9 +25,32 @@ MANUAL_REQUEST_WAIT_SECONDS = 60
 # hour (after a short protected pause) before the route stops for attention.
 AUTO_RESTARTS = 3
 AUTO_RESTART_PAUSE_SECONDS = 20
+# During a restart pause or failure cooldown outside town, a living monster
+# this close calls for one escape jump, at most every FIELD_EVADE_SECONDS.
+FIELD_EVADE_TILES = 4
+FIELD_EVADE_SECONDS = 1.2
 # Once the hourly restart budget is spent: pause this long (escalating), then
 # replan from fresh reads again instead of stopping for good.
 FAILURE_COOLDOWNS = (120, 300, 600)
+
+
+_TOWN_BOXES = {}
+
+
+def town_box(map_id):
+    """The saved town boundary (left, top, right, bottom) of `map_id`, or None."""
+    if map_id not in _TOWN_BOXES:
+        from conquest.city_travel import CITIES
+
+        try:
+            cities = json.loads(CITIES.read_text(encoding="utf-8"))["cities"]
+        except (OSError, ValueError, KeyError):
+            return None
+        found = [c for c in cities if c.get("map_id") == map_id]
+        _TOWN_BOXES[map_id] = (
+            tuple(found[0]["town_boundary"]) if len(found) == 1 else None
+        )
+    return _TOWN_BOXES[map_id]
 
 
 class OvernightStopped(Exception):
@@ -2768,12 +2791,76 @@ class OvernightLoop:
             try:
                 health = self.living()
                 self.care.check(health)
+                self.evade_in_field(health)
             except OvernightStopped:
                 raise
             except Exception:
                 pass
             time.sleep(0.5)
         self.refresh()
+        return True
+
+    def evade_in_field(self, health):
+        """One escape jump from monsters closing in while a pause runs outside town.
+
+        Restart pauses and failure cooldowns only ran life care, so a failure
+        in the field left the farmer standing among monsters. On 2026-09-29
+        15:58 a failed restock travel left Suicide among four GiantApes on the
+        plain north of Ape City: it drank its last potion and died 8 s into
+        the 20 s pause (the 11:17 death on the Macaque field was the same
+        gap). Uses the runback's escape_step: a clear visible landing with
+        less danger, nearer the town on ties. Returns whether it jumped.
+        """
+        now = time.monotonic()
+        if now - getattr(self, "field_evaded_at", -FIELD_EVADE_SECONDS) < FIELD_EVADE_SECONDS:
+            return False
+        controls = health["embedded_controls"]
+        life = controls.get("life") or {}
+        position = life.get("position")
+        if (
+            not position
+            or life.get("dead_candidate")
+            or life.get("map_id") != getattr(self.terrain, "map_id", None)
+            or self.stepper is None
+        ):
+            return False
+        source = tuple(position)
+        box = town_box(life["map_id"])
+        if box and box[0] <= source[0] <= box[2] and box[1] <= source[1] <= box[3]:
+            return False
+        monsters = controls.get("monsters") or []
+        if not any(
+            m.get("position")
+            and m.get("alive") is not False
+            and max(abs(a - b) for a, b in zip(m["position"], source)) <= FIELD_EVADE_TILES
+            for m in monsters
+        ):
+            return False
+        from types import SimpleNamespace
+        from conquest.runback_monitor import escape_step
+        from conquest.scene_input import memory_player_anchor
+
+        anchor = memory_player_anchor(
+            SimpleNamespace(adapter=self.care.session), SimpleNamespace(**life)
+        )
+        escape = escape_step(
+            self.terrain,
+            source,
+            tuple(getattr(self.route, "town_anchor", None) or source),
+            anchor,
+            monsters,
+            viewport=tuple(health.get("window", {}).get("client_size", (1036, 793))),
+        )
+        if escape is None:
+            return False
+        self.field_evaded_at = now
+        self.record(
+            "restart_evading",
+            source=source,
+            destination=escape,
+            activity="Monsters close during a route restart; jumping clear",
+        )
+        self.stepper.step_to(escape, expected_position=source)
         return True
 
     def failure_cooldown(self, error):
@@ -2799,7 +2886,9 @@ class OvernightLoop:
         while time.monotonic() < until:
             self.check_stop()
             try:
-                self.care.check(self.living())
+                health = self.living()
+                self.care.check(health)
+                self.evade_in_field(health)
             except OvernightStopped:
                 raise
             except Exception:
