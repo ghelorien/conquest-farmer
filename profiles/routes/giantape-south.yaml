@@ -1,6 +1,6 @@
 schema_version: 1
-id: giantape-east
-name: GiantApe around the plain's middle King (Toxic)
+id: giantape-south
+name: GiantApe south of the plain's middle King (Toxic)
 map_id: 1020
 restock_map_id: 1020
 monster_type_ids: [11, 70]
@@ -14,13 +14,16 @@ attack_range_tiles: 16
 king_clearance: 15
 elite_clearance: 13
 # Toxic's field once Suicide took giantape-west (2026-09-29 18:3x): the
-# plain from x 587, wrapped north, east and south around the GiantApeKing
-# idling at (600-603, 297-303); its 15-tile clearance keeps the middle out.
-# giantape-north alone (x 575-625, y <= 284) fell from 1.5M to ~1.1M xp/h
-# in 15 min as it thinned: 3,842 walkable tiles outside the King's
-# clearance here against 2,127, and 73 of the surveyed GiantApes against 28.
+# plain from x 587 south of the GiantApeKing idling at (600-603, 297-303).
+# giantape-north (x 575-625, y <= 284) fell from 1.5M to ~1.1M xp/h in 15
+# min as it thinned; this box held 56 of the surveyed GiantApes in 1,592
+# tiles against north's 28 in 2,127. One lobe only: the trial's boundary
+# return walks travel_path straight to the anchor with no boss avoidance,
+# and from a lobe north of the King that path passed 2 tiles from him.
+# From around this box it keeps 17+ tiles from every King (Laptop2's
+# 18:27 lesson on giantape-west: 11 tiles held Suicide in the pack).
 # x >= 587 touches Suicide's strip (x <= 585) without overlapping it.
-hunting_boundary: [587, 240, 632, 350]
+hunting_boundary: [587, 316, 632, 350]
 patrol_search:
   idle_seconds: 7.5
   # 1 tile like the WingedSnake halves: giantape-west ends at x 585.
@@ -32,14 +35,11 @@ patrol:
   - [620, 342]
   - [612, 326]
   - [596, 322]
-  - [624, 318]
-  - [626, 300]
-  - [622, 282]
-  - [610, 270]
-  - [596, 262]
-  - [612, 250]
-  - [626, 262]
+  - [624, 320]
+  - [630, 334]
   - [594, 344]
+  - [590, 330]
+  - [618, 348]
 # giantape's road from Ape City town north on x 605, into the south part.
 outbound_waypoints:
   - [554, 545]

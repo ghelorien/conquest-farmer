@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 
 from conquest.patrol_search import AdaptivePatrol, PatrolSearchConfig
 
@@ -38,7 +38,7 @@ def test_saved_routes_retain_idle_search_policy():
         "giantape": 4,
         "giantape-west": 1,
         "giantape-north": 1,
-        "giantape-east": 1,
+        "giantape-south": 1,
         "wingedsnake-west": 1,
         "wingedsnake-east": 1,
     }
