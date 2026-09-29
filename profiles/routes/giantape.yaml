@@ -385,3 +385,8 @@ notes: >-
   Unsurveyed: the first hunt is a supervised measurement of GiantApe damage
   per hit (abort at 50% HP or any hit over 15% of max HP). Toxic (L47) lost
   ~300 HP/s walking through the plain's north part and died at (602,278).
+  Measured 2026-09-29 13:55-13:56 (Suicide L52, HornBow, IronArrow, 825 HP):
+  GiantApes have ~2,700 HP and lost ~90 per Scatter hit (~30 hits each); one
+  closed to 2 tiles and hit for 185 (22% of max HP). ape_guard moved the hold
+  back to macaque after 0 kills in 2 minutes. Not viable before a bow and
+  armor upgrade (QinBow/LongBow, better necklace, hat and coat).
