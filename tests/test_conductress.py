@@ -190,3 +190,49 @@ def test_uncertain_teleport_is_not_paid_again(monkeypatch, tmp_path, dialog):
     with pytest.raises(ValueError, match="source map"):
         c.take_saved_trip(loop, 1011)
     assert calls == []
+
+
+def test_phoenix_leaves_for_twin_city_by_its_conductress(monkeypatch):
+    # Phoenix's west portal (5, 376) cannot be clicked at the edge camera
+    # (Suicide stuck 2026-09-29): the saved trip rides her Twin City option
+    # through the live-verified saved-service path of the Market trips.
+    import json
+    from pathlib import Path
+    from conquest import banking, meteor_banking
+
+    plans, events = [], []
+    monkeypatch.setattr(meteor_banking, "trip", lambda loop, plan: plans.append(plan))
+    monkeypatch.setattr(banking, "ensure_transport", lambda loop, minimum: None)
+    life = {"map_id": 1011, "object_address": 1, "position": [228, 250]}
+    loop = SimpleNamespace(
+        living=lambda: {"embedded_controls": {"life": life}},
+        record=lambda event, **fields: events.append(event),
+    )
+    assert c.take_saved_trip(loop, 1002) is True
+    [plan] = plans
+    market = json.loads(Path("profiles/meteor-banking.json").read_text(encoding="utf-8"))
+    outbound = market["origins"]["1011"]["outbound"]
+    assert (plan["source_map"], plan["destination_map"], plan["fare"]) == (1011, 1002, 100)
+    assert plan["identity"] == outbound["identity"]
+    assert plan["approach"] == outbound["approach"]
+    assert plan["dialogs"] == [
+        {"records": outbound["dialogs"][0]["records"], "option": "Twin City"}
+    ]
+    assert events == ["conductress_departing", "conductress_arrived"]
+
+
+def test_the_ape_city_trip_rides_to_ape_mountain_then_portal_9():
+    import json
+    from pathlib import Path
+    from conquest.world_travel import connection_path
+
+    trips = json.loads(Path("profiles/conductress-routes.json").read_text(encoding="utf-8"))
+    [ape] = [t for t in trips["trips"] if t["destination_map"] == 1020]
+    assert (ape["source_map"], ape["option"], ape["arrival_map"]) == (1002, "Ape Mountain", 1002)
+    assert ape["arrival_position"] == [555, 957] and ape["price"] == 100
+    # Phoenix -> Twin City (the Conductress above) -> Ape City by portal 9.
+    path = connection_path(1011, 1020)
+    assert [(e["source_map"], e["portal_id"], e["destination_map"]) for e in path] == [
+        (1011, 0, 1002),
+        (1002, 9, 1020),
+    ]

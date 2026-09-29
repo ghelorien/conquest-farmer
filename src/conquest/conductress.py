@@ -28,6 +28,8 @@ def take_saved_trip(loop, destination_map):
     before_life = loop.living()["embedded_controls"]["life"]
     if before_life["map_id"] != trip["source_map"]:
         raise ValueError("Conductress trip must start in its saved source map")
+    if trip["source_map"] != TWIN_CONDUCTRESS.map_id:
+        return take_service_trip(loop, trip)
     actor = before_life["object_address"]
     from conquest.banking import ensure_transport
 
@@ -69,6 +71,48 @@ def take_saved_trip(loop, destination_map):
                 return True
         time.sleep(0.1)
     raise ValueError("Conductress travel was not verified; no repeat payment issued")
+
+
+def take_service_trip(loop, trip):
+    """A Conductress outside Twin City, ridden through the saved-service path
+    the Phoenix Market trips use: exact NPC identity, exact dialog records,
+    the chosen option, then the arrival map and the exact fare.
+
+    Phoenix's west portal (5, 376) lies under the status panel at the edge
+    camera and cannot be clicked, so Phoenix leaves for Twin City by its
+    Conductress (Suicide stuck there 2026-09-29 08:40-08:53).
+    """
+    from conquest.banking import ensure_transport
+    from conquest.meteor_banking import trip as service_trip
+
+    service = trip["service"]
+    ensure_transport(loop, minimum=trip["price"] * 2)
+    loop.record(
+        "conductress_departing",
+        destination_map=trip["destination_map"],
+        activity=f"Heading to Conductress for {trip['option']}",
+    )
+    service_trip(
+        loop,
+        {
+            "source_map": trip["source_map"],
+            "destination_map": trip["arrival_map"],
+            "approach": service["approach"],
+            "npc": trip["npc_name"],
+            "identity": service["identity"],
+            "fare": trip["price"],
+            "dialogs": [{"records": service["records"], "option": trip["option"]}],
+            "activity": f"Heading to Conductress for {trip['option']}",
+        },
+    )
+    life = loop.living()["embedded_controls"]["life"]
+    loop.record(
+        "conductress_arrived",
+        destination_map=trip["destination_map"],
+        position=life["position"],
+        activity=f"Conductress trip complete; entering {trip['option']}",
+    )
+    return True
 
 
 TWIN_CONDUCTRESS = VendorIdentity(1002, 0, "Conductress", 280, (435, 440))

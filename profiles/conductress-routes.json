@@ -25,6 +25,37 @@
       "verified": true,
       "observed_at": 1790530615.0304365,
       "evidence": "Toxic's conductress_shortcut ride 2026-09-27 (arrived (555, 957), exact 100-silver fare); the Ape City portal 9 at (555, 964) is beside the landing"
+    },
+    {
+      "source_map": 1011,
+      "npc_name": "Conductress",
+      "npc_position": [228, 255],
+      "option": "Twin City",
+      "destination_map": 1002,
+      "arrival_map": 1002,
+      "arrival_position": null,
+      "price": 100,
+      "verified": true,
+      "observed_at": null,
+      "evidence": "Phoenix Conductress identity, approach, fare and dialog records verified live for the Market trips (meteor-banking.json origins 1011 outbound); her Twin City option is option 0 of that dialog. The Twin City landing tile is unobserved: the ride verifies the arrival map and the exact fare. Phoenix's west portal (5, 376) cannot be clicked at the edge camera (Suicide 2026-09-29).",
+      "service": {
+        "approach": [228, 249],
+        "identity": {
+          "map_id": 1011,
+          "type_id": 0,
+          "name": "Conductress",
+          "model": 287,
+          "position": [228, 255]
+        },
+        "records": [
+          {"kind": 0, "option": 0, "text": "Where are you heading? I can teleport you for a price of 100 silver."},
+          {"kind": 1, "option": 0, "text": "Twin City"},
+          {"kind": 1, "option": 1, "text": "Market"},
+          {"kind": 1, "option": 2, "text": "Just passing by."},
+          {"kind": 3, "option": 255, "text": ""},
+          {"kind": 4, "option": 255, "text": ""}
+        ]
+      }
     }
   ]
 }
