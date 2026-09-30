@@ -733,6 +733,71 @@ def test_approach_and_returns_walk_round_a_visible_king(monkeypatch):
     assert supervisor.patrol_step((20, 40), (80, 40), (0, 0, 99, 99)) == (32, 40)
 
 
+def test_a_boss_on_the_anchor_sends_the_walk_to_the_nearest_free_patrol_point(monkeypatch):
+    """GiantApeKing 404774 stood on giantape-far-west's anchor (478, 308) at
+    2026-09-30 03:29: boss_zone skips a boss whose zone holds the destination,
+    so the approach walked straight at him until the boss hold stopped it."""
+    import numpy as np
+    from conquest.navigation import TerrainMap
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.recovery.terrain = TerrainMap(
+        1020, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ()
+    )
+    supervisor.king_clearance = 15
+    supervisor.scene_timestamp = 100.0
+    anchor, patrol = (50, 50), ((50, 50), (80, 50), (50, 80), (20, 50))
+    supervisor.scene_monsters = (SimpleNamespace(name="GiantApeKing", position=(50, 49)),)
+
+    def cheb(a, b):
+        return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+    step = supervisor.patrol_step((95, 50), anchor, (0, 0, 99, 99), chase=False, alternatives=patrol)
+    key, path, _ = supervisor.travel_path_cache
+    assert key[2] == (80, 50)  # the free patrol point nearest the farmer
+    assert min(cheb(p, (50, 49)) for p in path) > 15 and cheb(step, (50, 49)) > 15
+    # No King: the anchor itself again.
+    supervisor.scene_monsters = ()
+    supervisor.patrol_step((95, 50), anchor, (0, 0, 99, 99), chase=False, alternatives=patrol)
+    assert supervisor.travel_path_cache[0][2] == anchor
+    # Every spot held: wait rather than walk into a clearance.
+    supervisor.scene_monsters = tuple(
+        SimpleNamespace(name="GiantApeKing", position=p) for p in patrol
+    )
+    with pytest.raises(CaptureUnavailable):
+        supervisor.patrol_step((95, 50), anchor, (0, 0, 99, 99), chase=False, alternatives=patrol)
+    # The patrol does not head for a boss-held spot either.
+    with pytest.raises(CaptureUnavailable):
+        supervisor.patrol_step((95, 50), anchor, (0, 0, 99, 99), alternatives=patrol)
+
+
+def test_the_patrol_passes_over_spots_beside_a_boss_in_view(monkeypatch):
+    # The Macaque field's patrol kept heading for points beside the
+    # MonkeyKing: 42-56 boss escapes in 5 minutes (2026-09-30 04:07-04:22).
+    import numpy as np
+    from conquest.navigation import TerrainMap
+    from conquest.patrol_search import patrol_step
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.recovery.terrain = TerrainMap(
+        1020, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ()
+    )
+    supervisor.king_clearance = 15
+    supervisor.scene_timestamp = 100.0
+    route = ((20, 20), (60, 20), (60, 60), (20, 60))
+    supervisor.scene_monsters = (SimpleNamespace(name="MonkeyKing", position=(62, 22)),)
+    step, index = patrol_step(supervisor, (30, 30), route, 1, (0, 0, 99, 99))
+    # (60, 20) is beside the King: the sweep moves on to the next point.
+    assert supervisor.patrol_destination == (60, 60) and index == 2
+    assert max(abs(step[0] - 62), abs(step[1] - 22)) > 15
+    # Out of view (a stale scene), the saved sweep is followed as before.
+    supervisor.scene_timestamp = 90.0
+    _, index = patrol_step(supervisor, (30, 30), route, 1, (0, 0, 99, 99))
+    assert supervisor.patrol_destination == (60, 20) and index == 1
+
+
 def test_a_detour_never_lands_outside_the_travel_boundary(monkeypatch):
     # A landing beyond the travel boundary stops the runner
     # (reposition_outside_boundary): a detour round King 404773 did at
@@ -777,10 +842,11 @@ def test_a_king_on_the_destination_or_beside_the_farmer_leaves_a_way_out(monkeyp
     )
     supervisor.king_clearance = 15
     supervisor.scene_timestamp = 100.0
-    # Holding the destination: nothing to walk round (boss_zone skips it).
+    # Holding the destination with no other spot to take: wait for room
+    # rather than walk into his clearance.
     supervisor.scene_monsters = (SimpleNamespace(name="GiantApeKing", position=(75, 40)),)
-    assert supervisor.patrol_step((20, 40), (80, 40), (0, 0, 99, 99), chase=False) == (32, 40)
-    assert supervisor.travel_path_cache[2] is False
+    with pytest.raises(CaptureUnavailable):
+        supervisor.patrol_step((20, 40), (80, 40), (0, 0, 99, 99), chase=False)
     # Beside the farmer: only BOSS_INNER tiles are kept, so the walk leaves.
     supervisor.scene_monsters = (SimpleNamespace(name="GiantApeKing", position=(22, 42)),)
     step = supervisor.patrol_step((20, 40), (80, 40), (0, 0, 99, 99), chase=False)

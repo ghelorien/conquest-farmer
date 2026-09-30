@@ -93,7 +93,7 @@ def test_a_valuable_chase_holds_the_boundary_return(tmp_path, monkeypatch, chasi
         loot_step=loot_step,
         valuable_chase_holds=lambda position: chasing,
         player_projection=lambda: ((95, 150), (518, 396)),
-        patrol_step=lambda position, destination, boundary, chase=False: (
+        patrol_step=lambda position, destination, boundary, chase=False, alternatives=(): (
             position[0] + 6, position[1]
         ),
         movement_failed=lambda *a: None,

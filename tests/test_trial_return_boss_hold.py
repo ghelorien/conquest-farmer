@@ -101,7 +101,7 @@ def test_boundary_return_waits_for_room_from_a_boss(tmp_path, monkeypatch, king_
         dispatch=lambda callback, **kwargs: callback(),
         loot_step=lambda *a: False,
         player_projection=lambda: ((95, 150), (518, 396)),
-        patrol_step=lambda position, destination, boundary, chase=False: (
+        patrol_step=lambda position, destination, boundary, chase=False, alternatives=(): (
             position[0] + 6, position[1]
         ),
         movement_failed=lambda *a: None,

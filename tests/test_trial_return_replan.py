@@ -78,7 +78,7 @@ def run_return(tmp_path, monkeypatch, fits, seconds=10):
 
     boundaries = []
 
-    def patrol(source, destination, boundary, chase=False):
+    def patrol(source, destination, boundary, chase=False, alternatives=()):
         boundaries.append(tuple(boundary))
         if len(boundaries) == 1:
             position[:] = [90, 160]

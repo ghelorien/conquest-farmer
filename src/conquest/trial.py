@@ -2185,8 +2185,14 @@ def run_trial(
                             )
                             if approaching:
                                 with planning:
+                                    # The route's patrol points stand in for
+                                    # the anchor when a boss holds it.
                                     destination = supervisor.patrol_step(
-                                        (x, y), destination, (l, t, r, b), chase=False
+                                        (x, y),
+                                        destination,
+                                        (l, t, r, b),
+                                        chase=False,
+                                        alternatives=config.route,
                                     )
                             else:
                                 from conquest.patrol_search import patrol_step

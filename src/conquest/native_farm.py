@@ -1832,25 +1832,55 @@ class NativeFarmSupervisor:
         # alone held Suicide 11 tiles from him (18:27).
         from conquest.routes import BOSS_CLEARANCE, boss_name, boss_zone
 
-        bosses = (
+        in_view = (
             [
                 m
                 for m in getattr(self, "scene_monsters", ())
                 if boss_name(getattr(m, "name", "") or "")
             ]
-            if not chase
-            and now - getattr(self, "scene_timestamp", -float("inf")) <= 5
+            if now - getattr(self, "scene_timestamp", -float("inf")) <= 5
             else []
         )
+        bosses = []
         if not chase:
             # Out of view but seen lately (remember_bosses): plan round them too.
-            bosses += self.remembered_bosses(bosses)
+            bosses = in_view + self.remembered_bosses(in_view)
+        from conquest.routes import boss_clearance
+
+        king = getattr(self, "king_clearance", BOSS_CLEARANCE)
+        elite = getattr(self, "elite_clearance", BOSS_CLEARANCE)
+        # Spots a walk or the patrol must not head for: within a boss's
+        # clearance. A King stood on giantape-far-west's anchor (404774 at
+        # (478, 307), 2026-09-30 03:29) and boss_zone skips a boss whose zone
+        # holds the destination, so the walk went straight at him until the
+        # hold. On the Macaque field the patrol kept heading for points and
+        # targets beside the MonkeyKing: 42-56 boss escapes in 5 minutes
+        # (04:07-04:22). The patrol weighs only bosses in view.
+        held_by = bosses if not chase else in_view
+
+        def held_by_boss(point):
+            return any(
+                max(abs(b.position[0] - point[0]), abs(b.position[1] - point[1]))
+                <= boss_clearance(getattr(b, "name", "") or "", king, elite)
+                for b in held_by
+            )
+
+        # The approach and returns take the nearest other patrol point when a
+        # boss holds the spot (entering the hunting boundary ends the walk);
+        # the patrol keeps its sweep order.
+        others = list(map(tuple, alternatives))
+        if not chase:
+            others.sort(
+                key=lambda p: max(abs(p[0] - position[0]), abs(p[1] - position[1]))
+            )
         for destination in dict.fromkeys(
-            [*candidates[:4], tuple(fallback), *map(tuple, alternatives), *escapes]
+            [*candidates[:4], tuple(fallback), *others, *escapes]
         ):
             if destination == tuple(position):
                 continue
             if not (x0 <= destination[0] <= x1 and y0 <= destination[1] <= y1):
+                continue
+            if held_by and held_by_boss(destination):
                 continue
             try:
                 zone = (
