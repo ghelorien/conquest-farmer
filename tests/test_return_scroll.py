@@ -143,6 +143,46 @@ def test_stock_only_buys_two_at_verified_price_and_preserves_inventory_space():
     assert sum(i["amount"] for i in bag["items"]) == 1
 
 
+def test_an_ape_city_restock_stocks_two_ape_city_gates():
+    # overnight.gate_home_from_afar reads one from the far GiantApe and
+    # ThunderApe fields; Ape City's Pharmacist sells ApeCityGate (1060022).
+    from conquest.overnight import pharmacist_needed
+
+    r.write_json(r.POLICY, {"enabled": True, "qualified": True})
+    ape_gate = r.GATES[1020]
+    bag = {"silver": 5000, "items": [], "capacity": 40}
+    buys = []
+
+    def town(action, **kw):
+        if action == "shop":
+            return {"products": [{"type_id": ape_gate, "price": 200}, {"type_id": r.TYPE, "price": 200}]}
+        if action == "supplies":
+            return bag
+        assert action == "buy" and kw == {"vendor_type": 3, "type_id": ape_gate}
+        buys.append(kw)
+        bag["items"].append({"type_id": ape_gate, "amount": 1})
+        bag["silver"] -= 200
+        return {"bought": ape_gate, "amount": 1, "price": 200}
+
+    route = NS(
+        restock_map_id=1020,
+        supplies=NS(
+            minimum_free_slots=4,
+            healing_restock_to=0,
+            healing_type=1000030,
+            arrow_type=1050001,
+            arrows_return_below=0,
+            arrows_restock_to=1,
+        ),
+    )
+    loop = NS(route=route, town=town, record=lambda *a, **k: None)
+    snapshot = {"items": [], "silver": 5000, "equipped_ammo": None, "capacity": 40}
+    assert pharmacist_needed(snapshot, route, scroll_enabled=True)
+    r.stock(loop)
+    assert len(buys) == 2 and bag["silver"] == 4600
+    assert not pharmacist_needed(dict(snapshot, items=bag["items"]), route, scroll_enabled=True)
+
+
 # Toxic left town at 15:25 with 134 silver and no scroll (potions came first
 # and stock needs 400) and died walking home from the Poltergeists at 15:35.
 def test_the_first_scroll_comes_before_potions_whenever_200_silver_is_carried():
