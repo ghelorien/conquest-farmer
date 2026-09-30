@@ -16,7 +16,13 @@ elite_clearance: 13
 # Unsurveyed. Enter only by a field switch from giantape-south: from its
 # anchor (605, 335) the path west keeps 23+ tiles from every surveyed King,
 # while the town path passes GiantApeKing 404774 (543-546, 302-304) at 0.
-hunting_boundary: [300, 270, 348, 318]
+# North to y 242 since 2026-09-30 13:4x. The first box [300, 270, 348, 318]
+# emptied ~15 minutes into each buffed hunt (0.4 kills/min at 13:04-13:08)
+# while ThunderApes stood just north, 3.8 per scene at (310-319, 240-249) in
+# Toxic's survey. The north King roams (330-336, 208-257), so the boss
+# clearance keeps the strip off limits while he is in it. The scout's box
+# ends at y 235 (widened east to x 345 at 13:4x), so 242 leaves Toxic a gap.
+hunting_boundary: [300, 242, 348, 318]
 patrol_search:
   idle_seconds: 7.5
   expansion_tiles: 4
@@ -29,6 +35,8 @@ patrol:
   - [310, 280]
   - [300, 300]
   - [335, 285]
+  - [315, 248]
+  - [332, 252]
 # Terrain path from Ape City town to giantape-south's anchor, then west
 # through the passage at (360-420, 312-318).
 outbound_waypoints:
