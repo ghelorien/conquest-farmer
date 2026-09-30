@@ -39,3 +39,32 @@ def test_sell_scroll_only_sells_a_verified_twincitygate(
         with pytest.raises(ValueError, match=expected):
             trade.execute(body)
         assert game.drags == (1 if expected == UNVERIFIED else 0)
+
+
+AMRITA = 1000030
+
+
+@pytest.mark.parametrize(
+    "action, kind, vendor, expected",
+    [
+        ("sell-potion", AMRITA, 3, "sold"),
+        ("sell-potion", AMRITA, 5, PROTECTED),  # Only at the Pharmacist.
+        ("sell-potion", SCROLL, 3, PROTECTED),  # Only a healing potion.
+        ("sell", AMRITA, 3, PROTECTED),  # Junk sales still keep supplies.
+    ],
+)
+def test_sell_potion_only_sells_a_healing_potion_at_the_pharmacist(
+    monkeypatch, action, kind, vendor, expected
+):
+    # The spares beyond the supply plan (OvernightLoop.sell_excess_potions):
+    # 2026-09-30 09:26, 32 unused Amritas held Suicide's arrow room.
+    game = Game(kind, 1, True, 40)
+    trade = _trade(game, monkeypatch)
+    body = {"action": action, "vendor_type": vendor, "uid": 7001}
+    if expected == "sold":
+        assert trade.execute(body)["silver_gained"] == 40
+        assert game.drags == 1
+    else:
+        with pytest.raises(ValueError, match=expected):
+            trade.execute(body)
+        assert game.drags == 0

@@ -33,6 +33,8 @@ FIELD_EVADE_SECONDS = 1.2
 # instead of walking: the GiantApe plain and the ThunderApes are 195-245 out
 # of Ape City, the Macaques ~100.
 GATE_HOME_TILES = 150
+# Potions a restock keeps over the supply plan's target before selling spares.
+EXCESS_POTION_SLACK = 2
 # The gate is read only from a quiet spot: no HP lost for GATE_QUIET_SECONDS,
 # no living monster within GATE_CLEAR_TILES and every boss beyond its
 # clearance + 4. Escape jumps look for one for up to GATE_SETTLE_SECONDS;
@@ -636,6 +638,7 @@ class OvernightLoop:
             "buy": f"Buying { {**{k: v[0] for k, v in HEALING_POTIONS.items()}, 1050000: 'LuckyArrow', 1050001: 'IronArrow', 1050002: 'SpeedArrow'}.get(fields.get('type_id'), 'supplies') } from {vendor}",
             "sell": f"Selling unwanted loot to {vendor}",
             "sell-scroll": f"Selling a TwinCityGate to {vendor} for arrows",
+            "sell-potion": f"Selling a spare potion to {vendor} for bag room",
         }
         if action in activity:
             self.record("town_activity", activity=activity[action])
@@ -1401,6 +1404,44 @@ class OvernightLoop:
             )
         raise ValueError("Unexpected inventory turnover while selling")
 
+    def sell_excess_potions(self):
+        """Sell potions beyond the supply plan's target back at the open
+        Pharmacist, keeping EXCESS_POTION_SLACK over it. Returns how many sold.
+
+        A potion is one bag slot, like an arrow pack. At 09:26 on 2026-09-30
+        rates learned from heavy-damage hunts bought 33 potions for
+        thunderape-nw; the buffed hunt then used none, and the 32 left held the
+        room of the arrow packs and ApeCityGates (2,141 arrows, ~15 minutes).
+        Only a planned target is trusted: an unplanned route keeps its YAML's
+        few potions, and selling down to those would strip the way back.
+        """
+        kind = self.route.supplies.healing_type
+        keep = self.route.supplies.healing_restock_to + EXCESS_POTION_SLACK
+        sold = 0
+        for _ in range(40):
+            potions = [i for i in self.town("supplies")["items"] if i["type_id"] == kind]
+            if len(potions) <= keep:
+                break
+            try:
+                receipt = self.town("sell-potion", vendor_type=3, uid=potions[-1]["uid"])
+            except ValueError as error:
+                self.record(
+                    "excess_potion_sale_refused",
+                    detail=str(error),
+                    activity="The Pharmacist refused a spare potion; keeping the rest",
+                )
+                break
+            self.record("sale", receipt=receipt, reason="excess_potion")
+            sold += 1
+        if sold:
+            self.record(
+                "excess_potions_sold",
+                sold=sold,
+                kept=keep,
+                activity=f"Sold {sold} spare potions for arrow and gate room",
+            )
+        return sold
+
     def shopping_space(self, vendor_type, position):
         """Free a completely full bag before a shop can reject an essential buy."""
         bag = self.town("supplies")
@@ -1826,7 +1867,9 @@ class OvernightLoop:
 
         # MrBuffer's double damage first (Alex 2026-09-30): TwinCityGate out,
         # ApeCityGate back, and the restock carries on at home.
-        if buff_trip.enabled() and buff_trip.refresh_due(self.town("supplies")["items"]):
+        if buff_trip.enabled() and buff_trip.refresh_due(
+            self.town("supplies")["items"], home=self.route.restock_map_id
+        ):
             buff_trip.trip(self)
         self.scroll_to_restock_town()
         from conquest.world_travel import travel_to_map
@@ -1839,7 +1882,7 @@ class OvernightLoop:
 
         # Learn the finished hunt and size potions against arrow packs before
         # the withdrawal budget is computed from those targets.
-        balance(self)
+        planned = balance(self)
         from conquest.banking import fund_restock
 
         fund_restock(self)
@@ -1858,6 +1901,8 @@ class OvernightLoop:
             # Choose the tier before selling: lower tiers become junk.
             healing_type(self)
             self.sell_junk(3)
+            if planned:
+                self.sell_excess_potions()
             self.shopping_space(3, self.route.restock_anchor)
             arrow_price = last_verified_price(self.route.supplies.arrow_type)
             # The way home comes before potions when silver is short, but not
@@ -2324,7 +2369,7 @@ class OvernightLoop:
                 return
             from conquest import buff_trip
 
-            if buff_trip.hunt_should_end(bag["items"]):
+            if buff_trip.hunt_should_end(bag["items"], home=self.route.restock_map_id):
                 self.record(
                     "return_required",
                     reason="buff_refresh",
@@ -2674,7 +2719,7 @@ class OvernightLoop:
                 life = self.living()["embedded_controls"]["life"]
                 items = self.town("supplies")["items"]
                 if in_town(SimpleNamespace(**life), self.route.restock_map_id):
-                    if buff_trip.refresh_due(items):
+                    if buff_trip.refresh_due(items, home=self.route.restock_map_id):
                         buff_trip.trip(self)
                     elif buff_trip.bootstrap_due(self, items):
                         buff_trip.trip(self, ride=True)
