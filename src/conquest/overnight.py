@@ -33,6 +33,13 @@ FIELD_EVADE_SECONDS = 1.2
 # instead of walking: the GiantApe plain and the ThunderApes are 195-245 out
 # of Ape City, the Macaques ~100.
 GATE_HOME_TILES = 150
+# The gate is read only from a quiet spot: no HP lost for GATE_QUIET_SECONDS,
+# no living monster within GATE_CLEAR_TILES and every boss beyond its
+# clearance + 4. Escape jumps look for one for up to GATE_SETTLE_SECONDS;
+# without one the restock walks home.
+GATE_QUIET_SECONDS = 3.0
+GATE_CLEAR_TILES = 10
+GATE_SETTLE_SECONDS = 20.0
 # Once the hourly restart budget is spent: pause this long (escalating), then
 # replan from fresh reads again instead of stopping for good.
 FAILURE_COOLDOWNS = (120, 300, 600)
@@ -1655,7 +1662,75 @@ class OvernightLoop:
                 < GATE_HOME_TILES
             ):
                 return False
+        if not self.quiet_for_gate():
+            self.record(
+                "gate_deferred_under_fire",
+                activity="No quiet spot to read the gate; walking home",
+            )
+            return False
         return read_gate(self, home)
+
+    def quiet_for_gate(self):
+        """Whether a spot turned up where the gate can be read without being hit.
+
+        Toxic died at (619, 281) on 2026-09-30 02:23: a heavy-damage return
+        read its ApeCityGate standing still beside the GiantApe pack and two
+        Aides, and was dead 2 s later ("Town action requires a living
+        character"). Each pass runs life care; while HP fell in the last
+        GATE_QUIET_SECONDS, a living monster stands within GATE_CLEAR_TILES
+        or a boss has no room (boss_room), escape jumps (evade_in_field)
+        look for a quiet spot, for up to GATE_SETTLE_SECONDS.
+        """
+        from types import SimpleNamespace
+
+        from conquest.routes import BOSS_CLEARANCE, boss_name, boss_room
+
+        king = getattr(self.route, "king_clearance", BOSS_CLEARANCE)
+        elite = getattr(self.route, "elite_clearance", BOSS_CLEARANCE)
+        started = time.monotonic()
+        hit_at, last_hp = started, None
+        while True:
+            health = self.living()
+            try:
+                self.care.check(health)
+            except OvernightStopped:
+                raise
+            except Exception:
+                pass
+            controls = health["embedded_controls"]
+            life = controls.get("life") or {}
+            now = time.monotonic()
+            hp = life.get("current_hp")
+            if last_hp is not None and hp is not None and hp < last_hp:
+                hit_at = now
+            last_hp = hp
+            position = tuple(life.get("position") or ())
+            living = [
+                SimpleNamespace(**m)
+                for m in controls.get("monsters") or []
+                if m.get("position") and m.get("alive") is not False
+            ]
+            crowded = not position or any(
+                not boss_name(m.name or "")
+                and max(abs(a - b) for a, b in zip(m.position, position))
+                <= GATE_CLEAR_TILES
+                for m in living
+            )
+            if (
+                not crowded
+                and boss_room(position, living, king_clearance=king, elite_clearance=elite)
+                and now - hit_at >= GATE_QUIET_SECONDS
+            ):
+                return True
+            if now - started >= GATE_SETTLE_SECONDS:
+                return False
+            try:
+                self.evade_in_field(health, tiles=GATE_CLEAR_TILES)
+            except OvernightStopped:
+                raise
+            except Exception:
+                pass
+            time.sleep(0.3)
 
     def sell_scroll_for_arrows(self):
         """Sell one carried TwinCityGate for the pack an empty quiver needs,
@@ -2886,7 +2961,7 @@ class OvernightLoop:
         except Exception:
             pass
 
-    def evade_in_field(self, health):
+    def evade_in_field(self, health, tiles=FIELD_EVADE_TILES):
         """One escape jump from monsters closing in while a pause runs outside town.
 
         Restart pauses and failure cooldowns only ran life care, so a failure
@@ -2897,7 +2972,8 @@ class OvernightLoop:
         gap). Uses the runback's escape_step: a clear visible landing with
         less danger, nearer the town on ties. A boss inside the route's
         clearance for it also calls for the jump; no landing or path enters
-        another boss's clearance. Returns whether it jumped.
+        another boss's clearance. ``tiles``: how close a living monster calls
+        for the jump. Returns whether it jumped.
         """
         now = time.monotonic()
         if now - getattr(self, "field_evaded_at", -FIELD_EVADE_SECONDS) < FIELD_EVADE_SECONDS:
@@ -2931,7 +3007,7 @@ class OvernightLoop:
         for m in living:
             name = m.get("name") or ""
             if not boss_name(name):
-                close = close or distance(m) <= FIELD_EVADE_TILES
+                close = close or distance(m) <= tiles
                 continue
             reach = boss_clearance(name, king, elite)
             if distance(m) <= reach:
