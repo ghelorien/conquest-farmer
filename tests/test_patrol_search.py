@@ -39,6 +39,7 @@ def test_saved_routes_retain_idle_search_policy():
         "giantape": 4,
         "thunderape-nw": 4,
         "thunderape-scout": 4,
+        "thunderape-north": 4,
         "giantape-west": 1,
         "giantape-north": 1,
         "giantape-south": 1,
