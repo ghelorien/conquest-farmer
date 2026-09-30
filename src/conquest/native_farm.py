@@ -2319,6 +2319,10 @@ class NativeFarmSupervisor:
             hitters = [p for p, d in zip(living, distances) if d <= 3] or [
                 p for p in threats if p not in boss_near
             ]
+            # Clear of every monster, not only the hitters: a landing beside
+            # another is no escape (Alex 2026-09-27: "you can't let enemies
+            # ever attack you").
+            everyone = list(dict.fromkeys([*living, *hitters]))
             width = getattr(terrain, "width", None)
             height = getattr(terrain, "height", None)
             for length in (12, 10, 8):
@@ -2358,11 +2362,11 @@ class NativeFarmSupervisor:
                     ):
                         continue  # never into a boss's reach
                     separation = min(
-                        (max(abs(point[0] - mx), abs(point[1] - my)) for mx, my in hitters),
+                        (max(abs(point[0] - mx), abs(point[1] - my)) for mx, my in everyone),
                         default=99,
                     )
                     if separation <= JUMP_SCATTER_REACH:
-                        continue  # still within the hitters' reach
+                        continue  # still within a monster's reach
                     nearby = sum(
                         max(abs(point[0] - mx), abs(point[1] - my)) <= 4
                         for mx, my in living
