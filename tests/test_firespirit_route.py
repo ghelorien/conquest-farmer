@@ -48,11 +48,11 @@ def test_level_41_moves_on_to_fire_spirits(route):
 
 
 def test_only_the_fire_spirit_family_is_targeted(route):
-    # 2. The ElfMessenger (3,600 HP) is a left-click target (Alex 2026-09-28);
-    # the ElfAide and ElfBoss stay bosses.
-    assert route.monster_type_ids == (9, 68, 8104)
-    assert route_monster_names(route) == ("FireSpirit", "FireSpiritL43", "ElfMessenger")
-    for kind in (8204, 8304):
+    # 2. The ElfMessenger, ElfAide and ElfBoss are elites to dodge (Alex
+    # 2026-09-30: "dont attack messengers anymore, just dodge them").
+    assert route.monster_type_ids == (9, 68)
+    assert route_monster_names(route) == ("FireSpirit", "FireSpiritL43")
+    for kind in (8104, 8204, 8304):
         with pytest.raises(ValueError):
             route_monster_names(route.model_copy(update={"monster_type_ids": (9, kind)}))
 

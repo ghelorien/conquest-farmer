@@ -68,11 +68,6 @@
       "type_id": 67,
       "name": "FireRatL38",
       "level": 38
-    },
-    {
-      "type_id": 8103,
-      "name": "RatMessenger",
-      "level": 37
     }
   ],
   "9": [
@@ -85,11 +80,6 @@
       "type_id": 68,
       "name": "FireSpiritL43",
       "level": 43
-    },
-    {
-      "type_id": 8104,
-      "name": "ElfMessenger",
-      "level": 42
     }
   ],
   "10": [
@@ -102,11 +92,6 @@
       "type_id": 69,
       "name": "MacaqueL48",
       "level": 48
-    },
-    {
-      "type_id": 8105,
-      "name": "MonkeyMessenger",
-      "level": 47
     }
   ],
   "11": [
@@ -119,11 +104,6 @@
       "type_id": 70,
       "name": "GiantApeL53",
       "level": 53
-    },
-    {
-      "type_id": 8106,
-      "name": "GiantApeMsgr",
-      "level": 52
     }
   ],
   "12": [
@@ -136,11 +116,6 @@
       "type_id": 71,
       "name": "ThunderApeL58",
       "level": 58
-    },
-    {
-      "type_id": 8107,
-      "name": "ThunderApeMsgr",
-      "level": 57
     }
   ],
   "13": [

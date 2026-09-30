@@ -3,7 +3,7 @@ id: giantape-far-west
 name: GiantApe far-west ground (Toxic)
 map_id: 1020
 restock_map_id: 1020
-monster_type_ids: [11, 70, 8106]
+monster_type_ids: [11, 70]
 recommended_levels: [52, 57]
 town_anchor: [554, 545]
 restock_anchor: [550, 547]

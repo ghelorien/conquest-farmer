@@ -100,9 +100,9 @@ BOSS_ROOM = BOSS_CLEARANCE + 4
 
 def messenger(name):
     """A Messenger-tier elite (81xx: RatMessenger, ElfMessenger, GiantApeMsgr...).
-    Where its field's family lists it, it is a target killed with left clicks,
-    not a boss (Alex 2026-09-28: "if there ever is a messenger version of the
-    monster just kill it with left clicks")."""
+    No family lists one, so boss_name keeps it at elite_clearance: Alex
+    2026-09-30, "dont attack messengers anymore, just dodge them as much as
+    possible" (reversing 2026-09-28's "just kill it with left clicks")."""
     import re
 
     return bool(re.search(r"(?:messenger|msgr)$", name or "", flags=re.IGNORECASE))
