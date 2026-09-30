@@ -151,6 +151,32 @@ def test_the_claim_runs_once_a_day_and_never_on_a_changed_page(clock):
     assert h.read_json(h.STATE)["claims"] == 1
 
 
+def test_a_confirmation_after_the_claim_keeps_the_day_open(clock):
+    # Laptop2 2026-09-30: marking the claim on the press would lose the day
+    # if he asks to confirm; only a dialog that closes after it counts.
+    enable()
+    approve({"records": GREETING, "option": "Yes, double my experience.", "claims": True})
+    confirm = [
+        {"kind": 0, "option": 0, "text": "Are you sure? It lasts one hour."},
+        {"kind": 1, "option": 1, "text": "Yes."},
+    ]
+    farmer = Farmer(pages=(GREETING, confirm))
+    assert h.visit(farmer) == "unconfirmed"
+    assert selects(farmer) == ["Yes, double my experience."]
+    state = h.read_json(h.STATE)
+    assert "claimed_at" not in state and confirm in [p["records"] for p in state["pages"]]
+    assert farmer.events[-1][0] == "hempknight_claim_unconfirmed"
+    clock[0] += h.RETRY_SECONDS
+    assert h.next_visit() == "claim"  # tried again once the confirm is approved
+    approve(
+        {"records": GREETING, "option": "Yes, double my experience.", "claims": True},
+        {"records": confirm, "option": "Yes."},
+    )
+    farmer = Farmer(pages=(GREETING, confirm))
+    assert h.visit(farmer) == "claimed"
+    assert selects(farmer) == ["Yes, double my experience.", "Yes."]
+
+
 def test_no_claim_within_three_hours_of_a_death(clock):
     enable()
     approve({"records": GREETING, "option": "Yes, double my experience.", "claims": True})

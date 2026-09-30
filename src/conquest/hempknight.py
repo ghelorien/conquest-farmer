@@ -14,7 +14,9 @@ approved step (STATE["approved"]: [{"records": [...], "option": "...",
 pressed only while the page's records are exactly the approved ones. A page
 nobody approved is saved and the dialog closed. The step marked "claims" (the
 double EXP itself) is pressed at most once per CLAIM_INTERVAL and only after
-DEATH_QUIET_SECONDS without a death (note_death, from the living hook).
+DEATH_QUIET_SECONDS without a death (note_death, from the living hook); it
+counts only once the dialog closes after it (Laptop2: a confirmation page
+would otherwise lose the day).
 
 Enabled per character by .runtime/buff-trip.json {"double_exp": true}, beside
 buff_trip's {"stigma": true}: the visit happens on a buff trip.
@@ -132,7 +134,13 @@ def _dismiss(loop):
 
 def talk(loop, mode):
     """Open his dialog and press only approved options on exactly their pages.
-    Returns the options pressed and whether the claiming one was among them."""
+
+    Returns the options pressed and whether the double EXP counts as claimed:
+    the claiming option was pressed and the dialog then closed, or every page
+    after it was approved and walked to the end. A page nobody approved after
+    the claim (a confirmation, say) leaves it unclaimed, so the day is not
+    lost: that page is saved for approval and the next visit tries again.
+    """
     from conquest.dialog_geometry import scroll_direction
 
     approved = approved_steps(read_json(STATE))
@@ -141,7 +149,7 @@ def talk(loop, mode):
     loop.town("close", window="Shop")
     loop.town("close", window="Inventory")
     loop.town("service-open", name=NAME)
-    pressed, claimed = [], False
+    pressed, claim_pressed = [], False
     try:
         dialog = _dialog(loop)
         if dialog is None:
@@ -176,19 +184,20 @@ def talk(loop, mode):
                 continue
             loop.town("service-select", name=NAME, option=option, records=records)
             pressed.append(option)
-            claimed = claimed or bool(step.get("claims"))
+            claim_pressed = claim_pressed or bool(step.get("claims"))
             time.sleep(0.5)
             dialog = _dialog(loop, seconds=2)
         if dialog is not None and pressed:
             _save_page(dialog["records"], pressed)
     finally:
         _dismiss(loop)
-    return pressed, claimed
+    return pressed, claim_pressed and dialog is None
 
 
 def visit(loop, now=None):
     """One guarded visit from a Twin City buff trip; never stops the trip.
-    Returns what happened: None (not due), 'claimed', 'explored' or 'failed'."""
+    Returns what happened: None (not due), 'claimed', 'unconfirmed' (claim
+    pressed but a page nobody approved followed), 'explored' or 'failed'."""
     from conquest.overnight import OvernightStopped
 
     mode = next_visit(now)
@@ -226,6 +235,13 @@ def visit(loop, now=None):
             activity="TheHempKnight: double EXP claimed (next claim in 24 h)",
         )
         return "claimed"
+    if {s["option"] for s in approved_steps(data) if s.get("claims")} & set(pressed):
+        loop.record(
+            "hempknight_claim_unconfirmed",
+            options=pressed,
+            activity="TheHempKnight: a page nobody approved followed the claim; saved, retrying later",
+        )
+        return "unconfirmed"
     loop.record(
         "hempknight_explored",
         mode=mode,
