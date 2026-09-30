@@ -75,17 +75,25 @@ def approved_steps(state):
     ]
 
 
-def claim_allowed(state, now):
+def claim_allowed(state, now, route=None):
+    """Once a day, not soon after a death, and with STATE "claim_routes" only
+    while the hold is one of them: the hour of double EXP goes to the best
+    field (Laptop2 2026-09-30: Toxic's first claim ran its hour on a blocked
+    GiantApe box; buffed ThunderApes give ~10x the XP of the Macaques)."""
     claimed = state.get("claimed_at")
     died = state.get("died_at")
-    return (type(claimed) not in (int, float) or now - claimed >= CLAIM_INTERVAL) and (
-        type(died) not in (int, float) or now - died >= DEATH_QUIET_SECONDS
+    routes = state.get("claim_routes")
+    return (
+        (type(claimed) not in (int, float) or now - claimed >= CLAIM_INTERVAL)
+        and (type(died) not in (int, float) or now - died >= DEATH_QUIET_SECONDS)
+        and (not isinstance(routes, list) or route in routes)
     )
 
 
-def next_visit(now=None):
+def next_visit(now=None, route=None):
     """'claim' (walk the approved steps to the double EXP), 'explore' (walk the
-    approved steps and save the first new page), or None."""
+    approved steps and save the first new page), or None. ``route`` is the
+    hold the farmer hunts after this trip (claim_allowed's claim_routes)."""
     if not enabled():
         return None
     now = time.time() if now is None else now
@@ -95,7 +103,7 @@ def next_visit(now=None):
         return None
     approved = approved_steps(state)
     if any(step.get("claims") for step in approved):
-        return "claim" if claim_allowed(state, now) else None
+        return "claim" if claim_allowed(state, now, route) else None
     # Read on until a page nobody approved; again only once more is approved.
     if not state.get("pages") or state.get("explored_with", -1) < len(approved):
         return "explore"
@@ -200,7 +208,7 @@ def visit(loop, now=None):
     pressed but a page nobody approved followed), 'explored' or 'failed'."""
     from conquest.overnight import OvernightStopped
 
-    mode = next_visit(now)
+    mode = next_visit(now, route=getattr(getattr(loop, "route", None), "id", None))
     if mode is None:
         return None
     if loop.living()["embedded_controls"]["life"]["map_id"] != TWIN_CITY:

@@ -177,6 +177,24 @@ def test_a_confirmation_after_the_claim_keeps_the_day_open(clock):
     assert selects(farmer) == ["Yes, double my experience.", "Yes."]
 
 
+def test_the_claim_waits_for_a_listed_best_field(clock):
+    # Laptop2 2026-09-30: claim right before the best-field hour, not while
+    # the hold is on a blocked or low-XP field.
+    enable()
+    approve({"records": GREETING, "option": "Yes, double my experience.", "claims": True})
+    data = h.read_json(h.STATE)
+    data["claim_routes"] = ["thunderape-scout"]
+    h.write_json(h.STATE, data)
+    assert h.next_visit(route="macaque") is None
+    assert h.next_visit(route=None) is None
+    assert h.next_visit(route="thunderape-scout") == "claim"
+    farmer = Farmer(pages=(GREETING,))
+    farmer.route = NS(id="giantape-north")
+    assert h.visit(farmer) is None and farmer.calls == []
+    farmer.route = NS(id="thunderape-scout")
+    assert h.visit(farmer) == "claimed"
+
+
 def test_no_claim_within_three_hours_of_a_death(clock):
     enable()
     approve({"records": GREETING, "option": "Yes, double my experience.", "claims": True})
