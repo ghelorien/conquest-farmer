@@ -229,3 +229,79 @@ def test_a_leveling_ironarrow_restock_is_planned_within_what_silver_pays(
     assert loop.route.supplies.healing_restock_to == potions
     assert loop.route.supplies.arrows_restock_to == packs * 1000
     assert loop.planned_arrows == {1050001: packs * 1000}
+
+
+def ironarrow_restock(monkeypatch, route_id, rates, items, ammo, silver, stored=0):
+    from conquest import level_goal
+    from conquest.banking import STATUS
+    from conquest.discord_notify import write_json
+
+    level_goal.start(level_goal.SCATTER_LEVEL)
+    monkeypatch.setattr("conquest.equipment.leveling_archer", lambda: True)
+    monkeypatch.setattr(
+        "conquest.overnight.last_verified_price",
+        lambda kind, path=None: {1000020: 60, 1050000: 200, 1050001: 4800}.get(kind),
+    )
+    monkeypatch.setattr(
+        "conquest.arrow_upgrades.arrow_pack_price", {1050000: 200, 1050001: 4800}.get
+    )
+    write_json(STATUS, {"stored_silver": stored})
+    route = RouteLibrary().load(route_id)
+    route = route.model_copy(
+        update={"supplies": route.supplies.model_copy(update={"arrow_type": 1050001})}
+    )
+    write_json(supply_plan.RATES, {"routes": {route_id: rates}})
+    events = []
+    loop = NS(
+        route=route,
+        town=lambda action, **kw: {
+            "items": items, "capacity": 40, "silver": silver, "equipped_ammo": ammo,
+        },
+        record=lambda event, **fields: events.append((event, fields)),
+    )
+    return loop, supply_plan.balance(loop), events
+
+
+def test_short_of_one_ironarrow_pack_the_plan_sizes_luckyarrow_packs(monkeypatch):
+    # 2026-09-30 05:25 (Suicide, thunderape-nw): back on a heavy-damage gate
+    # with 269 LuckyArrows equipped, 11 potions and 3,885 silver (667 carried).
+    # Planned as one 1,000-arrow IronArrow pack (~25 minutes), the restock
+    # bought 33 potions, then had bag room for one 200-arrow LuckyArrow pack.
+    items = [{"uid": i, "type_id": 1000020, "amount": 1} for i in range(11)]
+    items.append({"uid": 50, "type_id": 1060022, "amount": 1})  # an ApeCityGate
+    loop, best, events = ironarrow_restock(
+        monkeypatch,
+        "thunderape-nw",
+        {"potions_per_min": 1.218, "arrows_per_min": 40.523},
+        items,
+        {"uid": 99, "type_id": 1050000, "amount": 269},
+        silver=667,
+        stored=3218,
+    )
+    minutes, potions, packs = best
+    assert set(loop.planned_arrows) == {1050000}
+    assert loop.route.supplies.arrows_restock_to == packs * 200 >= 800
+    # The bag keeps room for those packs, and potions no longer run out
+    # long before the arrows: both last ~the same time.
+    assert potions <= 33 - (packs - 1)
+    arrows_minutes = (269 + (packs - 1) * 200) / 40.523
+    assert minutes == pytest.approx(arrows_minutes, rel=0.25)
+    assert events[-1][1]["arrow_type"] == 1050000
+
+
+def test_a_partial_ironarrow_pack_counts_its_arrows_not_a_full_pack(monkeypatch):
+    # 400 IronArrows equipped and 9,000 silver: one more 4,800 pack is
+    # affordable, and the plan counts 400 + 1,000 arrows, not two full packs.
+    items = [{"uid": i, "type_id": 1000020, "amount": 1} for i in range(3)]
+    items.append({"uid": 50, "type_id": 1060020, "amount": 1})
+    loop, best, _ = ironarrow_restock(
+        monkeypatch,
+        "bandit",
+        {"potions_per_min": 0.274, "arrows_per_min": 48.768},
+        items,
+        {"uid": 99, "type_id": 1050001, "amount": 400},
+        silver=9000,
+    )
+    minutes, potions, packs = best
+    assert set(loop.planned_arrows) == {1050001} and packs == 2
+    assert minutes == pytest.approx(1400 / 48.768, rel=0.01)
