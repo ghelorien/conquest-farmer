@@ -107,6 +107,47 @@ def plan_note():
     )
 
 
+def rotate_hold(visit_id=None):
+    """Move a route hold to the next field of its rotation; the new route id,
+    or None when nothing rotates.
+
+    A GiantApe field gives ~1.5-2.4M xp/h fresh and thins to ~0.7-1.1M within
+    15-30 min (respawn caps it); the rested north field gave Toxic 2.39M xp/h
+    at 20:14-20:24 after one restock cycle on the south (2026-09-29). A hold
+    with "rotation": [route ids] therefore moves to the next field at each
+    restock, and the restock's end departs from town to it. Once per town
+    visit: a resumed or repeated restock of the same visit keeps its field.
+    Every field must share the hold's restock town.
+    """
+    data = read_json(PLAN)
+    rotation = data.get("rotation")
+    if (
+        not data.get("active")
+        or data.get("mode") != "hold_route"
+        or not isinstance(rotation, list)
+        or len(rotation) < 2
+        or data.get("route_id") not in rotation
+    ):
+        return None
+    if visit_id is not None and data.get("rotated_for_visit") == visit_id:
+        return None
+    from conquest.routes import RouteLibrary
+
+    library = RouteLibrary()
+    towns = {library.load(route).restock_map_id for route in rotation}
+    if towns != {library.load(data["route_id"]).restock_map_id}:
+        return None
+    target = rotation[(rotation.index(data["route_id"]) + 1) % len(rotation)]
+    data.update(
+        previous_route_id=data["route_id"],
+        route_id=target,
+        rotated_at=time.time(),
+        rotated_for_visit=visit_id,
+    )
+    write_json(PLAN, data)
+    return target
+
+
 def resume_leveling():
     data = read_json(PLAN)
     data.update(active=False, ended_at=time.time())

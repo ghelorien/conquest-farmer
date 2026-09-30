@@ -98,18 +98,32 @@ class BridgeJumpStepper:
             self.on_life(health)
         return health
 
+    def life(self):
+        """A health read's life, re-polled briefly while the bridge has none.
+
+        A read taken while the life state changes carries no life: the
+        KeyError 'life' it raised here escaped Toxic's town walk and
+        restarted the route mid-restock (2026-09-29 20:11:22). The ValueError
+        names an observation, which the town walk retries as transient.
+        """
+        deadline = time.monotonic() + 1
+        while True:
+            life = self.health()["embedded_controls"].get("life")
+            if life is not None:
+                return life
+            if time.monotonic() >= deadline:
+                raise ValueError("Life observation unavailable before route input")
+            time.sleep(0.05)
+
     def observe(self):
         from types import SimpleNamespace
 
-        health = self.health()
-        life = health["embedded_controls"]["life"]
-        return SimpleNamespace(position=tuple(life["position"]))
+        return SimpleNamespace(position=tuple(self.life()["position"]))
 
     def step_to(self, destination, *, expected_position=None):
         from conquest.worker import request
 
-        health = self.health()
-        life = health["embedded_controls"]["life"]
+        life = self.life()
         source = list(
             expected_position if expected_position is not None else life["position"]
         )

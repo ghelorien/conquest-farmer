@@ -696,6 +696,66 @@ def test_return_uses_fewer_turns_planner_and_keeps_checked_cache(monkeypatch):
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("boundary", [(0, 0, 99, 99), (0, 30, 99, 50)])
+def test_approach_and_returns_walk_round_a_visible_king(monkeypatch, boundary):
+    """travel_path's equally short paths ran through GiantApeKing 404775's
+    idle spot from 2-4 tiles off the road to the west strip (2026-09-29)."""
+    import numpy as np
+    from conquest.navigation import TerrainMap
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    now = [100.0]
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: now[0])
+    supervisor.recovery.terrain = TerrainMap(
+        1020, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ()
+    )
+    supervisor.king_clearance = 15
+    king = SimpleNamespace(name="GiantApeKing", position=(50, 40), alive=True, current_hp=45000)
+    supervisor.scene_monsters = (king,)
+    supervisor.scene_timestamp = 99.0
+
+    def cheb(a, b):
+        return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+    step = supervisor.patrol_step((20, 40), (80, 40), boundary, chase=False)
+    _, path, detoured = supervisor.travel_path_cache
+    # Round the zone even where that leaves the boundary drawn round the
+    # direct line (the trial replans it once the farmer is outside).
+    assert detoured and min(cheb(p, king.position) for p in path) > 15
+    assert cheb(step, king.position) > 15 and step != (32, 40)
+    # The cached detour is followed from its next landing without replanning.
+    assert supervisor.patrol_step(step, (80, 40), boundary, chase=False) != step
+    assert supervisor.travel_path_cache[2]
+    # No King in the last 5 s of scene reads: the direct line again.
+    now[0] = 110.0
+    assert supervisor.patrol_step((20, 40), (80, 40), boundary, chase=False) == (32, 40)
+    assert supervisor.travel_path_cache[2] is False
+    # A chase (patrol towards targets) keeps its own planning.
+    now[0] = 100.0
+    assert supervisor.patrol_step((20, 40), (80, 40), (0, 0, 99, 99)) == (32, 40)
+
+
+def test_a_king_on_the_destination_or_beside_the_farmer_leaves_a_way_out(monkeypatch):
+    import numpy as np
+    from conquest.navigation import TerrainMap
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.recovery.terrain = TerrainMap(
+        1020, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ()
+    )
+    supervisor.king_clearance = 15
+    supervisor.scene_timestamp = 100.0
+    # Holding the destination: nothing to walk round (boss_zone skips it).
+    supervisor.scene_monsters = (SimpleNamespace(name="GiantApeKing", position=(75, 40)),)
+    assert supervisor.patrol_step((20, 40), (80, 40), (0, 0, 99, 99), chase=False) == (32, 40)
+    assert supervisor.travel_path_cache[2] is False
+    # Beside the farmer: only BOSS_INNER tiles are kept, so the walk leaves.
+    supervisor.scene_monsters = (SimpleNamespace(name="GiantApeKing", position=(22, 42)),)
+    step = supervisor.patrol_step((20, 40), (80, 40), (0, 0, 99, 99), chase=False)
+    assert step[0] > 20
+
+
 def test_successful_detour_restores_jumps_without_forgetting_failed_tiles(monkeypatch):
     supervisor, _, _, _ = setup(monkeypatch)
     supervisor.movement_failed((10, 10), (22, 10))

@@ -1683,6 +1683,18 @@ class OvernightLoop:
                 target=self.identity,
             )
         self.phase = "restocking"
+        from conquest.session_plan import rotate_hold
+
+        # A hold's field rotation: the restock's end departs to the rested
+        # field (select_level_route follows the hold's new route id).
+        rotated = rotate_hold(visits.active_id() if visits is not None else None)
+        if rotated:
+            self.record(
+                "field_rotated",
+                previous_route=self.route.id,
+                route=rotated,
+                activity=f"Next hunt on {rotated}: the other field has rested",
+            )
         from conquest.savings import savings_plan, configure_route
 
         if savings_plan():

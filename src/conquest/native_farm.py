@@ -1757,6 +1757,24 @@ class NativeFarmSupervisor:
             if avoid
             else []
         )
+        # The approach and boundary returns plan round every visible boss's
+        # clearance, as town travel does (boss_zone). travel_path's equally
+        # short paths otherwise run straight through a King: from 2-4 tiles
+        # off the road to the GiantApe west strip a fresh plan crossed
+        # GiantApeKing 404775's idle spot (2026-09-29), and ranged_escape
+        # alone held Suicide 11 tiles from him (18:27).
+        from conquest.routes import BOSS_CLEARANCE, boss_name, boss_zone
+
+        bosses = (
+            [
+                m
+                for m in getattr(self, "scene_monsters", ())
+                if boss_name(getattr(m, "name", "") or "")
+            ]
+            if not chase
+            and now - getattr(self, "scene_timestamp", -float("inf")) <= 5
+            else []
+        )
         for destination in dict.fromkeys(
             [*candidates[:4], tuple(fallback), *map(tuple, alternatives), *escapes]
         ):
@@ -1765,6 +1783,17 @@ class NativeFarmSupervisor:
             if not (x0 <= destination[0] <= x1 and y0 <= destination[1] <= y1):
                 continue
             try:
+                zone = (
+                    boss_zone(
+                        tuple(position),
+                        destination,
+                        bosses,
+                        king_clearance=getattr(self, "king_clearance", BOSS_CLEARANCE),
+                        elite_clearance=getattr(self, "elite_clearance", BOSS_CLEARANCE),
+                    )
+                    if bosses
+                    else frozenset()
+                )
                 # Long inter-area travel can exceed the small local patrol budget.
                 # Reuse a checked path while fresh memory stays on it or a few
                 # clear tiles beside it (a shortened or escape jump) and the
@@ -1777,15 +1806,18 @@ class NativeFarmSupervisor:
                     destination,
                     tuple(boundary),
                     frozenset(avoid),
+                    zone,
                 )
                 cached = getattr(self, "travel_path_cache", None) if not chase else None
                 from conquest.navigation import rejoin_path
 
+                hit = bool(cached) and cached[0] == key
                 path = (
-                    rejoin_path(terrain, cached[1], position, avoid=avoid)
-                    if cached and cached[0] == key
+                    rejoin_path(terrain, cached[1], position, avoid=avoid | zone)
+                    if hit
                     else None
                 )
+                detoured = hit and path is not None and cached[2:] == (True,)
                 if path is None:
                     planner = (
                         getattr(
@@ -1798,15 +1830,31 @@ class NativeFarmSupervisor:
                     )
                     from conquest.navigation import FIELD_TRAVEL_LIMIT
 
+                    limit = FIELD_TRAVEL_LIMIT if not chase else 10000
                     path = planner(
                         position,
                         destination,
-                        limit=FIELD_TRAVEL_LIMIT if not chase else 10000,
+                        limit=limit,
                         **({"avoid": avoid} if avoid else {}),
                     )
+                    if zone and any(tuple(p) in zone for p in path):
+                        try:
+                            path = planner(
+                                position, destination, limit=limit, avoid=avoid | zone
+                            )
+                            detoured = True
+                        except ValueError:
+                            # No way round: keep the direct plan; ranged_escape
+                            # still jumps clear inside a boss's clearance.
+                            pass
                 if not chase:
-                    self.travel_path_cache = (key, path)
-                if any(not (x0 <= px <= x1 and y0 <= py <= y1) for px, py in path):
+                    self.travel_path_cache = (key, path, detoured)
+                # A detour round a boss may leave the travel boundary drawn
+                # round the direct path; the trial replans that boundary once
+                # the farmer is outside it.
+                if not detoured and any(
+                    not (x0 <= px <= x1 and y0 <= py <= y1) for px, py in path
+                ):
                     continue
                 chosen = next(
                     (key for key, point in fresh.items() if point == destination), None
@@ -1851,7 +1899,9 @@ class NativeFarmSupervisor:
                         terrain,
                         path,
                         4 if now < self.movement_run_until else 12,
-                        avoid=avoid,
+                        # A landing's straight jump must not cut into the
+                        # clearance the detour walks round.
+                        avoid=avoid | zone if detoured else avoid,
                         viewport=size_for(self.observer),
                     )
                 else:

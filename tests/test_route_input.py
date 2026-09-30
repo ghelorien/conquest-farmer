@@ -65,6 +65,37 @@ def test_route_progress_watchdog_keeps_care_active_and_does_not_interrupt_moveme
         assert now[0] - 10 >= (2.8 if mode == "moving" else 0.1)
 
 
+def test_a_read_without_life_is_repolled_not_a_key_error(monkeypatch):
+    """2026-09-29 20:11:22: KeyError 'life' restarted Toxic's route mid-restock."""
+    now = [10.0]
+    reads = []
+    monkeypatch.setattr(route_input.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        route_input.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay)
+    )
+    life = {"position": [10, 10], "map_id": 1011, "dead_candidate": False, "timestamp": 1}
+
+    def request(info, operation, body=None):
+        if operation == "route-jump":
+            return {"movement": "run"}
+        reads.append(now[0])
+        # The first two reads land while the life state is changing.
+        return {"embedded_controls": {"life": life} if len(reads) > 2 else {}}
+
+    monkeypatch.setattr("conquest.worker.request", request)
+    stepper = route_input.BridgeJumpStepper("unused")
+    assert stepper.observe().position == (10, 10)
+    assert len(reads) == 3
+
+    monkeypatch.setattr(
+        "conquest.worker.request",
+        lambda info, operation, body=None: {"embedded_controls": {}},
+    )
+    with pytest.raises(ValueError, match="observation"):
+        stepper.step_to((14, 10))
+    assert now[0] - 10 >= 1
+
+
 @pytest.mark.parametrize(
     "note",
     [
