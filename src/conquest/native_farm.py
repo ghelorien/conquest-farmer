@@ -88,6 +88,14 @@ VALUABLE_RADIUS = 25
 VALUABLE_CHASE_SECONDS = 3
 # Ground drops audit_loot remembers (by uid and address) before starting over.
 LOOT_AUDIT_MEMORY = 5000
+# A boss seen this recently still shapes walks once out of view (Kings idle
+# for hours; remember_bosses), unless the farmer comes within BOSS_SIGHT_TILES
+# of its last tile and it is not there.
+BOSS_MEMORY_SECONDS = 600
+BOSS_SIGHT_TILES = 12
+# Only remembered bosses this near the farmer shape its walk (each adds a
+# clearance square to every patrol_step's zone).
+BOSS_MEMORY_REACH = 120
 
 @contextmanager
 def logical_coordinates():
@@ -854,6 +862,64 @@ class NativeFarmSupervisor:
                     )
             return matched
 
+    def remember_bosses(self, monsters):
+        """Keep each boss's last seen tile, so walks plan round bosses out of view.
+
+        2026-09-30 03:36: past King 404775, travel_path from (578, 336) to
+        thunderape-nw ran straight west through a GiantApeAide at (480, 324),
+        a Msgr at (482, 338) and Kings at (481, 309) and (454, 340); the walk
+        round them north of y 300 was just as short (249 tiles). The walk only
+        zoned bosses in view, met them 12-15 tiles off, took Msgr hits and went
+        home heavy-damaged. An entry lapses after BOSS_MEMORY_SECONDS, or once
+        its tile is within BOSS_SIGHT_TILES of the farmer without the boss.
+        """
+        from conquest.routes import boss_name
+
+        now = time.monotonic()
+        memory = getattr(self, "boss_memory", None)
+        if memory is None:
+            memory = self.boss_memory = {}
+        seen = set()
+        for m in monsters:
+            if not boss_name(getattr(m, "name", "") or "") or not getattr(m, "position", None):
+                continue
+            key = (self.map_id, m.entity_id)
+            if getattr(m, "alive", None) is False or getattr(m, "current_hp", None) == 0:
+                memory.pop(key, None)
+                continue
+            memory[key] = (m.name, tuple(m.position), now)
+            seen.add(key)
+        position = getattr(self, "position", None)
+        for key, (_, spot, at) in list(memory.items()):
+            if key in seen or key[0] != self.map_id:
+                continue
+            if now - at > BOSS_MEMORY_SECONDS or (
+                position
+                and max(abs(a - b) for a, b in zip(spot, position)) <= BOSS_SIGHT_TILES
+            ):
+                del memory[key]
+
+    def remembered_bosses(self, visible):
+        """Bosses on this map seen in the last BOSS_MEMORY_SECONDS, not in
+        ``visible`` and within BOSS_MEMORY_REACH of the farmer (their last
+        tile; for boss_zone). Farther ones join as the walk nears them."""
+        from types import SimpleNamespace
+
+        now = time.monotonic()
+        shown = {getattr(m, "entity_id", None) for m in visible}
+        position = getattr(self, "position", None)
+        return [
+            SimpleNamespace(entity_id=key[1], name=name, position=spot)
+            for key, (name, spot, at) in (getattr(self, "boss_memory", None) or {}).items()
+            if key[0] == self.map_id
+            and key[1] not in shown
+            and now - at <= BOSS_MEMORY_SECONDS
+            and (
+                not position
+                or max(abs(a - b) for a, b in zip(spot, position)) <= BOSS_MEMORY_REACH
+            )
+        ]
+
     def memory_targets(self, size=(1036, 793)):
         """Selected scene IDs and draw coordinates; no pixel observations.
 
@@ -883,6 +949,7 @@ class NativeFarmSupervisor:
             self.targets_observation_available = True
             self.scene_monsters = monsters
             self.scene_timestamp = time.monotonic()
+            self.remember_bosses(monsters)
             self.note_target_position(monsters)
             intent = self.control.snapshot()
             accepted = []
@@ -1775,6 +1842,9 @@ class NativeFarmSupervisor:
             and now - getattr(self, "scene_timestamp", -float("inf")) <= 5
             else []
         )
+        if not chase:
+            # Out of view but seen lately (remember_bosses): plan round them too.
+            bosses += self.remembered_bosses(bosses)
         for destination in dict.fromkeys(
             [*candidates[:4], tuple(fallback), *map(tuple, alternatives), *escapes]
         ):
