@@ -202,13 +202,18 @@ def boss_zone(
     *,
     king_clearance=BOSS_CLEARANCE,
     elite_clearance=BOSS_CLEARANCE,
+    margin=0,
 ):
     """Tiles route travel keeps off: within each living boss's clearance
-    (``clearance`` when given, else boss_clearance with the route's).
+    (``clearance`` when given, else boss_clearance with the route's), widened
+    by ``margin``.
 
     ``monsters`` are bridge scene records (dicts) or scene objects. A boss
     whose zone holds the destination is skipped (there is nothing to detour
-    to); one whose zone holds ``source`` keeps only BOSS_INNER tiles.
+    to); one whose clearance holds ``source`` keeps only BOSS_INNER tiles. With
+    a ``margin``, a ``source`` inside the widened zone but outside the
+    clearance keeps the tiles closer than it stands: the walk may go round
+    but never closes in, which is what boss_step_ok lets a held walk do.
     """
     tiles = set()
     for monster in monsters:
@@ -226,17 +231,21 @@ def boss_zone(
             or get("current_hp", 1) == 0
         ):
             continue
-        full = (
+        hard = (
             clearance
             if clearance is not None
             else boss_clearance(name, king_clearance, elite_clearance)
         )
+        full = hard + margin
         bx, by = position[0], position[1]
         if max(abs(destination[0] - bx), abs(destination[1] - by)) <= full:
             continue
+        standing = max(abs(source[0] - bx), abs(source[1] - by))
         reach = (
             BOSS_INNER
-            if max(abs(source[0] - bx), abs(source[1] - by)) <= full
+            if standing <= hard
+            else standing - 1
+            if standing <= full
             else full
         )
         tiles.update(

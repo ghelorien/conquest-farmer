@@ -451,6 +451,9 @@ def run_trial(
     last_scatter_cast = -float("inf")
     boss_hold_logged = -float("inf")
     return_hold_logged = -float("inf")
+    # When a boss hold began refusing every step of a walk back (None: no hold).
+    return_hold_since = None
+    return_replan_reason = "no_step_inside"
     valuable_walk_logged = -float("inf")
     # Start with a cast if a living selected target is already in range.
     # Only a successful cast earns the next ordinary hunting jump.
@@ -638,6 +641,7 @@ def run_trial(
                         supervisor.finish_runback("arrived")
                     approaching, moving = False, None
                     return_replan_due, return_replans = False, 0
+                    return_hold_since = None
                     if boundary_return_target is not None:
                         event("boundary_return_completed", position=[x, y])
                         boundary_return_target = None
@@ -704,12 +708,13 @@ def run_trial(
                         destination=list(boundary_return_target),
                         travel_boundary=travel_boundary,
                         **(
-                            {"replanned": "no_step_inside", "padding": padding}
+                            {"replanned": return_replan_reason, "padding": padding}
                             if return_replan_due
                             else {}
                         ),
                     )
                     return_replan_due = False
+                    return_replan_reason = "no_step_inside"
                     if hasattr(supervisor, "start_runback"):
                         supervisor.start_runback(boundary_return_target)
                     # Resample after path planning before healing or movement input.
@@ -2280,6 +2285,26 @@ def run_trial(
                                         supervisor, "elite_clearance", BOSS_CLEARANCE
                                     ),
                                 ):
+                                    # A boss parked on the walk refuses every
+                                    # step toward him for as long as he stays:
+                                    # a GiantApeKing on the plain's gateway
+                                    # (619, 331) held Suicide 8 minutes at
+                                    # (636, 346) on 2026-09-30 10:37. Redraw and
+                                    # widen the travel box, as when no step fits
+                                    # it, so patrol_step's detour round his zone
+                                    # (as short a walk, via (617, 297)) fits.
+                                    held_at = time.monotonic()
+                                    if return_hold_since is None:
+                                        return_hold_since = held_at
+                                    elif (
+                                        approaching
+                                        and config.hunting_anchor is not None
+                                        and held_at - return_hold_since
+                                        >= RETURN_REPLAN_WAIT_SECONDS
+                                    ):
+                                        return_replan_due = True
+                                        return_replan_reason = "boss_hold"
+                                        return_hold_since = held_at
                                     time.sleep(0.08)
                                     continue
                             now = time.monotonic()
@@ -2341,6 +2366,7 @@ def run_trial(
                             event("navigation_resumed")
                             navigation_waiting = False
                         return_replans = 0
+                        return_hold_since = None
                         event(
                             "movement_attempt",
                             point=point,

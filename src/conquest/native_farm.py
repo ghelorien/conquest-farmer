@@ -1883,6 +1883,14 @@ class NativeFarmSupervisor:
             if held_by and held_by_boss(destination):
                 continue
             try:
+                from conquest.routes import BOSS_ROOM
+
+                # Round each boss with BOSS_ROOM's margin, never closer than
+                # we stand: the trial's boss hold (boss_step_ok) refuses any
+                # step inside that margin that closes in, so a detour hugging
+                # the clearance itself held Suicide 8 minutes beside a
+                # GiantApeKing parked on the plain's gateway (619, 331),
+                # 2026-09-30 10:37.
                 zone = (
                     boss_zone(
                         tuple(position),
@@ -1890,6 +1898,7 @@ class NativeFarmSupervisor:
                         bosses,
                         king_clearance=getattr(self, "king_clearance", BOSS_CLEARANCE),
                         elite_clearance=getattr(self, "elite_clearance", BOSS_CLEARANCE),
+                        margin=BOSS_ROOM - BOSS_CLEARANCE,
                     )
                     if bosses
                     else frozenset()
