@@ -580,6 +580,13 @@ class OvernightLoop:
                 and 0 <= time.time() - data.get("observed_at", 0) <= 1
             ):
                 return h
+            if life and life["dead_candidate"]:
+                from conquest import buff_trip
+
+                # Alex: "if you die, you lose the double damage buff".
+                if buff_trip.lost("death"):
+                    self.record("buff_lost", buff="stigma", reason="death",
+                                activity="Died: MrBuffer's double damage is gone")
             if life and life["dead_candidate"] and not data["control"]["enabled"]:
                 try:
                     self.care.check(h)
@@ -1815,6 +1822,12 @@ class OvernightLoop:
         services = city_for(self.route.restock_map_id).get("services")
         if not services:
             raise ValueError("Restock vendors are not mapped in the destination city")
+        from conquest import buff_trip
+
+        # MrBuffer's double damage first (Alex 2026-09-30): TwinCityGate out,
+        # ApeCityGate back, and the restock carries on at home.
+        if buff_trip.enabled() and buff_trip.refresh_due(self.town("supplies")["items"]):
+            buff_trip.trip(self)
         self.scroll_to_restock_town()
         from conquest.world_travel import travel_to_map
 
@@ -1984,6 +1997,16 @@ class OvernightLoop:
         from conquest.session_plan import upgrade_circuit
 
         toured = upgrade_circuit(self) if review_both_cities else False
+        from conquest import buff_trip
+
+        # No TwinCityGate yet (Ape City sells none): ride to Twin City once for
+        # MrBuffer's buff and the gates that make later trips a scroll each way.
+        if (
+            not toured
+            and buff_trip.enabled()
+            and buff_trip.bootstrap_due(self, self.town("supplies")["items"])
+        ):
+            toured = buff_trip.trip(self, ride=True)
         self.town("close", window="Shop")
         self.town("close", window="Inventory")
         from conquest.banking import after_shopping
@@ -2294,6 +2317,17 @@ class OvernightLoop:
                     level=self.last_level,
                     supplies=supplies,
                     activity=f"Level {self.last_level}: returning to town to check gear upgrades",
+                )
+                self.stop_farm()
+                return
+            from conquest import buff_trip
+
+            if buff_trip.hunt_should_end(bag["items"]):
+                self.record(
+                    "return_required",
+                    reason="buff_refresh",
+                    supplies=supplies,
+                    activity="MrBuffer's double damage is running out; refreshing it in Twin City",
                 )
                 self.stop_farm()
                 return
@@ -2627,6 +2661,21 @@ class OvernightLoop:
 
             upgrade_circuit(self)
         else:
+            from types import SimpleNamespace
+
+            from conquest import buff_trip
+            from conquest.return_scroll import in_town
+
+            # Starting in town (a deploy, a restart): fetch MrBuffer's buff
+            # before walking out, by gate or, with none carried, the ride.
+            if buff_trip.enabled():
+                life = self.living()["embedded_controls"]["life"]
+                items = self.town("supplies")["items"]
+                if in_town(SimpleNamespace(**life), self.route.restock_map_id):
+                    if buff_trip.refresh_due(items):
+                        buff_trip.trip(self)
+                    elif buff_trip.bootstrap_due(self, items):
+                        buff_trip.trip(self, ride=True)
             self.record("supplies_ready", supplies=counts)
 
     def _run_route(self):

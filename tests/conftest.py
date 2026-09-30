@@ -76,6 +76,10 @@ def isolate_live_session_plan(tmp_path, monkeypatch):
     from conquest import gear_circuit, market_artisan
 
     monkeypatch.setattr(gear_circuit, "STATE", tmp_path / "gear-circuit.json")
+    from conquest import buff_trip
+
+    monkeypatch.setattr(buff_trip, "POLICY", tmp_path / "buff-trip.json")
+    monkeypatch.setattr(buff_trip, "STATE", tmp_path / "buffs.json")
     monkeypatch.setattr(market_artisan, "REQUEST", tmp_path / "artisan-request.json")
     monkeypatch.setattr(market_artisan, "STATE", tmp_path / "artisan-state.json")
     # Restock writes the chosen potion tier and OvernightLoop resumes from it;
