@@ -1997,7 +1997,8 @@ def run_trial(
                 # A walk back into the hunting area waits while a boss has no
                 # room from us: Suicide's return walked it ~18 tiles back into
                 # the RatKing after a boss escape left the boundary, and it died
-                # there (2026-09-28 14:38). The escape itself stays active.
+                # there (2026-09-28 14:38). The escape itself stays active, and
+                # a step that closes in on no boss still goes (boss_step_ok).
                 return_held = False
                 if supervisor and approaching and scatter_destination is None:
                     from conquest.routes import BOSS_CLEARANCE, boss_room
@@ -2155,7 +2156,6 @@ def run_trial(
                         (config.route or approaching or scatter_destination)
                         and not observe_only
                         and not moving
-                        and not return_held
                     ):
                         if scatter_destination:
                             destination = scatter_destination
@@ -2256,6 +2256,26 @@ def run_trial(
                                 continue
                             dx, dy = clipped
                             landing = (x + dx, y + dy)
+                            if return_held:
+                                from conquest.routes import BOSS_CLEARANCE, boss_step_ok
+
+                                # Standing still beside a MonkeyKing held Suicide
+                                # 94 s at (604, 653) and ~50 s on the east road
+                                # (2026-09-30 01:48-01:52) although its walk led
+                                # away from him.
+                                if not boss_step_ok(
+                                    source,
+                                    landing,
+                                    getattr(supervisor, "escape_monsters", ()),
+                                    king_clearance=getattr(
+                                        supervisor, "king_clearance", BOSS_CLEARANCE
+                                    ),
+                                    elite_clearance=getattr(
+                                        supervisor, "elite_clearance", BOSS_CLEARANCE
+                                    ),
+                                ):
+                                    time.sleep(0.08)
+                                    continue
                             now = time.monotonic()
                             avoided = {
                                 point

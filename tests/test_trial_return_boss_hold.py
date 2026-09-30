@@ -22,8 +22,20 @@ class Capture(logging.Handler):
         self.names.append(record.getMessage())
 
 
-@pytest.mark.parametrize("king_at,walks", [((90, 150), False), ((60, 150), True), (None, True)])
-def test_boundary_return_waits_for_room_from_a_boss(tmp_path, monkeypatch, king_at, walks):
+@pytest.mark.parametrize(
+    "king_at,walks,held",
+    [
+        # Ahead, 11 tiles off: the walk east would close to 5 (clearance 9).
+        ((106, 150), False, True),
+        # Behind, 5 tiles off: each step east opens room, so it goes. Standing
+        # still beside a MonkeyKing held Suicide 94 s at (604, 653) although
+        # its walk led away from him (2026-09-30 01:48).
+        ((90, 150), True, True),
+        ((60, 150), True, False),
+        (None, True, False),
+    ],
+)
+def test_boundary_return_waits_for_room_from_a_boss(tmp_path, monkeypatch, king_at, walks, held):
     import yaml, win32api
     from conquest import trial
     from conquest.farmer_profile import CombatSpeed
@@ -107,7 +119,28 @@ def test_boundary_return_waits_for_room_from_a_boss(tmp_path, monkeypatch, king_
                     camera_factory=lambda *a: camera, supervisor=supervisor)
     assert "boundary_return_started" in capture.names
     assert bool(moves) is walks
-    assert ("boundary_return_held_for_boss" in capture.names) is not walks
+    assert ("boundary_return_held_for_boss" in capture.names) is held
+
+
+@pytest.mark.parametrize(
+    "source,landing,ok",
+    [
+        ((110, 100), (116, 100), True),  # 10 -> 16: leaves the clearance
+        ((110, 100), (104, 100), False),  # 10 -> 4: into it
+        ((120, 100), (118, 100), False),  # 20 -> 18: closes in inside the room
+        ((100, 117), (110, 117), True),  # 17 -> 17: along the edge of the room
+        ((110, 100), (112, 100), False),  # 10 -> 12: still inside the clearance
+        ((130, 100), (125, 100), True),  # 30 -> 25: keeps the room
+    ],
+)
+def test_a_held_step_never_closes_in_on_a_boss(source, landing, ok):
+    from conquest.routes import boss_step_ok
+
+    monsters = [
+        SimpleNamespace(name="GiantApeKing", position=(100, 100)),
+        SimpleNamespace(name="GiantApe", position=landing),  # ordinary: ignored
+    ]
+    assert boss_step_ok(source, landing, monsters, king_clearance=15, elite_clearance=13) is ok
 
 
 def test_distant_king_is_watched_without_an_hp_read(monkeypatch):

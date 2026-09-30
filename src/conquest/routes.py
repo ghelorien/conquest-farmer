@@ -165,6 +165,30 @@ def boss_room(
     return True
 
 
+def boss_step_ok(
+    source,
+    landing,
+    monsters,
+    *,
+    king_clearance=BOSS_CLEARANCE,
+    elite_clearance=BOSS_CLEARANCE,
+):
+    """Whether a walk that boss_room holds may still step from ``source`` to
+    ``landing``: the landing stays outside every boss's clearance and either
+    keeps BOSS_ROOM's margin or is no closer to that boss than ``source``."""
+    margin = BOSS_ROOM - BOSS_CLEARANCE
+    for m in monsters:
+        name = getattr(m, "name", "") or ""
+        if not boss_name(name):
+            continue
+        clearance = boss_clearance(name, king_clearance, elite_clearance)
+        before = max(abs(m.position[0] - source[0]), abs(m.position[1] - source[1]))
+        after = max(abs(m.position[0] - landing[0]), abs(m.position[1] - landing[1]))
+        if after <= clearance or (after < clearance + margin and after < before):
+            return False
+    return True
+
+
 # Beside a boss already, route travel keeps off only this close, so the walk
 # can still leave its zone.
 BOSS_INNER = 3
