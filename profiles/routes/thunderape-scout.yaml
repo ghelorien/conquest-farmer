@@ -7,7 +7,7 @@ monster_type_ids: [12, 71]
 recommended_levels: [57, 61]
 town_anchor: [554, 545]
 restock_anchor: [550, 547]
-hunting_anchor: [277, 198]
+hunting_anchor: [320, 175]
 kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
@@ -18,27 +18,33 @@ elite_clearance: 13
 # Toxic's first scout (a31ebfb, box [220,160,295,235], 11:21-11:36) found up
 # to 87 ThunderApes in view (sightings x 213-349, y 176-344) and made 10.8-11.3
 # kills/min, 8.8M xp/h with double EXP and MrBuffer's buff, 57 -> 58 in six
-# minutes. A ThunderApeKing idled at (228-234,185-189) and an Aide at
-# (239-240,221-222) in that box's west part, and the King came to 12 tiles of
-# Toxic at (222,175) at 11:35:56, so the box moved east of them: 16+ tiles from
-# the King's spot, 14+ from the Aide's, and 24+ from every boss Laptop2
-# logged today round Suicide's box (Kings (336,213), (331,256), (303,287),
-# (293,333); Aides (304,259), (284,279), ...; Msgrs (280,267), ...). Bosses
-# roam: the trial's live boss checks and the walk planner's detours protect.
-hunting_boundary: [254, 160, 300, 235]
+# minutes. A ThunderApeKing idled at (228-234,185-189) in that box's west part
+# and came to 12 tiles of Toxic at (222,175) at 11:35:56, so the box moved east
+# of him (0a845e1). Buffed, a box empties in 20-30 minutes and ThunderApes
+# respawn slowly: [254,160,300,235] fell from 8.8 kills/min (12:26) to 0.7-1.9
+# (12:36-13:21), with Aides crossing it all the time (814 boss track points in
+# two hours cover most of the ground). So the box takes in the dense column
+# east of it (x 310-329: 3.5-6.2 ThunderApes a look) for twice the respawning
+# ground, and relies on the trial's live boss checks and the walk planner's
+# detours. The anchor and patrol points keep 16+ tiles from the Kings' spots
+# ((228-234,185-189), (331,208), (336,213)).
+hunting_boundary: [254, 160, 345, 235]
 patrol_search:
   idle_seconds: 7.5
   expansion_tiles: 4
   maximum_expansions: 1
   sweep_spacing_tiles: 20
 patrol:
-  - [277, 198]
-  - [265, 178]
-  - [289, 178]
-  - [289, 217]
-  - [265, 217]
-  - [277, 164]
-  - [258, 197]
+  - [320, 175]
+  - [338, 170]
+  - [338, 190]
+  - [305, 168]
+  - [285, 165]
+  - [268, 172]
+  - [262, 200]
+  - [285, 215]
+  - [310, 222]
+  - [318, 230]
 # Corners of travel_path from town through Suicide's box, then round the
 # north of the ring by (345,270)-(350,240)-(320,232)-(294,230), and back (the
 # trial plans its own walk with live boss detours; these rows only document
@@ -546,54 +552,73 @@ outbound_waypoints:
   - [293, 230]
   - [292, 229]
   - [292, 228]
-  - [291, 227]
-  - [291, 226]
-  - [290, 225]
-  - [290, 224]
-  - [289, 223]
-  - [289, 222]
-  - [288, 221]
-  - [288, 220]
-  - [287, 219]
-  - [287, 218]
-  - [286, 217]
-  - [286, 216]
-  - [285, 215]
-  - [285, 214]
-  - [284, 213]
-  - [284, 212]
-  - [283, 211]
-  - [283, 210]
-  - [282, 209]
-  - [282, 208]
-  - [281, 207]
-  - [281, 206]
-  - [280, 205]
-  - [280, 204]
-  - [279, 203]
-  - [279, 202]
-  - [278, 201]
-  - [278, 200]
-  - [277, 199]
-  - [277, 198]
+  - [293, 227]
+  - [293, 224]
+  - [294, 223]
+  - [294, 221]
+  - [295, 220]
+  - [295, 217]
+  - [296, 216]
+  - [296, 214]
+  - [297, 213]
+  - [297, 211]
+  - [298, 210]
+  - [298, 207]
+  - [299, 206]
+  - [299, 204]
+  - [300, 203]
+  - [300, 200]
+  - [301, 199]
+  - [301, 198]
+  - [313, 186]
+  - [314, 185]
+  - [314, 184]
+  - [316, 182]
+  - [316, 181]
+  - [317, 180]
+  - [317, 179]
+  - [319, 177]
+  - [319, 176]
+  - [320, 175]
 return_waypoints:
-  - [277, 198]
-  - [277, 199]
-  - [279, 201]
-  - [279, 203]
-  - [281, 205]
-  - [281, 207]
-  - [283, 209]
-  - [283, 211]
-  - [285, 213]
-  - [285, 215]
-  - [287, 217]
-  - [287, 219]
-  - [289, 221]
+  - [320, 175]
+  - [319, 176]
+  - [319, 177]
+  - [317, 179]
+  - [317, 180]
+  - [315, 182]
+  - [315, 183]
+  - [313, 185]
+  - [313, 186]
+  - [312, 187]
+  - [312, 188]
+  - [310, 190]
+  - [310, 191]
+  - [308, 193]
+  - [308, 194]
+  - [306, 196]
+  - [306, 197]
+  - [304, 199]
+  - [304, 200]
+  - [302, 202]
+  - [302, 203]
+  - [300, 205]
+  - [300, 206]
+  - [298, 208]
+  - [298, 209]
+  - [296, 211]
+  - [296, 212]
+  - [295, 213]
+  - [295, 214]
+  - [293, 216]
+  - [293, 217]
+  - [291, 219]
+  - [291, 220]
+  - [289, 222]
   - [289, 223]
-  - [291, 225]
-  - [291, 227]
-  - [293, 229]
+  - [288, 224]
+  - [290, 226]
+  - [290, 227]
   - [293, 230]
   - [294, 230]
   - [293, 230]
@@ -1089,4 +1114,5 @@ movement: jump
 notes: >-
   Drafted 2026-09-30 10:3x for Toxic (L57) from the terrain and Laptop2's boss
   sightings; moved east at 11:4x after the first supervised scout found a
-  King and an Aide idling in the original box's west part.
+  King and an Aide idling in the original box's west part; widened east over
+  the dense column at 13:2x when the box emptied under buffed farming.
