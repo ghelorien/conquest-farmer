@@ -20,6 +20,9 @@ PLAYER_BOX = (-40, -120, 40, 16)
 NPC_BOX = (-64, -176, 64, 24)
 # Server-assigned player UIDs start here; NPC IDs are below it.
 FIRST_PLAYER_UID = 1_000_000
+# Off-walk landings replanned before giving up: a 630-tile Ape City walk
+# plans in ~0.25-0.55 s.
+LANDING_REPLANS = 4
 
 
 def _objects(session, addresses, span):
@@ -135,6 +138,20 @@ class Crowd:
         from conquest.navigation import clear_segment
         from conquest.scene_input import clear_route_point
 
+        # The walk itself: its tiles are closer by walk with no replanning.
+        # Replanning each straight-line-closer tile instead stood Suicide
+        # still 13.9 s among a GiantApe pack at (563, 432), whose walk to
+        # town runs 630 tiles round by the east road: 56 plans (2026-09-29
+        # 22:39, it died there).
+        walk_path = None
+        if hasattr(terrain, "travel_path"):
+            try:
+                walk_path = terrain.travel_path(source, goal)
+            except ValueError:
+                walk_path = None
+        walk = len(walk_path) if walk_path is not None else None
+        along = {tuple(p): i for i, p in enumerate(walk_path or ())}
+        farthest = None
         current = max(abs(source[0] - goal[0]), abs(source[1] - goal[1]))
         candidates = []
         for dx in range(-12, 13):
@@ -152,17 +169,21 @@ class Crowd:
                     or not clear_segment(terrain, source, point, avoid=avoid)
                 ):
                     continue
+                if along.get(point, 0) > 0:
+                    if farthest is None or along[point] > along[farthest]:
+                        farthest = point
+                    continue
                 remaining = max(abs(point[0] - goal[0]), abs(point[1] - goal[1]))
                 if remaining < current:
                     candidates.append((remaining, distance, point))
-        walk = None
-        if candidates and hasattr(terrain, "travel_path"):
-            try:
-                walk = len(terrain.travel_path(source, goal))
-            except ValueError:
-                walk = None
+        if farthest is not None:
+            return farthest
+        replans = 0
         for _, _, point in sorted(candidates):
             if hasattr(terrain, "travel_path"):
+                if replans >= LANDING_REPLANS:
+                    return None  # The covered click, then stall recovery.
+                replans += 1
                 try:
                     steps = len(terrain.travel_path(point, goal))
                 except ValueError:

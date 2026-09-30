@@ -50,6 +50,37 @@ def test_the_landing_shortens_the_walk_past_the_pharmacist(phoenix):
     assert walk(phoenix, landing) < walk(phoenix, SOURCE)
 
 
+def test_a_covered_click_on_a_long_walk_lands_on_the_walk_at_once():
+    # Suicide stood still 13.9 s at (563, 432) among a GiantApe pack and died
+    # (2026-09-29 22:39): its 630-tile walk to town runs round by the east
+    # road, so every tile closer in a straight line was replanned, 56 times.
+    import time
+
+    from conquest.navigation import read_terrain
+
+    try:
+        ape = read_terrain(r"C:\Program Files\Classic Conquer 2.0", 1020)
+    except (OSError, ValueError) as error:
+        pytest.skip(f"installed Ape City map unavailable: {error}")
+    source, covered, goal = (563, 432), (575, 431), (580, 542)
+    dx, dy = covered[0] - source[0], covered[1] - source[1]
+    crowd = Crowd([(0, ANCHOR), (1_000_001, (ANCHOR[0] + (dx - dy) * 32, ANCHOR[1] + (dx + dy) * 16))])
+    plans = []
+    real = ape.travel_path
+
+    def counted(*args, **kwargs):
+        plans.append(args)
+        return real(*args, **kwargs)
+
+    ape.travel_path = counted
+    started = time.perf_counter()
+    landing = crowd.open_landing(ape, source, goal, ANCHOR, bounds=BOUNDS)
+    assert len(plans) == 1 and time.perf_counter() - started < 5
+    walk = real(source, goal)
+    assert landing in walk and landing != covered
+    assert len(real(landing, goal)) < len(walk)
+
+
 def test_no_landing_rather_than_a_pocket(phoenix):
     # 2: with the corridor and everything beyond it unavailable, only the
     # pocket and the way back remain, and none of them shortens the walk.
