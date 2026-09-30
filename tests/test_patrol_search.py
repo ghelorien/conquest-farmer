@@ -40,6 +40,7 @@ def test_saved_routes_retain_idle_search_policy():
         "giantape-north": 1,
         "giantape-south": 1,
         "giantape-strip": 1,
+        "giantape-lower": 1,
         "wingedsnake-west": 1,
         "wingedsnake-east": 1,
     }
