@@ -93,6 +93,7 @@ def plan(
     pack_price=None,
     carried_potions=0,
     carried_packs=0,
+    carried_arrows=None,
 ):
     """(minutes, potions, packs) lasting longest before either runs out.
 
@@ -100,7 +101,8 @@ def plan(
     way back and never counted as hunting supply. With a ``budget`` the
     silver is split the same way: short of silver the restock bought ~30
     potions first and could pay for 318 arrows, six minutes of shooting
-    (live 2026-09-27 15:36).
+    (live 2026-09-27 15:36). ``carried_arrows``: what the carried packs
+    really hold (a partial pack is not ``pack_size`` arrows).
     """
     potion_rate, arrow_rate = rates["potions_per_min"], rates["arrows_per_min"]
     best = None
@@ -115,9 +117,14 @@ def plan(
             if budget is None:
                 break
             continue
+        arrows = (
+            carried_arrows
+            if carried_arrows is not None
+            else min(packs, carried_packs) * pack_size
+        ) + max(0, packs - carried_packs) * pack_size
         minutes = min(
             (potions - reserve) / potion_rate if potion_rate > 0 else float("inf"),
-            packs * pack_size / arrow_rate if arrow_rate > 0 else float("inf"),
+            arrows / arrow_rate if arrow_rate > 0 else float("inf"),
         )
         if best is None or minutes > best[0] + 1e-9:
             best = (minutes, potions, packs)
@@ -164,21 +171,8 @@ def balance(loop):
     )
     if not pack_price:
         return None
-    # Lower-tier stacks kept as a fallback hold their slots.
-    tiers = counted_tiers(kind)
-    others = sum(
-        1
-        for item in snapshot["items"]
-        if item["type_id"] not in HEALING_POTIONS
-        and (item["type_id"] not in NORMAL_ARROWS or item["type_id"] not in tiers)
-        and item["type_id"] != SCROLL
-    )
-    bag_slots = snapshot["capacity"] - supplies.minimum_free_slots - others - SCROLL_SLOTS
-    pack_size = ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS
-    from conquest.arrow_upgrades import arrow_pack_count
     from conquest.banking import STATUS, transport_reserve
 
-    ammo = snapshot.get("equipped_ammo")
     # Silver this restock may spend on potions and packs: carried and banked,
     # less the Conductress fare and, without one carried, a return scroll.
     scroll_carried = any(
@@ -191,6 +185,46 @@ def balance(loop):
         - transport_reserve()
         - (0 if scroll_carried else 200),
     )
+    ammo = snapshot.get("equipped_ammo")
+
+    def carried(tiers):
+        """Arrows of ``tiers`` in the bag and quiver (remnants excluded)."""
+        stacks = [
+            i["amount"]
+            for i in snapshot["items"]
+            if i["type_id"] in tiers and i["amount"] >= 3
+        ]
+        if ammo and ammo["type_id"] in tiers and ammo["amount"] >= 3:
+            stacks.append(ammo["amount"])
+        return sum(stacks)
+
+    lucky = 1050000
+    if (
+        kind != lucky
+        and pack_price > budget
+        and carried(counted_tiers(kind)) < ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS // 2
+    ):
+        # No pack of this tier is affordable, so the Blacksmith falls back to
+        # LuckyArrow (arrow_tier_fallback). Plan that tier's 200-arrow packs:
+        # planned as one IronArrow pack, Suicide's restock bought 33 potions
+        # first and then had bag room for one 200-arrow pack, ~2 minutes of
+        # Scatter (2026-09-30 05:25, 3.9k silver).
+        lucky_price = last_verified_price(lucky) or arrow_pack_price(lucky) or 200
+        if lucky_price <= budget:
+            kind, pack_price = lucky, lucky_price
+    # Lower-tier stacks kept as a fallback hold their slots.
+    tiers = counted_tiers(kind)
+    others = sum(
+        1
+        for item in snapshot["items"]
+        if item["type_id"] not in HEALING_POTIONS
+        and (item["type_id"] not in NORMAL_ARROWS or item["type_id"] not in tiers)
+        and item["type_id"] != SCROLL
+    )
+    bag_slots = snapshot["capacity"] - supplies.minimum_free_slots - others - SCROLL_SLOTS
+    pack_size = ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS
+    from conquest.arrow_upgrades import arrow_pack_count
+
     best = plan(
         rates,
         bag_slots=bag_slots,
@@ -216,6 +250,7 @@ def balance(loop):
             },
             kind,
         ),
+        carried_arrows=carried(tiers),
     )
     if best is None:
         return None
@@ -238,6 +273,7 @@ def balance(loop):
         route=loop.route.id,
         potions=potions,
         arrow_packs=packs,
+        arrow_type=kind,
         expected_minutes=round(minutes, 1),
         rates={k: round(v, 3) for k, v in rates.items() if k.endswith("_per_min")},
         activity=f"Restocking {potions} potions and {packs} arrow packs "
