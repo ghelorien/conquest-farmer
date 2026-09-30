@@ -65,6 +65,14 @@ def silver_pickup_requested():
     return read_json(SILVER_PICKUP).get("enabled") is True
 
 
+def silver_floor():
+    """The bank below which pickups resume: SILVER_FLOOR, or the switch's
+    {"below": silver} when higher. Alex 2026-09-29 22:0x, pickups off since
+    21:04: "Once you get under 20k you can re-enable silver pickup"."""
+    below = read_json(SILVER_PICKUP).get("below")
+    return max(SILVER_FLOOR, below) if type(below) is int else SILVER_FLOOR
+
+
 def banked_silver():
     from conquest.banking import STATUS
 
@@ -75,7 +83,7 @@ def banked_silver():
 def collect_silver():
     """Pick up dropped silver while the goal runs, where a fresh character
     funds itself from drops, while a Back2Classic farmer's bank is below
-    SILVER_FLOOR, or while its SILVER_PICKUP switch is on (checked every 2 s).
+    silver_floor(), or while its SILVER_PICKUP switch is on (checked every 2 s).
     Otherwise the walks cost kills: Alex 2026-09-28, Toxic and Suicide at 41,
     "No need to pickup silver anymore only unique + items" (he funds the
     arrows). Only silver from our own kills is walked to (own_kill_drop)."""
@@ -87,7 +95,7 @@ def collect_silver():
             bool(goal())
             or (
                 back2classic()
-                and (banked_silver() < SILVER_FLOOR or silver_pickup_requested())
+                and (banked_silver() < silver_floor() or silver_pickup_requested())
             ),
         )
     return _silver_cache[1]

@@ -100,4 +100,5 @@ def test_it_hunts_like_giantape_south():
     for field in ("king_clearance", "elite_clearance", "jump_scatter",
                   "kite_when_surrounded", "supplies", "restock_map_id", "patrol_search"):
         assert getattr(lower, field) == getattr(south, field), field
-    assert set(south.monster_type_ids) >= set(lower.monster_type_ids) >= {11, 70}
+    # GiantApeMsgr (8106) is a left-click target on every GiantApe field.
+    assert lower.monster_type_ids == south.monster_type_ids == (11, 70, 8106)

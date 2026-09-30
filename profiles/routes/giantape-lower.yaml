@@ -3,7 +3,7 @@ id: giantape-lower
 name: GiantApe ground below the south lobe (Toxic)
 map_id: 1020
 restock_map_id: 1020
-monster_type_ids: [11, 70]
+monster_type_ids: [11, 70, 8106]
 recommended_levels: [52, 56]
 town_anchor: [554, 545]
 restock_anchor: [550, 547]

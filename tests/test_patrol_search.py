@@ -31,11 +31,13 @@ def test_saved_routes_retain_idle_search_policy():
     # halves expand 1 tile so the two farmers' boxes overlap by at most 2
     # (2026-09-29: 12 tiles made them overlap by 24).
     # The GiantApe draft keeps Macaque's 4 until the field is surveyed; its
-    # west/north halves expand 1 like the snake halves.
+    # west/north halves expand 1 like the snake halves. The ThunderApe scout
+    # of the north-west keeps 4 too.
     narrowed = {
         "apparition": 8,
         "macaque": 4,
         "giantape": 4,
+        "thunderape-nw": 4,
         "giantape-west": 1,
         "giantape-north": 1,
         "giantape-south": 1,

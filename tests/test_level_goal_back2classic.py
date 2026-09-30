@@ -579,6 +579,32 @@ def test_the_silver_pickup_switch_collects_above_the_floor(monkeypatch):
     assert not wanted_drop(silver)
 
 
+def test_the_switch_can_raise_the_floor_pickups_resume_below(monkeypatch):
+    # Alex 2026-09-29 22:0x, pickups off: "Once you get under 20k you can
+    # re-enable silver pickup".
+    import json
+
+    from conquest import banking
+    from conquest.memory_ground import GroundItem, wanted_drop
+
+    silver = GroundItem(1, 100000, 1090000, (1, 1))
+    bank = level_goal.GOAL.with_name("bank-status.json")
+    monkeypatch.setattr(banking, "STATUS", bank)
+    monkeypatch.setattr(level_goal, "back2classic", lambda: True)
+    level_goal.SILVER_PICKUP.write_text(json.dumps({"enabled": False, "below": 20000}))
+    for stored, wanted in ((100415, False), (20000, False), (19999, True), (150, True)):
+        bank.write_text(json.dumps({"stored_silver": stored}))
+        monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+        assert wanted_drop(silver) is wanted, stored
+    # A floor under SILVER_FLOOR, or no number at all, keeps SILVER_FLOOR.
+    bank.write_text(json.dumps({"stored_silver": 4999}))
+    for below in (1000, "20k", None):
+        level_goal.SILVER_PICKUP.write_text(json.dumps({"enabled": False, "below": below}))
+        monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+        assert level_goal.silver_floor() == level_goal.SILVER_FLOOR
+        assert wanted_drop(silver)
+
+
 def test_early_heals_and_jumping_away_outlive_the_goal_on_back2classic(monkeypatch):
     # The goal ends at 23; the 70% heal must not fall to the route's 40%.
     assert level_goal.HEAL_BELOW == 0.7
