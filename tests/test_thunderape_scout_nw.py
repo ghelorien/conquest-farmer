@@ -1,7 +1,7 @@
 """thunderape-scout: Toxic's supervised ThunderApe scout beyond Suicide's box.
 
 Alex 2026-09-30 10:2x approved a scout for Toxic's own ThunderApe ground, so
-it does not share Suicide's thunderape-nw box [300,270,348,318]. The ground
+it does not share Suicide's thunderape-nw box [300,242,348,318]. The ground
 north-west of that box's ring of bosses has never been seen from inside.
 
 Failure modes, written before the change:
@@ -18,7 +18,7 @@ import pytest
 from conquest.routes import RouteLibrary, route_monster_names
 from test_ratling_route import _segment
 
-SUICIDE_BOX = (300, 270, 348, 318)
+SUICIDE_BOX = (300, 242, 348, 318)  # north to y 242 since 2026-09-30 13:4x
 # Laptop2's logs round Suicide's box, plus the first scout's own (11:21-11:36):
 # a King idling at (228-234, 185-189) and an Aide at (239-240, 221-222).
 KINGS = [(293, 333), (303, 287), (336, 213), (331, 256), (228, 189), (234, 186), (331, 208)]
