@@ -2305,6 +2305,77 @@ class NativeFarmSupervisor:
                     )
                     candidates.append((room, -nearby, distance, point))
             flight = bool(candidates)
+        damage_flight = False
+        if not candidates and damaged:
+            # Last resort under fire, as the boss flight is for a boss inside
+            # its clearance: no landing qualified (the boundary, the crowd
+            # rules or a boss's reach ruled each out), so take any walkable
+            # landing off every boss's reach, past the boundary if need be,
+            # clear of the monsters hitting us. Suicide stood 14 s at
+            # (299, 312), 1 tile outside thunderape-nw's west edge, with
+            # ThunderApes at 1-3 tiles and a King near: landings west lay
+            # outside the box, those north-east in the King's reach, and it
+            # died there with no escape tried (2026-09-30 14:32:16).
+            hitters = [p for p, d in zip(living, distances) if d <= 3] or [
+                p for p in threats if p not in boss_near
+            ]
+            width = getattr(terrain, "width", None)
+            height = getattr(terrain, "height", None)
+            for length in (12, 10, 8):
+                for dx, dy in (
+                    (length, 0),
+                    (-length, 0),
+                    (0, length),
+                    (0, -length),
+                    (length, length),
+                    (-length, -length),
+                    (length, -length),
+                    (-length, length),
+                ):
+                    dx, dy = native_movement_delta(
+                        dx, dy, viewport=size_for(self.observer), anchor=anchor
+                    )
+                    distance = max(abs(dx), abs(dy))
+                    if distance < ESCAPE_MIN_JUMP:
+                        continue
+                    point = (x + dx, y + dy)
+                    if point in blocked or (
+                        width is not None
+                        and height is not None
+                        and not (0 <= point[0] < width and 0 <= point[1] < height)
+                    ):
+                        continue
+                    if not all(
+                        terrain.walkable(
+                            (x + round(dx * i / distance), y + round(dy * i / distance))
+                        )
+                        for i in range(distance + 1)
+                    ):
+                        continue
+                    if any(
+                        max(abs(point[0] - bx), abs(point[1] - by)) <= reach_of_boss
+                        for (bx, by), reach_of_boss in boss_reach
+                    ):
+                        continue  # never into a boss's reach
+                    separation = min(
+                        (max(abs(point[0] - mx), abs(point[1] - my)) for mx, my in hitters),
+                        default=99,
+                    )
+                    if separation <= JUMP_SCATTER_REACH:
+                        continue  # still within the hitters' reach
+                    nearby = sum(
+                        max(abs(point[0] - mx), abs(point[1] - my)) <= 4
+                        for mx, my in living
+                    )
+                    room = min(
+                        (
+                            max(abs(point[0] - bx), abs(point[1] - by))
+                            for (bx, by), _ in boss_reach
+                        ),
+                        default=99,
+                    )
+                    candidates.append((-nearby, separation, room, distance, point))
+            damage_flight = bool(candidates)
         if not candidates:
             return None
         self.escape_context = {
@@ -2316,6 +2387,8 @@ class NativeFarmSupervisor:
             "boss_nearby": bool(boss_near),
             "reason": "boss_flight"
             if flight
+            else "damage_flight"
+            if damage_flight
             else "recent_damage"
             if damaged
             else "boss_nearby"
