@@ -101,6 +101,42 @@ def test_jumps_are_spaced(loop, monkeypatch):
     assert len(loop.steps) == 2
 
 
+def test_restart_releases_farming_so_care_and_evasion_can_act(loop, monkeypatch):
+    # 2026-09-30 01:20: a runner stopped on "reposition_outside_boundary" left
+    # farming on; TravelCare.check refused every pass ("Travel care cannot
+    # share input with farming"), the evasion after it never ran, and Suicide
+    # died 20 s into the pause at (582, 307).
+    monkeypatch.setattr(overnight, "AUTO_RESTART_PAUSE_SECONDS", 0.05)
+    monkeypatch.setattr(overnight.time, "sleep", lambda seconds: None)
+    control = {"enabled": True}
+    stops = []
+    loop.health = lambda: {"embedded_controls": {"control": dict(control)}}
+    loop.stop_farm = lambda: stops.append("off") or control.update(enabled=False)
+    loop.check_stop = lambda: None
+    loop.refresh = lambda: None
+    loop.living = lambda: health(PLAIN, [ape((594, 309))])
+
+    def refuse_while_farming(h):
+        if control["enabled"]:
+            raise ValueError("Travel care cannot share input with farming")
+
+    loop.care = NS(session=None, check=refuse_while_farming)
+    assert loop.auto_restart(ValueError("Farm runner stopped: reposition_outside_boundary"))
+    assert stops == ["off"]
+    assert loop.steps and loop.steps[0][1] == PLAIN
+    assert "restart_farm_released" in [event for event, _ in loop.events]
+
+
+def test_a_refused_care_pass_does_not_skip_the_evasion(loop):
+    def refuse(h):
+        raise ValueError("Travel care cannot share input with farming")
+
+    loop.care = NS(session=None, check=refuse)
+    loop.living = lambda: health(PLAIN, [ape((594, 309))])
+    loop.protect_during_pause()
+    assert loop.steps and loop.steps[0][1] == PLAIN
+
+
 def test_auto_restart_pause_evades(loop, monkeypatch):
     monkeypatch.setattr(overnight, "AUTO_RESTART_PAUSE_SECONDS", 0.05)
     monkeypatch.setattr(overnight.time, "sleep", lambda seconds: None)
