@@ -366,6 +366,39 @@ def notable_drop(row):
     )
 
 
+# The journal appends rows in time order: a lock-delayed backlog is flushed in
+# order, ahead of newer rows. The slack covers such a backlog and clock steps.
+WINDOW_SLACK_SECONDS = 600
+RECENT_KILLS_SQL = (
+    "SELECT payload FROM events"
+    " WHERE rowid>=? AND event='kill_verified' AND time>? AND time<=?"
+)
+
+
+def first_rowid_at(db, when):
+    """The first rowid whose time is >= ``when``, by binary search on rowid.
+
+    events has no index on time or event: a WHERE on either alone scans the
+    whole journal (2M rows, 350 MB on 2026-09-30) under the shared lock, and
+    the runner's per-event commit waits behind it, freezing its native loop.
+    """
+    low = 1
+    high = db.execute("SELECT COALESCE(MAX(rowid),0) FROM events").fetchone()[0] + 1
+    while low < high:
+        middle = (low + high) // 2
+        row = db.execute(
+            "SELECT rowid,time FROM events WHERE rowid>=? ORDER BY rowid LIMIT 1",
+            (middle,),
+        ).fetchone()
+        if row is None:
+            high = middle
+        elif row[1] is None or row[1] < when:
+            low = row[0] + 1
+        else:
+            high = middle
+    return low
+
+
 def recent_kills(path, now, seconds=900):
     """Count verified kill increments across combat-session rollovers."""
     try:
@@ -373,10 +406,8 @@ def recent_kills(path, now, seconds=900):
             Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=0.5
         )
         try:
-            rows = db.execute(
-                "SELECT payload FROM events WHERE event='kill_verified' AND time>? AND time<=?",
-                (now - seconds, now),
-            )
+            start = first_rowid_at(db, now - seconds - WINDOW_SLACK_SECONDS)
+            rows = db.execute(RECENT_KILLS_SQL, (start, now - seconds, now))
             total = 0
             for (payload,) in rows:
                 # Same bounded rule run_trial used to qualify the increment.

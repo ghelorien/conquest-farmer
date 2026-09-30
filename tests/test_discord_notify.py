@@ -586,6 +586,45 @@ def test_rolling_kills_uses_verified_increments_across_session_resets(tmp_path):
     assert not (tmp_path / "missing.sqlite3").exists()
 
 
+def test_rolling_kills_read_the_window_by_rowid_not_a_full_scan(tmp_path):
+    # A full scan holds the shared lock the runner's commits wait on: Toxic's
+    # 5 s full-scan poller froze its loop 0.5-1 s per poll on 2026-09-30.
+    import sqlite3
+    from conquest.discord_notify import RECENT_KILLS_SQL, first_rowid_at, recent_kills
+
+    path = tmp_path / "trial.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute("create table events(time real,event text,payload text)")
+        db.executemany(
+            "insert into events values(?,?,?)",
+            [
+                (
+                    t / 2,
+                    "kill_verified" if t % 20 == 0 else "health_observation",
+                    json.dumps({"count": 1}),
+                )
+                for t in range(20000)
+            ],
+        )
+    with sqlite3.connect(path) as db:
+        plan = " ".join(
+            str(row) for row in db.execute("EXPLAIN QUERY PLAN " + RECENT_KILLS_SQL, (1, 0, 0))
+        )
+        assert "INTEGER PRIMARY KEY" in plan
+        assert first_rowid_at(db, -5) == 1
+        assert first_rowid_at(db, 0) == 1
+        assert first_rowid_at(db, 0.2) == 2
+        assert first_rowid_at(db, 4999.5) == 10000
+        assert first_rowid_at(db, 10000) == 20001
+        for now, seconds in ((9999.5, 900), (5000, 60), (600, 3600), (20000, 900)):
+            (expected,) = db.execute(
+                "select count(*) from events where event='kill_verified' and time>? and time<=?",
+                (now - seconds, now),
+            ).fetchone()
+            assert recent_kills(path, now, seconds) == expected
+    assert recent_kills(path, 9999.5, 900) == 90  # one kill row per 10 s
+
+
 def test_savings_completion_is_announced_once(tmp_path):
     path = tmp_path / "events.jsonl"
     path.write_text("")
