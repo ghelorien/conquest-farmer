@@ -2474,7 +2474,7 @@ class DesktopApp:
                 raise ValueError("Client reattachment failed; see embedding status")
         if not self.host.saved or self.host.mode != "owned":
             raise ValueError("Open the hosted native client before starting farming")
-        from conquest.navigation import straight_waypoints, path_boundary
+        from conquest.navigation import TRAVEL_PADDING, path_boundary, straight_waypoints
         from conquest.routes import (
             MONSTER_NAMES,
             route_monster_name,
@@ -2571,7 +2571,7 @@ class DesktopApp:
                 "route": route.patrol,
                 "approach_route": approach,
                 "approach_boundary": path_boundary(
-                    path, (terrain.width, terrain.height)
+                    path, (terrain.width, terrain.height), TRAVEL_PADDING
                 ),
                 "loot_allowlist": (),
                 "maximum_actions": 1000,

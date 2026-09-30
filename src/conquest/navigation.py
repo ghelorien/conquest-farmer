@@ -563,6 +563,12 @@ def rejoin_path(terrain, path, position, *, avoid=(), reach=3):
 # in town whenever the Conductress was unavailable (live 2026-09-27 14:50).
 # On the flat grid that walk plans in ~0.65 s.
 FIELD_TRAVEL_LIMIT = 2_000_000
+# Room round a walk to the hunting spot for patrol_step's detour round a
+# visible boss (King clearance 15) to stay inside the travel boundary: a
+# landing beyond it stops the runner (reposition_outside_boundary), and 12
+# tiles could not hold a detour round a King standing on the path
+# (2026-09-30 01:20, Suicide at (582, 307)).
+TRAVEL_PADDING = 24
 
 
 def hunting_return_path(terrain, position, anchor, hunting_boundary):
@@ -573,7 +579,7 @@ def hunting_return_path(terrain, position, anchor, hunting_boundary):
     path = terrain.travel_path(
         tuple(position), tuple(anchor), limit=FIELD_TRAVEL_LIMIT
     )
-    return path, path_boundary(path, (terrain.width, terrain.height))
+    return path, path_boundary(path, (terrain.width, terrain.height), TRAVEL_PADDING)
 
 
 def plan_hunting_return(terrain, position, anchor, hunting_boundary):

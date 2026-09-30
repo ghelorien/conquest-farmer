@@ -1839,22 +1839,24 @@ class NativeFarmSupervisor:
                     )
                     if zone and any(tuple(p) in zone for p in path):
                         try:
-                            path = planner(
+                            detour = planner(
                                 position, destination, limit=limit, avoid=avoid | zone
                             )
-                            detoured = True
                         except ValueError:
-                            # No way round: keep the direct plan; ranged_escape
-                            # still jumps clear inside a boss's clearance.
-                            pass
+                            detour = None
+                        # Only a detour inside the travel boundary: a landing
+                        # beyond it stops the runner (reposition_outside_boundary),
+                        # which a detour round King 404773 did at (582, 307)
+                        # before Suicide died there (2026-09-30 01:20). With no
+                        # way round inside it, keep the direct plan: the boss
+                        # hold and ranged_escape still guard it.
+                        if detour is not None and all(
+                            x0 <= px <= x1 and y0 <= py <= y1 for px, py in detour
+                        ):
+                            path, detoured = detour, True
                 if not chase:
                     self.travel_path_cache = (key, path, detoured)
-                # A detour round a boss may leave the travel boundary drawn
-                # round the direct path; the trial replans that boundary once
-                # the farmer is outside it.
-                if not detoured and any(
-                    not (x0 <= px <= x1 and y0 <= py <= y1) for px, py in path
-                ):
+                if any(not (x0 <= px <= x1 and y0 <= py <= y1) for px, py in path):
                     continue
                 chosen = next(
                     (key for key, point in fresh.items() if point == destination), None
