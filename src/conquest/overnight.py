@@ -1941,10 +1941,16 @@ class OvernightLoop:
 
         # MrBuffer's double damage first (Alex 2026-09-30): TwinCityGate out,
         # ApeCityGate back, and the restock carries on at home.
-        if buff_trip.enabled() and buff_trip.refresh_due(
-            self.town("supplies")["items"], home=self.route.restock_map_id
-        ):
-            buff_trip.trip(self)
+        gate_wait = False
+        if buff_trip.enabled():
+            carried = self.town("supplies")["items"]
+            if buff_trip.refresh_due(carried, home=self.route.restock_map_id):
+                buff_trip.trip(self)
+            # Without a gate home the trip waits for the Pharmacist below,
+            # which stocks one, and goes after the shopping.
+            gate_wait = buff_trip.gate_home_missing(
+                carried, home=self.route.restock_map_id
+            )
         self.scroll_to_restock_town()
         from conquest.world_travel import travel_to_map
 
@@ -2133,6 +2139,14 @@ class OvernightLoop:
             and buff_trip.bootstrap_due(self, self.town("supplies")["items"])
         ):
             toured = buff_trip.trip(self, ride=True)
+        if (
+            not toured
+            and gate_wait
+            and buff_trip.refresh_due(
+                self.town("supplies")["items"], home=self.route.restock_map_id
+            )
+        ):
+            toured = buff_trip.trip(self)
         # A bag full of protected loot is the reason for this visit. Storage
         # must get its turn before the final free-space check can reject it.
         counts = supply_counts(self.town("supplies"), self.route)
@@ -2808,6 +2822,13 @@ class OvernightLoop:
                         buff_trip.trip(self)
                     elif buff_trip.bootstrap_due(self, items):
                         buff_trip.trip(self, ride=True)
+                    elif buff_trip.gate_home_missing(
+                        items, home=self.route.restock_map_id
+                    ):
+                        # The restock's Pharmacist stocks the gate home, and
+                        # the trip follows its shopping.
+                        self.restock()
+                        return
             self.record("supplies_ready", supplies=counts)
 
     def _run_route(self):

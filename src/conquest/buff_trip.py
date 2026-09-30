@@ -130,6 +130,23 @@ def refresh_due(items, now=None, home=None):
     )
 
 
+def gate_home_missing(items, now=None, home=None):
+    """A refresh is due but for the gate home, which a restock at home buys
+    (return_scroll.stock keeps two ApeCityGates).
+
+    2026-09-30 17:09: Alex read Toxic's last ApeCityGate by hand. The restart
+    walked out with three TwinCityGates and no buff, and the next restock
+    checked for the trip before its Pharmacist sold the gate home.
+    """
+    return (
+        enabled()
+        and gates_carried(items) > 0
+        and not way_home(items, home)
+        and not cooling_down(now)
+        and stigma_left(now) < REFRESH_WITHIN
+    )
+
+
 def bootstrap_due(loop, items, now=None):
     """No TwinCityGate carried (Ape City sells none): after a restock, ride the
     Ape City Conductress to Twin City once for the buff and the first gates."""
