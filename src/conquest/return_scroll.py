@@ -257,16 +257,20 @@ def secure_one(loop, keep=0):
 
 
 def stock(loop):
+    """Keep two of the restock town's own gates: TwinCityGates in Twin City,
+    ApeCityGates in Ape City (overnight.gate_home_from_afar reads one from
+    the far GiantApe and ThunderApe fields)."""
     policy = read_json(POLICY)
-    if not policy.get("enabled") or loop.route.restock_map_id != 1002:
+    kind = GATES.get(loop.route.restock_map_id)
+    if not policy.get("enabled") or kind is None:
         return
     products = loop.town("shop", vendor_type=3)["products"]
-    choices = [p for p in products if p["type_id"] == TYPE]
-    if len(choices) != 1 or choices[0]["price"] != 200:
+    choices = [p for p in products if p["type_id"] == kind]
+    if len(choices) != 1 or choices[0]["price"] != GATE_PRICE:
         return
     for _ in range(2):
         bag = loop.town("supplies")
-        carried = sum(i["amount"] for i in bag["items"] if i["type_id"] == TYPE)
+        carried = sum(i["amount"] for i in bag["items"] if i["type_id"] == kind)
         if carried >= 2:
             return
         # The spare waits for a comfortable wallet: short of silver it took
@@ -277,11 +281,11 @@ def stock(loop):
             >= bag["capacity"] - loop.route.supplies.minimum_free_slots
         ):
             return
-        result = loop.town("buy", vendor_type=3, type_id=TYPE)
+        result = loop.town("buy", vendor_type=3, type_id=kind)
         loop.record(
             "return_scroll_purchase",
             receipt=result,
-            activity="Buying a TwinCityGate return scroll",
+            activity=f"Buying a {GATE_NAMES[kind]} return scroll",
         )
 
 

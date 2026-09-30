@@ -29,6 +29,10 @@ AUTO_RESTART_PAUSE_SECONDS = 20
 # this close calls for one escape jump, at most every FIELD_EVADE_SECONDS.
 FIELD_EVADE_TILES = 4
 FIELD_EVADE_SECONDS = 1.2
+# A restock this far (Chebyshev) from its town's anchor reads the town's gate
+# instead of walking: the GiantApe plain and the ThunderApes are 195-245 out
+# of Ape City, the Macaques ~100.
+GATE_HOME_TILES = 150
 # Once the hourly restart budget is spent: pause this long (escalating), then
 # replan from fresh reads again instead of stopping for good.
 FAILURE_COOLDOWNS = (120, 300, 600)
@@ -368,10 +372,13 @@ def pharmacist_needed(snapshot, route, *, scroll_enabled=False):
         return True
     if any(sale_candidate(item) for item in snapshot["items"]):
         return True
+    from conquest.return_scroll import GATES
+
+    gate = GATES.get(route.restock_map_id)
     return (
         scroll_enabled
-        and route.restock_map_id == 1002
-        and sum(i["amount"] for i in snapshot["items"] if i["type_id"] == 1060020) < 2
+        and gate is not None
+        and sum(i["amount"] for i in snapshot["items"] if i["type_id"] == gate) < 2
     )
 
 
@@ -1608,18 +1615,47 @@ class OvernightLoop:
             return self.buy_supply(5, fallback)
 
     def scroll_to_restock_town(self):
-        """Read a TwinCityGate home only when the restock town is Twin City.
+        """Read a TwinCityGate home when the restock town is Twin City, and
+        another restock town's own gate only from far away.
 
-        The scroll always lands in Twin City. Since it may be read on Phoenix
-        Castle (the way back from there), a WingedSnake restock would scroll
-        to Twin City and pay a Conductress fare back to the Phoenix shops a
-        40-second walk reaches.
+        The TwinCityGate always lands in Twin City. Since it may be read on
+        Phoenix Castle (the way back from there), a WingedSnake restock would
+        scroll to Twin City and pay a Conductress fare back to the Phoenix
+        shops a 40-second walk reaches.
         """
-        if self.route.restock_map_id != 1002:
-            return False
-        from conquest.return_scroll import return_to_town
+        if self.route.restock_map_id == 1002:
+            from conquest.return_scroll import return_to_town
 
-        return return_to_town(self)
+            return return_to_town(self)
+        return self.gate_home_from_afar()
+
+    def gate_home_from_afar(self):
+        """Read the restock town's own gate when the walk home is long.
+
+        Ape City's GiantApe and ThunderApe fields are 600-860 tiles from its
+        vendors, and the walk crosses the bosses around the GiantApe plain:
+        Suicide died on the ThunderApe runback at (563, 432) on 2026-09-29
+        22:39, after three boss detours (3 GiantApeKings, 5 Aides) and a 14 s
+        stall among the pack. A gate (ApeCityGate, 200 silver at Ape City's
+        Pharmacist, stocked two at a time) lands in the town instead. The
+        Macaque field, ~100 tiles out, keeps walking.
+        """
+        from conquest.return_scroll import GATES, read_gate
+
+        home = self.route.restock_map_id
+        if home not in GATES:
+            return False
+        life = self.living()["embedded_controls"]["life"]
+        if life.get("map_id") == home:
+            from conquest.city_travel import city_for
+
+            anchor = city_for(home)["town_anchor"]
+            if (
+                max(abs(a - b) for a, b in zip(life["position"], anchor))
+                < GATE_HOME_TILES
+            ):
+                return False
+        return read_gate(self, home)
 
     def sell_scroll_for_arrows(self):
         """Sell one carried TwinCityGate for the pack an empty quiver needs,
