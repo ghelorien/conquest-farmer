@@ -248,6 +248,14 @@ RUNNER_RESTART_WINDOW = 120
 # Toxic used 16 in three, turned for town on its last one and died on the way.
 HEAVY_BURN_POTIONS = 6
 HEAVY_BURN_WINDOW = 120
+# A boss that keeps closing is hunting the farmer: leave the field rather than
+# dance round it. Suicide made 18 boss escapes in 2 minutes inside
+# thunderape-nw before a ThunderApeKing cornered it at (313, 318) (2026-09-30
+# 14:46-14:48, Laptop2). Only escapes that start inside the hunting box count,
+# so the walk in past the ring's bosses never ends a hunt.
+BOSS_CHASE_ESCAPES = 10
+BOSS_CHASE_WINDOW = 120
+BOSS_CHASE_REASONS = ("boss_nearby", "boss_flight")
 # An IronArrow or SpeedArrow top-up while the quiver can still shoot is
 # optional: buy_supply takes it only if this much silver stays after it.
 OPTIONAL_ARROW_FLOOR = 3000
@@ -738,6 +746,58 @@ class OvernightLoop:
         self.potion_samples = samples
         used = sum(max(0, a - b) for (_, a), (_, b) in zip(samples, samples[1:]))
         return used >= HEAVY_BURN_POTIONS
+
+    def boss_chase(self, now=None, journal=None):
+        """Whether BOSS_CHASE_ESCAPES boss escapes started inside the hunting box
+        within BOSS_CHASE_WINDOW seconds.
+
+        Reads only trial journal rows appended since the last call, by rowid: a
+        WHERE on event or time alone scans the whole unindexed journal under
+        the shared lock the runner's commits wait on. The first call of a hunt
+        only notes where the journal ends.
+        """
+        import sqlite3
+
+        box = getattr(self.route, "hunting_boundary", None)
+        if not box:
+            return False
+        now = time.time() if now is None else now
+        path = Path(journal or state_path("reports/desktop-farming/trial.sqlite3"))
+        try:
+            db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.2)
+        except (sqlite3.Error, OSError):
+            return False
+        try:
+            newest = db.execute("SELECT COALESCE(MAX(rowid),0) FROM events").fetchone()[0]
+            last = getattr(self, "boss_chase_rowid", None)
+            if last is None:
+                self.boss_chase_rowid, self.boss_chase_times = newest, []
+                return False
+            rows = db.execute(
+                "SELECT time, payload FROM events"
+                " WHERE rowid>? AND rowid<=? AND event='ranged_escape'",
+                (last, newest),
+            ).fetchall()
+        except sqlite3.Error:
+            return False
+        finally:
+            db.close()
+        self.boss_chase_rowid = max(last, newest)
+        left, top, right, bottom = box
+        for when, payload in rows:
+            try:
+                data = json.loads(payload or "{}")
+            except ValueError:
+                continue
+            source = data.get("source") or (-1, -1)
+            if data.get("reason") in BOSS_CHASE_REASONS and (
+                left <= source[0] <= right and top <= source[1] <= bottom
+            ):
+                self.boss_chase_times.append(when)
+        self.boss_chase_times = [
+            t for t in self.boss_chase_times if now - t <= BOSS_CHASE_WINDOW
+        ]
+        return len(self.boss_chase_times) >= BOSS_CHASE_ESCAPES
 
     def restart_runner(self, data):
         """Restart a combat runner stopped by an observation or input error.
@@ -2253,6 +2313,7 @@ class OvernightLoop:
         last_report = 0
         departed = None  # potions carried at the first supply read of this hunt
         self.potion_samples = []
+        self.boss_chase_rowid = None  # boss_chase starts from here
         while True:
             h = self.health()
             data = h["embedded_controls"]
@@ -2404,6 +2465,16 @@ class OvernightLoop:
                     reason="heavy_damage",
                     supplies=supplies,
                     activity=f"{HEAVY_BURN_POTIONS}+ potions used in {HEAVY_BURN_WINDOW // 60} minutes; returning to town while some are left",
+                )
+                self.stop_farm()
+                return
+            if self.boss_chase():
+                self.phase = "restocking"
+                self.record(
+                    "return_required",
+                    reason="boss_chase",
+                    supplies=supplies,
+                    activity=f"A boss kept closing ({BOSS_CHASE_ESCAPES}+ boss escapes in {BOSS_CHASE_WINDOW // 60} minutes); leaving the field",
                 )
                 self.stop_farm()
                 return
