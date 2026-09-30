@@ -4,6 +4,9 @@ import time
 import math
 from conquest.viewport import clear_scene, size_for
 
+# Scatter jump landings keep this many tiles inside the hunting boundary.
+LANDING_EDGE_MARGIN = 1
+
 
 def clear_jump(terrain, source, destination):
     """Check every crossed tile, including both sides of diagonal corners."""
@@ -144,7 +147,14 @@ def scatter_landing(
             if not 8 <= distance <= 12:
                 continue
             point = (x + dx, y + dy)
-            if not (left <= point[0] <= right and top <= point[1] <= bottom):
+            # A tile inside the edge: the click can land a tile off, and a
+            # jump planned onto x 300 left Suicide at (299, 312), outside
+            # thunderape-nw, where every escape landing was then ruled out
+            # (2026-09-30 14:32).
+            if not (
+                left + LANDING_EDGE_MARGIN <= point[0] <= right - LANDING_EDGE_MARGIN
+                and top + LANDING_EDGE_MARGIN <= point[1] <= bottom - LANDING_EDGE_MARGIN
+            ):
                 continue
             if point in live:
                 continue  # Ctrl-clicking an actor can attack instead of jumping.

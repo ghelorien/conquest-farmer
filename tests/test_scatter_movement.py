@@ -32,6 +32,29 @@ def test_landing_prefers_dense_group_and_only_long_clear_segments():
     assert landing is None or clear_jump(terrain, (50, 50), landing)
 
 
+def test_a_landing_keeps_a_tile_inside_the_boundary():
+    # A jump planned onto the edge tile left Suicide a tile outside
+    # thunderape-nw at (299, 312) (2026-09-30 14:32): landings keep
+    # LANDING_EDGE_MARGIN inside it.
+    from conquest.scatter_movement import LANDING_EDGE_MARGIN
+
+    terrain = TerrainMap(1011, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ())
+    supervisor = SimpleNamespace(recovery=SimpleNamespace(terrain=terrain))
+    boundary = (40, 20, 80, 80)
+    landings = []
+    # Groups at every depth beside the west edge, the farmer 8-12 tiles east.
+    for gx in range(41, 50):
+        for farmer_x in range(48, 53):
+            targets = [target(gx, 50), target(gx, 53), target(gx + 1, 47)]
+            landing = scatter_landing(supervisor, targets, (farmer_x, 50), boundary, 10)
+            if landing is not None:
+                landings.append(landing)
+    assert landings
+    for x, y in landings:
+        assert boundary[0] + LANDING_EDGE_MARGIN <= x <= boundary[2] - LANDING_EDGE_MARGIN
+        assert boundary[1] + LANDING_EDGE_MARGIN <= y <= boundary[3] - LANDING_EDGE_MARGIN
+
+
 def test_no_short_jump_or_dead_target_chasing():
     terrain = TerrainMap(1011, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ())
     supervisor = SimpleNamespace(recovery=SimpleNamespace(terrain=terrain))
