@@ -258,7 +258,7 @@ def test_ape_mountain_msgr_abbreviation_is_a_messenger():
         assert not king_tier(name)
     assert boss_name("SnakemanMsgr")  # outside any family: an elite to keep away from
     assert not messenger("GiantApe")
-    for route_id in ("giantape", "giantape-west", "giantape-south", "giantape-north"):
+    for route_id in ("giantape", "giantape-west", "giantape-south", "giantape-north", "giantape-strip"):
         assert "GiantApeMsgr" in route_monster_names(RouteLibrary().load(route_id)), route_id
 
 
