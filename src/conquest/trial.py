@@ -48,6 +48,11 @@ LOOT_YIELD_SECONDS = 2.5
 EMERGENCY_RETURN_HP = 0.45
 EMERGENCY_HEAL_WINDOW = 3.0
 EMERGENCY_SCROLL = 1060020
+# A walk back to the hunting area waiting this long for a step inside its
+# travel boundary redraws the boundary round the walk from where it stands;
+# each redraw with no step between adds TRAVEL_PADDING, up to this many times.
+RETURN_REPLAN_WAIT_SECONDS = 3.0
+RETURN_REPLAN_WIDENINGS = 3
 
 
 def scatter_receipt_ready(
@@ -433,6 +438,10 @@ def run_trial(
     if rotation:
         config = config.model_copy(update={"route": rotation.region.patrol})
     navigation_waiting = False
+    navigation_wait_since = 0.0
+    return_replan_due = False
+    # Travel-boundary redraws with no movement between (RETURN_REPLAN_WIDENINGS).
+    return_replans = 0
     escape_settle_until = 0
     attack_interrupted = False
     last_kill_counter = None
@@ -628,13 +637,17 @@ def run_trial(
                     if supervisor and hasattr(supervisor, "finish_runback"):
                         supervisor.finish_runback("arrived")
                     approaching, moving = False, None
+                    return_replan_due, return_replans = False, 0
                     if boundary_return_target is not None:
                         event("boundary_return_completed", position=[x, y])
                         boundary_return_target = None
                     event("farming_area_reached", position=[x, y])
                 if approaching:
                     l, t, r, b = config.approach_boundary
-                outside = recovery is None and not (l <= x <= r and t <= y <= b)
+                outside = recovery is None and (
+                    (approaching and return_replan_due)
+                    or not (l <= x <= r and t <= y <= b)
+                )
                 if outside and valuable_walk_outside(supervisor, approaching, (x, y)):
                     # Alex 2026-09-29: "There should be a 25 tile radius for
                     # valuables". The walk to one goes on past the boundary;
@@ -651,8 +664,15 @@ def run_trial(
                     ):
                         reason = "outside_trial_boundary"
                         break
-                    from conquest.navigation import hunting_return_path
+                    from conquest.navigation import TRAVEL_PADDING, hunting_return_path
 
+                    # patrol_step plans round obstructions and boss zones, so
+                    # its walk can still leave a box drawn round the plain
+                    # walk: each redraw with no step between widens the box.
+                    padding = TRAVEL_PADDING
+                    if return_replan_due:
+                        return_replans += 1
+                        padding *= 1 + min(return_replans - 1, RETURN_REPLAN_WIDENINGS)
                     # The supervisor steers to the anchor itself (patrol_step),
                     # so only the travel boundary is needed. Precomputing every
                     # landing replanned the route per shortened jump: 25-35 s
@@ -665,6 +685,7 @@ def run_trial(
                             (x, y),
                             config.hunting_anchor,
                             config.boundary,
+                            padding,
                         )
                     config = config.model_copy(
                         update={
@@ -682,7 +703,13 @@ def run_trial(
                         position=[x, y],
                         destination=list(boundary_return_target),
                         travel_boundary=travel_boundary,
+                        **(
+                            {"replanned": "no_step_inside", "padding": padding}
+                            if return_replan_due
+                            else {}
+                        ),
                     )
+                    return_replan_due = False
                     if hasattr(supervisor, "start_runback"):
                         supervisor.start_runback(boundary_return_target)
                     # Resample after path planning before healing or movement input.
@@ -2287,6 +2314,7 @@ def run_trial(
                         if navigation_waiting:
                             event("navigation_resumed")
                             navigation_waiting = False
+                        return_replans = 0
                         event(
                             "movement_attempt",
                             point=point,
@@ -2322,9 +2350,26 @@ def run_trial(
                     time.sleep(speed.moving_observation_retry_seconds)
                     continue
                 if str(error) == "Waiting for a traversable patrol step":
+                    waited_at = time.monotonic()
                     if not navigation_waiting:
                         event("navigation_wait", reason=str(error))
+                        navigation_wait_since = waited_at
                     navigation_waiting = True
+                    if (
+                        approaching
+                        and config.hunting_anchor is not None
+                        and waited_at - navigation_wait_since >= RETURN_REPLAN_WAIT_SECONDS
+                    ):
+                        # The travel boundary is drawn round the walk planned
+                        # when the return started, but a walk planned mid-way
+                        # can take another line. From (788, 445) to the anchor
+                        # (605, 335) it swung up to y 308, outside the box
+                        # [592, 320, 844, 623]; patrol_step skipped every step
+                        # and Suicide stood on the east road until nudged
+                        # (2026-09-30 01:52). Redraw the box round the walk
+                        # from here, as when the farmer leaves it.
+                        return_replan_due = True
+                        navigation_wait_since = waited_at
                     time.sleep(0.1)
                     continue
                 if not focus_paused:

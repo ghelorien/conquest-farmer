@@ -571,7 +571,9 @@ FIELD_TRAVEL_LIMIT = 2_000_000
 TRAVEL_PADDING = 24
 
 
-def hunting_return_path(terrain, position, anchor, hunting_boundary):
+def hunting_return_path(
+    terrain, position, anchor, hunting_boundary, padding=TRAVEL_PADDING
+):
     """A checked path back to the saved hunting spot and a boundary around it."""
     left, top, right, bottom = hunting_boundary
     if not (left <= anchor[0] <= right and top <= anchor[1] <= bottom):
@@ -579,7 +581,7 @@ def hunting_return_path(terrain, position, anchor, hunting_boundary):
     path = terrain.travel_path(
         tuple(position), tuple(anchor), limit=FIELD_TRAVEL_LIMIT
     )
-    return path, path_boundary(path, (terrain.width, terrain.height), TRAVEL_PADDING)
+    return path, path_boundary(path, (terrain.width, terrain.height), padding)
 
 
 def plan_hunting_return(terrain, position, anchor, hunting_boundary):
