@@ -210,7 +210,7 @@ def test_giantape_family_can_start_native_farming():
 
     assert MONSTER_NAMES[11] == "GiantApe"
     route = RouteLibrary().load("giantape")
-    assert route_monster_names(route) == ("GiantApe", "GiantApeL53")
+    assert route_monster_names(route) == ("GiantApe", "GiantApeL53", "GiantApeMsgr")
     config = TrialConfig(
         character="Suicide",
         player_profile="player.yaml",
@@ -231,7 +231,7 @@ def test_thunderape_family_can_start_native_farming():
     from conquest.trial import TrialConfig
 
     assert MONSTER_NAMES[12] == "ThunderApe"
-    assert [m["name"] for m in monster_family(12)] == ["ThunderApe", "ThunderApeL58"]
+    assert [m["name"] for m in monster_family(12)] == ["ThunderApe", "ThunderApeL58", "ThunderApeMsgr"]
     config = TrialConfig(
         character="Suicide",
         player_profile="player.yaml",
@@ -242,6 +242,24 @@ def test_thunderape_family_can_start_native_farming():
         monster="ThunderApe",
     )
     assert config.monster == "ThunderApe"
+
+
+def test_ape_mountain_msgr_abbreviation_is_a_messenger():
+    # The server names Ape Mountain's messengers "GiantApeMsgr" (8106, 5,300 HP)
+    # and "ThunderApeMsgr" (8107): neither matched "messenger$", so a
+    # GiantApeMsgr was no target and no boss (Toxic's north survey,
+    # 2026-09-29 20:37-20:57). Alex: "if there ever is a messenger version of
+    # the monster just kill it with left clicks".
+    from conquest.routes import boss_name, king_tier, messenger, route_monster_names
+
+    for name in ("GiantApeMsgr", "ThunderApeMsgr", "RatMessenger"):
+        assert messenger(name)
+        assert not boss_name(name)  # a family member: a left-click target
+        assert not king_tier(name)
+    assert boss_name("SnakemanMsgr")  # outside any family: an elite to keep away from
+    assert not messenger("GiantApe")
+    for route_id in ("giantape", "giantape-west", "giantape-south", "giantape-north"):
+        assert "GiantApeMsgr" in route_monster_names(RouteLibrary().load(route_id)), route_id
 
 
 def test_macaque_family_is_available_for_saved_route_selection():

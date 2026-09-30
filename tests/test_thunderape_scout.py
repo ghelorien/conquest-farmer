@@ -45,8 +45,8 @@ def terrain():
 
 def test_the_scout_targets_the_thunderape_family(route):
     # 1
-    assert route.monster_type_ids == (12, 71)
-    assert route_monster_names(route) == ("ThunderApe", "ThunderApeL58")
+    assert route.monster_type_ids == (12, 71, 8107)
+    assert route_monster_names(route) == ("ThunderApe", "ThunderApeL58", "ThunderApeMsgr")
     assert route.qualification == "planned"
 
 

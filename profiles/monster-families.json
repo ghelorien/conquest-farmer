@@ -114,6 +114,11 @@
       "type_id": 70,
       "name": "GiantApeL53",
       "level": 53
+    },
+    {
+      "type_id": 8106,
+      "name": "GiantApeMsgr",
+      "level": 52
     }
   ],
   "12": [
@@ -126,6 +131,11 @@
       "type_id": 71,
       "name": "ThunderApeL58",
       "level": 58
+    },
+    {
+      "type_id": 8107,
+      "name": "ThunderApeMsgr",
+      "level": 57
     }
   ],
   "13": [

@@ -69,15 +69,17 @@ def boss_name(name):
     """Whether a monster name is a boss or elite: never a target, kept at a
     distance. The elite tiers around the leveling fields are Messenger (81xx),
     Aide (82xx) and King (83xx): RatAide and RatMessenger share the Ratling
-    field and BanditAide the Bandit one. An ordinary leveling family is never
-    a boss, whatever its name ends with (HawKing, levels 92-96)."""
+    field and BanditAide the Bandit one. On Ape Mountain the server shortens
+    Messenger to "Msgr" (GiantApeMsgr 8106, ThunderApeMsgr 8107). An ordinary
+    leveling family is never a boss, whatever its name ends with (HawKing,
+    levels 92-96)."""
     import re
 
     if name in _family_names():
         return False
     return bool(
         re.search(
-            r"(?:king|queen|boss|leader|chieftain|aide|messenger)$",
+            r"(?:king|queen|boss|leader|chieftain|aide|messenger|msgr)$",
             name,
             flags=re.IGNORECASE,
         )
@@ -97,13 +99,13 @@ BOSS_ROOM = BOSS_CLEARANCE + 4
 
 
 def messenger(name):
-    """A Messenger-tier elite (81xx: RatMessenger, ElfMessenger...). Where its
-    field's family lists it, it is a target killed with left clicks, not a
-    boss (Alex 2026-09-28: "if there ever is a messenger version of the
+    """A Messenger-tier elite (81xx: RatMessenger, ElfMessenger, GiantApeMsgr...).
+    Where its field's family lists it, it is a target killed with left clicks,
+    not a boss (Alex 2026-09-28: "if there ever is a messenger version of the
     monster just kill it with left clicks")."""
     import re
 
-    return bool(re.search(r"messenger$", name or "", flags=re.IGNORECASE))
+    return bool(re.search(r"(?:messenger|msgr)$", name or "", flags=re.IGNORECASE))
 
 
 def king_tier(name):
