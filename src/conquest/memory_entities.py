@@ -13,6 +13,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from conquest.addressing import Offset, checked_address
 
+# A full scene read that a walking monster, a spawn or a death (or the camera
+# moving every draw position) spoiled between its two passes. It is retried
+# at once, with every check run again, so an accepted snapshot still has two
+# passes that agree. Live 2026-09-30 14:06 (Suicide, 47-58 ThunderApes in
+# view): 8 of 20 reads failed this way, and native_farm then saw no targets
+# and no threats for the tick. A selected (single target) read and a changed
+# scene collection still fail at once.
+TRANSIENT_SCENE_ERRORS = frozenset(
+    {"Duplicate scene object pointers", "Monster changed during observation"}
+)
+SCENE_READ_ATTEMPTS = 3
+
 
 class EntityLayout(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -213,6 +225,15 @@ class MemoryEntityReader:
             if type(uid) is not int or uid <= 0:
                 raise ValueError("Invalid selected monster ID")
             checked_address(address)
+        attempts = SCENE_READ_ATTEMPTS if selected is None else 1
+        for attempt in range(attempts):
+            try:
+                return self._read_once(selected=selected, packed=packed)
+            except ValueError as error:
+                if str(error) not in TRANSIENT_SCENE_ERRORS or attempt + 1 == attempts:
+                    raise
+
+    def _read_once(self, *, selected, packed):
         started = self.clock()
         s, p = self.session, self.layout
         module, collection, trace = self._resolve()
