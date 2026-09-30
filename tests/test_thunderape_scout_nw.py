@@ -19,8 +19,10 @@ from conquest.routes import RouteLibrary, route_monster_names
 from test_ratling_route import _segment
 
 SUICIDE_BOX = (300, 270, 348, 318)
-KINGS = [(293, 333), (303, 287), (336, 213), (331, 256)]
-AIDES = [(312, 333), (284, 279), (304, 259), (281, 327), (344, 308)]
+# Laptop2's logs round Suicide's box, plus the first scout's own (11:21-11:36):
+# a King idling at (228-234, 185-189) and an Aide at (239-240, 221-222).
+KINGS = [(293, 333), (303, 287), (336, 213), (331, 256), (228, 189), (234, 186), (331, 208)]
+AIDES = [(312, 333), (284, 279), (304, 259), (281, 327), (344, 308), (239, 222), (240, 221)]
 MSGRS = [(297, 333), (289, 296), (280, 267), (279, 332), (329, 336)]
 
 

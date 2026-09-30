@@ -7,7 +7,7 @@ monster_type_ids: [12, 71]
 recommended_levels: [57, 61]
 town_anchor: [554, 545]
 restock_anchor: [550, 547]
-hunting_anchor: [258, 198]
+hunting_anchor: [277, 198]
 kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
@@ -15,28 +15,30 @@ king_clearance: 15
 elite_clearance: 13
 # Alex 2026-09-30 10:2x approved a supervised scout for Toxic's own ThunderApe
 # ground, so it does not share Suicide's thunderape-nw box [300,270,348,318].
-# Suicide saw ThunderApes out to x 250 / y 212 from inside its box (type 12
-# at x 250-373, y 212-347; type 71 at x 258-351, y 223-345), nothing beyond
-# ~18 tiles of it. The box keeps 24+ tiles from every boss Laptop2 logged
-# today: ThunderApeKings (293,333) 05:23, (303,287) 09:49, (336,213) 09:56,
-# #402181 (331,256) overnight; Aides (312,333), (284,279), (304,259) 09:03,
-# (281,327), (344,308); Msgrs (297,333), (289,296), (280,267), (279,332),
-# (329,336). Bosses roam (a King crossed into Suicide's box at 09:49): the
-# trial's live boss checks and the walk planner's boss detours protect.
-hunting_boundary: [220, 160, 295, 235]
+# Toxic's first scout (a31ebfb, box [220,160,295,235], 11:21-11:36) found up
+# to 87 ThunderApes in view (sightings x 213-349, y 176-344) and made 10.8-11.3
+# kills/min, 8.8M xp/h with double EXP and MrBuffer's buff, 57 -> 58 in six
+# minutes. A ThunderApeKing idled at (228-234,185-189) and an Aide at
+# (239-240,221-222) in that box's west part, and the King came to 12 tiles of
+# Toxic at (222,175) at 11:35:56, so the box moved east of them: 16+ tiles from
+# the King's spot, 14+ from the Aide's, and 24+ from every boss Laptop2
+# logged today round Suicide's box (Kings (336,213), (331,256), (303,287),
+# (293,333); Aides (304,259), (284,279), ...; Msgrs (280,267), ...). Bosses
+# roam: the trial's live boss checks and the walk planner's detours protect.
+hunting_boundary: [254, 160, 300, 235]
 patrol_search:
   idle_seconds: 7.5
   expansion_tiles: 4
   maximum_expansions: 1
   sweep_spacing_tiles: 20
 patrol:
-  - [258, 198]
-  - [238, 178]
-  - [277, 178]
-  - [277, 217]
-  - [238, 217]
-  - [257, 164]
-  - [224, 197]
+  - [277, 198]
+  - [265, 178]
+  - [289, 178]
+  - [289, 217]
+  - [265, 217]
+  - [277, 164]
+  - [258, 197]
 # Corners of travel_path from town through Suicide's box, then round the
 # north of the ring by (345,270)-(350,240)-(320,232)-(294,230), and back (the
 # trial plans its own walk with live boss detours; these rows only document
@@ -542,22 +544,56 @@ outbound_waypoints:
   - [293, 230]
   - [294, 230]
   - [293, 230]
-  - [288, 225]
-  - [287, 225]
-  - [279, 217]
-  - [278, 217]
-  - [269, 208]
-  - [268, 208]
-  - [258, 198]
+  - [292, 229]
+  - [292, 228]
+  - [291, 227]
+  - [291, 226]
+  - [290, 225]
+  - [290, 224]
+  - [289, 223]
+  - [289, 222]
+  - [288, 221]
+  - [288, 220]
+  - [287, 219]
+  - [287, 218]
+  - [286, 217]
+  - [286, 216]
+  - [285, 215]
+  - [285, 214]
+  - [284, 213]
+  - [284, 212]
+  - [283, 211]
+  - [283, 210]
+  - [282, 209]
+  - [282, 208]
+  - [281, 207]
+  - [281, 206]
+  - [280, 205]
+  - [280, 204]
+  - [279, 203]
+  - [279, 202]
+  - [278, 201]
+  - [278, 200]
+  - [277, 199]
+  - [277, 198]
 return_waypoints:
-  - [258, 198]
-  - [270, 210]
-  - [272, 212]
-  - [273, 212]
-  - [280, 219]
-  - [281, 219]
-  - [288, 226]
-  - [289, 226]
+  - [277, 198]
+  - [277, 199]
+  - [279, 201]
+  - [279, 203]
+  - [281, 205]
+  - [281, 207]
+  - [283, 209]
+  - [283, 211]
+  - [285, 213]
+  - [285, 215]
+  - [287, 217]
+  - [287, 219]
+  - [289, 221]
+  - [289, 223]
+  - [291, 225]
+  - [291, 227]
+  - [293, 229]
   - [293, 230]
   - [294, 230]
   - [293, 230]
@@ -1052,5 +1088,5 @@ recover_after_death: true
 movement: jump
 notes: >-
   Drafted 2026-09-30 10:3x for Toxic (L57) from the terrain and Laptop2's boss
-  sightings. Unsurveyed: the first hunts are supervised live and end at the
-  first sign of a boss nest.
+  sightings; moved east at 11:4x after the first supervised scout found a
+  King and an Aide idling in the original box's west part.
