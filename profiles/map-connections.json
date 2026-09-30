@@ -51,6 +51,60 @@
       "verified": true,
       "observed_at": 1790690388.4579904,
       "evidence": "Alex 2026-09-29: the Twin City Conductress reaches Ape City (from level 47). Her Ape Mountain ride lands at (555, 957), beside this portal; Suicide's first crossing (0792593, 09:59:47) arrived at (381, 21) on Ape City's north edge."
+    },
+    {
+      "source_map": 1002,
+      "portal_id": 1,
+      "portal_position": [
+        44,
+        394
+      ],
+      "destination_map": 1000,
+      "arrival_position": [
+        975,
+        668
+      ],
+      "source_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
+      "destination_terrain_sha256": "3d8a7ec5d308f8a3cfd5305768093115274265426ce3295f5bc0c111384d9213",
+      "verified": true,
+      "observed_at": 1790808056.283431,
+      "evidence": "Seeded 2026-09-30 for the Desert scout (Alex: scout the Desert now). Twin City's west-edge portal 1 is the Desert City gate (conductress_shortcut's (45, 397) note); the Desert's only east-edge portal is 1 at (977, 668). The arrival tile is the nearest walkable tile inside it, unobserved: cross_portal(expected_map=1000) proves the map by memory on the first crossing."
+    },
+    {
+      "source_map": 1000,
+      "portal_id": 1,
+      "portal_position": [
+        977,
+        668
+      ],
+      "destination_map": 1002,
+      "arrival_position": [
+        46,
+        394
+      ],
+      "source_terrain_sha256": "3d8a7ec5d308f8a3cfd5305768093115274265426ce3295f5bc0c111384d9213",
+      "destination_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
+      "verified": true,
+      "observed_at": 1790808164.0578973,
+      "evidence": "Seeded 2026-09-30 with the Desert scout: the way back to Twin City through the Desert's east portal, a walking fallback when an ApeCityGate cannot be read. Arrival unobserved (beside Twin City's west portal 1); cross_portal checks the map by memory."
+    },
+    {
+      "source_map": 1020,
+      "portal_id": 1,
+      "portal_position": [
+        376,
+        8
+      ],
+      "destination_map": 1002,
+      "arrival_position": [
+        555,
+        957
+      ],
+      "source_terrain_sha256": "2feb3cdcf2a5cfe8a3358f15103c9994b83094e319f7d780908da5e85658ca80",
+      "destination_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
+      "verified": true,
+      "observed_at": 1790781811.7421324,
+      "evidence": "Observed by Suicide's own gear-circuit crossings on 2026-09-30 (map_arrived, the Ape City Conductress ride's exit portal): Ape Mountain's portal 1 to Twin City's south gate. Map travel reads a carried TwinCityGate before walking it."
     }
   ]
 }

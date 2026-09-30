@@ -1,0 +1,100 @@
+schema_version: 1
+id: desert-scout
+name: Snakeman scout east of Desert City
+map_id: 1000
+restock_map_id: 1020
+monster_type_ids: [13, 72]
+recommended_levels: [62, 66]
+town_anchor: [495, 612]
+restock_anchor: [550, 547]
+hunting_anchor: [575, 610]
+kite_when_surrounded: true
+jump_scatter: true
+attack_range_tiles: 16
+king_clearance: 15
+elite_clearance: 13
+# Unsurveyed (Alex 2026-09-30 18:4x: "scout the Desert now", and grab the
+# damage buff). Nobody has seen where Snakemen (L62, type 13; SnakemanL63, 72)
+# spawn. The way in: TwinCityGate from Ape City, Twin City's Conductress
+# "Desert City" (lands at (69, 473) on Twin City's map), then Twin City portal
+# 1 at (44, 394) to the Desert's east portal (977, 668). The first arrival then
+# walks ~495 tiles to Desert City town (ensure_city_visit) with species_log
+# running. That walk shows the Snakeman ground, and this box, just east of the
+# town, gets replaced by it. Restocks read an ApeCityGate home.
+hunting_boundary: [548, 570, 610, 650]
+patrol_search:
+  idle_seconds: 7.5
+  expansion_tiles: 4
+  maximum_expansions: 1
+  sweep_spacing_tiles: 20
+patrol:
+  - [575, 610]
+  - [562, 585]
+  - [595, 585]
+  - [560, 635]
+  - [595, 635]
+  - [578, 575]
+outbound_waypoints:
+  - [495, 612]
+  - [495, 624]
+  - [495, 625]
+  - [502, 632]
+  - [509, 632]
+  - [510, 633]
+  - [512, 633]
+  - [521, 642]
+  - [533, 642]
+  - [536, 642]
+  - [537, 643]
+  - [539, 643]
+  - [540, 644]
+  - [545, 644]
+  - [546, 643]
+  - [546, 639]
+  - [558, 627]
+  - [570, 615]
+  - [575, 610]
+return_waypoints:
+  - [575, 610]
+  - [570, 615]
+  - [558, 627]
+  - [546, 639]
+  - [546, 643]
+  - [545, 644]
+  - [540, 644]
+  - [539, 643]
+  - [537, 643]
+  - [536, 642]
+  - [533, 642]
+  - [521, 642]
+  - [512, 633]
+  - [510, 633]
+  - [509, 632]
+  - [502, 632]
+  - [495, 625]
+  - [495, 624]
+  - [495, 612]
+terrain_sha256: 3d8a7ec5d308f8a3cfd5305768093115274265426ce3295f5bc0c111384d9213
+supplies:
+  arrow_type: 1050001
+  arrows_return_below: 3
+  arrows_restock_to: 4000
+  healing_type: 1000020
+  healing_return_below: 1
+  healing_restock_to: 5
+  healing_threshold: 0.65
+  minimum_free_slots: 4
+tasks:
+  - travel_to_hunt
+  - hunt_and_loot
+  - return_to_town
+  - restock
+  - check_equipment
+  - resume_hunt
+qualification: planned
+recover_after_death: true
+movement: jump
+notes: >-
+  Drafted 2026-09-30 for Suicide (L60) to find Snakemen (L62-63) in the
+  Desert, map 1000, restocking in Ape City. The box is a first guess beside
+  Desert City town; the arrival walk's species log decides the real one.

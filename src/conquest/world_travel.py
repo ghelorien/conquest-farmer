@@ -220,6 +220,12 @@ def travel_to_map(loop, destination):
         if read_gate(loop, destination):
             continue
         edge = connection_path(life["map_id"], destination)[0]
+        # A hop through Twin City takes a carried TwinCityGate too. From Ape
+        # City that edge is portal 1 at (376, 8), ~550 tiles across the GiantApe
+        # plain (the Ape City Conductress trip is unverified), on the way to the
+        # Desert (2026-09-30).
+        if edge["destination_map"] == 1002 and read_gate(loop, 1002):
+            continue
         terrain = read_terrain(CLIENT_ROOT, life["map_id"])
         # Every walk before the crossing (banking for the fare, the way to the
         # Conductress) is on this map. A restarted route still held its

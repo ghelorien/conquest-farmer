@@ -43,6 +43,7 @@ def test_saved_routes_retain_idle_search_policy():
         # The strip expands 1: its south edge keeps off the King holding
         # thunderape-nw's middle (2026-09-30).
         "thunderape-strip": 1,
+        "desert-scout": 4,
         "giantape-west": 1,
         "giantape-north": 1,
         "giantape-south": 1,

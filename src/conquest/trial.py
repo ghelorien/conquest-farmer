@@ -95,6 +95,7 @@ class TrialConfig(BaseModel):
         "Macaque",
         "GiantApe",
         "ThunderApe",
+        "Snakeman",
     ] = "Pheasant"
     monster_variants: tuple[str, ...] = ()
     client_size: tuple[int, int]

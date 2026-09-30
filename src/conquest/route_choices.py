@@ -31,6 +31,7 @@ BUILTIN_LABELS = {
     "macaque": "Macaques",
     "giantape": "Giant Apes",
     "thunderape": "Thunder Apes",
+    "snakeman": "Snakemen",
 }
 
 

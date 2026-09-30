@@ -88,6 +88,7 @@
           {"kind": 4, "option": 255, "text": ""}
         ]
       }
-    }
+    },
+    {"source_map": 1002, "npc_name": "Conductress", "npc_position": [435, 440], "option": "Desert City", "destination_map": 1000, "arrival_map": 1002, "arrival_position": [69, 473], "price": 100, "verified": true, "observed_at": 1790531298.2528608, "evidence": "Suicide's conductress_shortcut rides 2026-09-27 (four, each 'Conductress dropped us at (69, 473)', exact 100-silver fare; .runtime/conductress-landings.json). Twin City portal 1 at (44, 394), the Desert City gate, is 82 walking tiles from the landing."}
   ]
 }
