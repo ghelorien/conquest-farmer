@@ -122,7 +122,9 @@ def test_other_client_rejected_before_read(setup):
 
 
 @pytest.mark.parametrize("offset", ["id_offset", "position_offset"])
-def test_entity_reuse_or_movement_during_sample_rejected(setup, offset):
+def test_entity_reuse_or_movement_during_sample_rejected_then_read_again(setup, offset):
+    # The pass that saw the change is thrown away; the retry's two passes agree
+    # on the new state (live 2026-09-30: 8 of 20 dense-scene reads failed).
     memory, layout, reader = setup
     address = 0x600000 + getattr(layout, offset)
 
@@ -131,8 +133,29 @@ def test_entity_reuse_or_movement_during_sample_rejected(setup, offset):
             m.values[address] = 999 if offset == "id_offset" else (681, 570)
 
     memory.mutate = mutate
+    monster = reader.read().monsters[0]
+    assert memory.read_counts[address] == 4  # two passes, twice
+    if offset == "id_offset":
+        assert monster.entity_id == 999 and monster.position == (680, 570)
+    else:
+        assert monster.entity_id == 450000 and monster.position == (681, 570)
+
+
+def test_a_monster_changing_on_every_pass_still_fails(setup):
+    from conquest.memory_entities import SCENE_READ_ATTEMPTS
+
+    memory, layout, reader = setup
+    address = 0x600000 + layout.position_offset
+
+    def mutate(m):
+        if address in m.read_counts:
+            x, y = m.values[address]
+            m.values[address] = (x + 1, y)
+
+    memory.mutate = mutate
     with pytest.raises(ValueError, match="Monster changed"):
         reader.read()
+    assert memory.read_counts[address] == 2 * SCENE_READ_ATTEMPTS
 
 
 def test_root_changes_during_sample_rejected(setup):
@@ -278,6 +301,12 @@ def test_packed_records_preserve_stability_identity_and_membership_guards(
         actual = reader.read(packed=True)
         assert actual.monsters == expected.monsters
         assert len(calls) == 2 and all(size <= 4096 for _, size in calls)
+    elif change in ("id", "position", "draw", "name", "hp", "level"):
+        # The spoiled pair is rejected and read again; both retried passes
+        # agree on the changed record.
+        actual = reader.read(packed=True)
+        assert len(calls) == 4
+        assert actual.monsters != expected.monsters
     else:
         with pytest.raises((ValueError, OSError)):
             reader.read(packed=True)
