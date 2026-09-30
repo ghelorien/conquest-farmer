@@ -24,6 +24,7 @@ MONSTER_NAMES = {
     9: "FireSpirit",
     10: "Macaque",
     11: "GiantApe",
+    12: "ThunderApe",
 }
 
 

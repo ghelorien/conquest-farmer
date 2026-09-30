@@ -223,6 +223,27 @@ def test_giantape_family_can_start_native_farming():
     assert config.monster == "GiantApe"
 
 
+def test_thunderape_family_can_start_native_farming():
+    # The L57-61 family after GiantApe: without 12 in MONSTER_NAMES a
+    # ThunderApe route would fail "Choose one supported leveling monster
+    # family" at its first start, as GiantApe did (2026-09-29 13:45).
+    from conquest.routes import MONSTER_NAMES, monster_family
+    from conquest.trial import TrialConfig
+
+    assert MONSTER_NAMES[12] == "ThunderApe"
+    assert [m["name"] for m in monster_family(12)] == ["ThunderApe", "ThunderApeL58"]
+    config = TrialConfig(
+        character="Suicide",
+        player_profile="player.yaml",
+        inventory_profile="inventory.yaml",
+        template="template.png",
+        client_size=(1416, 876),
+        boundary=(300, 270, 360, 330),
+        monster="ThunderApe",
+    )
+    assert config.monster == "ThunderApe"
+
+
 def test_macaque_family_is_available_for_saved_route_selection():
     from conquest.routes import MONSTER_NAMES, route_monster_names, monster_family
     from conquest.trial import TrialConfig
