@@ -3,7 +3,7 @@ id: macaque
 name: Macaque south-east of ApeCity
 map_id: 1020
 restock_map_id: 1020
-monster_type_ids: [10, 69]
+monster_type_ids: [10, 69, 8105]
 recommended_levels: [47, 51]
 town_anchor: [554, 545]
 restock_anchor: [550, 547]

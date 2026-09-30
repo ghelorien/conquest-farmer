@@ -252,7 +252,10 @@ def test_ape_mountain_msgr_abbreviation_is_a_messenger():
     # the monster just kill it with left clicks".
     from conquest.routes import boss_name, king_tier, messenger, route_monster_names
 
-    for name in ("GiantApeMsgr", "ThunderApeMsgr", "RatMessenger"):
+    # MonkeyMessenger (8105): two of them and two MonkeyKings boxed Suicide
+    # into the Macaque field's north-west corner with no target it could
+    # reach (2026-09-30 06:17-06:26).
+    for name in ("GiantApeMsgr", "ThunderApeMsgr", "RatMessenger", "MonkeyMessenger"):
         assert messenger(name)
         assert not boss_name(name)  # a family member: a left-click target
         assert not king_tier(name)
@@ -267,12 +270,12 @@ def test_macaque_family_is_available_for_saved_route_selection():
     from conquest.trial import TrialConfig
 
     assert MONSTER_NAMES[10] == "Macaque"
-    assert tuple(m["type_id"] for m in monster_family(10)) == (10, 69)
+    assert tuple(m["type_id"] for m in monster_family(10)) == (10, 69, 8105)
     route = RouteLibrary().load("macaque")
     assert route.map_id == route.restock_map_id == 1020
     assert route.qualification == "planned"
     assert route.recommended_levels == (47, 51)
-    assert route_monster_names(route) == ("Macaque", "MacaqueL48")
+    assert route_monster_names(route) == ("Macaque", "MacaqueL48", "MonkeyMessenger")
     assert route.supplies.healing_threshold == 0.85
     # Off the MonkeyKings' north-west (y <= 617) and east (x >= 681) haunts
     # (Suicide died on the old 612 north edge, 2026-09-29).
