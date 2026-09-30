@@ -125,7 +125,8 @@ def test_the_gate_waits_for_a_quiet_spot_under_fire(monkeypatch, clock):
 @pytest.mark.parametrize(
     "monsters",
     [
-        [{"name": "GiantApe", "position": [627, 281]}],  # a monster 8 tiles off
+        # 5 tiles off: too close even once the clearance relaxes
+        [{"name": "GiantApe", "position": [624, 281]}],
         [{"name": "GiantApeAide", "position": [619, 297]}],  # an Aide at 16 < 13 + 4
         [{"name": "GiantApeKing", "position": [601, 281]}],  # a King at 18 < 15 + 4
     ],
@@ -138,6 +139,33 @@ def test_no_gate_without_a_quiet_spot_the_restock_walks(monkeypatch, clock, mons
     assert gates == []
     assert events == ["gate_deferred_under_fire"]
     assert clock[0] - start >= overnight.GATE_SETTLE_SECONDS
+
+
+def test_a_monster_8_tiles_off_allows_the_gate_once_the_clearance_relaxes(monkeypatch, clock):
+    # After the boss_chase return (2026-09-30 16:45) the ThunderApe box never
+    # gave 10 clear tiles; the walk home crossed the plain under fire.
+    scene = {
+        "position": (619, 281),
+        "hp": 900,
+        "monsters": [{"name": "ThunderApe", "position": [627, 281]}],  # 8 tiles
+    }
+    loop, events, jumps, gates = far_loop(monkeypatch, scene)
+    start = clock[0]
+    assert loop.gate_home_from_afar()
+    assert gates == [1020] and events == []
+    assert clock[0] - start >= overnight.GATE_RELAX_SECONDS
+    assert clock[0] - start < overnight.GATE_SETTLE_SECONDS
+
+
+def test_a_failed_scene_read_is_no_quiet_spot(monkeypatch, clock):
+    scene = {"position": (619, 281), "hp": 900, "monsters": []}
+    loop, events, jumps, gates = far_loop(monkeypatch, scene)
+    living = loop.living
+    loop.living = lambda: {
+        "embedded_controls": {**living()["embedded_controls"], "observations_available": False}
+    }
+    assert not loop.gate_home_from_afar()
+    assert gates == [] and events == ["gate_deferred_under_fire"]
 
 
 def test_a_quiet_field_reads_the_gate_after_the_quiet_wait(monkeypatch, clock):

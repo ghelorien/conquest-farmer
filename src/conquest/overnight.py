@@ -41,7 +41,14 @@ EXCESS_POTION_SLACK = 2
 # without one the restock walks home.
 GATE_QUIET_SECONDS = 3.0
 GATE_CLEAR_TILES = 10
-GATE_SETTLE_SECONDS = 20.0
+GATE_SETTLE_SECONDS = 30.0
+# Past GATE_RELAX_SECONDS an ordinary monster only needs GATE_RELAXED_TILES of
+# room (bosses keep theirs). After the first boss_chase return (Suicide,
+# 2026-09-30 16:45) the ThunderApe box never gave 10 tiles in 20 s. The walk
+# home it fell back to crossed the plain under fire (5 potions), and every
+# chase ends in that walk.
+GATE_RELAX_SECONDS = 12.0
+GATE_RELAXED_TILES = 6
 # Once the hourly restart budget is spent: pause this long (escalating), then
 # replan from fresh reads again instead of stopping for good.
 FAILURE_COOLDOWNS = (120, 300, 600)
@@ -1786,7 +1793,8 @@ class OvernightLoop:
         Aides, and was dead 2 s later ("Town action requires a living
         character"). Each pass runs life care; while HP fell in the last
         GATE_QUIET_SECONDS, a living monster stands within GATE_CLEAR_TILES
-        or a boss has no room (boss_room), escape jumps (evade_in_field)
+        (GATE_RELAXED_TILES after GATE_RELAX_SECONDS), a boss has no room
+        (boss_room) or the scene read failed, escape jumps (evade_in_field)
         look for a quiet spot, for up to GATE_SETTLE_SECONDS.
         """
         from types import SimpleNamespace
@@ -1818,11 +1826,17 @@ class OvernightLoop:
                 for m in controls.get("monsters") or []
                 if m.get("position") and m.get("alive") is not False
             ]
-            crowded = not position or any(
-                not boss_name(m.name or "")
-                and max(abs(a - b) for a, b in zip(m.position, position))
-                <= GATE_CLEAR_TILES
-                for m in living
+            clear = GATE_CLEAR_TILES if now - started < GATE_RELAX_SECONDS else GATE_RELAXED_TILES
+            # A failed scene read comes back with no monsters: that is no
+            # evidence of quiet.
+            crowded = (
+                not position
+                or controls.get("observations_available") is False
+                or any(
+                    not boss_name(m.name or "")
+                    and max(abs(a - b) for a, b in zip(m.position, position)) <= clear
+                    for m in living
+                )
             )
             if (
                 not crowded
