@@ -2148,10 +2148,14 @@ class DesktopApp:
             # FireSpirit route, and Toxic's saved [9, 68] then matched nothing,
             # so every start failed "Selected route and monster group differ"
             # (2026-09-28 18:16). The base type with older members is still
-            # this route's group, not another one's.
+            # this route's group, not another one's. A release can also drop an
+            # elite tier (81xx-83xx) from it: after the messengers left every
+            # family, Suicide's saved [12, 71, 8107] matched nothing and every
+            # start failed "Unknown saved route: thunderape" (2026-09-30 07:26).
+            extra = saved - set(route.monster_type_ids)
             if not control["target_ids"] and (
                 route.monster_type_ids[0] in saved
-                and saved <= set(route.monster_type_ids)
+                and all(8100 <= kind <= 8399 for kind in extra)
             ):
                 self.control.update({"target_type_ids": list(route.monster_type_ids)})
                 self.display_route(route)

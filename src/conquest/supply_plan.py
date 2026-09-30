@@ -221,7 +221,11 @@ def balance(loop):
         and (item["type_id"] not in NORMAL_ARROWS or item["type_id"] not in tiers)
         and item["type_id"] != SCROLL
     )
-    bag_slots = snapshot["capacity"] - supplies.minimum_free_slots - others - SCROLL_SLOTS
+    from conquest import buff_trip
+
+    # TwinCityGates (the SCROLL slots) kept for MrBuffer's buff trips.
+    scroll_slots = max(SCROLL_SLOTS, buff_trip.GATE_KEEP if buff_trip.enabled() else 0)
+    bag_slots = snapshot["capacity"] - supplies.minimum_free_slots - others - scroll_slots
     pack_size = ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS
     from conquest.arrow_upgrades import arrow_pack_count
 

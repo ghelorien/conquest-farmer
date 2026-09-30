@@ -178,6 +178,18 @@ def test_a_route_family_grown_by_a_release_still_restores(tmp_path):
     app.restore_route()
     assert app.selected_route.id == "firespirit"
     assert app.control.snapshot()["target_type_ids"] == [9, 68]
+    # A release that drops an elite tier (the ElfMessenger, 2026-09-30) still
+    # restores the route: Suicide's saved [12, 71, 8107] failed every start.
+    app.selected_route = None
+    app.control.update({"target_type_ids": [9, 68, 8104]})
+    app.restore_route()
+    assert app.selected_route.id == "firespirit"
+    assert app.control.snapshot()["target_type_ids"] == [9, 68]
+    # An extra ordinary monster type is another group, not a dropped elite.
+    app.selected_route = None
+    app.control.update({"target_type_ids": [9, 68, 10]})
+    app.restore_route()
+    assert app.selected_route is None
     # Another family's saved group still restores nothing.
     app.selected_route = None
     app.control.update({"target_type_ids": [8, 67]})
