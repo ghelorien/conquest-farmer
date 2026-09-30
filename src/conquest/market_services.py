@@ -21,6 +21,9 @@ MODELS = {
     # Market equipment upgrades (npc.json type 501; ini/tips.json places her
     # at (260,247)), visited by market_artisan.
     "MagicArtisan": set(range(5010, 5020)),
+    # Twin City's daily double EXP (model 8450 at (424, 344), Laptop2's scene
+    # scan 2026-09-30), visited by hempknight from the buff trip.
+    "TheHempKnight": set(range(8450, 8460)),
 }
 
 

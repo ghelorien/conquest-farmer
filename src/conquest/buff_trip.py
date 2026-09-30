@@ -63,6 +63,11 @@ def stigma_left(now=None):
 
 def lost(reason="death"):
     """A death clears the buff (Alex: "if you die, you lose the double damage buff")."""
+    if reason == "death":
+        from conquest import hempknight
+
+        # The double EXP waits for a quiet spell ("you dont die too much").
+        hempknight.note_death()
     data = read_json(STATE)
     if data.get("stigma_at") is None:
         return False
@@ -273,6 +278,11 @@ def trip(loop, ride=False):
                 raise ValueError("The TwinCityGate did not complete")
             went = True
         visit_buffer(loop)
+        from conquest import hempknight
+
+        # TheHempKnight's daily double EXP lies on the way to the Pharmacist;
+        # a visit never fails the trip.
+        hempknight.visit(loop)
         buy_gates(loop)
     except ValueError as error:
         failed(loop, error)
