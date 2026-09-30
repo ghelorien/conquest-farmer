@@ -1435,11 +1435,14 @@ class TownTrade:
                 "price": product.price,
                 "silver": after.silver,
             }
-        if action in ("sell", "sell_partial_arrow", "sell-scroll") and set(body) == {
+        if action in ("sell", "sell_partial_arrow", "sell-scroll", "sell-potion") and set(
+            body
+        ) == {
             "action",
             "vendor_type",
             "uid",
         }:
+            from conquest.potion_tiers import HEALING_POTIONS
             from conquest.return_scroll import TYPE as SCROLL_TYPE
 
             npc = self.vendor(body["vendor_type"])
@@ -1456,6 +1459,10 @@ class TownTrade:
                     # silver pays for the arrows an empty quiver needs.
                     else i.type_id == SCROLL_TYPE
                     if action == "sell-scroll"
+                    # Only a healing potion at the Pharmacist, for the spares
+                    # beyond the supply plan (OvernightLoop.sell_excess_potions).
+                    else body["vendor_type"] == 3 and i.type_id in HEALING_POTIONS
+                    if action == "sell-potion"
                     else body["vendor_type"] == 5 and expendable_arrow(i, before)
                 )
             ]

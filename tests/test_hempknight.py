@@ -205,6 +205,7 @@ def test_the_buff_trip_visits_him_after_mrbuffer(clock, monkeypatch):
     monkeypatch.setattr(b, "visit_buffer", lambda loop: order.append("buffer"))
     monkeypatch.setattr(h, "visit", lambda loop: order.append("knight"))
     monkeypatch.setattr(b, "buy_gates", lambda loop: order.append("gates"))
+    monkeypatch.setattr(b, "arrived", lambda loop, map_id: None)
 
     class Loop:
         route = NS(restock_map_id=1020)
@@ -212,6 +213,10 @@ def test_the_buff_trip_visits_him_after_mrbuffer(clock, monkeypatch):
 
         def living(self):
             return {"embedded_controls": {"life": {"map_id": 1002, "position": [429, 378]}}}
+
+        def town(self, action, **kw):
+            assert action == "supplies"
+            return {"items": [{"type_id": 1060022, "amount": 1}]}  # the gate home
 
         def record(self, *a, **k):
             pass

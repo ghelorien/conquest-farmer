@@ -222,9 +222,20 @@ def balance(loop):
         and item["type_id"] != SCROLL
     )
     from conquest import buff_trip
+    from conquest.return_scroll import GATES
 
     # TwinCityGates (the SCROLL slots) kept for MrBuffer's buff trips.
-    scroll_slots = max(SCROLL_SLOTS, buff_trip.GATE_KEEP if buff_trip.enabled() else 0)
+    trips = buff_trip.GATE_KEEP if buff_trip.enabled() else 0
+    home_gate = GATES.get(loop.route.restock_map_id)
+    if home_gate in (None, SCROLL):
+        scroll_slots = max(SCROLL_SLOTS, trips)
+    else:
+        # Another town's own gates too (return_scroll.stock keeps SCROLL_SLOTS;
+        # carried ones already count in others). Ape City's were left out:
+        # 09:26 on 2026-09-30 the plan filled the bag with 33 potions, stock
+        # bought one ApeCityGate of two, and the next refresh had none home.
+        home = sum(i["amount"] for i in snapshot["items"] if i["type_id"] == home_gate)
+        scroll_slots = max(0, SCROLL_SLOTS - home) + trips
     bag_slots = snapshot["capacity"] - supplies.minimum_free_slots - others - scroll_slots
     pack_size = ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS
     from conquest.arrow_upgrades import arrow_pack_count

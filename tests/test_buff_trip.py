@@ -76,6 +76,33 @@ def test_a_failed_trip_cools_down(clock):
     assert b.refresh_due(gate())
 
 
+def test_no_refresh_without_a_gate_home(clock):
+    # 2026-09-30 09:57 (Suicide, ThunderApe field): no ApeCityGate and 200
+    # silver. The refresh would have spent the fare on a TwinCityGate and left
+    # Twin City's only way home a Conductress ride and the GiantApe plain.
+    b.write_json(b.POLICY, {"stigma": True})
+    b.write_json(b.STATE, {"stigma_at": clock[0] - b.STIGMA_SECONDS})
+    home = [{"type_id": r.GATES[1020], "amount": 1}]
+    assert b.refresh_due(gate() + home, home=1020)
+    assert b.hunt_should_end(gate() + home, home=1020)
+    assert not b.refresh_due(gate(), home=1020)
+    assert not b.hunt_should_end(gate(), home=1020)
+    assert b.way_home([], 1002)  # Twin City's own trips need no gate
+
+
+def test_a_trip_without_a_gate_home_stays_put(qualified, monkeypatch):
+    farmer = Farmer()
+    farmer.items = gate()  # the TwinCityGate only
+    assert run(farmer, monkeypatch) is False
+    assert not [c for c in farmer.calls if c[0] in ("quiet", "gate-scroll", "buy", "travel")]
+    assert [e for e, _ in farmer.events] == ["buff_trip_skipped"]
+    assert farmer.map_id == 1020 and not b.cooling_down()
+    ride = {"source_map": 1020, "destination_map": 1002, "exit_portal": 1, "service": {}}
+    monkeypatch.setattr("conquest.gear_circuit.saved_ride", lambda source, destination: ride)
+    assert not b.bootstrap_due(farmer, [])  # nor a ride out with none to come back
+    assert b.bootstrap_due(farmer, [{"type_id": r.GATES[1020], "amount": 1}])
+
+
 class Farmer:
     """A farmer returning from the ThunderApe field to restock in Ape City."""
 
@@ -132,6 +159,7 @@ def qualified(monkeypatch, clock):
     r.write_json(r.POLICY, {"enabled": True, "qualified": True})
     b.write_json(b.POLICY, {"stigma": True})
     monkeypatch.setattr(r, "settle", lambda loop: True)
+    monkeypatch.setattr(b, "arrived", lambda loop, map_id: loop.calls.append(("arrived", map_id)))
 
 
 def run(farmer, monkeypatch):
@@ -157,6 +185,11 @@ def test_trip_gates_out_walks_past_mrbuffer_stocks_gates_and_gates_home(qualifie
     names = [e for e, _ in farmer.events if e.startswith("buff_")]
     assert names == ["buff_trip_departing", "buff_received", "buff_trip_complete"]
     assert b.stigma_left() > b.STIGMA_SECONDS - 60
+    # Each map's terrain before its walks: 10:04, the first trip by gate
+    # planned MrBuffer's tile on Ape Mountain's terrain and failed.
+    maps = [c for c in farmer.calls if c[0] in ("gate-scroll", "arrived", "travel")]
+    assert maps[:3] == [("gate-scroll", r.TYPE), ("arrived", 1002), ("travel", (455, 368), 2)]
+    assert maps[-2:] == [("gate-scroll", 1060022), ("arrived", 1020)]
 
 
 def test_short_of_silver_for_gates_the_trip_says_so(qualified, monkeypatch):

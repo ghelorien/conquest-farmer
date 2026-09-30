@@ -100,12 +100,31 @@ def gates_carried(items):
     return sum(i.get("amount", 1) for i in items if i.get("type_id") == TYPE)
 
 
-def refresh_due(items, now=None):
-    """A restock should go through Twin City: enabled, a TwinCityGate carried,
-    no recent failure, and less than REFRESH_WITHIN of the buff left."""
+def way_home(items, home):
+    """A gate back to the restock town is carried (Twin City needs none).
+
+    Twin City's Pharmacist sells no ApeCityGate, and from Twin City the saved
+    way into Ape City is a Conductress fare plus ~550 tiles across the GiantApe
+    plain (Toxic died there at 47). On 2026-09-30 09:57 Suicide was about to
+    refresh from the ThunderApe field with no ApeCityGate and 200 silver, which
+    the TwinCityGate purchase would have spent before the fare.
+    """
+    from conquest.return_scroll import GATES
+
+    kind = GATES.get(home) if home not in (None, TWIN_CITY) else None
+    return kind is None or any(
+        i.get("type_id") == kind and i.get("amount", 1) > 0 for i in items
+    )
+
+
+def refresh_due(items, now=None, home=None):
+    """A restock should go through Twin City: enabled, a TwinCityGate and a
+    gate home carried, no recent failure, and less than REFRESH_WITHIN of the
+    buff left."""
     return (
         enabled()
         and gates_carried(items) > 0
+        and way_home(items, home)
         and not cooling_down(now)
         and stigma_left(now) < REFRESH_WITHIN
     )
@@ -119,19 +138,21 @@ def bootstrap_due(loop, items, now=None):
     return (
         enabled()
         and gates_carried(items) == 0
+        and way_home(items, loop.route.restock_map_id)
         and not cooling_down(now)
         and stigma_left(now) < REFRESH_WITHIN
         and saved_ride(loop.route.restock_map_id, TWIN_CITY) is not None
     )
 
 
-def hunt_should_end(items, now=None):
+def hunt_should_end(items, now=None, home=None):
     """A hunt should end for a refresh: the recorded buff is running out.
     Never before a first visit, so turning this on waits for a restock."""
     return (
         enabled()
         and read_json(STATE).get("stigma_at") is not None
         and gates_carried(items) > 0
+        and way_home(items, home)
         and not cooling_down(now)
         and stigma_left(now) < HUNT_END_WITHIN
     )
@@ -242,6 +263,20 @@ def failed(loop, error):
     )
 
 
+def arrived(loop, map_id):
+    """Walks plan on ``map_id``'s terrain from here: a gate read leaves the
+    old map's loaded, and map travel on the same map only reloads it.
+
+    2026-09-30 10:04, the first trip by TwinCityGate: MrBuffer's tile
+    (424, 372) was planned on Ape Mountain's terrain ("Route endpoint is
+    blocked or outside the map"), and the trip failed in Twin City. The rides
+    before it worked because entering Twin City town loads its terrain.
+    """
+    from conquest.world_travel import travel_to_map
+
+    travel_to_map(loop, map_id)
+
+
 def trip(loop, ride=False):
     """TwinCityGate to Twin City, walk past MrBuffer, restock TwinCityGates,
     ApeCityGate home. With ``ride`` (from home town, no gate carried) the
@@ -252,6 +287,13 @@ def trip(loop, ride=False):
 
     home = loop.route.restock_map_id
     if home == TWIN_CITY:
+        return False
+    if not way_home(loop.town("supplies")["items"], home):
+        loop.record(
+            "buff_trip_skipped",
+            reason="no_gate_home",
+            activity="No gate home carried; skipping the Twin City buff trip",
+        )
         return False
     life = loop.living()["embedded_controls"]["life"]
     loop.record(
@@ -277,6 +319,7 @@ def trip(loop, ride=False):
             if not read_gate(loop, TWIN_CITY):
                 raise ValueError("The TwinCityGate did not complete")
             went = True
+        arrived(loop, TWIN_CITY)
         visit_buffer(loop)
         from conquest import hempknight
 
@@ -292,10 +335,10 @@ def trip(loop, ride=False):
     try:
         if went:
             here = loop.living()["embedded_controls"]["life"]
-            if here["map_id"] != home and not read_gate(loop, home):
-                from conquest.world_travel import travel_to_map
-
-                travel_to_map(loop, home)
+            if here["map_id"] != home:
+                read_gate(loop, home)
+            # Home's terrain again, or map travel when the gate failed.
+            arrived(loop, home)
             loop.record("buff_trip_complete", stigma_left=round(stigma_left()),
                         activity="Back from Twin City; restocking")
     finally:

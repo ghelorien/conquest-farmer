@@ -282,11 +282,47 @@ def test_short_of_one_ironarrow_pack_the_plan_sizes_luckyarrow_packs(monkeypatch
     assert set(loop.planned_arrows) == {1050000}
     assert loop.route.supplies.arrows_restock_to == packs * 200 >= 800
     # The bag keeps room for those packs, and potions no longer run out
-    # long before the arrows: both last ~the same time.
-    assert potions <= 33 - (packs - 1)
+    # long before the arrows: both last ~the same time. 40 slots, 4 kept
+    # free, the carried ApeCityGate and room for the second stock buys.
+    assert potions <= 34 - (packs - 1)
     arrows_minutes = (269 + (packs - 1) * 200) / 40.523
     assert minutes == pytest.approx(arrows_minutes, rel=0.25)
     assert events[-1][1]["arrow_type"] == 1050000
+
+
+def test_ape_city_plans_leave_room_for_its_gates_and_the_buff_trip_gates(monkeypatch):
+    # 2026-09-30 09:26 (Suicide, thunderape-nw, buff trips on): the plan kept
+    # three scroll slots (the TwinCityGates) and bought 33 potions; stock then
+    # had room for one ApeCityGate of two, and the next refresh had none home.
+    from conquest import buff_trip
+
+    buff_trip.write_json(buff_trip.POLICY, {"stigma": True})
+    items = [{"uid": i, "type_id": 1000020, "amount": 1} for i in range(2)]
+    items.append({"uid": 50, "type_id": 1060020, "amount": 1})  # a TwinCityGate
+    loop, best, _ = ironarrow_restock(
+        monkeypatch,
+        "thunderape-nw",
+        {"potions_per_min": 1.218, "arrows_per_min": 40.523},
+        items,
+        {"uid": 99, "type_id": 1050001, "amount": 2},
+        silver=200_000,
+    )
+    minutes, potions, packs = best
+    # 40 slots, minimum_free_slots 4, two ApeCityGates and GATE_KEEP
+    # TwinCityGates; the equipped pack takes no slot.
+    room = 40 - loop.route.supplies.minimum_free_slots - 2 - buff_trip.GATE_KEEP
+    assert potions + (packs - 1) <= room
+    # Carried ApeCityGates already hold their slots.
+    items += [{"uid": 60 + i, "type_id": 1060022, "amount": 1} for i in range(2)]
+    loop, again, _ = ironarrow_restock(
+        monkeypatch,
+        "thunderape-nw",
+        {"potions_per_min": 1.218, "arrows_per_min": 40.523},
+        items,
+        {"uid": 99, "type_id": 1050001, "amount": 2},
+        silver=200_000,
+    )
+    assert again[1] + (again[2] - 1) == potions + (packs - 1)
 
 
 def test_a_partial_ironarrow_pack_counts_its_arrows_not_a_full_pack(monkeypatch):
