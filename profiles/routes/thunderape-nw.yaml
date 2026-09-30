@@ -3,7 +3,7 @@ id: thunderape-nw
 name: ThunderApe scout of Ape Mountain's north-west
 map_id: 1020
 restock_map_id: 1020
-monster_type_ids: [12, 71, 8107]
+monster_type_ids: [12, 71]
 recommended_levels: [57, 61]
 town_anchor: [554, 545]
 restock_anchor: [550, 547]

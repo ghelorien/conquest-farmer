@@ -164,19 +164,20 @@ def test_ui_route_selection_persists_group_but_never_starts_farming(tmp_path):
 
 def test_a_route_family_grown_by_a_release_still_restores(tmp_path):
     # Toxic 2026-09-28 18:16: saved [9, 68] against the FireSpirit route's new
-    # (9, 68, 8104) selected nothing and every farm start failed.
+    # (9, 68, 8104) selected nothing and every farm start failed. A saved group
+    # inside the route's grown family restores the route's full group.
     app = DesktopApp.__new__(DesktopApp)
     app.route_library = RouteLibrary(tmp_path / "routes")
     app.route_library.save(RouteLibrary().load("firespirit"))
     app.control = FarmingControl(tmp_path / "controls.json")
-    app.control.update({"target_ids": [], "target_type_ids": [9, 68]})
+    app.control.update({"target_ids": [], "target_type_ids": [9]})
     app.route_selection_path = tmp_path / "selected-route.json"
     app.route_selection_path.write_text('{"route_id": "firespirit"}')
     app.route_text, app.route_note = Text(), Text()
     app.selected_route = None
     app.restore_route()
     assert app.selected_route.id == "firespirit"
-    assert app.control.snapshot()["target_type_ids"] == [9, 68, 8104]
+    assert app.control.snapshot()["target_type_ids"] == [9, 68]
     # Another family's saved group still restores nothing.
     app.selected_route = None
     app.control.update({"target_type_ids": [8, 67]})
@@ -210,7 +211,7 @@ def test_giantape_family_can_start_native_farming():
 
     assert MONSTER_NAMES[11] == "GiantApe"
     route = RouteLibrary().load("giantape")
-    assert route_monster_names(route) == ("GiantApe", "GiantApeL53", "GiantApeMsgr")
+    assert route_monster_names(route) == ("GiantApe", "GiantApeL53")
     config = TrialConfig(
         character="Suicide",
         player_profile="player.yaml",
@@ -231,7 +232,7 @@ def test_thunderape_family_can_start_native_farming():
     from conquest.trial import TrialConfig
 
     assert MONSTER_NAMES[12] == "ThunderApe"
-    assert [m["name"] for m in monster_family(12)] == ["ThunderApe", "ThunderApeL58", "ThunderApeMsgr"]
+    assert [m["name"] for m in monster_family(12)] == ["ThunderApe", "ThunderApeL58"]
     config = TrialConfig(
         character="Suicide",
         player_profile="player.yaml",
@@ -244,25 +245,23 @@ def test_thunderape_family_can_start_native_farming():
     assert config.monster == "ThunderApe"
 
 
-def test_ape_mountain_msgr_abbreviation_is_a_messenger():
-    # The server names Ape Mountain's messengers "GiantApeMsgr" (8106, 5,300 HP)
-    # and "ThunderApeMsgr" (8107): neither matched "messenger$", so a
-    # GiantApeMsgr was no target and no boss (Toxic's north survey,
-    # 2026-09-29 20:37-20:57). Alex: "if there ever is a messenger version of
-    # the monster just kill it with left clicks".
+def test_messengers_are_elites_to_dodge_never_targets():
+    # The server names Ape Mountain's messengers "GiantApeMsgr" (8106) and
+    # "ThunderApeMsgr" (8107), so "msgr" counts as Messenger too. Alex
+    # 2026-09-30 07:0x, with both farmers re-geared: "dont attack messengers
+    # anymore, just dodge them as much as possible and maximize your exp per
+    # hour" (reversing 2026-09-28's "kill it with left clicks").
     from conquest.routes import boss_name, king_tier, messenger, route_monster_names
 
-    # MonkeyMessenger (8105): two of them and two MonkeyKings boxed Suicide
-    # into the Macaque field's north-west corner with no target it could
-    # reach (2026-09-30 06:17-06:26).
-    for name in ("GiantApeMsgr", "ThunderApeMsgr", "RatMessenger", "MonkeyMessenger"):
+    for name in ("GiantApeMsgr", "ThunderApeMsgr", "RatMessenger", "ElfMessenger",
+                 "MonkeyMessenger", "SnakemanMsgr"):
         assert messenger(name)
-        assert not boss_name(name)  # a family member: a left-click target
+        assert boss_name(name)  # an elite kept at elite_clearance
         assert not king_tier(name)
-    assert boss_name("SnakemanMsgr")  # outside any family: an elite to keep away from
     assert not messenger("GiantApe")
-    for route_id in ("giantape", "giantape-west", "giantape-south", "giantape-north", "giantape-strip"):
-        assert "GiantApeMsgr" in route_monster_names(RouteLibrary().load(route_id)), route_id
+    for route in RouteLibrary().all():
+        assert not any(messenger(n) for n in route_monster_names(route)), route.id
+        assert not any(8100 <= kind <= 8199 for kind in route.monster_type_ids), route.id
 
 
 def test_macaque_family_is_available_for_saved_route_selection():
@@ -270,12 +269,12 @@ def test_macaque_family_is_available_for_saved_route_selection():
     from conquest.trial import TrialConfig
 
     assert MONSTER_NAMES[10] == "Macaque"
-    assert tuple(m["type_id"] for m in monster_family(10)) == (10, 69, 8105)
+    assert tuple(m["type_id"] for m in monster_family(10)) == (10, 69)
     route = RouteLibrary().load("macaque")
     assert route.map_id == route.restock_map_id == 1020
     assert route.qualification == "planned"
     assert route.recommended_levels == (47, 51)
-    assert route_monster_names(route) == ("Macaque", "MacaqueL48", "MonkeyMessenger")
+    assert route_monster_names(route) == ("Macaque", "MacaqueL48")
     assert route.supplies.healing_threshold == 0.85
     # Off the MonkeyKings' north-west (y <= 617) and east (x >= 681) haunts
     # (Suicide died on the old 612 north edge, 2026-09-29).
@@ -344,10 +343,9 @@ def test_route_families_include_nearby_level_variants_but_never_bosses_or_far_hi
     assert route.monster_type_ids == (7, 66)
     assert route_monster_names(route) == ("Bandit", "BanditL33")
     assert RouteLibrary().load("wingedsnake").monster_type_ids == (6, 65)
-    # Its Messenger is a left-click target (Alex 2026-09-28); the Bandit
-    # family keeps its BanditMessenger (8102) a boss.
-    assert RouteLibrary().load("firespirit").monster_type_ids == (9, 68, 8104)
-    for kind in (8302, 1401, 55, 79, 8102, 8202):
+    # Messengers are elites to dodge, never family targets (Alex 2026-09-30).
+    assert RouteLibrary().load("firespirit").monster_type_ids == (9, 68)
+    for kind in (8302, 1401, 55, 79, 8102, 8104, 8202):
         with pytest.raises(ValueError):
             route_monster_names(
                 route.model_copy(update={"monster_type_ids": (7, kind)})

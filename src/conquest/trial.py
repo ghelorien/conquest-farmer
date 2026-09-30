@@ -168,9 +168,9 @@ def ammunition_reload_needed(inventory, config, *, proactive=False):
 def scatter_attack_mode(config, speed, strategy, isolated, name):
     """Choose Scatter before adaptive or isolated-target decisions when enabled.
 
-    A Messenger is always shot with left clicks (Alex 2026-09-28: "if there
-    ever is a messenger version of the monster just kill it with left
-    clicks").
+    A targeted Messenger would be shot with left clicks (Alex 2026-09-28); since
+    2026-09-30 no route targets one ("dont attack messengers anymore, just
+    dodge them"), so this branch only guards a custom route that lists one.
     """
     from conquest.routes import messenger
 

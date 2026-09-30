@@ -35,13 +35,19 @@ def test_elites_and_kings_are_bosses(name):
         "Bandit",
         "BanditL33",
         "WingedSnakeL28",
-        "RatMessenger",
-        "ElfMessenger",
     ],
 )
 def test_ordinary_monsters_are_not_bosses(name):
     # 2, 4
     assert not boss_name(name)
+
+
+@pytest.mark.parametrize(
+    "name", ["RatMessenger", "ElfMessenger", "MonkeyMessenger", "GiantApeMsgr", "ThunderApeMsgr"]
+)
+def test_messengers_are_elites_to_dodge(name):
+    # Alex 2026-09-30: "dont attack messengers anymore, just dodge them".
+    assert boss_name(name)
 
 
 def test_an_aide_gets_the_boss_clearance():

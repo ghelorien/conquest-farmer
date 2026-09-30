@@ -6,7 +6,6 @@ restock_map_id: 1011
 monster_type_ids:
 - 9
 - 68
-- 8104
 recommended_levels:
 - 42
 - 46
