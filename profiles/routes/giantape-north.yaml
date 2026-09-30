@@ -20,7 +20,11 @@ elite_clearance: 13
 # This is the north box (Laptop2's three-box plan, 18:0x): y <= 284, above
 # that King's band; Suicide takes the west strip from y 285.
 # GiantApeAide at (555-558, 255-257): x >= 575 keeps its 13-tile clearance.
-hunting_boundary: [575, 240, 625, 284]
+# x <= 615 since 2026-09-30: in the SE corner (619-628, 271-285) jump escapes
+# kept failing (ranged_escape_failed, movement_stuck at (624, 276)) on tiles
+# the map calls walkable, and both farmers died there under a pack with a
+# GiantApeMsgr and Aides (Toxic 02:23 at (619, 281), Suicide 02:26 at (624, 283)).
+hunting_boundary: [575, 240, 615, 284]
 patrol_search:
   idle_seconds: 7.5
   # 1 tile like the WingedSnake halves: the west strip starts at y 285.
@@ -30,7 +34,7 @@ patrol_search:
 patrol:
   - [600, 265]
   - [612, 272]
-  - [620, 258]
+  - [612, 256]
   - [608, 248]
   - [590, 250]
   - [580, 262]
