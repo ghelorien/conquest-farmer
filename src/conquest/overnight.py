@@ -2833,20 +2833,58 @@ class OvernightLoop:
             **self.failure_record(error),
         )
         self.phase = "recovering_route"
+        self.release_farm_for_care()
         until = time.monotonic() + AUTO_RESTART_PAUSE_SECONDS
         while time.monotonic() < until:
             self.check_stop()
-            try:
-                health = self.living()
-                self.care.check(health)
-                self.evade_in_field(health)
-            except OvernightStopped:
-                raise
-            except Exception:
-                pass
+            self.protect_during_pause()
             time.sleep(0.5)
         self.refresh()
         return True
+
+    def release_farm_for_care(self):
+        """Turn the app's farming control off before a restart pause.
+
+        A runner stopped for a reason hunt() does not handle (for example
+        "reposition_outside_boundary") left the control on. TravelCare.check
+        then refused every pass ("Travel care cannot share input with
+        farming"): no heal, and the evasion after it never ran. Suicide stood
+        at (582, 307) through a 20 s pause among GiantApes and died on
+        2026-09-30 01:20 (912 -> 231 HP in 9 s). The runner has already
+        stopped, so nothing is interrupted; hunt() turns farming on again.
+        """
+        try:
+            health = self.health()
+            if health["embedded_controls"]["control"].get("enabled"):
+                self.stop_farm()
+                self.record(
+                    "restart_farm_released",
+                    activity="Farming control released so healing and evasion can act during the restart",
+                )
+        except OvernightStopped:
+            raise
+        except Exception:
+            pass
+
+    def protect_during_pause(self):
+        """Life care, then field evasion, each on its own: a refused care
+        pass must not skip the jump away from monsters."""
+        health = None
+        try:
+            health = self.living()
+            self.care.check(health)
+        except OvernightStopped:
+            raise
+        except Exception:
+            pass
+        if health is None:
+            return
+        try:
+            self.evade_in_field(health)
+        except OvernightStopped:
+            raise
+        except Exception:
+            pass
 
     def evade_in_field(self, health):
         """One escape jump from monsters closing in while a pause runs outside town.
@@ -2955,17 +2993,11 @@ class OvernightLoop:
             **self.failure_record(error),
         )
         self.phase = "recovering_route"
+        self.release_farm_for_care()
         until = time.monotonic() + seconds
         while time.monotonic() < until:
             self.check_stop()
-            try:
-                health = self.living()
-                self.care.check(health)
-                self.evade_in_field(health)
-            except OvernightStopped:
-                raise
-            except Exception:
-                pass
+            self.protect_during_pause()
             time.sleep(1)
         self.auto_restarts = []
         self.refresh()
