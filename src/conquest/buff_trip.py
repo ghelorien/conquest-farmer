@@ -77,6 +77,18 @@ def cooling_down(now=None):
     return type(failed) in (int, float) and now - failed < FAILURE_COOLDOWN
 
 
+def silver_needed():
+    """Silver a restock keeps carried for the next trip: GATE_KEEP TwinCityGates
+    and a Conductress fare. Twin City's warehouse is not Ape City's, and the
+    first trip (2026-09-30 08:38) reached the Pharmacist with 100 silver after
+    the fare and bought no gate."""
+    if not enabled():
+        return 0
+    from conquest.return_scroll import GATE_PRICE
+
+    return GATE_KEEP * GATE_PRICE + 200
+
+
 def gates_carried(items):
     from conquest.return_scroll import TYPE
 
@@ -200,10 +212,18 @@ def buy_gates(loop):
     loop.travel(tuple(city_for(TWIN_CITY)["services"]["pharmacist"]))
     loop.town("open", vendor_type=3)
     try:
-        return buy_gate(loop, TWIN_CITY, keep=GATE_KEEP)
+        carried = buy_gate(loop, TWIN_CITY, keep=GATE_KEEP)
     finally:
         loop.town("close", window="Shop")
         loop.town("close", window="Inventory")
+    if carried < GATE_KEEP:
+        loop.record(
+            "buff_trip_gates_short",
+            carried=carried,
+            silver=loop.town("supplies")["silver"],
+            activity=f"Only {carried} TwinCityGates carried; the next trip may ride",
+        )
+    return carried
 
 
 def failed(loop, error):

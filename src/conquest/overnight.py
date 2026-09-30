@@ -1997,21 +1997,23 @@ class OvernightLoop:
         from conquest.session_plan import upgrade_circuit
 
         toured = upgrade_circuit(self) if review_both_cities else False
+        self.town("close", window="Shop")
+        self.town("close", window="Inventory")
+        from conquest.banking import after_shopping
+
+        after_shopping(self)
         from conquest import buff_trip
 
         # No TwinCityGate yet (Ape City sells none): ride to Twin City once for
         # MrBuffer's buff and the gates that make later trips a scroll each way.
+        # After banking, which keeps buff_trip.silver_needed() carried: before
+        # it, the first ride (08:38) reached Twin City with 100 silver.
         if (
             not toured
             and buff_trip.enabled()
             and buff_trip.bootstrap_due(self, self.town("supplies")["items"])
         ):
             toured = buff_trip.trip(self, ride=True)
-        self.town("close", window="Shop")
-        self.town("close", window="Inventory")
-        from conquest.banking import after_shopping
-
-        after_shopping(self)
         # A bag full of protected loot is the reason for this visit. Storage
         # must get its turn before the final free-space check can reject it.
         counts = supply_counts(self.town("supplies"), self.route)

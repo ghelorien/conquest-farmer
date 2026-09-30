@@ -60,6 +60,14 @@ def test_a_death_clears_the_buff(clock):
     assert not b.lost("death")  # nothing left to lose
 
 
+def test_restocks_keep_silver_carried_for_the_twin_city_gates(clock):
+    # 2026-09-30 08:38: the first trip reached Twin City's Pharmacist with 100
+    # silver after the fare (the rest banked in Ape City) and bought no gate.
+    assert b.silver_needed() == 0
+    b.write_json(b.POLICY, {"stigma": True})
+    assert b.silver_needed() == b.GATE_KEEP * r.GATE_PRICE + 200
+
+
 def test_a_failed_trip_cools_down(clock):
     b.write_json(b.POLICY, {"stigma": True})
     b.write_json(b.STATE, {"failed_at": clock[0]})
@@ -149,6 +157,16 @@ def test_trip_gates_out_walks_past_mrbuffer_stocks_gates_and_gates_home(qualifie
     names = [e for e, _ in farmer.events if e.startswith("buff_")]
     assert names == ["buff_trip_departing", "buff_received", "buff_trip_complete"]
     assert b.stigma_left() > b.STIGMA_SECONDS - 60
+
+
+def test_short_of_silver_for_gates_the_trip_says_so(qualified, monkeypatch):
+    farmer = Farmer()
+    farmer.silver = 100  # 08:38: 200 carried, minus the Conductress fare
+    assert run(farmer, monkeypatch) is True
+    short = [f for e, f in farmer.events if e == "buff_trip_gates_short"]
+    assert short and short[0]["carried"] == 0 and short[0]["silver"] == 100
+    assert not [c for c in farmer.calls if c[0] == "buy"]
+    assert farmer.map_id == 1020  # still home by the ApeCityGate
 
 
 def test_mrbuffer_roams_so_the_walk_follows_him(qualified, monkeypatch):
