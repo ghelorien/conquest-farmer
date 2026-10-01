@@ -318,6 +318,33 @@ def arrived(loop, map_id):
     travel_to_map(loop, map_id)
 
 
+def stock_on_arrival(loop):
+    """Top up TwinCityGates on arriving in Twin City for a field on its map
+    that restocks elsewhere. Each cycle returns by TwinCityGate and Phoenix
+    sells none; buff trips used to buy them until Suicide's were turned off
+    (2026-10-01 11:0x: on Twin City's weak fields the buff did not pay for
+    its round trip). True once gates were bought."""
+    route = loop.route
+    if getattr(route, "map_id", None) != TWIN_CITY or route.restock_map_id == TWIN_CITY:
+        return False
+    life = loop.living()["embedded_controls"]["life"]
+    if life["map_id"] != TWIN_CITY:
+        return False
+    if gates_carried(loop.town("supplies")["items"]) >= GATE_KEEP:
+        return False
+    try:
+        arrived(loop, TWIN_CITY)
+        buy_gates(loop)
+    except ValueError as error:
+        loop.record(
+            "gate_stock_failed",
+            detail=str(error),
+            activity="Could not top up TwinCityGates in Twin City; continuing to the field",
+        )
+        return False
+    return True
+
+
 def walk_past_buffer(loop):
     """A Twin City restock needs no trip: MrBuffer roams its own square. From
     Twin City's town (the restock calls the trip again after its shopping)

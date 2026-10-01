@@ -209,6 +209,27 @@ def test_a_twin_city_restock_walks_past_mrbuffer_from_town(qualified, monkeypatc
     assert b.stigma_left() > b.STIGMA_SECONDS - 60
 
 
+@pytest.mark.parametrize(
+    "map_id, restock, carried, buys",
+    [
+        (1002, 1011, 1, 2),  # Twin City field restocked in Phoenix: top up to GATE_KEEP
+        (1002, 1011, 3, 0),  # stocked already
+        (1002, 1002, 0, 0),  # restocks in Twin City itself
+        (1011, 1011, 0, 0),  # a Phoenix field
+    ],
+)
+def test_arriving_in_twin_city_tops_up_twin_city_gates(qualified, monkeypatch, map_id, restock, carried, buys):
+    # 2026-10-01 11:0x: Suicide's buff trips (which bought TwinCityGates) were
+    # turned off for Twin City's weak fields; each Phoenix restock still
+    # returns by TwinCityGate, and Phoenix sells none.
+    farmer = Farmer(twin_gates=carried)
+    farmer.route = NS(map_id=map_id, restock_map_id=restock, supplies=NS(minimum_free_slots=4))
+    farmer.map_id, farmer.position = 1002, list(TC_LANDING)
+    assert b.stock_on_arrival(farmer) is bool(buys)
+    assert [c for c in farmer.calls if c[0] == "buy"] == [("buy", r.TYPE)] * buys
+    assert not [c for c in farmer.calls if c[0] in ("gate-scroll", "quiet")]
+
+
 def test_short_of_silver_for_gates_the_trip_says_so(qualified, monkeypatch):
     farmer = Farmer()
     farmer.silver = 100  # 08:38: 200 carried, minus the Conductress fare

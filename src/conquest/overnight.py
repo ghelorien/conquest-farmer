@@ -2920,6 +2920,11 @@ class OvernightLoop:
             enter_route_area(self)
         else:
             travel_to_map(self, self.route.map_id)
+        from conquest.buff_trip import stock_on_arrival
+
+        # A Twin City field restocked in Phoenix lands beside Twin City's
+        # Pharmacist: the next cycle's TwinCityGate is bought there.
+        stock_on_arrival(self)
         # Route selection clears an obsolete recovery checkpoint after a cross-map revive.
         request(self.info, "controls", {"route_id": self.route.id})
         time.sleep(0.2)
