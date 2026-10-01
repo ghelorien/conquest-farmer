@@ -102,6 +102,30 @@ def test_ten_meteors_keep_the_packing_branch_and_no_overflow(scenario):
     assert not events and state["map"] == 1011
 
 
+@pytest.mark.parametrize("free,overflows", [(2, True), (9, False)])
+def test_ten_meteors_without_bag_room_for_a_batch_still_go_to_market(scenario, free, overflows):
+    # 2026-10-01 09:57 (Suicide, Twin City): after shopping the bag had too few
+    # free slots for the ten-Meteor batch, packing was deferred and the full
+    # warehouse failed the restock. Without room for the nine stored Meteors
+    # the carried valuables go to Market; with room, packing keeps its turn.
+    loop, local, bag, market, state, events = scenario
+    bag.append(item(32, 1088001))
+    town = loop.town
+
+    def sized(action, **fields):
+        result = town(action, **fields)
+        if action == "supplies":
+            result = {**result, "capacity": len(result["items"]) + free}
+        return result
+
+    loop.town = sized
+    assert o.handle(loop, local) is overflows
+    if overflows:
+        assert [v["uid"] for v in market] == [30, 31, 32] and state["map"] == 1011
+    else:
+        assert not events and not market
+
+
 @pytest.mark.parametrize("capacity,expected", [(0, 0), (1, 1), (2, 2)])
 def test_full_market_stops_even_when_last_deposit_fills_it(
     scenario, monkeypatch, capacity, expected

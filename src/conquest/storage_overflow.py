@@ -51,16 +51,33 @@ def extras(loop):
     return [i for i in loop.town("supplies")["items"] if stash_candidate(i)]
 
 
-def eligible(stored, carried):
+def eligible(stored, carried, bag=None):
+    if len(stored["items"]) < stored["capacity"] or not carried:
+        return False
     meteors = sum(
         i["amount"] for i in stored["items"] + carried if i["type_id"] == 1088001
     )
-    return len(stored["items"]) >= stored["capacity"] and meteors < 10 and bool(carried)
+    if meteors < 10:
+        return True
+    # Ten Meteors are packed instead (meteor_banking.consolidate frees local
+    # space), but a batch needs free bag slots for the stored ones, and after
+    # shopping a Twin City restock has few (16 LuckyArrow packs, potions,
+    # gates): consolidate defers, and the full warehouse failed the restock
+    # (Suicide 2026-10-01 09:57). Then the carried valuables go to Market.
+    if not bag or type(bag.get("capacity")) is not int:
+        return False
+    loose = sum(
+        1
+        for i in bag["items"]
+        if i["type_id"] == 1088001 and i.get("amount") == i.get("limit") == 1
+    )
+    return bag["capacity"] - len(bag["items"]) < 10 - min(10, loose)
 
 
 def handle(loop, stored):
-    carried = extras(loop)
-    if not eligible(stored, carried):
+    bag = loop.town("supplies")
+    carried = [i for i in bag["items"] if stash_candidate(i)]
+    if not eligible(stored, carried, bag):
         return False
     policy = read_json(POLICY)
     if not policy.get("overflow_enabled"):
