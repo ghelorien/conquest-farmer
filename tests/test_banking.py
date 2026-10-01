@@ -721,3 +721,42 @@ def test_two_market_open_failures_use_one_closer_checked_approach(monkeypatch):
     b.open_warehouse(loop)
     assert travels == [(186, 180)] and attempts == [3]
     assert not any(a in ("warehouse-deposit", "buy", "sell") for a in calls)
+
+
+def test_a_missed_town_warehouse_click_moves_closer_after_one_failure(monkeypatch):
+    # Suicide 2026-09-30 23:49-23:51, Phoenix: from the CastleGate landing the
+    # farmer stopped 16 tiles south of the Warehouseman, "reachable" by range,
+    # with his sprite under the minimap; every open-bank missed.
+    from conquest import memory_npcs
+
+    monkeypatch.setattr(b.time, "sleep", lambda _: None)
+    monkeypatch.setattr(memory_npcs, "TOWN_VENDORS", [])
+    attempts, travels = [0], []
+    position = [223, 260]
+
+    def town(action, **fields):
+        if action == "vendor-status":
+            return {"reachable": True}
+        if action == "warehouse-locate":
+            return {"position": [225, 244]}
+        if action == "open-bank":
+            attempts[0] += 1
+            if max(abs(a - bb) for a, bb in zip(position, (225, 244))) > 6:
+                raise ValueError("Warehouse opening unverified; no repeat input issued")
+        return {}
+
+    def travel(target, **kw):
+        assert "vendor_type" not in kw and kw["arrival_radius"] == 1
+        travels.append(target)
+        position[:] = target
+
+    loop = NS(
+        living=lambda: {"embedded_controls": {"life": {"map_id": 1011, "position": position}}},
+        town=town,
+        travel=travel,
+        terrain=NS(walkable=lambda p: max(abs(a - bb) for a, bb in zip(p, (225, 244))) == 3),
+        record=lambda *a, **kw: None,
+    )
+    b.open_warehouse(loop)
+    assert len(travels) == 1 and attempts == [2]
+    assert max(abs(a - bb) for a, bb in zip(travels[0], (225, 244))) <= 4

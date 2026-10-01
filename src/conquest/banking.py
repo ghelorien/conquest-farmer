@@ -211,10 +211,14 @@ def open_warehouse(loop):
                     if not any(t in str(close_error) for t in ("not active", "absent")):
                         raise
                 loop.town("warehouse-open")
-            if attempt == 1 and life["map_id"] == 1036:
+            # In Market after two verified open failures, elsewhere after one.
+            closer = attempt == 1 if life["map_id"] == 1036 else attempt == 0
+            if closer:
                 # A projected in-range click can hit the adjacent shop at the
-                # edge of the viewport. Only after two verified open failures,
-                # take one checked closer approach without the range shortcut.
+                # edge of the viewport, or the minimap: Phoenix's Warehouseman,
+                # 16 tiles north of a farmer come from the CastleGate landing,
+                # drew under it (Suicide, 2026-09-30 23:49-23:51). Take one
+                # checked closer approach without the range shortcut.
                 fresh = loop.living()["embedded_controls"]["life"]
                 current = tuple(fresh["position"])
                 if max(abs(a - b) for a, b in zip(current, position)) > 6:
@@ -241,12 +245,12 @@ def open_warehouse(loop):
                         "warehouse_closer_approach",
                         source=current,
                         destination=target,
-                        activity="Moving closer to Warehouseman after the neighbouring shop intercepted the click",
+                        activity="Moving closer to Warehouseman after the click missed him",
                     )
                     loop.travel(
                         target,
                         arrival_radius=1,
-                        activity="Moving closer to open Market warehouse",
+                        activity="Moving closer to open the warehouse",
                     )
             time.sleep(0.5)
     return loop.town("warehouse-money")
