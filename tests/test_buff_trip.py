@@ -60,6 +60,48 @@ def test_a_death_clears_the_buff(clock):
     assert not b.lost("death")  # nothing left to lose
 
 
+def test_a_buff_the_client_stops_showing_ends_the_hunt_for_a_refresh(clock, monkeypatch):
+    # 2026-10-01 17:00:45-17:05: no Stigma bit in life.status while buffs.json
+    # counted nine more minutes; Toxic fought unbuffed at 87 kills a minute.
+    monkeypatch.setattr(b, "_unbuffed", None)
+    b.write_json(b.POLICY, {"stigma": True})
+    b.write_json(b.STATE, {"stigma_at": clock[0]})
+    for status in (b.STIGMA_BIT, 0x8000000 | b.STIGMA_BIT, None):  # Stigma, with Fly, no read
+        assert not b.observe_status(status)
+    for _ in range(5):  # off for 8 s: not yet
+        assert not b.observe_status(0)
+        clock[0] += 2
+    assert not b.hunt_should_end(gate())
+    assert b.observe_status(0)  # off for 10 s: gone
+    assert b.stigma_left() == 0 and b.hunt_should_end(gate())
+    assert b.read_json(b.STATE)["lost_reason"] == "status"
+    assert not b.observe_status(0)  # already expired: nothing more to do
+
+
+def test_unbuffed_reads_far_apart_start_the_count_again(clock, monkeypatch):
+    monkeypatch.setattr(b, "_unbuffed", None)
+    b.write_json(b.POLICY, {"stigma": True})
+    b.write_json(b.STATE, {"stigma_at": clock[0]})
+    for _ in range(4):  # a read every 6 s: never a 10 s run
+        assert not b.observe_status(0)
+        clock[0] += b.STATUS_GAP_SECONDS + 1
+    assert b.stigma_left() > b.HUNT_END_WITHIN
+
+
+def test_the_bit_is_ignored_without_buff_trips_or_once_the_refresh_is_due(clock, monkeypatch):
+    monkeypatch.setattr(b, "_unbuffed", None)
+    b.write_json(b.STATE, {"stigma_at": clock[0]})
+    for _ in range(8):  # buff trips off (Suicide since 11:02): nothing to refresh
+        assert not b.observe_status(0)
+        clock[0] += 2
+    b.write_json(b.POLICY, {"stigma": True})
+    clock[0] += b.STIGMA_SECONDS - b.HUNT_END_WITHIN  # the count's own refresh is due
+    for _ in range(8):
+        assert not b.observe_status(0)
+        clock[0] += 2
+    assert "lost_reason" not in b.read_json(b.STATE)
+
+
 def test_restocks_keep_silver_carried_for_the_twin_city_gates(clock):
     # 2026-09-30 08:38: the first trip reached Twin City's Pharmacist with 100
     # silver after the fare (the rest banked in Ape City) and bought no gate.
@@ -273,6 +315,46 @@ def test_mrbuffer_missing_still_goes_home_and_cools_down(qualified, monkeypatch)
     assert "buff_trip_failed" in names and names[-1] == "buff_trip_complete"
     assert farmer.map_id == 1020 and b.cooling_down()
     assert ("gate-scroll", 1060022) in farmer.calls
+
+
+class StatusFarmer(Farmer):
+    """A client that reports life.status: walking to MrBuffer sets the Stigma
+    bit when his buff applies."""
+
+    def __init__(self, *, applies=True, **kw):
+        super().__init__(**kw)
+        self.status = 0x8000000  # Fly, no Stigma
+        self.applies = applies
+
+    def living(self):
+        data = super().living()
+        data["embedded_controls"]["life"]["status"] = self.status
+        return data
+
+    def travel(self, point, **kw):
+        super().travel(point, **kw)
+        if self.applies and kw.get("activity") == "Walking to MrBuffer":
+            self.status |= b.STIGMA_BIT
+
+
+def test_a_visit_counts_once_the_client_shows_the_stigma(qualified, monkeypatch):
+    # The live bit appeared on Twin City's square at 17:07:08, 2026-10-01.
+    farmer = StatusFarmer()
+    assert run(farmer, monkeypatch) is True
+    names = [e for e, _ in farmer.events if e.startswith("buff_")]
+    assert names == ["buff_trip_departing", "buff_received", "buff_trip_complete"]
+    assert b.stigma_left() > b.STIGMA_SECONDS - 60 and not b.cooling_down()
+
+
+def test_a_walk_past_without_the_stigma_fails_into_the_cooldown(qualified, monkeypatch):
+    # 16:44:10 was recorded on the walk past alone; by 17:00:45 the client
+    # showed no Stigma. Unconfirmed, the trip fails and still gates home.
+    farmer = StatusFarmer(applies=False)
+    assert run(farmer, monkeypatch) is True
+    failures = [f["detail"] for e, f in farmer.events if e == "buff_trip_failed"]
+    assert failures == ["Walked past MrBuffer but the client shows no Stigma"]
+    assert b.stigma_left() == 0 and b.cooling_down()
+    assert farmer.map_id == 1020 and ("gate-scroll", 1060022) in farmer.calls
 
 
 def test_no_quiet_spot_reads_no_gate(qualified, monkeypatch):

@@ -2671,6 +2671,14 @@ class OvernightLoop:
                 return
             from conquest import buff_trip
 
+            if buff_trip.observe_status(life.get("status")):
+                self.record(
+                    "buff_lost",
+                    buff="stigma",
+                    reason="status",
+                    status=life.get("status"),
+                    activity="MrBuffer's double damage is gone: the client shows no Stigma",
+                )
             if buff_trip.hunt_should_end(bag["items"], home=self.route.restock_map_id):
                 self.record(
                     "return_required",

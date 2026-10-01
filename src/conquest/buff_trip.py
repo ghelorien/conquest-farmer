@@ -16,7 +16,9 @@ the next trips' gates before reading an ApeCityGate home.
 
 A hunt ends for a refresh once the buff runs out (overnight.hunt), and a
 restock goes through Twin City first while less than REFRESH_WITHIN is left
-(overnight.restock). A death clears the buff (overnight.living).
+(overnight.restock). A death clears the buff (overnight.living). The client's
+Stigma bit (STIGMA_BIT in life.status) confirms each visit, and a recorded
+buff whose bit stays off in a hunt counts as run out (observe_status).
 Enabled per character by .runtime/buff-trip.json {"stigma": true}.
 """
 
@@ -47,6 +49,17 @@ SEARCH_SECONDS = 60
 GATE_KEEP = 3
 # After a failed trip, restocks go straight home for this long.
 FAILURE_COOLDOWN = 20 * 60
+# The client's own Stigma flag in life.status. Live poll 2026-10-01: set at
+# 17:07:08 on Twin City's square (0x8000200 with Fly), held without a break
+# to the 17:36:53 refresh and on through it.
+STIGMA_BIT = 0x200
+# Beside MrBuffer, how long the bit may take to appear.
+CONFIRM_SECONDS = 3.0
+# A recorded buff whose bit stays off this long in a hunt is gone; reads
+# further apart than STATUS_GAP_SECONDS start the count again.
+LOST_AFTER_SECONDS = 10.0
+STATUS_GAP_SECONDS = 5.0
+_unbuffed = None  # (first, last) monotonic reads of the bit off
 
 
 def enabled():
@@ -74,6 +87,55 @@ def lost(reason="death"):
     data.update(stigma_at=None, lost_at=time.time(), lost_reason=reason)
     write_json(STATE, data)
     return True
+
+
+def observe_status(status, now=None):
+    """The client's own word on the buff, read at every hunt step.
+
+    A recorded buff whose Stigma bit stays off LOST_AFTER_SECONDS is gone:
+    its record is expired, so hunt_should_end refreshes it now instead of
+    when the 30-minute count runs out. 2026-10-01: the visit recorded at
+    16:44:10 showed no bit at 17:00:45 or 17:05 while buffs.json counted
+    nine minutes more, and Toxic fought unbuffed at 87 kills a minute until
+    a refresh by hand at 17:07. True when the record was expired.
+    """
+    global _unbuffed
+    if (
+        type(status) is not int
+        or status & STIGMA_BIT
+        or not enabled()
+        or stigma_left(now) <= HUNT_END_WITHIN
+    ):
+        _unbuffed = None
+        return False
+    clock = time.monotonic()
+    if _unbuffed is None or clock - _unbuffed[1] > STATUS_GAP_SECONDS:
+        _unbuffed = (clock, clock)
+    _unbuffed = (_unbuffed[0], clock)
+    if clock - _unbuffed[0] < LOST_AFTER_SECONDS:
+        return False
+    _unbuffed = None
+    now = time.time() if now is None else now
+    data = read_json(STATE)
+    data.update(stigma_at=now - STIGMA_SECONDS, lost_at=now, lost_reason="status")
+    write_json(STATE, data)
+    return True
+
+
+def stigma_on(loop, seconds=CONFIRM_SECONDS):
+    """Whether the client shows the Stigma bit, waiting up to ``seconds``.
+
+    True at once without a status read (a worker that reports none): the
+    walk past MrBuffer is trusted then, as it always was before 2026-10-01.
+    """
+    deadline = time.monotonic() + seconds
+    while True:
+        status = loop.living()["embedded_controls"]["life"].get("status")
+        if type(status) is not int or status & STIGMA_BIT:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.25)
 
 
 def cooling_down(now=None):
@@ -245,10 +307,12 @@ def find_buffer(session):
 
 
 def visit_buffer(loop, seconds=SEARCH_SECONDS, find=None):
-    """Walk past MrBuffer on Twin City's middle square; True once beside him."""
+    """Walk past MrBuffer on Twin City's middle square; True once beside him
+    with the client's Stigma bit set (stigma_on)."""
     find = find or (lambda: find_buffer(loop.care.session))
     deadline = time.monotonic() + seconds
     searched_square = False
+    passed = False  # beside him at least once, without the Stigma bit
     while time.monotonic() < deadline:
         life = loop.living()["embedded_controls"]["life"]
         if life["map_id"] != TWIN_CITY:
@@ -263,6 +327,11 @@ def visit_buffer(loop, seconds=SEARCH_SECONDS, find=None):
             continue
         if max(abs(a - b) for a, b in zip(life["position"], spot)) <= BUFFER_REACH:
             time.sleep(BUFF_DWELL_SECONDS)
+            if not stigma_on(loop):
+                # Recorded only once the client shows it (observe_status):
+                # he roams, so walk past him again until the deadline.
+                passed = True
+                continue
             now = time.time()
             data = read_json(STATE)
             data.update(stigma_at=now, stigma_tile=list(spot), failed_at=None,
@@ -279,6 +348,8 @@ def visit_buffer(loop, seconds=SEARCH_SECONDS, find=None):
             return True
         # He roams: walk toward his tile and look again.
         loop.travel(spot, arrival_radius=BUFFER_REACH, activity="Walking to MrBuffer")
+    if passed:
+        raise ValueError("Walked past MrBuffer but the client shows no Stigma")
     raise ValueError("MrBuffer was not found on Twin City's middle square")
 
 
