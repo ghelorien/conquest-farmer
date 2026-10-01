@@ -32,6 +32,11 @@
       "type_id": 5,
       "name": "Poltergeist",
       "level": 22
+    },
+    {
+      "type_id": 64,
+      "name": "HeavyGhostL23",
+      "level": 23
     }
   ],
   "6": [
