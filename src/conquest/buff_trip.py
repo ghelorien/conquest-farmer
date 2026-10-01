@@ -318,6 +318,30 @@ def arrived(loop, map_id):
     travel_to_map(loop, map_id)
 
 
+def walk_past_buffer(loop):
+    """A Twin City restock needs no trip: MrBuffer roams its own square. From
+    Twin City's town (the restock calls the trip again after its shopping)
+    the farmer walks past him. False either way: no gate was read.
+
+    Suicide on Twin City's Poltergeists, 2026-10-01 07:54: trip() returned
+    at once for a Twin City home, so restocks never refreshed the buff, every
+    hunt ended for it as soon as it began, and the farmer looped Conductress,
+    TwinCityGate and restock until buff trips were paused.
+    """
+    from types import SimpleNamespace
+
+    from conquest.return_scroll import in_town
+
+    life = loop.living()["embedded_controls"]["life"]
+    if not in_town(SimpleNamespace(**life), TWIN_CITY):
+        return False
+    try:
+        visit_buffer(loop)
+    except ValueError as error:
+        failed(loop, error)
+    return False
+
+
 def trip(loop, ride=False):
     """TwinCityGate to Twin City, walk past MrBuffer, restock TwinCityGates,
     ApeCityGate home. With ``ride`` (from home town, no gate carried) the
@@ -328,7 +352,7 @@ def trip(loop, ride=False):
 
     home = loop.route.restock_map_id
     if home == TWIN_CITY:
-        return False
+        return walk_past_buffer(loop)
     if not ride and on_the_way(loop.route):
         # The bootstrap ride still goes: with no TwinCityGate carried the hop
         # would walk Ape Mountain's portal across the GiantApe plain.

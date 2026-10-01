@@ -192,6 +192,23 @@ def test_trip_gates_out_walks_past_mrbuffer_stocks_gates_and_gates_home(qualifie
     assert maps[-2:] == [("gate-scroll", 1060022), ("arrived", 1020)]
 
 
+def test_a_twin_city_restock_walks_past_mrbuffer_from_town(qualified, monkeypatch):
+    # Suicide on Twin City's Poltergeists, 2026-10-01 07:54: a Twin City home
+    # skipped MrBuffer, so every hunt ended for the buff at once and the
+    # farmer looped Conductress, TwinCityGate and restock.
+    farmer = Farmer()
+    farmer.route = NS(restock_map_id=1002, supplies=NS(minimum_free_slots=4))
+    farmer.map_id, farmer.position = 1002, [130, 370]  # the Poltergeist field
+    assert run(farmer, monkeypatch) is False  # restock start, out of town: later
+    assert farmer.calls == [] and b.stigma_left() == 0
+    farmer.position = [466, 333]  # after the shopping, at the Pharmacist
+    assert b.trip(farmer) is False  # no gate read, no trip
+    assert [c[1] for c in farmer.calls if c[0] == "travel"][-1] == (455, 368)
+    assert not [c for c in farmer.calls if c[0] in ("gate-scroll", "buy", "quiet")]
+    assert [e for e, _ in farmer.events] == ["buff_received"]
+    assert b.stigma_left() > b.STIGMA_SECONDS - 60
+
+
 def test_short_of_silver_for_gates_the_trip_says_so(qualified, monkeypatch):
     farmer = Farmer()
     farmer.silver = 100  # 08:38: 200 carried, minus the Conductress fare

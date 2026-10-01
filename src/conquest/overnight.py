@@ -2130,8 +2130,11 @@ class OvernightLoop:
             # Without a gate home the trip waits for the Pharmacist below,
             # which stocks one, and goes after the shopping. So does the trip
             # of a return forced by danger: no field gate beside what forced it.
-            gate_wait = urgent or buff_trip.gate_home_missing(
-                carried, home=self.route.restock_map_id
+            # A Twin City restock walks past MrBuffer from town after shopping.
+            gate_wait = (
+                urgent
+                or self.route.restock_map_id == buff_trip.TWIN_CITY
+                or buff_trip.gate_home_missing(carried, home=self.route.restock_map_id)
             )
         self.scroll_to_restock_town()
         from conquest.world_travel import travel_to_map
