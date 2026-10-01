@@ -24,6 +24,9 @@ MODELS = {
     # Twin City's daily double EXP (model 8450 at (424, 344), Laptop2's scene
     # scan 2026-09-30), visited by hempknight from the buff trip.
     "TheHempKnight": set(range(8450, 8460)),
+    # Twin City's way into the Desert (npc.json type 29; model 296 at
+    # (60, 463), Laptop2's npc survey 2026-09-27), crossed by desert_gate.
+    "GeneralPeace": set(range(290, 300)),
 }
 
 

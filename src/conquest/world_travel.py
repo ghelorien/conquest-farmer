@@ -189,11 +189,42 @@ def save_connection(edge, path=CONNECTIONS):
     rows = [
         r
         for r in connections(path)
-        if (r["source_map"], r["portal_id"]) != (edge["source_map"], edge["portal_id"])
+        if (r["source_map"], r.get("portal_id"))
+        != (edge["source_map"], edge["portal_id"])
     ]
     from conquest.discord_notify import write_json
 
     write_json(Path(path), {"connections": rows + [edge]})
+
+
+def gate_towns(loop, source, destination):
+    """Towns whose carried gate leads on to ``destination``, fewest saved hops
+    first. A gate reads anywhere but its own town and the Market."""
+    from conquest.return_scroll import GATES, carried
+
+    towns = []
+    for town, kind in GATES.items():
+        if town == source:
+            continue
+        try:
+            hops = 0 if town == destination else len(connection_path(town, destination))
+        except ValueError:
+            continue
+        towns.append((hops, town, kind))
+    return [town for _, town, kind in sorted(towns) if carried(loop, kind)]
+
+
+def reachable(loop, source, destination):
+    """Map travel can get from ``source`` to ``destination``: a verified
+    connection, or a carried gate to a town with one (the way out of the
+    Desert, whose portals nobody has crossed)."""
+    if source == destination:
+        return True
+    try:
+        connection_path(source, destination)
+        return True
+    except ValueError:
+        return bool(gate_towns(loop, source, destination))
 
 
 def travel_to_map(loop, destination):
@@ -219,12 +250,50 @@ def travel_to_map(loop, destination):
         # the GiantApe plain from the Twin City portal (Toxic died there at 47).
         if read_gate(loop, destination):
             continue
-        edge = connection_path(life["map_id"], destination)[0]
+        try:
+            edge = connection_path(life["map_id"], destination)[0]
+        except ValueError:
+            # No saved way on from this map: a carried gate to a town with one.
+            # 2026-09-30 19:28 the seeded Twin City portal 1 led Suicide into
+            # the Mine (1028), and every restart failed there until an
+            # ApeCityGate was read by hand.
+            if not any(
+                read_gate(loop, town)
+                for town in gate_towns(loop, life["map_id"], destination)
+            ):
+                raise
+            continue
         # A hop through Twin City takes a carried TwinCityGate too. From Ape
         # City that edge is portal 1 at (376, 8), ~550 tiles across the GiantApe
         # plain (the Ape City Conductress trip is unverified), on the way to the
         # Desert (2026-09-30).
-        if edge["destination_map"] == 1002 and read_gate(loop, 1002):
+        if edge["destination_map"] == 1002:
+            if read_gate(loop, 1002):
+                continue
+            from conquest.gear_circuit import reach_twin_city, saved_ride
+
+            if saved_ride(life["map_id"], 1002) is not None:
+                # No TwinCityGate: Ape City's Conductress lands beside its
+                # portal 1 (381, 21), so the hop skips the walk across the
+                # GiantApe plain.
+                reach_twin_city(loop, life["map_id"])
+                continue
+        if edge.get("service"):
+            from conquest import desert_gate
+            from conquest.city_travel import city_for, ensure_city_visit
+
+            if edge["service"] != desert_gate.NAME:
+                raise ValueError(f"Unsupported map crossing service {edge['service']}")
+            if (
+                read_terrain(CLIENT_ROOT, life["map_id"]).source_sha256
+                != edge["source_terrain_sha256"]
+                or read_terrain(CLIENT_ROOT, edge["destination_map"]).source_sha256
+                != edge["destination_terrain_sha256"]
+            ):
+                raise ValueError("Saved map connection differs from installed terrain")
+            city_for(edge["destination_map"])  # Check before any fare.
+            desert_gate.travel(loop)
+            ensure_city_visit(loop, new_arrival=True)
             continue
         terrain = read_terrain(CLIENT_ROOT, life["map_id"])
         # Every walk before the crossing (banking for the fare, the way to the

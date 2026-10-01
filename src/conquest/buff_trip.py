@@ -162,6 +162,23 @@ def bootstrap_due(loop, items, now=None):
     )
 
 
+def on_the_way(route):
+    """The hunt's own map travel crosses Twin City from home: the Desert's
+    TwinCityGate hop lands on MrBuffer's square, and desert_gate fetches his
+    buff and the next TwinCityGates there. A restock then goes straight home,
+    and the buff is fresh on arrival instead of ~5 minutes old."""
+    from conquest.world_travel import connection_path
+
+    home, field = route.restock_map_id, getattr(route, "map_id", None)
+    if field is None or TWIN_CITY in (home, field):
+        return False
+    try:
+        hops = connection_path(home, field)
+    except ValueError:
+        return False
+    return any(edge["destination_map"] == TWIN_CITY for edge in hops)
+
+
 def hunt_should_end(items, now=None, home=None):
     """A hunt should end for a refresh: the recorded buff is running out.
     Never before a first visit, so turning this on waits for a restock."""
@@ -304,6 +321,15 @@ def trip(loop, ride=False):
 
     home = loop.route.restock_map_id
     if home == TWIN_CITY:
+        return False
+    if not ride and on_the_way(loop.route):
+        # The bootstrap ride still goes: with no TwinCityGate carried the hop
+        # would walk Ape Mountain's portal across the GiantApe plain.
+        loop.record(
+            "buff_trip_skipped",
+            reason="on_the_way",
+            activity="MrBuffer is on the way to the hunt; no separate Twin City trip",
+        )
         return False
     if not way_home(loop.town("supplies")["items"], home):
         loop.record(

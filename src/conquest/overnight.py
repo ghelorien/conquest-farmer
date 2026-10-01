@@ -2606,19 +2606,30 @@ class OvernightLoop:
             )
             return False
         life = (health or self.health())["embedded_controls"]["life"]
-        from conquest.world_travel import connection_path, travel_to_map
+        from conquest.world_travel import reachable, travel_to_map
 
         if selected.map_id != life["map_id"]:
-            try:
-                connection_path(life["map_id"], selected.map_id)
-                connection_path(selected.map_id, selected.restock_map_id)
-            except ValueError as error:
+            # A carried gate counts as a way: the Desert's portals are
+            # uncrossed, and its way home is the restock town's gate.
+            missing = next(
+                (
+                    (a, b)
+                    for a, b in (
+                        (life["map_id"], selected.map_id),
+                        (selected.map_id, selected.restock_map_id),
+                    )
+                    if not reachable(self, a, b)
+                ),
+                None,
+            )
+            if missing:
                 self.record(
                     "level_route_pending",
                     level=level,
                     next_route=selected.name,
                     activity="Level route is waiting for a verified return connection",
-                    detail=str(error),
+                    detail="No memory-verified map connection or carried gate from %s to %s"
+                    % missing,
                 )
                 return False
         self.stop_farm()

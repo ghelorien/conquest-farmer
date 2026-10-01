@@ -267,6 +267,23 @@ def test_without_a_gate_the_first_trip_rides_from_town(qualified, monkeypatch):
     assert not b.bootstrap_due(farmer, farmer.town("supplies")["items"])
 
 
+def test_a_hunt_reached_through_twin_city_fetches_him_on_the_way(qualified, monkeypatch):
+    # The Desert (2026-09-30): Ape City -> TwinCityGate -> Twin City's square
+    # -> GeneralPeace. desert_gate fetches MrBuffer on that hop, so a restock
+    # goes straight home and the buff is fresh on arrival.
+    from conquest.routes import RouteLibrary
+
+    library = RouteLibrary()
+    assert b.on_the_way(library.load("desert-scout"))
+    for route in ("macaque", "thunderape-nw", "giantape-west"):
+        assert not b.on_the_way(library.load(route)), route
+    farmer = Farmer()
+    farmer.route = NS(restock_map_id=1020, map_id=1000, supplies=NS(minimum_free_slots=4))
+    assert run(farmer, monkeypatch) is False
+    assert not [c for c in farmer.calls if c[0] in ("quiet", "gate-scroll", "buy", "travel")]
+    assert [f["reason"] for e, f in farmer.events if e == "buff_trip_skipped"] == ["on_the_way"]
+
+
 def test_find_buffer_reads_a_player_range_actor_by_name(monkeypatch):
     layout = NS(begin_offset=0x8, end_offset=0x10, entry_stride=16, entry_object_offset=8,
                 monster_vtable_rva=0x5E12D0, name_offset=0xA4, position_offset=0xE8,

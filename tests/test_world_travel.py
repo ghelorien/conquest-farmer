@@ -83,6 +83,8 @@ def test_level_transition_requires_return_path_then_selects_new_route(monkeypatc
     calls = []
     loop.record = lambda event, **fields: events.append(event)
     loop.stop_farm = lambda: calls.append("stop")
+    # No gate carried: a gate home would count as the return (the Desert).
+    loop.town = lambda action, **fields: {"items": [], "silver": 0}
     monkeypatch.setattr(leveling_routes, "read_level", lambda *args: 29)
     monkeypatch.setattr(
         leveling_routes,
@@ -331,3 +333,28 @@ def test_market_departure_keeps_valuables_and_uncertain_transfer_safe(
     Path(".runtime/market-route-departure.json").write_text('{"phase":"submitted"}')
     with pytest.raises(ValueError, match="uncertain"):
         w.return_from_market(loop, 1011)
+
+
+def test_a_carried_gate_home_counts_as_the_way_back(monkeypatch):
+    # The Desert (2026-09-30): nobody has crossed its portals, so its way home
+    # to Ape City is the ApeCityGate the farmer carries.
+    from conquest import return_scroll, world_travel as w
+
+    def saved(source, destination, edges=None):
+        if source == 1000:
+            raise ValueError("No memory-verified map connection")
+        return [] if source == destination else [None]
+
+    monkeypatch.setattr(w, "connection_path", saved)
+    held = []
+    monkeypatch.setattr(return_scroll, "carried", lambda loop, kind: kind in held)
+    loop = object()
+    assert w.reachable(loop, 1000, 1000)
+    assert not w.reachable(loop, 1000, 1020) and w.gate_towns(loop, 1000, 1020) == []
+    held.append(1060022)
+    assert w.reachable(loop, 1000, 1020)
+    held.append(1060020)
+    # Ape City's own gate first (no hop), then Twin City's.
+    assert w.gate_towns(loop, 1000, 1020) == [1020, 1002]
+    # A gate is never read to the map the farmer stands on.
+    assert w.gate_towns(loop, 1020, 1000) == [1002]

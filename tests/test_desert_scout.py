@@ -3,8 +3,10 @@
 Alex 2026-09-30 18:4x: "scout the Desert now" (Suicide L60; Snakemen L62).
 The way in is saved, not guessed: a TwinCityGate from Ape City, then Twin City's
 Conductress "Desert City" (Suicide landed at (69, 473) four times on
-2026-09-27), then Twin City portal 1 (44, 394) to the Desert's east portal
-(977, 668). Restocks read an ApeCityGate home.
+2026-09-27), then GeneralPeace beside that landing (Alex 19:3x: "there is a npc
+that will bring you to the desert"). Twin City portal 1 (44, 394), the first
+guess, leads to the Mine (1028): Suicide, 19:28:43. Restocks read an
+ApeCityGate home.
 
 Failure modes, written before the change:
 1. The route targets anything but the Snakeman family, or native farming
@@ -12,9 +14,13 @@ Failure modes, written before the change:
 2. The anchor, patrol or town connector is off the box or unwalkable on the
    Desert's installed terrain.
 3. The saved Twin City <-> Desert links disagree with the installed terrain
-   (hashes, portal tiles) or need an unverified Conductress trip.
+   (hashes, NPC and landing tiles), still send the farmer through the Mine's
+   portal, or plan a way out of the Desert nobody has crossed.
 4. Map travel from Ape City walks the GiantApe plain to Ape Mountain's Twin
-   City portal instead of reading the carried TwinCityGate.
+   City portal instead of reading the carried TwinCityGate, or walks a portal
+   on Twin City's map instead of asking GeneralPeace.
+5. A map with no saved way on (the Mine) strands the farmer although a gate
+   to a town with one is carried.
 """
 
 from types import SimpleNamespace as NS
@@ -25,6 +31,12 @@ from conquest.routes import RouteLibrary, route_monster_names
 from test_ratling_route import _segment
 
 ROOT = r"C:\Program Files\Classic Conquer 2.0"
+SHA = {
+    1000: "3d8a7ec5d308f8a3cfd5305768093115274265426ce3295f5bc0c111384d9213",
+    1002: "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
+    1020: "2feb3cdcf2a5cfe8a3358f15103c9994b83094e319f7d780908da5e85658ca80",
+    1028: "a233d65d40668c21f8fa44ce6d0dc72780794dda3a725106ffc2821e08861569",
+}
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +49,7 @@ def terrains():
     from conquest.navigation import read_terrain
 
     try:
-        return {m: read_terrain(ROOT, m) for m in (1000, 1002)}
+        return {m: read_terrain(ROOT, m) for m in (1000, 1002, 1028)}
     except (OSError, ValueError) as error:
         pytest.skip(f"installed maps unavailable: {error}")
 
@@ -81,33 +93,56 @@ def test_anchor_patrol_and_connector_are_walkable(route, terrains):
 
 def test_the_saved_desert_links_match_the_installed_terrain(terrains):
     # 3
+    from conquest import desert_gate
     from conquest.conductress import TRIPS
     from conquest.world_travel import connection_path, connections
     import json
 
-    edges = {(e["source_map"], e["portal_id"]): e for e in connections()}
-    for (source, portal), target in (((1002, 1), 1000), ((1000, 1), 1002)):
-        edge = edges[(source, portal)]
-        assert edge["verified"] is True and edge["destination_map"] == target
-        assert edge["source_terrain_sha256"] == terrains[source].source_sha256
-        assert edge["destination_terrain_sha256"] == terrains[target].source_sha256
-        assert tuple(edge["portal_position"]) + (portal,) in terrains[source].portals
+    for m, terrain in terrains.items():
+        assert terrain.source_sha256 == SHA[m]
+    edges = connections()
+    [mine] = [e for e in edges if (e["source_map"], e.get("portal_id")) == (1002, 1)]
+    assert mine["verified"] is True and mine["destination_map"] == 1028
+    assert mine["destination_terrain_sha256"] == SHA[1028]
+    assert (44, 394, 1) in terrains[1002].portals
+    [peace] = [e for e in edges if e.get("service") == desert_gate.NAME]
+    assert peace["verified"] is True
+    assert (peace["source_map"], peace["destination_map"]) == (1002, 1000)
+    assert peace["source_terrain_sha256"] == SHA[1002]
+    assert peace["destination_terrain_sha256"] == SHA[1000]
+    assert tuple(peace["service_position"]) == desert_gate.SPOT
+    # His tile is his own footprint; the approach and the ride's landing are
+    # open ground within his dialog's 18 tiles, joined by a terrain path.
+    tc = terrains[1002]
+    for tile in (desert_gate.APPROACH, desert_gate.LANDING):
+        assert tc.walkable(tile)
+        assert max(abs(a - b) for a, b in zip(tile, desert_gate.SPOT)) <= 12
+    tc.path(desert_gate.LANDING, desert_gate.APPROACH)
+    # Nobody has crossed the Desert's own portals: no saved way out of it.
+    assert not [e for e in edges if e["source_map"] == 1000 and e.get("verified") is True]
     trips = json.loads(TRIPS.read_text(encoding="utf-8"))["trips"]
     desert = [t for t in trips if t["destination_map"] == 1000 and t.get("verified") is True]
     assert len(desert) == 1
     assert desert[0]["source_map"] == 1002 and desert[0]["option"] == "Desert City"
     assert desert[0]["arrival_map"] == 1002 and desert[0]["price"] == 100
-    assert terrains[1002].walkable(tuple(desert[0]["arrival_position"]))
+    assert tuple(desert[0]["arrival_position"]) == desert_gate.LANDING
     hops = connection_path(1020, 1000)
     assert [(e["source_map"], e["destination_map"]) for e in hops] == [(1020, 1002), (1002, 1000)]
+    assert hops[1].get("service") == desert_gate.NAME
+    with pytest.raises(ValueError):
+        connection_path(1000, 1020)
 
 
-def test_map_travel_reads_a_twincitygate_for_a_hop_through_twin_city(monkeypatch):
+def _fake_terrain(root, map_id):
+    return NS(source_sha256=SHA[map_id], map_id=map_id)
+
+
+def test_map_travel_reads_a_twincitygate_then_asks_general_peace(monkeypatch):
     # 4
-    from conquest import return_scroll, world_travel
+    from conquest import city_travel, desert_gate, return_scroll, world_travel
 
     life = {"map_id": 1020, "position": [554, 545]}
-    reads = []
+    reads, calls = [], []
 
     def read_gate(loop, destination):
         reads.append(destination)
@@ -117,15 +152,102 @@ def test_map_travel_reads_a_twincitygate_for_a_hop_through_twin_city(monkeypatch
         return False
 
     def stop(*args, **kwargs):
-        raise AssertionError("walked or rode instead of reading the gate")
+        raise AssertionError("walked a portal instead of asking GeneralPeace")
+
+    def peace(loop):
+        calls.append(("peace", life["map_id"]))
+        life.update(map_id=1000, position=[480, 630])
 
     monkeypatch.setattr(return_scroll, "read_gate", read_gate)
     monkeypatch.setattr(world_travel, "cross_portal", stop)
+    monkeypatch.setattr(world_travel, "read_terrain", _fake_terrain)
+    monkeypatch.setattr(desert_gate, "travel", peace)
+    monkeypatch.setattr(city_travel, "city_for", lambda map_id: {"map_id": map_id})
+    monkeypatch.setattr(
+        city_travel,
+        "ensure_city_visit",
+        lambda loop, new_arrival=False: calls.append(("town", life["map_id"], new_arrival)),
+    )
     loop = NS(living=lambda: {"embedded_controls": {"life": dict(life)}})
-    # Stop after the hop: Twin City's next leg is the Conductress's business.
-    monkeypatch.setattr(world_travel, "read_terrain", lambda root, map_id: stop())
-    with pytest.raises(AssertionError, match="walked or rode"):
-        world_travel.travel_to_map(loop, 1000)
+    world_travel.travel_to_map(loop, 1000)
     # On Twin City's map a Desert gate is looked for again (there is none),
-    # then the Conductress leg plans on Twin City's terrain.
-    assert reads == [1000, 1002, 1000] and life["map_id"] == 1002
+    # then GeneralPeace takes over; Desert City town follows the arrival.
+    assert reads == [1000, 1002, 1000]
+    assert calls == [("peace", 1002), ("town", 1000, True)]
+    assert life["map_id"] == 1000
+
+
+def test_a_map_with_no_saved_way_on_reads_a_gate_out(monkeypatch):
+    # 5
+    from conquest import city_travel, desert_gate, return_scroll, world_travel
+
+    monkeypatch.setattr(city_travel, "city_for", lambda map_id: {"map_id": map_id})
+
+    life = {"map_id": 1028, "position": [160, 96]}
+    reads = []
+    carried = {"gates": True}
+
+    def read_gate(loop, destination):
+        reads.append(destination)
+        if destination == 1002 and carried["gates"]:
+            life.update(map_id=1002, position=[429, 378])
+            return True
+        return False
+
+    class Rode(Exception):
+        pass
+
+    def peace(loop):
+        raise Rode
+
+    monkeypatch.setattr(return_scroll, "read_gate", read_gate)
+    monkeypatch.setattr(return_scroll, "carried", lambda loop, kind: carried["gates"])
+    monkeypatch.setattr(world_travel, "read_terrain", _fake_terrain)
+    monkeypatch.setattr(desert_gate, "travel", peace)
+    loop = NS(living=lambda: {"embedded_controls": {"life": dict(life)}})
+    with pytest.raises(Rode):
+        world_travel.travel_to_map(loop, 1000)
+    # The Desert gate first (none), then Twin City's, the town fewest saved
+    # hops from the Desert, then GeneralPeace from there.
+    assert reads == [1000, 1002, 1000]
+    life.update(map_id=1028, position=[160, 96])
+    reads.clear()
+    carried["gates"] = False
+    with pytest.raises(ValueError, match="No memory-verified map connection from 1028"):
+        world_travel.travel_to_map(loop, 1000)
+    assert reads == [1000]
+
+
+def test_without_a_twincitygate_the_hop_rides_instead_of_walking_the_plain(monkeypatch):
+    # 4: Ape City's Conductress lands beside portal 1 (381, 21); walking that
+    # portal from town crosses the GiantApe plain (Toxic died there at 47).
+    from conquest import city_travel, desert_gate, gear_circuit, return_scroll, world_travel
+
+    life = {"map_id": 1020, "position": [554, 545]}
+    calls = []
+
+    def stop(*args, **kwargs):
+        raise AssertionError("walked Ape Mountain's portal")
+
+    def ride(loop, home):
+        calls.append(("ride", home))
+        life.update(map_id=1002, position=[555, 957])
+        return "ride"
+
+    class Rode(Exception):
+        pass
+
+    def peace(loop):
+        calls.append(("peace", life["map_id"]))
+        raise Rode
+
+    monkeypatch.setattr(return_scroll, "read_gate", lambda loop, destination: False)
+    monkeypatch.setattr(world_travel, "cross_portal", stop)
+    monkeypatch.setattr(world_travel, "read_terrain", _fake_terrain)
+    monkeypatch.setattr(gear_circuit, "reach_twin_city", ride)
+    monkeypatch.setattr(desert_gate, "travel", peace)
+    monkeypatch.setattr(city_travel, "city_for", lambda map_id: {"map_id": map_id})
+    loop = NS(living=lambda: {"embedded_controls": {"life": dict(life)}})
+    with pytest.raises(Rode):
+        world_travel.travel_to_map(loop, 1000)
+    assert calls == [("ride", 1020), ("peace", 1002)]

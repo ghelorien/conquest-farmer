@@ -22,9 +22,11 @@ from pathlib import Path
 from conquest.character_context import state_path
 from conquest.discord_notify import read_json, write_json
 
-# Poltergeist: the Desert City gate (45, 397) is 78 walking tiles from the
-# field; the Ape gate is 665 and Twin City ~1,010 (beyond the default planner
-# budget), so "instead" there means Desert City.
+# Poltergeist: the Desert City ride's west-edge landing, by portal 1 (45, 397),
+# is 78 walking tiles from the field; the Ape gate is 665 and Twin City ~1,010
+# (beyond the default planner budget), so "instead" there means Desert City.
+# That portal leads to the Mine (1028), not the Desert (Suicide, 2026-09-30
+# 19:28); the way into the Desert is GeneralPeace (desert_gate).
 SHORTCUTS = {"apparition": "Ape Mountain", "poltergeist": "Desert City"}
 FARE = 100
 CONDUCTRESS_TILE = (438, 444)

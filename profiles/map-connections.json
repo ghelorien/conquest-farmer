@@ -59,16 +59,30 @@
         44,
         394
       ],
-      "destination_map": 1000,
+      "destination_map": 1028,
       "arrival_position": [
-        975,
-        668
+        160,
+        96
       ],
+      "source_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
+      "destination_terrain_sha256": "a233d65d40668c21f8fa44ce6d0dc72780794dda3a725106ffc2821e08861569",
+      "verified": true,
+      "observed_at": 1790810923.4179256,
+      "evidence": "Observed by Suicide 2026-09-30 19:28:43: cross_portal(expected_map=1000) refused 'Portal destination changed: expected 1000, observed 1028'. Twin City's west portal 1 leads to the Mine (mine-four, 184x184, its only portal 0 at (156, 90)), not the Desert; the seeded Desert edge was a guess. (160, 96) is where the farmer stood on 1028 when its ApeCityGate was read at 19:33."
+    },
+    {
+      "source_map": 1002,
+      "service": "GeneralPeace",
+      "service_position": [
+        60,
+        463
+      ],
+      "destination_map": 1000,
       "source_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
       "destination_terrain_sha256": "3d8a7ec5d308f8a3cfd5305768093115274265426ce3295f5bc0c111384d9213",
       "verified": true,
-      "observed_at": 1790808056.283431,
-      "evidence": "Seeded 2026-09-30 for the Desert scout (Alex: scout the Desert now). Twin City's west-edge portal 1 is the Desert City gate (conductress_shortcut's (45, 397) note); the Desert's only east-edge portal is 1 at (977, 668). The arrival tile is the nearest walkable tile inside it, unobserved: cross_portal(expected_map=1000) proves the map by memory on the first crossing."
+      "observed_at": 1790813061.0,
+      "evidence": "Alex 2026-09-30 19:3x: 'When you get to the north west close to the mine / poltergeist there is a npc that will bring you to the desert.' GeneralPeace (npc.json type 29, model 296, uid 100159) stands at (60, 463), ten tiles from the Conductress's 'Desert City' landing (69, 473) (Suicide's npc survey, 2026-09-27 13:48). desert_gate crosses: approved or offer()-checked dialog pages only, and the arrival on map 1000 is checked by memory."
     },
     {
       "source_map": 1000,
@@ -84,9 +98,9 @@
       ],
       "source_terrain_sha256": "3d8a7ec5d308f8a3cfd5305768093115274265426ce3295f5bc0c111384d9213",
       "destination_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
-      "verified": true,
+      "verified": false,
       "observed_at": 1790808164.0578973,
-      "evidence": "Seeded 2026-09-30 with the Desert scout: the way back to Twin City through the Desert's east portal, a walking fallback when an ApeCityGate cannot be read. Arrival unobserved (beside Twin City's west portal 1); cross_portal checks the map by memory."
+      "evidence": "Unverified guess, seeded 2026-09-30 with the Desert scout: the Desert's east portal 1 to Twin City. Nobody has crossed it, and Twin City's own west portal 1 leads to the Mine (19:28:43), so map travel never plans it: the way out of the Desert is a carried gate (desert_gate refuses to cross in without the route's gate home)."
     },
     {
       "source_map": 1020,
