@@ -245,8 +245,8 @@ def enter_route_area(loop):
     """
     route = loop.route
     entry = getattr(route, "entry", None)
-    if entry is None:
-        return False
+    if entry is None or entry.map_id is None:
+        return False  # no portal entry: the hunt walks in
     life = loop.living()["embedded_controls"]["life"]
     if life["map_id"] == route.map_id and inside(entry.region, life["position"]):
         loop.terrain = read_terrain(CLIENT_ROOT, route.map_id)

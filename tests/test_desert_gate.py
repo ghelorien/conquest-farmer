@@ -265,8 +265,19 @@ def test_a_press_that_does_not_cross_fails_without_a_second_press(state):
     assert loop.opened == 2 and loop.pressed == []
 
 
-def test_no_crossing_without_the_gate_home_or_with_another_npc(state):
+def no_way_out(monkeypatch):
+    """A field with no crossed way out (the Desert before 21:46:57)."""
+    from conquest import world_travel
+
+    def missing(source, destination, edges=None):
+        raise ValueError("No memory-verified map connection")
+
+    monkeypatch.setattr(world_travel, "connection_path", missing)
+
+
+def test_no_crossing_without_the_gate_home_or_with_another_npc(state, monkeypatch):
     # 4
+    no_way_out(monkeypatch)
     loop = state.current["loop"] = Loop([ASK], ["arrive"], gates=0)
     with pytest.raises(ValueError, match="No gate home"):
         desert_gate.cross(loop)
@@ -308,7 +319,8 @@ def test_the_way_in_rides_only_from_afar_and_fetches_a_due_buff(state, monkeypat
     loop = state.current["loop"] = Loop([ASK], ["arrive"])
     desert_gate.travel(loop)
     assert rides == [] and buffs == [] and loop.bought == []
-    # No gate home: nothing paid at all.
+    # No gate home and no way out: nothing paid at all.
+    no_way_out(monkeypatch)
     loop = state.current["loop"] = Loop([ASK], ["arrive"], gates=0)
     loop.life["position"] = [429, 378]
     with pytest.raises(ValueError, match="No gate home"):

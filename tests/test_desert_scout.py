@@ -124,8 +124,13 @@ def test_the_saved_desert_links_match_the_installed_terrain(terrains):
         assert max(abs(a - b) for a, b in zip(desert_gate.LANDING, tile)) <= desert_gate.NEAR_TILES
         assert len(tc.path(desert_gate.LANDING, approach)) < 250, name
         assert len(tc.path((429, 378), approach)) > 1000, name
-    # Nobody has crossed the Desert's own portals: no saved way out of it.
-    assert not [e for e in edges if e["source_map"] == 1000 and e.get("verified") is True]
+    # The Desert's east portal leads back to Twin City beside GeneralPeace
+    # (Suicide, 21:46:57): the only crossed way out besides a gate.
+    out = [e for e in edges if e["source_map"] == 1000 and e.get("verified") is True]
+    assert [(e["portal_id"], e["destination_map"], tuple(e["arrival_position"])) for e in out] == [
+        (1, 1002, desert_gate.LANDING)
+    ]
+    assert (977, 668, 1) in terrains[1000].portals
     trips = json.loads(TRIPS.read_text(encoding="utf-8"))["trips"]
     desert = [t for t in trips if t["destination_map"] == 1000 and t.get("verified") is True]
     assert len(desert) == 1
@@ -135,8 +140,8 @@ def test_the_saved_desert_links_match_the_installed_terrain(terrains):
     hops = connection_path(1020, 1000)
     assert [(e["source_map"], e["destination_map"]) for e in hops] == [(1020, 1002), (1002, 1000)]
     assert hops[1].get("service") == desert_gate.SERVICE
-    with pytest.raises(ValueError):
-        connection_path(1000, 1020)
+    back = connection_path(1000, 1020)
+    assert [(e["source_map"], e["destination_map"]) for e in back] == [(1000, 1002), (1002, 1020)]
 
 
 def _fake_terrain(root, map_id):

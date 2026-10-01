@@ -7,13 +7,13 @@ monster_type_ids: [13, 72]
 recommended_levels: [62, 66]
 # Love Canyon is Ape Mountain's walled south-west (ini/region.json names map
 # 1020 "LoveCanyon"). The client's help (ini/UserHelpInfo.json): "Snakeman
-# (level 62/63), Love Canyon(232,461)". From Ape City town the only walk in is
-# ~1,285 tiles: the GiantApe plain, the passage, the ThunderApe field, the
-# far west and a neck at x 96-125. The entry below goes round instead:
-# TwinCityGate, the Conductress's "Desert City", GeneralPeace's "I see."
-# (Alex 2026-09-30 21:2x) to (971, 666) on the Desert, then the Desert's east
-# portal 1 (977, 668), expected to land by Love Canyon's portal 4 (11, 377).
-# The town anchor is that arrival corner; restocks read an ApeCityGate home.
+# (level 62/63), Love Canyon(232,461)". The walk in from Ape City town is
+# ~1,300-1,600 tiles: the passage (431, 291-315) by the GiantApeKings, west
+# along y 315 past ThunderApeKing 402180 (286, 315), the far west, and a neck
+# at x ~98 (y 342-422). The Desert's east portal is no back door: it leads to
+# Twin City (69, 473) (Suicide, 2026-09-30 21:46:57). The town anchor is the
+# canyon's north-west corner by its portal 4 (11, 377); restocks read an
+# ApeCityGate home from inside the walls, never walking.
 town_anchor: [20, 380]
 restock_anchor: [550, 547]
 hunting_anchor: [232, 461]
@@ -100,14 +100,12 @@ qualification: planned
 recover_after_death: true
 movement: jump
 entry:
-  map_id: 1000
-  portal_id: 1
-  # The canyon: south of the ThunderApe field's walls (y >= 372; the neck
-  # at x ~96 runs from y 346) and west of the wall before Ape City town
-  # (x <= 506; the town starts at x 515).
+  # Walked in from town (no portal entry). The canyon: south of the ThunderApe
+  # field's walls (y >= 372; the neck at x ~98 runs from y 342) and west of
+  # the wall before Ape City town (x <= 506; the town starts at x 515).
   region: [0, 372, 506, 931]
 notes: >-
   Drafted 2026-09-30 for Suicide (L60) after Alex chose "Snakemen, Love
-  Canyon". Snakemen (L62-63, types 13/72) per the client's help at (232, 461)
-  on Ape Mountain's map. The first run probes the Desert's east portal into
-  the canyon; the box follows the species log.
+  Canyon" and "go now to the snakeman". Snakemen (L62-63, types 13/72) per the
+  client's help at (232, 461) on Ape Mountain's map; the box follows the
+  species log.

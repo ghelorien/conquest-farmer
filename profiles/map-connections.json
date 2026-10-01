@@ -89,14 +89,14 @@
       ],
       "destination_map": 1002,
       "arrival_position": [
-        46,
-        394
+        69,
+        473
       ],
       "source_terrain_sha256": "3d8a7ec5d308f8a3cfd5305768093115274265426ce3295f5bc0c111384d9213",
       "destination_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
-      "verified": false,
-      "observed_at": 1790808164.0578973,
-      "evidence": "Unverified guess, seeded 2026-09-30 with the Desert scout: the Desert's east portal 1 to Twin City. Nobody has crossed it, and Twin City's own west portal 1 leads to the Mine (19:28:43), so map travel never plans it: the way out of the Desert is a carried gate (desert_gate refuses to cross in without the route's gate home)."
+      "verified": true,
+      "observed_at": 1790819217.0,
+      "evidence": "Observed by Suicide 2026-09-30 21:46:57 and 21:47:27 (6153b56 probing it for Love Canyon): the Desert's east portal 1, six tiles from GeneralPeace's landing (971, 666), leads to Twin City at (69, 473), beside GeneralPeace and the Conductress's 'Desert City' landing."
     },
     {
       "source_map": 1020,

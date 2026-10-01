@@ -280,15 +280,22 @@ class Supplies(BaseModel):
 
 
 class RouteEntry(BaseModel):
-    """A hunting area walled off from its own town, reached through another
-    map: map travel to ``map_id`` (no town walk there), then its portal
-    ``portal_id`` into the route's map. ``region`` bounds the walled area:
-    inside it, no entry is needed (world_travel.enter_route_area)."""
+    """A hunting area walled off from its own town. ``region`` bounds it: from
+    inside, the way home is the town's gate, never the walk. With ``map_id``
+    and ``portal_id`` it is reached through another map (map travel there
+    without its town walk, then that portal; world_travel.enter_route_area);
+    without them the hunt walks in from town."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    map_id: int = Field(gt=0)
-    portal_id: int = Field(ge=0)
+    map_id: int | None = Field(default=None, gt=0)
+    portal_id: int | None = Field(default=None, ge=0)
     region: tuple[int, int, int, int]
+
+    @model_validator(mode="after")
+    def portal_pair(self):
+        if (self.map_id is None) != (self.portal_id is None):
+            raise ValueError("A route entry names both its map and its portal, or neither")
+        return self
 
 
 class SavedRoute(BaseModel):
@@ -348,6 +355,7 @@ class SavedRoute(BaseModel):
         if self.entry is not None:
             a, b, c, d = self.entry.region
             x0, y0, x1, y1 = self.hunting_boundary
+            # A walk-in entry (map_id None) never equals the route's map.
             if self.entry.map_id == self.map_id or not (
                 a <= x0 <= x1 <= c and b <= y0 <= y1 <= d
             ):

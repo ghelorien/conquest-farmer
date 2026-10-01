@@ -1,20 +1,22 @@
-"""snakeman-canyon: Snakemen in Love Canyon, entered through the Desert.
+"""snakeman-canyon: Snakemen in Love Canyon, Ape Mountain's walled south-west.
 
-Alex 2026-09-30 21:2x chose "Snakemen, Love Canyon". The client's help puts
-Snakemen (L62/63) at Love Canyon (232, 461), and region.json names map 1020
-(Ape Mountain) "LoveCanyon". The canyon is walled off from Ape City: the walk
-is ~1,285 tiles through the GiantApe and ThunderApe bosses. The route enters
-instead through the Desert (GeneralPeace's "I see." lands at (971, 666)) and
-its east portal 1, expected to land by the canyon's portal 4 (11, 377).
+Alex 2026-09-30 21:2x chose "Snakemen, Love Canyon", then "go now to the
+snakeman". The client's help puts Snakemen (L62/63) at Love Canyon (232, 461),
+and region.json names map 1020 (Ape Mountain) "LoveCanyon". The canyon is
+walled off from Ape City: the walk in is ~1,300-1,600 tiles through the
+GiantApe passage and the ThunderApe field. The Desert's east portal, the
+hoped-for back door, leads to Twin City (Suicide, 21:46:57), so the route
+walks in, and the way home from inside the walls is always the gate.
 
 Failure modes, written before the change:
 1. The route targets anything but the Snakeman family, or its anchors,
    patrol or connectors are off the box or unwalkable on Ape Mountain.
-2. The entry region misses the box or the arrival corner, or takes in Ape
-   City town, so the farmer walks the 1,285 tiles or skips the entry.
-3. The entry walks to Desert City (map travel's town visit), or counts a
-   portal that landed elsewhere, or travels while already in the canyon.
-4. The hunt and the return to the route map ignore the entry and walk.
+2. The walled region misses the box or the corner, or takes in Ape City town.
+3. A portal entry (the mechanism, kept for a field with one) walks to its
+   entry map's town, counts a portal that landed elsewhere, or travels while
+   already inside; a walk-in entry travels anywhere.
+4. The hunt and the route return take a portal entry when there is one and
+   the ordinary walk otherwise.
 5. A gate home from the canyon gives up for want of a quiet spot and walks.
 """
 
@@ -22,7 +24,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from conquest.routes import RouteLibrary, route_monster_names
+from conquest.routes import RouteEntry, RouteLibrary, route_monster_names
 from test_ratling_route import _segment
 
 ROOT = r"C:\Program Files\Classic Conquer 2.0"
@@ -31,6 +33,13 @@ ROOT = r"C:\Program Files\Classic Conquer 2.0"
 @pytest.fixture(scope="module")
 def route():
     return RouteLibrary().load("snakeman-canyon")
+
+
+@pytest.fixture(scope="module")
+def portal_route(route):
+    """The same field with a portal entry, as the Desert's was hoped to be."""
+    entry = RouteEntry(map_id=1000, portal_id=1, region=route.entry.region)
+    return route.model_copy(update={"entry": entry})
 
 
 @pytest.fixture(scope="module")
@@ -58,24 +67,28 @@ def test_the_route_targets_snakemen_on_walkable_canyon_ground(route, terrain):
         terrain.path(route.hunting_anchor, point)
 
 
-def test_the_entry_region_holds_the_canyon_not_ape_city(route, terrain):
+def test_the_walled_region_holds_the_canyon_not_ape_city(route, terrain):
     # 2
     from conquest.city_travel import city_for
     from conquest.world_travel import inside
 
     entry = route.entry
-    assert (entry.map_id, entry.portal_id) == (1000, 1)
+    assert (entry.map_id, entry.portal_id) == (None, None)  # walked in
     x0, y0, x1, y1 = route.hunting_boundary
     assert inside(entry.region, (x0, y0)) and inside(entry.region, (x1, y1))
     assert inside(entry.region, route.town_anchor)
     assert (11, 377, 4) in terrain.portals
-    assert max(abs(a - b) for a, b in zip(route.town_anchor, (11, 377))) <= 12
     town = city_for(1020)
     a, b, c, d = town["town_boundary"]
     for corner in ((a, b), (c, b), (a, d), (c, d), tuple(town["town_anchor"])):
         assert not inside(entry.region, corner)
-    # Walled off: from town the walk in is the long way round.
-    assert len(terrain.path(tuple(town["town_anchor"]), route.hunting_anchor)) > 1000
+    # Walled off: from town the walk in is the long way round, through the
+    # neck at x ~98.
+    path = terrain.path(tuple(town["town_anchor"]), route.hunting_anchor)
+    assert len(path) > 1000
+    assert any(abs(x - 98) <= 6 and 342 <= y <= 422 for x, y in path)
+    with pytest.raises(ValueError):
+        RouteEntry(map_id=1000, region=entry.region)  # a map without its portal
 
 
 class Loop:
@@ -91,7 +104,9 @@ class Loop:
         self.events.append(event)
 
 
-def test_the_entry_skips_desert_city_and_checks_the_landing(route, monkeypatch):
+def test_a_portal_entry_skips_the_town_walk_and_checks_the_landing(
+    route, portal_route, monkeypatch
+):
     # 3
     from conquest import world_travel
 
@@ -110,24 +125,27 @@ def test_the_entry_skips_desert_city_and_checks_the_landing(route, monkeypatch):
     monkeypatch.setattr(world_travel, "travel_to_map", travel)
     monkeypatch.setattr(world_travel, "cross_portal", cross)
     monkeypatch.setattr(world_travel, "read_terrain", lambda root, map_id: NS(map_id=map_id))
-    loop = Loop(route, 1020, (565, 562))  # Ape City town after a restock
+    # The real route walks in: no travel at all from here.
+    assert world_travel.enter_route_area(Loop(route, 1020, (565, 562))) is False
+    assert calls == []
+    loop = Loop(portal_route, 1020, (565, 562))  # Ape City town after a restock
     assert world_travel.enter_route_area(loop) is True
     assert calls == [("travel", 1000, False), ("portal", 1, 1020)]
     assert "route_entry_crossed" in loop.events
-    # Already in the canyon: nothing to do.
+    # Already inside: nothing to do.
     calls.clear()
-    assert world_travel.enter_route_area(Loop(route, 1020, (232, 461))) is False
+    assert world_travel.enter_route_area(Loop(portal_route, 1020, (232, 461))) is False
     assert calls == []
-    # Restarted in the Desert: straight to the portal (map travel is a no-op).
-    loop = Loop(route, 1000, (971, 666))
-    assert world_travel.enter_route_area(loop) is True
-    # A portal that lands outside the canyon is not counted.
+    # A portal that lands outside the region is not counted.
     landing["tile"] = [565, 562]
     with pytest.raises(ValueError, match="landed outside"):
-        world_travel.enter_route_area(Loop(route, 1020, (565, 562)))
+        world_travel.enter_route_area(Loop(portal_route, 1020, (565, 562)))
 
 
-def test_the_hunt_and_the_route_return_take_the_entry(route, monkeypatch):
+@pytest.mark.parametrize("portal", [False, True])
+def test_the_hunt_and_the_route_return_take_a_portal_entry_only(
+    route, portal_route, portal, monkeypatch
+):
     # 4
     from conquest import city_travel, overnight, world_travel
 
@@ -142,7 +160,7 @@ def test_the_hunt_and_the_route_return_take_the_entry(route, monkeypatch):
         pass
 
     loop = overnight.OvernightLoop.__new__(overnight.OvernightLoop)
-    loop.route = route
+    loop.route = portal_route if portal else route
     loop.info = "worker"
     loop.record = lambda *a, **k: None
     loop.living = lambda: None
@@ -154,12 +172,12 @@ def test_the_hunt_and_the_route_return_take_the_entry(route, monkeypatch):
     monkeypatch.setattr("conquest.conductress_shortcut.ride", stop)
     with pytest.raises(Stop):
         loop.hunt()
-    assert calls == ["entry"]
+    assert calls == (["entry"] if portal else [("walk", 1020), "town"])
     calls.clear()
     monkeypatch.setattr(overnight, "request", lambda *a, **k: None)
     monkeypatch.setattr(overnight.time, "sleep", lambda s: None)
     loop.return_to_route_map()
-    assert calls == ["entry"]
+    assert calls == (["entry"] if portal else [("walk", 1020)])
 
 
 def test_a_gate_home_from_the_canyon_is_read_without_a_quiet_spot(route, monkeypatch):

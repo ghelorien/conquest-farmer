@@ -2336,9 +2336,10 @@ class OvernightLoop:
         self.living()
         from conquest.world_travel import enter_route_area, travel_to_map
 
-        if getattr(self.route, "entry", None) is not None:
-            # A walled-off field (Love Canyon) is entered through another
-            # map's portal; its own town is a gate away, never a walk.
+        entry = getattr(self.route, "entry", None)
+        if entry is not None and entry.map_id is not None:
+            # A walled-off field entered through another map's portal; its own
+            # town is a gate away, never a walk.
             enter_route_area(self)
         else:
             travel_to_map(self, self.route.map_id)
@@ -2732,7 +2733,8 @@ class OvernightLoop:
             "returning_to_route_map",
             activity=f"Returning to {self.route.name} after map change",
         )
-        if getattr(self.route, "entry", None) is not None:
+        entry = getattr(self.route, "entry", None)
+        if entry is not None and entry.map_id is not None:
             enter_route_area(self)
         else:
             travel_to_map(self, self.route.map_id)
