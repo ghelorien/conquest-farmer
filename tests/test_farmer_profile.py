@@ -49,12 +49,14 @@ def test_receipt_cost_is_isolated_from_other_farmers_and_attack_stock(tmp_path):
 @pytest.mark.parametrize(
     "jump_scatter,isolated,expected",
     [
-        (True, True, "right"),
+        # Alex 2026-10-01 06:2x: "bro you are casting scatter at 1 monster
+        # wtf". A lone target takes single shots even when Scatter is forced.
+        (True, True, "left"),
         (True, False, "right"),
         (False, True, "left"),
     ],
 )
-def test_force_jump_scatter_precedes_isolated_and_is_disabled_with_missing_skill(
+def test_force_jump_scatter_spares_a_lone_target_and_is_disabled_with_missing_skill(
     jump_scatter, isolated, expected
 ):
     from types import SimpleNamespace

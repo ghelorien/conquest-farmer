@@ -167,20 +167,25 @@ def ammunition_reload_needed(inventory, config, *, proactive=False):
 
 
 def scatter_attack_mode(config, speed, strategy, isolated, name):
-    """Choose Scatter before adaptive or isolated-target decisions when enabled.
+    """Choose Scatter before adaptive decisions when enabled, but never for a
+    lone target.
 
     A targeted Messenger would be shot with left clicks (Alex 2026-09-28); since
     2026-09-30 no route targets one ("dont attack messengers anymore, just
     dodge them"), so this branch only guards a custom route that lists one.
+    A lone target (``isolated``: no other selected monster within attack
+    range) takes single shots even with force_jump_scatter: Alex 2026-10-01
+    06:2x, watching Toxic in Love Canyon, "bro you are casting scatter at 1
+    monster wtf".
     """
     from conquest.routes import messenger
 
     if messenger(name):
         return "left"
-    if speed.force_jump_scatter and config.jump_scatter:
-        return "right"
     if strategy and isolated:
         return "left"
+    if speed.force_jump_scatter and config.jump_scatter:
+        return "right"
     return strategy.button(name) if strategy else config.attack_button
 
 
