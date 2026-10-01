@@ -1,0 +1,345 @@
+schema_version: 1
+id: bandit-east-half
+name: Bandit east half (Toxic; Suicide holds the west half)
+map_id: 1011
+restock_map_id: 1011
+monster_type_ids:
+- 7
+- 66
+recommended_levels:
+- 32
+- 36
+town_anchor:
+- 210
+- 195
+restock_anchor:
+- 191
+- 250
+hunting_anchor:
+- 467
+- 431
+kite_when_surrounded: true
+jump_scatter: true
+attack_range_tiles: 16
+# Alex 2026-10-01 06:3x: "go farm bandits with suicide", goal "minimum of 100
+# kpm for each over the span of an hour". Laptop2 split the dense Bandit
+# ground at x = 421 (Suicide's last 4 h: every 46x47 cell 99-141 kills/min
+# but the NW corner; 31-37 Bandits in view a scan): Toxic east [421,337,513,
+# 525], Suicide west (bandit-west-half). bandit-southern-fields (y 513-609)
+# saw ~1 Bandit a look and 5-33 kills/min. Expansion 2 keeps the patrol off
+# the west half; spots keep 12+ tiles from the BanditKings parked at
+# (399,353) and (443,338) on 2026-10-01 05:01.
+hunting_boundary:
+- 421
+- 337
+- 513
+- 525
+patrol_search:
+  idle_seconds: 5.0
+  expansion_tiles: 2
+  maximum_expansions: 1
+  sweep_spacing_tiles: 32
+patrol:
+- - 437
+  - 353
+- - 469
+  - 353
+- - 501
+  - 353
+- - 501
+  - 385
+- - 469
+  - 385
+- - 437
+  - 385
+- - 437
+  - 417
+- - 469
+  - 417
+- - 501
+  - 417
+- - 501
+  - 449
+- - 469
+  - 449
+- - 437
+  - 449
+- - 437
+  - 481
+- - 469
+  - 481
+- - 501
+  - 481
+- - 501
+  - 513
+- - 469
+  - 513
+- - 437
+  - 513
+outbound_waypoints:
+- - 210
+  - 195
+- - 211
+  - 196
+- - 211
+  - 197
+- - 213
+  - 199
+- - 213
+  - 200
+- - 214
+  - 201
+- - 214
+  - 202
+- - 215
+  - 203
+- - 215
+  - 206
+- - 216
+  - 207
+- - 216
+  - 209
+- - 217
+  - 210
+- - 217
+  - 213
+- - 218
+  - 214
+- - 218
+  - 217
+- - 219
+  - 218
+- - 219
+  - 220
+- - 220
+  - 221
+- - 220
+  - 224
+- - 221
+  - 225
+- - 221
+  - 226
+- - 227
+  - 232
+- - 227
+  - 235
+- - 228
+  - 236
+- - 228
+  - 242
+- - 229
+  - 243
+- - 229
+  - 250
+- - 230
+  - 251
+- - 230
+  - 263
+- - 230
+  - 265
+- - 242
+  - 265
+- - 254
+  - 265
+- - 266
+  - 265
+- - 278
+  - 265
+- - 290
+  - 265
+- - 302
+  - 265
+- - 314
+  - 265
+- - 326
+  - 265
+- - 338
+  - 265
+- - 341
+  - 265
+- - 341
+  - 268
+- - 342
+  - 269
+- - 342
+  - 276
+- - 343
+  - 277
+- - 343
+  - 284
+- - 344
+  - 285
+- - 344
+  - 291
+- - 345
+  - 292
+- - 345
+  - 299
+- - 346
+  - 300
+- - 346
+  - 307
+- - 347
+  - 308
+- - 347
+  - 311
+- - 359
+  - 323
+- - 371
+  - 335
+- - 383
+  - 347
+- - 395
+  - 359
+- - 407
+  - 371
+- - 419
+  - 383
+- - 431
+  - 395
+- - 443
+  - 407
+- - 455
+  - 419
+- - 467
+  - 431
+return_waypoints:
+- - 467
+  - 431
+- - 455
+  - 419
+- - 449
+  - 413
+- - 449
+  - 412
+- - 437
+  - 400
+- - 425
+  - 388
+- - 413
+  - 376
+- - 413
+  - 375
+- - 401
+  - 363
+- - 389
+  - 351
+- - 377
+  - 339
+- - 377
+  - 338
+- - 365
+  - 326
+- - 353
+  - 314
+- - 341
+  - 302
+- - 341
+  - 301
+- - 329
+  - 289
+- - 323
+  - 283
+- - 335
+  - 271
+- - 341
+  - 265
+- - 329
+  - 265
+- - 317
+  - 265
+- - 305
+  - 265
+- - 293
+  - 265
+- - 281
+  - 265
+- - 269
+  - 265
+- - 257
+  - 265
+- - 245
+  - 265
+- - 233
+  - 265
+- - 230
+  - 265
+- - 230
+  - 253
+- - 230
+  - 251
+- - 229
+  - 250
+- - 229
+  - 249
+- - 228
+  - 248
+- - 228
+  - 236
+- - 228
+  - 234
+- - 227
+  - 233
+- - 227
+  - 232
+- - 219
+  - 224
+- - 219
+  - 222
+- - 218
+  - 221
+- - 218
+  - 216
+- - 217
+  - 215
+- - 217
+  - 210
+- - 216
+  - 209
+- - 216
+  - 206
+- - 215
+  - 205
+- - 215
+  - 204
+- - 214
+  - 203
+- - 214
+  - 201
+- - 213
+  - 200
+- - 213
+  - 199
+- - 211
+  - 197
+- - 211
+  - 196
+- - 210
+  - 195
+terrain_sha256: 433b3163a38d068e978fa6609c2d8e32f48bd27b188e15cddc3b3583ca9e9921
+supplies:
+  arrow_type: 1050001
+  arrows_return_below: 3
+  arrows_restock_to: 10000
+  healing_type: 1000020
+  healing_return_below: 1
+  healing_restock_to: 5
+  minimum_free_slots: 4
+equipment_review_levels:
+- 8
+- 12
+- 15
+- 23
+tasks:
+- travel_to_hunt
+- hunt_and_loot
+- return_to_town
+- restock
+- check_equipment
+- resume_hunt
+qualification: planned
+recover_after_death: true
+movement: jump
+notes: Toxic's half of the dense Bandit ground, split with Suicide at x 421 on
+  2026-10-01 (Laptop2's per-cell kill rates). Road from town by the Bandit
+  routes' (341, 265) connector.

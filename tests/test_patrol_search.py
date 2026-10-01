@@ -43,6 +43,8 @@ def test_saved_routes_retain_idle_search_policy():
         "thunderape-west": 4,
         "snakeman-south": 4,
         "snakeman-bold": 4,
+        # Toxic's half of the Bandit ground expands 2: x 421 is Suicide's edge.
+        "bandit-east-half": 2,
         # The strip expands 1: its south edge keeps off the King holding
         # thunderape-nw's middle (2026-09-30).
         "thunderape-strip": 1,
