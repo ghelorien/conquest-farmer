@@ -1,0 +1,314 @@
+schema_version: 1
+id: bandit-west-field
+name: Bandit west field south-west of Phoenix town
+map_id: 1011
+restock_map_id: 1011
+monster_type_ids:
+- 7
+- 66
+recommended_levels:
+- 32
+- 36
+town_anchor:
+- 210
+- 195
+restock_anchor:
+- 191
+- 250
+hunting_anchor:
+- 124
+- 326
+kite_when_surrounded: true
+jump_scatter: true
+attack_range_tiles: 16
+hunting_boundary:
+- 92
+- 270
+- 160
+- 372
+patrol_search:
+  idle_seconds: 5.0
+  expansion_tiles: 12
+  maximum_expansions: 1
+  sweep_spacing_tiles: 32
+patrol:
+- - 100
+  - 280
+- - 124
+  - 280
+- - 150
+  - 280
+- - 150
+  - 304
+- - 124
+  - 304
+- - 100
+  - 304
+- - 100
+  - 328
+- - 124
+  - 328
+- - 150
+  - 328
+- - 150
+  - 352
+- - 124
+  - 352
+- - 100
+  - 352
+- - 100
+  - 366
+- - 124
+  - 366
+- - 150
+  - 366
+outbound_waypoints:
+- - 210
+  - 195
+- - 210
+  - 197
+- - 211
+  - 197
+- - 211
+  - 198
+- - 212
+  - 198
+- - 212
+  - 199
+- - 213
+  - 199
+- - 213
+  - 201
+- - 214
+  - 201
+- - 214
+  - 204
+- - 215
+  - 204
+- - 215
+  - 207
+- - 216
+  - 207
+- - 216
+  - 211
+- - 217
+  - 211
+- - 217
+  - 217
+- - 218
+  - 217
+- - 218
+  - 222
+- - 219
+  - 222
+- - 219
+  - 231
+- - 226
+  - 231
+- - 226
+  - 232
+- - 227
+  - 232
+- - 227
+  - 236
+- - 228
+  - 236
+- - 228
+  - 248
+- - 228
+  - 249
+- - 229
+  - 249
+- - 229
+  - 251
+- - 230
+  - 251
+- - 230
+  - 254
+- - 229
+  - 254
+- - 229
+  - 255
+- - 228
+  - 255
+- - 228
+  - 256
+- - 227
+  - 256
+- - 227
+  - 257
+- - 226
+  - 257
+- - 226
+  - 259
+- - 215
+  - 259
+- - 215
+  - 271
+- - 215
+  - 283
+- - 215
+  - 295
+- - 215
+  - 307
+- - 215
+  - 310
+- - 203
+  - 310
+- - 191
+  - 310
+- - 179
+  - 310
+- - 167
+  - 310
+- - 155
+  - 310
+- - 143
+  - 310
+- - 131
+  - 310
+- - 124
+  - 310
+- - 124
+  - 322
+- - 124
+  - 326
+return_waypoints:
+- - 124
+  - 326
+- - 124
+  - 314
+- - 124
+  - 310
+- - 136
+  - 310
+- - 148
+  - 310
+- - 160
+  - 310
+- - 172
+  - 310
+- - 184
+  - 310
+- - 196
+  - 310
+- - 208
+  - 310
+- - 215
+  - 310
+- - 215
+  - 298
+- - 215
+  - 286
+- - 215
+  - 274
+- - 215
+  - 262
+- - 215
+  - 259
+- - 226
+  - 259
+- - 226
+  - 257
+- - 227
+  - 257
+- - 227
+  - 256
+- - 228
+  - 256
+- - 228
+  - 255
+- - 229
+  - 255
+- - 229
+  - 254
+- - 230
+  - 254
+- - 230
+  - 251
+- - 229
+  - 251
+- - 229
+  - 249
+- - 228
+  - 249
+- - 228
+  - 237
+- - 228
+  - 236
+- - 227
+  - 236
+- - 227
+  - 232
+- - 226
+  - 232
+- - 226
+  - 231
+- - 219
+  - 231
+- - 219
+  - 222
+- - 218
+  - 222
+- - 218
+  - 217
+- - 217
+  - 217
+- - 217
+  - 211
+- - 216
+  - 211
+- - 216
+  - 207
+- - 215
+  - 207
+- - 215
+  - 204
+- - 214
+  - 204
+- - 214
+  - 201
+- - 213
+  - 201
+- - 213
+  - 199
+- - 212
+  - 199
+- - 212
+  - 198
+- - 211
+  - 198
+- - 211
+  - 197
+- - 210
+  - 197
+- - 210
+  - 195
+terrain_sha256: 433b3163a38d068e978fa6609c2d8e32f48bd27b188e15cddc3b3583ca9e9921
+supplies:
+  arrow_type: 1050001
+  arrows_return_below: 3
+  arrows_restock_to: 10000
+  healing_type: 1000020
+  healing_return_below: 1
+  healing_restock_to: 5
+  minimum_free_slots: 4
+equipment_review_levels:
+- 8
+- 12
+- 15
+- 23
+tasks:
+- travel_to_hunt
+- hunt_and_loot
+- return_to_town
+- restock
+- check_equipment
+- resume_hunt
+qualification: planned
+recover_after_death: true
+movement: jump
+notes: 'A Bandit/BanditL33 group south-west of Phoenix town, seen on the walk in from
+  the west gate (2026-10-01 22:05: 12 Bandits and 9 BanditL33 within 4 s at x 105-138,
+  y 284-353). Separate from the main Bandit field (x 329-513) that Toxic holds. Town
+  path, anchor and patrol are terrain paths on the installed map.'
