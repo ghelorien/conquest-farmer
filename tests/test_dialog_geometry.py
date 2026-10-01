@@ -12,7 +12,9 @@ def saved_choices():
     dialogs = list(policy["exchange"]["dialogs"])
     for origin in policy["origins"].values():
         for leg in ("outbound", "return"):
-            dialogs += origin[leg]["dialogs"]
+            # Twin City's Conductress leg ("via": "twin_conductress") has no
+            # saved records: her own path checks her choices by text.
+            dialogs += origin[leg].get("dialogs", [])
     return dialogs
 
 
