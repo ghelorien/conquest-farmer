@@ -399,5 +399,23 @@ def test_a_castlegate_landing_just_south_of_phoenix_town_is_received():
     # Far from town is still no receipt.
     far = NS(**{**vars(landing), "position": (194, 300)})
     assert not r.receipt(before, castle, after, source, far, 1011)
-    # Reading where a gate is allowed keeps the exact town box.
-    assert r.gate_readable(NS(map_id=1011, position=(194, 264)), 1011)
+
+
+@pytest.mark.parametrize(
+    "map_id, position, readable",
+    [
+        (1011, (202, 265), False),  # 7 tiles south of Phoenix's box (05:10:03)
+        (1011, (194, 264), False),  # the CastleGate's own landing
+        (1011, (220, 290), False),  # 26 tiles from the landing
+        (1011, (230, 300), True),  # 36: received even with the landing's spread
+        (1011, (150, 150), False),  # inside the town box
+        (1011, (420, 450), True),  # the Bandit box
+        (1002, (202, 265), True),  # another map: a gate always moves the farmer
+        (1036, (100, 100), False),  # the Market
+    ],
+)
+def test_no_gate_is_read_where_its_receipt_cannot_verify_it(map_id, position, readable):
+    # Suicide 2026-10-01 05:10:03: a CastleGate read from (202, 265) landed 8
+    # tiles away. The receipt needs a 32-tile move on the same map, so it
+    # refused, and the "submitted" status blocked every later scroll.
+    assert r.gate_readable(NS(map_id=map_id, position=position), 1011) is readable

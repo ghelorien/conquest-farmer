@@ -462,7 +462,7 @@ def run(loop):
                     detail=str(error),
                     activity="Market exit landed on another map; reading the gate home",
                 )
-            from conquest.return_scroll import in_town, read_gate
+            from conquest.return_scroll import near_town, read_gate
             from types import SimpleNamespace
 
             life = loop.living()["embedded_controls"]["life"]
@@ -472,7 +472,8 @@ def run(loop):
                 map_id=life["map_id"],
                 activity=f"Back from the Market at {life['position']}",
             )
-            if not in_town(SimpleNamespace(**life), home) and not read_gate(loop, home):
+            # Near town the walk goes: a gate read there cannot be received.
+            if not near_town(SimpleNamespace(**life), home) and not read_gate(loop, home):
                 raise ValueError(
                     f"Market exit landed outside town at {life['position']} and no gate home was read"
                 )

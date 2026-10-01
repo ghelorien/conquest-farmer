@@ -47,10 +47,11 @@ def may_read(life):
 
 
 def gate_readable(life, destination):
-    """Where map travel may read a gate to `destination`: anywhere but that
-    city's own town and the Market. return_to_town keeps may_read's narrower
-    rule: urgent banking from Ape City must not scroll to Twin City."""
-    return life.map_id != 1036 and not in_town(life, destination)
+    """Where map travel may read a gate to `destination`: anywhere but the
+    Market and near_town(destination), where its receipt cannot verify the
+    read. return_to_town keeps may_read's narrower rule: urgent banking from
+    Ape City must not scroll to Twin City."""
+    return life.map_id != 1036 and not near_town(life, destination)
 
 
 def carried(loop, type_id=TYPE):
@@ -107,6 +108,28 @@ def in_town(life, map_id=1002, margin=0):
 # its receipt failed (Suicide, 2026-09-30 23:10:49), leaving a "submitted"
 # status that blocks every later scroll.
 GATE_LANDING_MARGIN = 12
+# A read on the gate's own map is received only once the farmer moved this far.
+RECEIPT_MOVE_TILES = 32
+# Where each city's gate lands (live receipts), give or take LANDING_SPREAD:
+# Twin City's square, Ape City's middle, and just south of Phoenix's box.
+GATE_LANDINGS = {1002: (429, 378), 1020: (566, 565), 1011: (194, 264)}
+LANDING_SPREAD = 4
+
+
+def near_town(life, map_id):
+    """On ``map_id``, where its own gate lands too close to be received: in
+    the town box, or within RECEIPT_MOVE_TILES of the gate's landing.
+    Suicide read a CastleGate from (202, 265), seven tiles south of Phoenix's
+    box, on 2026-10-01 05:10:03. It landed eight tiles away, the receipt
+    refused it, and the "submitted" status blocked every later scroll."""
+    if life.map_id != map_id:
+        return False
+    landing = GATE_LANDINGS.get(map_id)
+    if landing is None:
+        return in_town(life, map_id, GATE_LANDING_MARGIN + RECEIPT_MOVE_TILES)
+    return in_town(life, map_id) or max(
+        abs(a - b) for a, b in zip(life.position, landing)
+    ) < RECEIPT_MOVE_TILES + LANDING_SPREAD
 
 
 def receipt(before, item, after, source, life, destination=1002):
@@ -125,7 +148,8 @@ def receipt(before, item, after, source, life, destination=1002):
         # the farmer must have moved from the field into town.
         and (
             life.map_id != source.map_id
-            or max(abs(a - b) for a, b in zip(life.position, source.position)) >= 32
+            or max(abs(a - b) for a, b in zip(life.position, source.position))
+            >= RECEIPT_MOVE_TILES
         )
         and after.silver == before.silver
         and after.equipped_ammo == before.equipped_ammo
