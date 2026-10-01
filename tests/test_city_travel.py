@@ -80,6 +80,23 @@ def test_process_restart_rechecks_town_arrival(visit):
     assert len(calls) == 3
 
 
+def test_a_gate_landing_just_outside_the_box_walks_all_the_way_in(visit, monkeypatch):
+    # 2026-10-01 11:46: Phoenix's CastleGate landed Suicide at (188, 264),
+    # 14 tiles from the town anchor and outside the box; a default-radius walk
+    # "arrived" without moving and every restart raised.
+    loop, health, calls = visit
+    radii = []
+
+    def travel(point, **kwargs):
+        radii.append(kwargs.get("arrival_radius"))
+        health["embedded_controls"]["life"]["position"] = [point[0] + 1, point[1] + 1]
+
+    loop.travel = travel
+    health["embedded_controls"]["life"]["position"] = [188, 264]
+    assert c.ensure_city_visit(loop, new_arrival=True)
+    assert radii == [2]
+
+
 def test_already_at_town_warehouse_does_not_detour_to_centre(visit):
     loop, health, calls = visit
     health["embedded_controls"]["life"]["position"] = [227, 246]
