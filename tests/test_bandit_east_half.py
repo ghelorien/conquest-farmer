@@ -39,7 +39,7 @@ def terrain():
 
 def test_the_east_half_of_the_bandit_ground(route):
     # 1
-    assert route.monster_type_ids == (7, 66)
+    assert route.monster_type_ids == (7, 66, 3031)  # Cateran too
     assert route_monster_names(route)[0] == "Bandit"
     assert route.map_id == route.restock_map_id == 1011
     assert route.hunting_boundary == (SPLIT_X, 337, 513, 525)

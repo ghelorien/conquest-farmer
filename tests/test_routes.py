@@ -352,8 +352,11 @@ def test_route_families_include_nearby_level_variants_but_never_bosses_or_far_hi
     from conquest.routes import route_monster_names, monster_family
 
     route = RouteLibrary().load("bandit")
-    assert route.monster_type_ids == (7, 66)
-    assert route_monster_names(route) == ("Bandit", "BanditL33")
+    # Cateran (3031) shares the Bandit field and the Bandit's level and HP
+    # (L32, 817): Laptop2's species log saw 48 between x 328-510, never
+    # targeted until 2026-10-01.
+    assert route.monster_type_ids == (7, 66, 3031)
+    assert route_monster_names(route) == ("Bandit", "BanditL33", "Cateran")
     assert RouteLibrary().load("wingedsnake").monster_type_ids == (6, 65)
     # Messengers are elites to dodge, never family targets (Alex 2026-09-30).
     assert RouteLibrary().load("firespirit").monster_type_ids == (9, 68)
