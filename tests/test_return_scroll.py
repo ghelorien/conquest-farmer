@@ -343,3 +343,23 @@ def test_scroll_use_verifies_receipt_before_enabling_automatic_returns(monkeypat
     assert clicks[0] == ((120, 120), "right")
     assert r.read_json(r.POLICY)["qualified"] is True
     assert r.read_json(r.STATUS)["state"] == "verified"
+
+
+def test_a_castlegate_landing_just_south_of_phoenix_town_is_received():
+    # Suicide 2026-09-30 23:10:49: the CastleGate landed at ~(194, 264), six
+    # tiles south of Phoenix's region.json town box (y <= 258). The receipt
+    # failed and the "submitted" status blocked every later scroll.
+    castle = Item(1, r.GATES[1011], 1, 1, 0, 0)
+    potion = Item(2, 1000020, 1, 1, 1, 0)
+    before = InventorySnapshot(1, 1, (castle, potion), None, 800, 40)
+    after = replace(before, items=(replace(potion, slot=0),))
+    source = NS(map_id=1002, position=(466, 333), object_address=7, current_hp=900,
+                dead_candidate=False)
+    landing = NS(map_id=1011, position=(194, 264), object_address=7, current_hp=900,
+                 dead_candidate=False)
+    assert r.receipt(before, castle, after, source, landing, 1011)
+    # Far from town is still no receipt.
+    far = NS(**{**vars(landing), "position": (194, 300)})
+    assert not r.receipt(before, castle, after, source, far, 1011)
+    # Reading where a gate is allowed keeps the exact town box.
+    assert r.gate_readable(NS(map_id=1011, position=(194, 264)), 1011)

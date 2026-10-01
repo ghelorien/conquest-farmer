@@ -90,13 +90,23 @@ def settle(loop, seconds=4.0, steady=0.6):
     return False
 
 
-def in_town(life, map_id=1002):
+def in_town(life, map_id=1002, margin=0):
     from conquest.city_travel import city_for
 
     if life.map_id != map_id:
         return False
     left, top, right, bottom = city_for(map_id)["town_boundary"]
-    return left <= life.position[0] <= right and top <= life.position[1] <= bottom
+    return (
+        left - margin <= life.position[0] <= right + margin
+        and top - margin <= life.position[1] <= bottom + margin
+    )
+
+
+# A gate's landing may sit just outside its town's region.json box: a
+# CastleGate lands at ~(194, 264), six tiles south of Phoenix's (y <= 258), and
+# its receipt failed (Suicide, 2026-09-30 23:10:49), leaving a "submitted"
+# status that blocks every later scroll.
+GATE_LANDING_MARGIN = 12
 
 
 def receipt(before, item, after, source, life, destination=1002):
@@ -109,7 +119,7 @@ def receipt(before, item, after, source, life, destination=1002):
     return (
         not life.dead_candidate
         and life.current_hp > 0
-        and in_town(life, destination)
+        and in_town(life, destination, GATE_LANDING_MARGIN)
         and life.object_address == source.object_address
         # A gate read on another map changes the map; on the gate's own map
         # the farmer must have moved from the field into town.
