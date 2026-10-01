@@ -8,9 +8,11 @@ return left 21 s later.
 
 Failure modes, written before the change:
 1. A big hit with a player near and no monster close does not leave the field.
-2. Monster hits (a Bandit takes 1-3% of 969 HP; anything with a monster in
-   melee reach) or small drops trigger a flight, or the scene is scanned for
-   players on every check.
+2. Monster hits (a Bandit takes 1-3% of 969 HP; a boss within 15 tiles, or
+   a monster near the farmer's level within 9) or small drops trigger a
+   flight, or the scene is scanned for players on every check. Harmless
+   Bandits beside the farmer hide a PK (they stood at 1-4 tiles on a third
+   of the hits).
 3. The flight waits for a quiet spot (a player hits through it) or skips the
    ordinary restock afterwards.
 """
@@ -67,6 +69,39 @@ def test_monster_hits_small_drops_and_empty_scenes_stay(monkeypatch, before, aft
     assert loop.player_attack(life(after), {"monsters": monsters}) == []
     # Small drops and melee monsters never cost a scene scan.
     assert len(scans) == (1 if after < before * 0.9 and not monsters else 0)
+
+
+def bandit(distance, name="Bandit", level=32):
+    return {"name": name, "level": level, "position": [367 + distance, 442], "alive": True}
+
+
+def test_harmless_monsters_round_the_farmer_do_not_hide_a_pk(monkeypatch):
+    # 2026-10-01 02:09:44: 161 HP with a Bandit at 1 tile and a BanditL33 at
+    # 8, Andria at 14. Monsters 20+ levels below explain 3% a hit at contact.
+    loop, scans = loop_with(monkeypatch, ANDRIA)
+    loop.last_level = 61
+    scene = {"monsters": [bandit(1), bandit(3), bandit(8, "BanditL33", 33)]}
+    loop.player_attack(life(900), scene)
+    assert loop.player_attack(life(739), scene) == ANDRIA
+    # Four at contact explain a 120 HP drop.
+    crowd = {"monsters": [bandit(1)] * 4}
+    loop.player_attack(life(900), crowd)
+    assert loop.player_attack(life(780), crowd) == [] and len(scans) == 1
+
+
+@pytest.mark.parametrize(
+    "monster, level",
+    [
+        (bandit(12, "BanditMessenger", 40), 61),  # bosses and elites hit from range
+        (bandit(6, "ThunderApe", 57), 61),  # a monster near the farmer's level
+        (bandit(6), 0),  # level unknown: every monster can hit
+    ],
+)
+def test_a_monster_that_could_deal_the_hit_is_no_pk(monkeypatch, monster, level):
+    loop, scans = loop_with(monkeypatch, ANDRIA)
+    loop.last_level = level
+    loop.player_attack(life(900), {"monsters": [monster]})
+    assert loop.player_attack(life(738), {"monsters": [monster]}) == [] and scans == []
 
 
 def test_the_flight_reads_the_gate_at_once_then_restocks(monkeypatch):

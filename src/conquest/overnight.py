@@ -59,12 +59,20 @@ WALLED_GATE_TRIES = 3
 GATE_HARMLESS_LEVELS = 20
 GATE_HIT_TOLERANCE = 0.02
 # A player is hitting the farmer (B2C allows PK) when HP falls by
-# PK_HIT_SHARE of max HP between two hunt checks while no living monster is
-# within PK_MONSTER_TILES and a player stands within PK_PLAYER_TILES. A Bandit
-# (L32) takes 1-3% of Suicide's 969 HP a hit; the PKs of 2026-09-30/10-01
-# took 10-23% a hit and killed it in 25 s at 23:18.
+# PK_HIT_SHARE of max HP between two hunt checks beyond what the monsters near
+# can explain, and a player stands within PK_PLAYER_TILES. A Bandit (L32)
+# takes 1-3% of Suicide's 969 HP a hit; the PKs of 2026-09-30/10-01 took
+# 10-23% a hit and killed it in 25 s at 23:18, with Bandits at 1-4 tiles on
+# a third of the hits. Monsters that could deal such a hit rule a PK out: a
+# boss or elite within PK_BOSS_TILES (they hit from range), or any other
+# monster within PK_MONSTER_TILES that is not GATE_HARMLESS_LEVELS below the
+# character (FireRatL38 hit Suicide from 4-9 tiles on 2026-09-28). A
+# harmless monster at contact (PK_CONTACT_TILES) explains HARMLESS_HIT_SHARE.
 PK_HIT_SHARE = 0.10
-PK_MONSTER_TILES = 3
+PK_MONSTER_TILES = 9
+PK_BOSS_TILES = 15
+PK_CONTACT_TILES = 2
+HARMLESS_HIT_SHARE = 0.03
 PK_PLAYER_TILES = 15
 # Once the hourly restart budget is spent: pause this long (escalating), then
 # replan from fresh reads again instead of stopping for good.
@@ -756,22 +764,39 @@ class OvernightLoop:
                 time.sleep(0.25)
 
     def player_attack(self, life, controls):
-        """Whether a player is hitting the farmer: HP fell by PK_HIT_SHARE of
-        max HP since the last check, no living monster stands within
-        PK_MONSTER_TILES, and a player is within PK_PLAYER_TILES (only then
-        is the scene scanned for players). Returns the nearest players."""
+        """The nearest players when one is hitting the farmer, else []: HP
+        fell by PK_HIT_SHARE of max HP since the last check beyond what the
+        monsters near can explain, and a player is within PK_PLAYER_TILES
+        (only then is the scene scanned for players)."""
+        from conquest.routes import boss_name
+
         hp, top = life.get("current_hp"), life.get("max_hp") or 0
         last = getattr(self, "pk_last_hp", None)
         self.pk_last_hp = hp
         if hp is None or last is None or not top or last - hp < PK_HIT_SHARE * top:
             return []
         position = tuple(life.get("position") or ())
-        if not position or any(
-            m.get("position")
-            and m.get("alive") is not False
-            and max(abs(a - b) for a, b in zip(m["position"], position)) <= PK_MONSTER_TILES
-            for m in controls.get("monsters") or []
-        ):
+        if not position:
+            return []
+        level = getattr(self, "last_level", 0) or 0
+        explained = 0
+        for m in controls.get("monsters") or []:
+            if not m.get("position") or m.get("alive") is False:
+                continue
+            distance = max(abs(a - b) for a, b in zip(m["position"], position))
+            if boss_name(m.get("name") or ""):
+                if distance <= PK_BOSS_TILES:
+                    return []
+            elif not (
+                level
+                and type(m.get("level")) is int
+                and m["level"] <= level - GATE_HARMLESS_LEVELS
+            ):
+                if distance <= PK_MONSTER_TILES:
+                    return []
+            elif distance <= PK_CONTACT_TILES:
+                explained += HARMLESS_HIT_SHARE * top
+        if last - hp - explained < PK_HIT_SHARE * top:
             return []
         from conquest.player_scan import players_near
 

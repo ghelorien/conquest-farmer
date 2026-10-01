@@ -345,6 +345,44 @@ def test_scroll_use_verifies_receipt_before_enabling_automatic_returns(monkeypat
     assert r.read_json(r.STATUS)["state"] == "verified"
 
 
+@pytest.mark.parametrize("consumed, state", [(False, "unused"), (True, "submitted")])
+def test_a_death_before_the_gate_takes_effect_leaves_no_block(consumed, state):
+    # Laptop1 2026-10-01: a PK flight reads the gate under fire. Killed
+    # before it took effect, the scroll is still carried (a potion drunk
+    # meanwhile changes nothing): the next read must not be blocked.
+    from dataclasses import make_dataclass
+
+    item, before, after, field, _ = snapshots()
+    Life = make_dataclass("Life", list(vars(field)))
+    source = Life(**vars(field))
+    grid = NS(size=(407.0, 175.0), scroll=(0.0, 0.0), position=(100.0, 100.0))
+    state_box = {"clicked": False}
+
+    def read(name):
+        if name in ("Shop", "Warehouse"):
+            raise ValueError(name + " not active")
+        return grid
+
+    def verified(read, accept, message, **kw):
+        assert not accept(read())
+        raise ValueError(message)
+
+    drank = replace(before, items=before.items[:1])  # the potion is gone
+    dead = replace(source, dead_candidate=True, current_hp=0)
+    trade = NS(
+        life=lambda **kw: dead if state_box["clicked"] else source,
+        inventory=NS(
+            read=lambda: (after if consumed else drank) if state_box["clicked"] else before
+        ),
+        shop=NS(gui=NS(read=read)),
+        click=lambda point, button: state_box.update(clicked=True),
+        verified_read=verified,
+    )
+    with pytest.raises(ValueError, match="unverified"):
+        r.use(trade)
+    assert r.read_json(r.STATUS)["state"] == state
+
+
 def test_a_castlegate_landing_just_south_of_phoenix_town_is_received():
     # Suicide 2026-09-30 23:10:49: the CastleGate landed at ~(194, 264), six
     # tiles south of Phoenix's region.json town box (y <= 258). The receipt

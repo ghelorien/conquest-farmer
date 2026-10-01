@@ -133,6 +133,30 @@ def receipt(before, item, after, source, life, destination=1002):
     )
 
 
+def settle_unused(trade, before, item):
+    """Clear an unreceived submission whose scroll is provably still carried.
+
+    A farmer killed before its gate took effect (a PK flight reads at once,
+    under fire) still has the scroll's stack as it was, whatever potions it
+    drank meanwhile. Nothing was read, so the "submitted" status must not
+    block the next read. A stack that shrank or vanished, or a bag that
+    cannot be read, stays "submitted" for reconciliation.
+    """
+    identity = lambda i: (i.uid, i.type_id, i.amount, i.limit, i.plus)
+    for attempt in range(5):
+        try:
+            bag = trade.inventory.read()
+            break
+        except ValueError:
+            time.sleep(0.2)
+    else:
+        return False
+    if identity(item) not in map(identity, bag.items):
+        return False
+    write_json(STATUS, {"state": "unused", "time": time.time(), "uid": item.uid})
+    return True
+
+
 def use(trade, type_id=None):
     """Read one carried gate. Without `type_id` this is the TwinCityGate
     return (may_read's rule); map travel names its gate (gate_readable)."""
@@ -213,12 +237,16 @@ def use(trade, type_id=None):
         },
     )
     trade.click(point, "right")
-    after, life = trade.verified_read(
-        lambda: (trade.inventory.read(), trade.life(any_map=True)),
-        lambda pair: receipt(before, item, pair[0], source, pair[1], destination),
-        "Town scroll transfer unverified; no repeat scroll issued",
-        timeout=8,
-    )
+    try:
+        after, life = trade.verified_read(
+            lambda: (trade.inventory.read(), trade.life(any_map=True)),
+            lambda pair: receipt(before, item, pair[0], source, pair[1], destination),
+            "Town scroll transfer unverified; no repeat scroll issued",
+            timeout=8,
+        )
+    except ValueError:
+        settle_unused(trade, before, item)
+        raise
     result = {
         "state": "verified",
         "time": time.time(),
