@@ -31,6 +31,8 @@ from conquest.valuables import (
 )
 
 PROTECTED_VALUABLES = SPECIAL_LOOT_TYPES
+# memory_shop's strict read of a panel that sticks out past the viewport.
+OFF_VIEW = "GUI window geometry is invalid"
 
 
 def stash_candidate(item):
@@ -1263,6 +1265,13 @@ class TownTrade:
             except ValueError as error:
                 if transient_observation(error):
                     raise
+                if str(error) == OFF_VIEW:
+                    # Already open past the viewport's edge: drag it back.
+                    from conquest.panel_close import bring_into_view
+
+                    bring_into_view(self, "Shop")
+                    self.shop.read(npc.entity_id)
+                    return {"opened": True, "vendor_id": npc.entity_id}
             fresh = self.vendor(body["vendor_type"])
             if fresh != npc:
                 raise ValueError("Vendor moved before interaction")
@@ -1290,7 +1299,14 @@ class TownTrade:
             except ValueError as error:
                 if "not active" in str(error) or "absent" in str(error):
                     return {"closed": True}
-                raise
+                if str(error) != OFF_VIEW:
+                    raise
+                # Past the viewport's edge (Suicide's Phoenix Shop at x = -35,
+                # 2026-10-01 06:03): drag it back, then close it as usual.
+                from conquest.panel_close import bring_into_view
+
+                bring_into_view(self, body["window"])
+                window = self.shop.gui.read(body["window"])
             from conquest.game_panels import PANELS, TRANSACTIONS
             from conquest.merchants.memory import GuiReader
 

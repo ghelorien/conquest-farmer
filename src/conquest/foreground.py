@@ -324,12 +324,22 @@ def foreground_drag(
     before_press=None,
     layout_guard=None,
     before_release=None,
+    activate=False,
 ):
-    """One bounded client-local drag for explicit shortcut calibration."""
+    """One bounded client-local drag for explicit shortcut calibration.
+
+    With ``activate`` the embedded client's root window is brought forward
+    first, as foreground_click does; without it the game must already have
+    focus (the standalone merchant contract)."""
     require_idle()
     state = target.snapshot()
+    focus = state.get("root_hwnd", target.hwnd) if activate else target.hwnd
+    if activate and state["foreground"] != focus and not state["minimized"]:
+        bind(target.backend.user, "SetForegroundWindow", [w.HWND], w.BOOL)(focus)
+        time.sleep(0.15)
+        state = target.snapshot()
     if (
-        state["foreground"] != target.hwnd
+        state["foreground"] != focus
         or state["minimized"]
         or state["client_size"] != list(expected_size)
     ):
@@ -362,7 +372,7 @@ def foreground_drag(
             raise target.backend.error("SendInput(drag)")
 
     def move(x, y):
-        if target.backend.foreground() != target.hwnd:
+        if target.backend.foreground() != focus:
             raise ValueError("Focus changed during drag")
         mouse(
             0xC001,
@@ -380,22 +390,22 @@ def foreground_drag(
 
     move(a.x, a.y)
     time.sleep(0.1)
-    require_click_position(target.snapshot(), target.hwnd, expected_size, (a.x, a.y))
+    require_click_position(target.snapshot(), focus, expected_size, (a.x, a.y))
     try:
         if layout_guard:
             layout_guard()
             require_click_position(
-                target.snapshot(), target.hwnd, expected_size, (a.x, a.y)
+                target.snapshot(), focus, expected_size, (a.x, a.y)
             )
         if before_press:
             before_press()
             require_click_position(
-                target.snapshot(), target.hwnd, expected_size, (a.x, a.y)
+                target.snapshot(), focus, expected_size, (a.x, a.y)
             )
         if layout_guard:
             layout_guard()
         require_click_position(
-            target.snapshot(), target.hwnd, expected_size, (a.x, a.y)
+            target.snapshot(), focus, expected_size, (a.x, a.y)
         )
         if key_state(0x7B) & 0x8000:
             raise ValueError("Emergency stop before drag")
@@ -410,7 +420,7 @@ def foreground_drag(
             )
             time.sleep(0.04)
         require_click_position(
-            target.snapshot(), target.hwnd, expected_size, (b.x, b.y)
+            target.snapshot(), focus, expected_size, (b.x, b.y)
         )
         # Let the destination hover settle before the final callbacks. Nothing
         # may run between their last geometry/control checks and mouse-up.
@@ -422,7 +432,7 @@ def foreground_drag(
         if layout_guard:
             layout_guard()
         require_click_position(
-            target.snapshot(), target.hwnd, expected_size, (b.x, b.y)
+            target.snapshot(), focus, expected_size, (b.x, b.y)
         )
         if key_state(0x7B) & 0x8000:
             raise ValueError("Emergency stop before drag release")
