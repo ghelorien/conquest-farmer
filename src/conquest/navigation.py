@@ -109,7 +109,7 @@ class TerrainMap:
                     )
         raise ValueError("No traversable route between the endpoints")
 
-    def travel_path(self, start, goal, *, avoid=(), limit=None):
+    def travel_path(self, start, goal, *, avoid=(), limit=None, bounds=None):
         """Route in eight directions, then remove terrain-visible detours.
 
         The search, its tie-breaking and the result are those of calling
@@ -120,6 +120,10 @@ class TerrainMap:
         By default the budget covers every cell of the map, so a reachable
         goal is always found: a fixed 250,000 refused the 952-tile walk from
         Twin City to the Poltergeists (live 2026-09-27; about 0.6 s).
+
+        ``bounds`` (left, top, right, bottom) keeps the search inside a travel
+        boundary. A box is convex, so the straight line and the smoothing
+        between tiles inside it stay inside too.
         """
         if limit is None:
             limit = self.width * self.height
@@ -127,6 +131,10 @@ class TerrainMap:
         excluded = set(map(tuple, avoid))
         if not self.walkable(start) or not self.walkable(goal) or goal in excluded:
             raise ValueError("Route endpoint is blocked or outside the map")
+        if bounds is not None:
+            bx0, by0, bx1, by1 = bounds
+            if not all(bx0 <= x <= bx1 and by0 <= y <= by1 for x, y in (start, goal)):
+                raise ValueError("Route endpoint is outside the travel boundary")
         if clear_segment(self, start, goal, avoid=excluded):
             return line_tiles(start, goal)
         grid, stride = open_grid(self, excluded)
@@ -172,9 +180,13 @@ class TerrainMap:
                 ):
                     continue
                 if cost < costs.get(there, inf):
+                    nx, ny = x + dx, y + dy
+                    if bounds is not None and not (
+                        bx0 <= nx <= bx1 and by0 <= ny <= by1
+                    ):
+                        continue
                     costs[there] = cost
                     previous[there] = here
-                    nx, ny = x + dx, y + dy
                     push(heap, (cost + max(abs(nx - gx), abs(ny - gy)), cost, nx, ny))
         else:
             raise ValueError("No traversable route between the endpoints")
@@ -569,6 +581,30 @@ FIELD_TRAVEL_LIMIT = 2_000_000
 # tiles could not hold a detour round a King standing on the path
 # (2026-09-30 01:20, Suicide at (582, 307)).
 TRAVEL_PADDING = 24
+
+
+def approach_area(terrain, departure, anchor, padding=TRAVEL_PADDING):
+    """The walk to a hunting spot and a travel boundary that holds it.
+
+    The boundary covers both terrain.path, whose route seeds the approach
+    waypoints, and terrain.travel_path, which native_farm.patrol_step plans
+    the walk with and rejects outside the boundary. The two routes can part:
+    from Ape City to Love Canyon terrain.path looped east (top y 315) while
+    travel_path crossed the GiantApe plain at y 288-290. The boundary (top
+    291) then refused every walk patrol_step planned, and each loop re-planned
+    the anchor and every patrol point (~0.5 s each) until its 0.35 s frame
+    expired. Toxic stood at (779, 437) and (788, 445) for 14 and 5 minutes
+    (2026-10-01 00:00 and 00:39).
+    """
+    path = terrain.path(tuple(departure), tuple(anchor))
+    try:
+        walk = terrain.travel_path(
+            tuple(departure), tuple(anchor), limit=FIELD_TRAVEL_LIMIT
+        )
+    except (AttributeError, ValueError):
+        walk = []
+    size = (terrain.width, terrain.height)
+    return path, path_boundary(list(path) + list(walk), size, padding)
 
 
 def hunting_return_path(

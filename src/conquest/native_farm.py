@@ -1940,17 +1940,26 @@ class NativeFarmSupervisor:
                     from conquest.navigation import FIELD_TRAVEL_LIMIT
 
                     limit = FIELD_TRAVEL_LIMIT if not chase else 10000
-                    path = planner(
-                        position,
-                        destination,
-                        limit=limit,
-                        **({"avoid": avoid} if avoid else {}),
-                    )
+                    # A walk plans inside its travel boundary, which refuses
+                    # any path leaving it: from (788, 445) travel_path crossed
+                    # the GiantApe plain at y 228-260 while the boundary began
+                    # at y 255, so every destination was planned (~0.5 s each)
+                    # and refused, each loop, and the frame always expired
+                    # (Toxic stood 14 and 5 minutes, 2026-10-01 00:00, 00:39).
+                    bounded = {} if chase else {"bounds": (x0, y0, x1, y1)}
+
+                    def plan_walk(**kwargs):
+                        try:
+                            return planner(position, destination, limit=limit, **bounded, **kwargs)
+                        except TypeError:
+                            if not bounded:
+                                raise
+                            return planner(position, destination, limit=limit, **kwargs)
+
+                    path = plan_walk(**({"avoid": avoid} if avoid else {}))
                     if zone and any(tuple(p) in zone for p in path):
                         try:
-                            detour = planner(
-                                position, destination, limit=limit, avoid=avoid | zone
-                            )
+                            detour = plan_walk(avoid=avoid | zone)
                         except ValueError:
                             detour = None
                         # Only a detour inside the travel boundary: a landing

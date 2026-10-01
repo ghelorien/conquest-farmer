@@ -2478,7 +2478,7 @@ class DesktopApp:
                 raise ValueError("Client reattachment failed; see embedding status")
         if not self.host.saved or self.host.mode != "owned":
             raise ValueError("Open the hosted native client before starting farming")
-        from conquest.navigation import TRAVEL_PADDING, path_boundary, straight_waypoints
+        from conquest.navigation import TRAVEL_PADDING, straight_waypoints
         from conquest.routes import (
             MONSTER_NAMES,
             route_monster_name,
@@ -2548,7 +2548,11 @@ class DesktopApp:
             if episode and episode["phase"] not in ("completed", "cancelled")
             else tuple(life["position"])
         )
-        path = terrain.path(departure, route.hunting_anchor)
+        from conquest.navigation import approach_area
+
+        path, approach_boundary = approach_area(
+            terrain, departure, route.hunting_anchor, TRAVEL_PADDING
+        )
         approach = tuple(straight_waypoints(path, 12)[1:])
         from conquest.viewport import size_for
 
@@ -2574,9 +2578,7 @@ class DesktopApp:
                 "patrol_search": route.patrol_search,
                 "route": route.patrol,
                 "approach_route": approach,
-                "approach_boundary": path_boundary(
-                    path, (terrain.width, terrain.height), TRAVEL_PADDING
-                ),
+                "approach_boundary": approach_boundary,
                 "loot_allowlist": (),
                 "maximum_actions": 1000,
             }
