@@ -279,6 +279,18 @@ class Supplies(BaseModel):
         return self
 
 
+class RouteEntry(BaseModel):
+    """A hunting area walled off from its own town, reached through another
+    map: map travel to ``map_id`` (no town walk there), then its portal
+    ``portal_id`` into the route's map. ``region`` bounds the walled area:
+    inside it, no entry is needed (world_travel.enter_route_area)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    map_id: int = Field(gt=0)
+    portal_id: int = Field(ge=0)
+    region: tuple[int, int, int, int]
+
+
 class SavedRoute(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     schema_version: Literal[1] = 1
@@ -326,12 +338,22 @@ class SavedRoute(BaseModel):
     qualification: Literal["planned", "travel_verified", "cycle_verified"] = "planned"
     recover_after_death: bool = True
     movement: Literal["jump", "run"] = "jump"
+    entry: RouteEntry | None = None
     notes: str = ""
 
     @model_validator(mode="after")
     def validate_route(self):
         if not 1 <= self.recommended_levels[0] <= self.recommended_levels[1] <= 140:
             raise ValueError("Invalid recommended level range")
+        if self.entry is not None:
+            a, b, c, d = self.entry.region
+            x0, y0, x1, y1 = self.hunting_boundary
+            if self.entry.map_id == self.map_id or not (
+                a <= x0 <= x1 <= c and b <= y0 <= y1 <= d
+            ):
+                raise ValueError(
+                    "A route entry comes from another map into a region round the hunting area"
+                )
         if any(type(i) is not int or i <= 0 for i in self.monster_type_ids):
             raise ValueError("Invalid monster group ID")
         x0, y0, x1, y1 = self.hunting_boundary

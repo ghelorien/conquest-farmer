@@ -275,6 +275,8 @@ def test_a_hunt_reached_through_twin_city_fetches_him_on_the_way(qualified, monk
 
     library = RouteLibrary()
     assert b.on_the_way(library.load("desert-scout"))
+    # Love Canyon: Ape City's own map, entered through the Desert.
+    assert b.on_the_way(library.load("snakeman-canyon"))
     for route in ("macaque", "thunderape-nw", "giantape-west"):
         assert not b.on_the_way(library.load(route)), route
     farmer = Farmer()

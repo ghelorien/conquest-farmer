@@ -1,0 +1,113 @@
+schema_version: 1
+id: snakeman-canyon
+name: Snakemen in Love Canyon
+map_id: 1020
+restock_map_id: 1020
+monster_type_ids: [13, 72]
+recommended_levels: [62, 66]
+# Love Canyon is Ape Mountain's walled south-west (ini/region.json names map
+# 1020 "LoveCanyon"). The client's help (ini/UserHelpInfo.json): "Snakeman
+# (level 62/63), Love Canyon(232,461)". From Ape City town the only walk in is
+# ~1,285 tiles: the GiantApe plain, the passage, the ThunderApe field, the
+# far west and a neck at x 96-125. The entry below goes round instead:
+# TwinCityGate, the Conductress's "Desert City", GeneralPeace's "I see."
+# (Alex 2026-09-30 21:2x) to (971, 666) on the Desert, then the Desert's east
+# portal 1 (977, 668), expected to land by Love Canyon's portal 4 (11, 377).
+# The town anchor is that arrival corner; restocks read an ApeCityGate home.
+town_anchor: [20, 380]
+restock_anchor: [550, 547]
+hunting_anchor: [232, 461]
+kite_when_surrounded: true
+jump_scatter: true
+attack_range_tiles: 16
+king_clearance: 15
+elite_clearance: 13
+# Unsurveyed: a box round the help's Snakeman tile. The first hunt's species
+# log decides the real one.
+hunting_boundary: [210, 440, 256, 484]
+patrol_search:
+  idle_seconds: 7.5
+  expansion_tiles: 4
+  maximum_expansions: 1
+  sweep_spacing_tiles: 20
+patrol:
+  - [232, 461]
+  - [216, 446]
+  - [250, 446]
+  - [216, 478]
+  - [250, 478]
+  - [232, 446]
+outbound_waypoints:
+  - [20, 380]
+  - [32, 392]
+  - [44, 404]
+  - [56, 416]
+  - [68, 428]
+  - [80, 440]
+  - [92, 452]
+  - [102, 462]
+  - [114, 462]
+  - [126, 462]
+  - [138, 462]
+  - [150, 462]
+  - [162, 462]
+  - [174, 462]
+  - [186, 462]
+  - [198, 462]
+  - [210, 462]
+  - [222, 462]
+  - [231, 462]
+  - [232, 461]
+return_waypoints:
+  - [232, 461]
+  - [220, 449]
+  - [208, 437]
+  - [196, 425]
+  - [184, 413]
+  - [177, 406]
+  - [165, 406]
+  - [153, 406]
+  - [141, 406]
+  - [129, 406]
+  - [117, 406]
+  - [105, 406]
+  - [93, 406]
+  - [81, 406]
+  - [69, 406]
+  - [57, 406]
+  - [46, 406]
+  - [34, 394]
+  - [22, 382]
+  - [20, 380]
+terrain_sha256: 2feb3cdcf2a5cfe8a3358f15103c9994b83094e319f7d780908da5e85658ca80
+supplies:
+  arrow_type: 1050001
+  arrows_return_below: 3
+  arrows_restock_to: 4000
+  healing_type: 1000020
+  healing_return_below: 1
+  healing_restock_to: 5
+  healing_threshold: 0.65
+  minimum_free_slots: 4
+tasks:
+  - travel_to_hunt
+  - hunt_and_loot
+  - return_to_town
+  - restock
+  - check_equipment
+  - resume_hunt
+qualification: planned
+recover_after_death: true
+movement: jump
+entry:
+  map_id: 1000
+  portal_id: 1
+  # The canyon: south of the ThunderApe field's walls (y >= 372; the neck
+  # at x ~96 runs from y 346) and west of the wall before Ape City town
+  # (x <= 506; the town starts at x 515).
+  region: [0, 372, 506, 931]
+notes: >-
+  Drafted 2026-09-30 for Suicide (L60) after Alex chose "Snakemen, Love
+  Canyon". Snakemen (L62-63, types 13/72) per the client's help at (232, 461)
+  on Ape Mountain's map. The first run probes the Desert's east portal into
+  the canyon; the box follows the species log.

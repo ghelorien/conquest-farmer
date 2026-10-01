@@ -105,24 +105,25 @@ def test_the_saved_desert_links_match_the_installed_terrain(terrains):
     assert mine["verified"] is True and mine["destination_map"] == 1028
     assert mine["destination_terrain_sha256"] == SHA[1028]
     assert (44, 394, 1) in terrains[1002].portals
-    [mark] = [e for e in edges if e.get("service") == desert_gate.NAME]
-    assert desert_gate.NAME == "SpaceMark" and mark["verified"] is True
-    assert (mark["source_map"], mark["destination_map"]) == (1002, 1000)
-    assert mark["source_terrain_sha256"] == SHA[1002]
-    assert mark["destination_terrain_sha256"] == SHA[1000]
-    assert tuple(mark["service_position"]) == desert_gate.SPOT
-    # The approach is open ground within its dialog's 18 tiles (12 for the
-    # travel's stop); the ride's landing is open ground on its side of the
-    # map, a 176-tile road away (the square is ~1,420 through the maze).
+    [gate] = [e for e in edges if e.get("service") == desert_gate.SERVICE]
+    assert gate["verified"] is True
+    assert (gate["source_map"], gate["destination_map"]) == (1002, 1000)
+    assert gate["source_terrain_sha256"] == SHA[1002]
+    assert gate["destination_terrain_sha256"] == SHA[1000]
+    # Each NPC's approach is open ground within its dialog's 18 tiles (12 for
+    # the travel's stop); the ride's landing is open ground on their side of
+    # the map, a short road away (the square is >1,000 through the maze).
     tc = terrains[1002]
-    assert tc.walkable(desert_gate.APPROACH) and tc.walkable(desert_gate.LANDING)
-    assert max(abs(a - b) for a, b in zip(desert_gate.APPROACH, desert_gate.SPOT)) <= 12
-    assert (
-        max(abs(a - b) for a, b in zip(desert_gate.LANDING, desert_gate.SPOT))
-        <= desert_gate.NEAR_TILES
-    )
-    assert len(tc.path(desert_gate.LANDING, desert_gate.APPROACH)) < 250
-    assert len(tc.path((429, 378), desert_gate.APPROACH)) > 1000
+    assert desert_gate.CANDIDATES and tc.walkable(desert_gate.LANDING)
+    names = [name for name, _, _ in desert_gate.CANDIDATES]
+    # Alex showed GeneralPeace's "I see." (21:16); the SpaceMark is Water-only.
+    assert names[0] == "GeneralPeace" and "SpaceMark" not in names
+    for name, tile, approach in desert_gate.CANDIDATES:
+        assert tc.walkable(approach), name
+        assert max(abs(a - b) for a, b in zip(approach, tile)) <= 12, name
+        assert max(abs(a - b) for a, b in zip(desert_gate.LANDING, tile)) <= desert_gate.NEAR_TILES
+        assert len(tc.path(desert_gate.LANDING, approach)) < 250, name
+        assert len(tc.path((429, 378), approach)) > 1000, name
     # Nobody has crossed the Desert's own portals: no saved way out of it.
     assert not [e for e in edges if e["source_map"] == 1000 and e.get("verified") is True]
     trips = json.loads(TRIPS.read_text(encoding="utf-8"))["trips"]
@@ -133,7 +134,7 @@ def test_the_saved_desert_links_match_the_installed_terrain(terrains):
     assert tuple(desert[0]["arrival_position"]) == desert_gate.LANDING
     hops = connection_path(1020, 1000)
     assert [(e["source_map"], e["destination_map"]) for e in hops] == [(1020, 1002), (1002, 1000)]
-    assert hops[1].get("service") == desert_gate.NAME
+    assert hops[1].get("service") == desert_gate.SERVICE
     with pytest.raises(ValueError):
         connection_path(1000, 1020)
 

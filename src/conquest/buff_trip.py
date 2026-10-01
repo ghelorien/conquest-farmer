@@ -169,7 +169,10 @@ def on_the_way(route):
     and the buff is fresh on arrival instead of ~5 minutes old."""
     from conquest.world_travel import connection_path
 
-    home, field = route.restock_map_id, getattr(route, "map_id", None)
+    entry = getattr(route, "entry", None)
+    # Love Canyon is on Ape City's own map but entered through the Desert.
+    field = entry.map_id if entry is not None else getattr(route, "map_id", None)
+    home = route.restock_map_id
     if field is None or TWIN_CITY in (home, field):
         return False
     try:

@@ -1,10 +1,12 @@
-"""The SpaceMark's crossing into the Desert (desert_gate).
+"""The crossing into the Desert at an NPC in Twin City's west (desert_gate).
 
 Alex 2026-09-30 19:3x: "there is a npc that will bring you to the desert".
-GeneralPeace by the Desert City landing only warns (20:32:57); his road leads
-to a SpaceMark at (96, 323). Its dialog was unread when this was written, so a
-crossing presses only approved pages or pages offer() accepts, a click that
-teleports needs none, and a crossing counts only once memory shows the Desert.
+GeneralPeace by the Desert City landing only warns (20:32:57) and the SpaceMark
+at (96, 323) sells Water Taoists' scrolls (21:03:58); the FoodCarrier by the
+Mine is next. A candidate's dialog is unread when it is listed, so a crossing
+presses only approved pages or pages offer() accepts, a click that teleports
+needs none, a refused NPC is skipped next time, and a crossing counts only once
+memory shows the Desert.
 
 Failure modes, written before the change:
 1. A page asking for input, a fare above MAX_FARE or another currency, or
@@ -31,10 +33,12 @@ from conquest import desert_gate
 MARK = {
     "map_id": 1002,
     "type_id": 0,
-    "name": "SpaceMark",
-    "model": 270,
-    "position": [96, 323],
+    "name": "GeneralPeace",
+    "model": 296,
+    "position": [60, 463],
 }
+FOOD = ("FoodCarrier", (76, 401), (78, 404))
+FOOD_IDENTITY = {**MARK, "name": "FoodCarrier", "model": 7200, "position": [76, 401]}
 APE_GATE = 1060022
 TWIN_GATE = 1060020
 TWIN_TOWN = {
@@ -59,7 +63,7 @@ ASK = page(
 
 
 class Loop:
-    """Twin City at the Desert City landing: the SpaceMark's dialog pages in
+    """Twin City at the Desert City landing: the candidate NPC's dialog pages in
     order, and what each press does ("arrive", "next" or "close"). With
     ``teleport`` the click itself moves the farmer, with no dialog."""
 
@@ -216,9 +220,9 @@ def test_an_offered_page_crosses_and_becomes_the_approved_one(state):
     # 3, 5
     loop = state.current["loop"] = Loop([ASK], ["arrive"])
     assert desert_gate.cross(loop) == [480, 630]
-    assert loop.pressed == ["Yes, please."] and loop.walks == [desert_gate.APPROACH]
+    assert loop.pressed == ["Yes, please."] and loop.walks == [desert_gate.CANDIDATES[0][2]]
     data = read(state.path)
-    assert data["approved"] == [{"records": ASK, "option": "Yes, please."}]
+    assert data["approved"] == [{"npc": "GeneralPeace", "records": ASK, "option": "Yes, please."}]
     assert data["crossings"][-1]["fare"] == 100
     assert data["crossings"][-1]["landing"] == [480, 630]
     assert "desert_gate_crossed" in loop.events
@@ -291,7 +295,7 @@ def test_the_way_in_rides_only_from_afar_and_fetches_a_due_buff(state, monkeypat
     monkeypatch.setattr(buff_trip, "stigma_left", lambda now=None: 0.0)
     monkeypatch.setattr(buff_trip, "visit_buffer", lambda loop: buffs.append(1) or True)
     # Landed on the square by TwinCityGate: the next hops' gates at the
-    # Pharmacist, MrBuffer, the ride, then the SpaceMark.
+    # Pharmacist, MrBuffer, the ride, then the NPC.
     loop = state.current["loop"] = Loop([ASK], ["arrive"])
     loop.life["position"] = [429, 378]
     assert desert_gate.travel(loop) == [480, 630]
@@ -342,3 +346,54 @@ def test_the_hops_twincitygates_are_topped_up_keeping_the_fares(state, monkeypat
     # Once a crossing shows its fare, that is what stays carried.
     desert_gate.write_json(desert_gate.STATE, {"crossings": [{"fare": 100}]})
     assert desert_gate.fare_reserve() == 200
+
+
+def test_a_refused_npc_is_skipped_and_with_none_left_nothing_is_paid(state, monkeypatch):
+    # 2: GeneralPeace and the SpaceMark were asked live and refused.
+    from conquest import buff_trip, conductress
+
+    second = ("SpaceMark", (96, 323), (98, 327))
+    monkeypatch.setattr(desert_gate, "CANDIDATES", (FOOD, second))
+    loop = state.current["loop"] = Loop([page("Peace be with you.", "Thanks.")], [])
+    loop.identity = dict(FOOD_IDENTITY)
+    with pytest.raises(ValueError, match="needs approval"):
+        desert_gate.cross(loop)
+    assert desert_gate.next_candidate() == second
+    # The next try asks the next NPC, on its own approach.
+    loop = state.current["loop"] = Loop([ASK], ["arrive"])
+    loop.identity = {**MARK, "name": "SpaceMark", "model": 270, "position": [96, 323]}
+    assert desert_gate.cross(loop) == [480, 630] and loop.walks == [(98, 327)]
+    # Its approved page keeps it in play even after a later refusal.
+    data = read(state.path)
+    data["refused"]["SpaceMark"] = {"records": [], "at": 0}
+    desert_gate.write_json(desert_gate.STATE, data)
+    assert desert_gate.next_candidate() == second
+    # Every NPC refused and none approved: the way in stops before any fare.
+    data["approved"] = []
+    desert_gate.write_json(desert_gate.STATE, data)
+    assert desert_gate.next_candidate() is None
+    rides = []
+    monkeypatch.setattr(conductress, "take_saved_trip", lambda loop, d: rides.append(d))
+    monkeypatch.setattr(buff_trip, "enabled", lambda: False)
+    loop = state.current["loop"] = Loop([ASK], ["arrive"])
+    loop.life["position"] = [429, 378]
+    with pytest.raises(ValueError, match="No Desert NPC left"):
+        desert_gate.travel(loop)
+    assert rides == [] and loop.walks == [] and loop.opened == 0
+
+
+def test_general_peaces_warning_is_pressed_as_alex_showed(state):
+    # Alex 2026-09-30 21:2x: "you have to talk to the general peace and press
+    # on 'I see'". His page, as Suicide read it at 20:32:57 and 21:16:04.
+    warning = desert_gate.APPROVED[0]["records"]
+    assert desert_gate.offer(warning) is None  # offer() alone refuses it
+    assert desert_gate.next_candidate()[0] == "GeneralPeace"
+    loop = state.current["loop"] = Loop([warning], ["arrive"])
+    assert desert_gate.cross(loop) == [480, 630]
+    assert loop.pressed == ["I see."] and loop.walks == [(64, 468)]
+    data = read(state.path)
+    # Approved in code: the saved list stays for pages learned live.
+    assert data.get("approved") == [] and data["crossings"][-1]["npc"] == "GeneralPeace"
+    # Even a refusal recorded against him keeps him in play.
+    desert_gate.write_json(desert_gate.STATE, {**data, "refused": {"GeneralPeace": {}}})
+    assert desert_gate.next_candidate()[0] == "GeneralPeace"

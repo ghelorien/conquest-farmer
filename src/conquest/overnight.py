@@ -49,6 +49,9 @@ GATE_SETTLE_SECONDS = 30.0
 # chase ends in that walk.
 GATE_RELAX_SECONDS = 12.0
 GATE_RELAXED_TILES = 6
+# From a walled-off field (a route entry's region) the quiet-spot search runs
+# this many times before the gate is read anyway: there is no walk home.
+WALLED_GATE_TRIES = 3
 # Once the hourly restart budget is spent: pause this long (escalating), then
 # replan from fresh reads again instead of stopping for good.
 FAILURE_COOLDOWNS = (120, 300, 600)
@@ -1777,13 +1780,31 @@ class OvernightLoop:
                 < GATE_HOME_TILES
             ):
                 return False
-        if not self.quiet_for_gate():
+        from conquest.world_travel import inside
+
+        entry = getattr(self.route, "entry", None)
+        # A walled-off field (Love Canyon) has no walk home: ~1,285 tiles
+        # through the GiantApe and ThunderApe bosses. Look for a quiet spot
+        # longer, then read the gate anyway.
+        walled = (
+            entry is not None
+            and life.get("map_id") == self.route.map_id
+            and inside(entry.region, life["position"])
+        )
+        for _ in range(WALLED_GATE_TRIES if walled else 1):
+            if self.quiet_for_gate():
+                return read_gate(self, home)
+        if walled:
             self.record(
-                "gate_deferred_under_fire",
-                activity="No quiet spot to read the gate; walking home",
+                "gate_read_under_fire",
+                activity="No quiet spot in a walled-off field; reading the gate anyway",
             )
-            return False
-        return read_gate(self, home)
+            return read_gate(self, home)
+        self.record(
+            "gate_deferred_under_fire",
+            activity="No quiet spot to read the gate; walking home",
+        )
+        return False
 
     def quiet_for_gate(self):
         """Whether a spot turned up where the gate can be read without being hit.
@@ -2313,12 +2334,17 @@ class OvernightLoop:
     def hunt(self):
         self.phase = "hunting"
         self.living()
-        from conquest.world_travel import travel_to_map
+        from conquest.world_travel import enter_route_area, travel_to_map
 
-        travel_to_map(self, self.route.map_id)
-        from conquest.city_travel import ensure_city_visit
+        if getattr(self.route, "entry", None) is not None:
+            # A walled-off field (Love Canyon) is entered through another
+            # map's portal; its own town is a gate away, never a walk.
+            enter_route_area(self)
+        else:
+            travel_to_map(self, self.route.map_id)
+            from conquest.city_travel import ensure_city_visit
 
-        ensure_city_visit(self)
+            ensure_city_visit(self)
         from conquest.conductress_shortcut import ride
 
         # Alex: the Conductress to Ape City is the fast way to the far fields.
@@ -2698,7 +2724,7 @@ class OvernightLoop:
             self.return_to_route_map()
 
     def return_to_route_map(self):
-        from conquest.world_travel import travel_to_map
+        from conquest.world_travel import enter_route_area, travel_to_map
 
         self.stop_farm()
         self.phase = "recovering_route"
@@ -2706,7 +2732,10 @@ class OvernightLoop:
             "returning_to_route_map",
             activity=f"Returning to {self.route.name} after map change",
         )
-        travel_to_map(self, self.route.map_id)
+        if getattr(self.route, "entry", None) is not None:
+            enter_route_area(self)
+        else:
+            travel_to_map(self, self.route.map_id)
         # Route selection clears an obsolete recovery checkpoint after a cross-map revive.
         request(self.info, "controls", {"route_id": self.route.id})
         time.sleep(0.2)

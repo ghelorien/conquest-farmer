@@ -24,10 +24,15 @@ MODELS = {
     # Twin City's daily double EXP (model 8450 at (424, 344), Laptop2's scene
     # scan 2026-09-30), visited by hempknight from the buff trip.
     "TheHempKnight": set(range(8450, 8460)),
-    # Twin City's way into the Desert (npc.json type 27; model 270 at
-    # (96, 323), Laptop2's npc survey 2026-09-27), crossed by desert_gate.
-    # GeneralPeace (type 29, model 296) by the Desert City landing only warns.
+    # Twin City's west, asked by desert_gate for the way into the Desert
+    # (Laptop2's npc survey 2026-09-27). GeneralPeace (npc.json type 29, model
+    # 296 at (60, 463)) is it: "I see." on his warning (Alex, 2026-09-30). The
+    # SpaceMark (type 27, model 270 at (96, 323)) sells teleport scrolls to
+    # Water Taoists only; the FoodCarrier (type 720, model 7200 at (76, 401))
+    # stands by the Mine.
+    "GeneralPeace": set(range(290, 300)),
     "SpaceMark": set(range(270, 280)),
+    "FoodCarrier": set(range(7200, 7210)),
 }
 
 

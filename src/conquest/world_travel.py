@@ -227,7 +227,48 @@ def reachable(loop, source, destination):
         return bool(gate_towns(loop, source, destination))
 
 
-def travel_to_map(loop, destination):
+def inside(region, position):
+    x0, y0, x1, y1 = region
+    return x0 <= position[0] <= x1 and y0 <= position[1] <= y1
+
+
+def enter_route_area(loop):
+    """Reach a hunting area walled off from its own town (route "entry"):
+    map travel to the entry map without its town walk, then the entry portal
+    into the route's map, checked by memory. False when already inside.
+
+    Love Canyon, Ape Mountain's south-west (Snakemen L62, the client's help:
+    (232, 461)), is ~1,285 walking tiles from Ape City through the GiantApe
+    and ThunderApe boss grounds; its west corner holds portal 4 (11, 377),
+    and the Desert's east portal 1 (977, 668) is six tiles from where
+    GeneralPeace's page lands (2026-09-30).
+    """
+    route = loop.route
+    entry = getattr(route, "entry", None)
+    if entry is None:
+        return False
+    life = loop.living()["embedded_controls"]["life"]
+    if life["map_id"] == route.map_id and inside(entry.region, life["position"]):
+        loop.terrain = read_terrain(CLIENT_ROOT, route.map_id)
+        return False
+    travel_to_map(loop, entry.map_id, visit_town=False)
+    edge = cross_portal(loop, entry.portal_id, route.map_id)
+    here = loop.living()["embedded_controls"]["life"]["position"]
+    if not inside(entry.region, here):
+        raise ValueError(f"The entry portal landed outside {route.name} at {here}")
+    loop.record(
+        "route_entry_crossed",
+        connection=edge,
+        activity=f"Through map {entry.map_id}'s portal {entry.portal_id} into {route.name}",
+    )
+    return True
+
+
+def travel_to_map(loop, destination, visit_town=True):
+    """Travel to ``destination`` by carried gates and saved connections.
+
+    ``visit_town`` False skips each arrival's walk to its city's town, for a
+    map that is only a passage (the Desert on the way into Love Canyon)."""
     for _ in range(8):
         life = loop.living()["embedded_controls"]["life"]
         if life["map_id"] == destination:
@@ -282,7 +323,7 @@ def travel_to_map(loop, destination):
             from conquest import desert_gate
             from conquest.city_travel import city_for, ensure_city_visit
 
-            if edge["service"] != desert_gate.NAME:
+            if edge["service"] != desert_gate.SERVICE:
                 raise ValueError(f"Unsupported map crossing service {edge['service']}")
             if (
                 read_terrain(CLIENT_ROOT, life["map_id"]).source_sha256
@@ -293,7 +334,8 @@ def travel_to_map(loop, destination):
                 raise ValueError("Saved map connection differs from installed terrain")
             city_for(edge["destination_map"])  # Check before any fare.
             desert_gate.travel(loop)
-            ensure_city_visit(loop, new_arrival=True)
+            if visit_town:
+                ensure_city_visit(loop, new_arrival=True)
             continue
         terrain = read_terrain(CLIENT_ROOT, life["map_id"])
         # Every walk before the crossing (banking for the fare, the way to the
@@ -318,7 +360,8 @@ def travel_to_map(loop, destination):
             if take_saved_trip(loop, edge["destination_map"]):
                 arrival = loop.living()["embedded_controls"]["life"]
                 if arrival["map_id"] == edge["destination_map"]:
-                    ensure_city_visit(loop, new_arrival=True)
+                    if visit_town:
+                        ensure_city_visit(loop, new_arrival=True)
                     continue
             elif life["map_id"] == 1002:
                 raise ValueError(
@@ -329,7 +372,8 @@ def travel_to_map(loop, destination):
             # (Toxic, Phoenix City, 60 silver, no scroll): the route change
             # to the Poltergeists failed here on every retry.
         cross_portal(loop, edge["portal_id"], edge["destination_map"])
-        ensure_city_visit(loop, new_arrival=True)
+        if visit_town:
+            ensure_city_visit(loop, new_arrival=True)
     raise ValueError("Map travel exceeded the connection limit")
 
 
