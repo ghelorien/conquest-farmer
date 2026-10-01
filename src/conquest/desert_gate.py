@@ -1,22 +1,27 @@
-"""GeneralPeace: Twin City's way into the Desert (map 1000).
+"""SpaceMark: Twin City's way into the Desert (map 1000).
 
 Alex 2026-09-30 19:3x: "When you get to the north west close to the mine /
 poltergeist there is a npc that will bring you to the desert." Twin City
 portal 1 (44, 394), the seeded guess, leads to the Mine (1028) instead
-(Suicide, 19:28:43). Suicide's npc survey saw him on 2026-09-27 13:48:
-GeneralPeace (npc.json type 29, model 296, uid 100159) at (60, 463) on Twin
-City's map, ten tiles from where the Conductress's "Desert City" ride lands
-(69, 473). market_services.discover finds him like any species-0 NPC.
+(Suicide, 19:28:43). GeneralPeace (model 296) at (60, 463), beside the
+Conductress's "Desert City" landing (69, 473), only warns: "This is the way
+to the Desert City. Although you are excellent, it is dangerous to go
+ahead." with the one option "I see." (Suicide, 20:32:57). His road runs 176
+walking tiles north to a SpaceMark (npc.json type 27, model 270, uid 101353)
+at (96, 323), north-west of the Mine and the Poltergeists (Suicide's npc
+survey, 2026-09-27 13:56). SpaceMarks are early Conquer's map-teleport NPCs.
+market_services.discover finds it like any species-0 NPC.
 
-Nobody had read his dialog when this was written. Every page seen is saved in
-STATE["pages"]. An option is pressed only on a page saved in STATE["approved"]
-([{"records": [...], "option": "..."}]), or on a page offer() accepts: it asks
-for no input, names no fare above MAX_FARE, speaks of the Desert (or follows a
-pressed page that did), and has exactly one option naming the Desert or,
-failing that, exactly one affirmative one. Any other page is saved and the
-dialog closed. The crossing counts once memory shows the farmer on the
-Desert's map; the pages pressed then become the approved ones, with the fare
-paid and the landing tile, and STATE "crossings" keeps the last few.
+Nobody had read its dialog when this was written, and a click may teleport
+with no dialog at all. Every page seen is saved in STATE["pages"]. An option
+is pressed only on a page saved in STATE["approved"] ([{"records": [...],
+"option": "..."}]), or on a page offer() accepts: it asks for no input, names
+no fare above MAX_FARE, speaks of the Desert (or follows a pressed page that
+did), and has exactly one option naming the Desert or, failing that, exactly
+one affirmative one. Any other page is saved and the dialog closed. The
+crossing counts once memory shows the farmer on the Desert's map; the pages
+pressed then become the approved ones, with the fare paid and the landing
+tile, and STATE "crossings" keeps the last few.
 
 The way out is a carried gate (return_scroll.GATES): nobody has seen where the
 Desert's own portals lead, so no crossing starts without the route's gate home.
@@ -29,20 +34,22 @@ from pathlib import Path
 from conquest.character_context import state_path
 from conquest.discord_notify import read_json, write_json
 
-NAME = "GeneralPeace"
+NAME = "SpaceMark"
 TWIN_CITY = 1002
 DESERT = 1000
-SPOT = (60, 463)
-# Open ground five tiles south-east of him, on the way from the landing.
-APPROACH = (64, 468)
-# Where the Conductress's "Desert City" ride lands.
+SPOT = (96, 323)
+# Open ground four tiles south-east of it, on the road from the landing.
+APPROACH = (98, 327)
+# Where the Conductress's "Desert City" ride lands: 176 walking tiles from
+# it, against ~1,420 from Twin City's square through the west's maze.
 LANDING = (69, 473)
-STATE = Path(state_path(".runtime/general-peace.json"))
-# Closer than this, the farmer walks to him instead of riding again.
-NEAR_TILES = 40
+STATE = Path(state_path(".runtime/desert-gate.json"))
+# Closer than this (the landing is 150), the farmer walks to it instead of
+# riding again.
+NEAR_TILES = 200
 # The Conductress charges 100 for any ride; no page naming more is pressed.
 MAX_FARE = 1000
-# His fare, kept carried until a crossing shows the real one.
+# Its fare, kept carried until a crossing shows the real one.
 GUESSED_FARE = 300
 # TwinCityGates for the hops: buy (up to buff_trip.GATE_KEEP) at this many.
 HOP_GATES_LOW = 1
@@ -147,12 +154,13 @@ def _dismiss(loop):
         pass
 
 
-def _after_press(loop, actor, records):
+def _after_press(loop, actor, records, seconds=None):
     """("arrived", life) once memory shows the Desert's map, ("page", dialog)
-    when another page opens, or ("closed", None)."""
+    when a page other than ``records`` opens (any page for None), or
+    ("closed", None) after ``seconds`` (ARRIVAL_SECONDS)."""
     from conquest.worker import request
 
-    deadline = time.monotonic() + ARRIVAL_SECONDS
+    deadline = time.monotonic() + (ARRIVAL_SECONDS if seconds is None else seconds)
     while time.monotonic() < deadline:
         loop.check_stop()
         data = loop.health()["embedded_controls"]
@@ -228,23 +236,24 @@ def _crossed(loop, before, actor, pressed, life):
     write_json(STATE, data)
     loop.terrain = read_terrain(CLIENT_ROOT, DESERT)
     loop.record(
-        "general_peace_crossed",
+        "desert_gate_crossed",
+        npc=NAME,
         fare=paid,
         landing=life["position"],
         options=[s["option"] for s in pressed],
-        activity=f"GeneralPeace: in the Desert at {tuple(life['position'])} (fare {paid})",
+        activity=f"{NAME}: in the Desert at {tuple(life['position'])} (fare {paid})",
     )
     if paid is not None and paid > MAX_FARE:
         loop.record(
-            "general_peace_fare_high",
+            "desert_gate_fare_high",
             fare=paid,
-            activity=f"GeneralPeace charged {paid} silver, above the {MAX_FARE} expected",
+            activity=f"{NAME} charged {paid} silver, above the {MAX_FARE} expected",
         )
     return life["position"]
 
 
 def cross(loop):
-    """Beside GeneralPeace on Twin City's map: talk him into the Desert.
+    """Beside the SpaceMark on Twin City's map: into the Desert.
 
     Returns the landing tile once memory shows the Desert's map. Raises
     ValueError when a page needs approval (it is saved) or the crossing is not
@@ -253,32 +262,36 @@ def cross(loop):
 
     life = loop.living()["embedded_controls"]["life"]
     if life["map_id"] != TWIN_CITY:
-        raise ValueError("GeneralPeace stands on Twin City's map")
+        raise ValueError(f"{NAME} stands on Twin City's map")
     home = getattr(getattr(loop, "route", None), "restock_map_id", None)
     if home is not None and not gate_home_carried(loop, home):
         raise ValueError("No gate home carried; not crossing into the Desert")
     actor = life["object_address"]
     approved = approved_steps(read_json(STATE))
-    loop.travel(
-        APPROACH, arrival_radius=2, activity="Walking up to GeneralPeace", service_name=NAME
-    )
+    loop.travel(APPROACH, arrival_radius=2, activity=f"Walking up to {NAME}", service_name=NAME)
     located = loop.town("service-locate", name=NAME)
     if not _identity_ok(located["identity"]):
-        raise ValueError("GeneralPeace's identity differs from the survey")
+        raise ValueError(f"{NAME}'s identity differs from the survey")
     loop.town("close", window="Shop")
     loop.town("close", window="Inventory")
     before = loop.town("supplies")
-    loop.town("service-open", name=NAME)
     pressed, arrival = [], None
     try:
-        dialog = _dialog(loop)
-        if dialog is None:
+        # A SpaceMark may teleport on the click itself, with no dialog.
+        loop.town("service-open", name=NAME)
+        outcome, value = _after_press(loop, actor, None, DIALOG_WAIT_SECONDS)
+        if outcome == "closed":
             # The first click can miss the sprite (ArcherGod, 2026-09-27).
             loop.town("service-open", name=NAME)
-            dialog = _dialog(loop)
-        if dialog is None:
-            raise ValueError("GeneralPeace's dialog did not open")
+            outcome, value = _after_press(loop, actor, None, DIALOG_WAIT_SECONDS)
+        if outcome == "closed":
+            raise ValueError(f"{NAME} neither opened a dialog nor moved the farmer")
+        if outcome == "arrived":
+            arrival = value
+        dialog = value if outcome == "page" else None
         for _ in range(MAX_STEPS):
+            if dialog is None:
+                break
             loop.check_stop()
             records = dialog["records"]
             _save_page(records, pressed)
@@ -291,16 +304,17 @@ def cross(loop):
             option = step["option"] if step else offer(records, desert_before)
             if option is None:
                 loop.record(
-                    "general_peace_page",
+                    "desert_gate_page",
+                    npc=NAME,
                     records=records,
                     pressed=[s["option"] for s in pressed],
-                    activity="GeneralPeace: saved a dialog page nobody approved; nothing pressed",
+                    activity=f"{NAME}: saved a dialog page nobody approved; nothing pressed",
                 )
                 raise ValueError(
-                    "GeneralPeace: a dialog page needs approval (saved in general-peace.json)"
+                    f"{NAME}: a dialog page needs approval (saved in {STATE.name})"
                 )
             if option not in [r.get("text") for r in records if r.get("kind") == 1]:
-                raise ValueError("GeneralPeace's option is not on its page")
+                raise ValueError(f"{NAME}'s option is not on its page")
             if scroll_direction(dialog, option, dialog.get("viewport")):
                 loop.town("service-scroll-dialog", name=NAME, option=option, records=records)
                 dialog = _dialog(loop) or dialog
@@ -312,10 +326,10 @@ def cross(loop):
                 arrival = value
                 break
             if outcome == "closed":
-                raise ValueError("GeneralPeace's dialog closed without a crossing into the Desert")
+                raise ValueError(f"{NAME}'s dialog closed without a crossing into the Desert")
             dialog = value
         else:
-            raise ValueError("GeneralPeace's dialog went past its step limit")
+            raise ValueError(f"{NAME}'s dialog went past its step limit")
     finally:
         if arrival is None:
             _dismiss(loop)
@@ -323,8 +337,8 @@ def cross(loop):
 
 
 def fare_reserve():
-    """Silver kept for the Conductress and his fare (the last one seen, or a
-    guess until then)."""
+    """Silver kept for the Conductress and the SpaceMark's fare (the last one
+    seen, or a guess until then)."""
     fares = [
         c["fare"]
         for c in read_json(STATE).get("crossings", [])
@@ -412,7 +426,7 @@ def refresh_buff(loop):
 def travel(loop):
     """From anywhere on Twin City's map into the Desert: the next hops'
     TwinCityGates and MrBuffer when due, the Conductress's "Desert City" ride
-    unless already near him, then him. Returns the landing tile."""
+    unless already near it, then the SpaceMark. Returns the landing tile."""
     from conquest.conductress import take_saved_trip
     from conquest.navigation import read_terrain
     from conquest.world_travel import CLIENT_ROOT
@@ -421,13 +435,13 @@ def travel(loop):
     if life["map_id"] != TWIN_CITY:
         raise ValueError("The way into the Desert starts on Twin City's map")
     home = getattr(getattr(loop, "route", None), "restock_map_id", None)
-    # Checked before any fare: the ride and his crossing are one-way.
+    # Checked before any fare: the ride and the crossing are one-way.
     if home is not None and not gate_home_carried(loop, home):
         raise ValueError("No gate home carried; not crossing into the Desert")
     loop.terrain = read_terrain(CLIENT_ROOT, TWIN_CITY)
     here = life["position"]
     if max(abs(a - b) for a, b in zip(here, SPOT)) > NEAR_TILES:
-        # Not yet on his side of the map: the gates and the buff first (the
+        # Not yet on its side of the map: the gates and the buff first (the
         # Pharmacist is ~45 tiles from MrBuffer's square).
         try:
             stock_hop_gates(loop)

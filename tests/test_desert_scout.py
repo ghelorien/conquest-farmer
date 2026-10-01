@@ -1,12 +1,12 @@
 """desert-scout: the first Snakeman route, in the Desert (map 1000).
 
 Alex 2026-09-30 18:4x: "scout the Desert now" (Suicide L60; Snakemen L62).
-The way in is saved, not guessed: a TwinCityGate from Ape City, then Twin City's
-Conductress "Desert City" (Suicide landed at (69, 473) four times on
-2026-09-27), then GeneralPeace beside that landing (Alex 19:3x: "there is a npc
-that will bring you to the desert"). Twin City portal 1 (44, 394), the first
-guess, leads to the Mine (1028): Suicide, 19:28:43. Restocks read an
-ApeCityGate home.
+The way in: a TwinCityGate from Ape City, then Twin City's Conductress "Desert
+City" (Suicide landed at (69, 473) four times on 2026-09-27), then the road
+past GeneralPeace (who only warns, 20:32:57) to the SpaceMark at (96, 323)
+(Alex 19:3x: "there is a npc that will bring you to the desert"). Twin City
+portal 1 (44, 394), the first guess, leads to the Mine (1028): Suicide,
+19:28:43. Restocks read an ApeCityGate home.
 
 Failure modes, written before the change:
 1. The route targets anything but the Snakeman family, or native farming
@@ -18,7 +18,7 @@ Failure modes, written before the change:
    portal, or plan a way out of the Desert nobody has crossed.
 4. Map travel from Ape City walks the GiantApe plain to Ape Mountain's Twin
    City portal instead of reading the carried TwinCityGate, or walks a portal
-   on Twin City's map instead of asking GeneralPeace.
+   on Twin City's map instead of asking the SpaceMark.
 5. A map with no saved way on (the Mine) strands the farmer although a gate
    to a town with one is carried.
 """
@@ -105,19 +105,24 @@ def test_the_saved_desert_links_match_the_installed_terrain(terrains):
     assert mine["verified"] is True and mine["destination_map"] == 1028
     assert mine["destination_terrain_sha256"] == SHA[1028]
     assert (44, 394, 1) in terrains[1002].portals
-    [peace] = [e for e in edges if e.get("service") == desert_gate.NAME]
-    assert peace["verified"] is True
-    assert (peace["source_map"], peace["destination_map"]) == (1002, 1000)
-    assert peace["source_terrain_sha256"] == SHA[1002]
-    assert peace["destination_terrain_sha256"] == SHA[1000]
-    assert tuple(peace["service_position"]) == desert_gate.SPOT
-    # His tile is his own footprint; the approach and the ride's landing are
-    # open ground within his dialog's 18 tiles, joined by a terrain path.
+    [mark] = [e for e in edges if e.get("service") == desert_gate.NAME]
+    assert desert_gate.NAME == "SpaceMark" and mark["verified"] is True
+    assert (mark["source_map"], mark["destination_map"]) == (1002, 1000)
+    assert mark["source_terrain_sha256"] == SHA[1002]
+    assert mark["destination_terrain_sha256"] == SHA[1000]
+    assert tuple(mark["service_position"]) == desert_gate.SPOT
+    # The approach is open ground within its dialog's 18 tiles (12 for the
+    # travel's stop); the ride's landing is open ground on its side of the
+    # map, a 176-tile road away (the square is ~1,420 through the maze).
     tc = terrains[1002]
-    for tile in (desert_gate.APPROACH, desert_gate.LANDING):
-        assert tc.walkable(tile)
-        assert max(abs(a - b) for a, b in zip(tile, desert_gate.SPOT)) <= 12
-    tc.path(desert_gate.LANDING, desert_gate.APPROACH)
+    assert tc.walkable(desert_gate.APPROACH) and tc.walkable(desert_gate.LANDING)
+    assert max(abs(a - b) for a, b in zip(desert_gate.APPROACH, desert_gate.SPOT)) <= 12
+    assert (
+        max(abs(a - b) for a, b in zip(desert_gate.LANDING, desert_gate.SPOT))
+        <= desert_gate.NEAR_TILES
+    )
+    assert len(tc.path(desert_gate.LANDING, desert_gate.APPROACH)) < 250
+    assert len(tc.path((429, 378), desert_gate.APPROACH)) > 1000
     # Nobody has crossed the Desert's own portals: no saved way out of it.
     assert not [e for e in edges if e["source_map"] == 1000 and e.get("verified") is True]
     trips = json.loads(TRIPS.read_text(encoding="utf-8"))["trips"]

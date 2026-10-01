@@ -72,17 +72,17 @@
     },
     {
       "source_map": 1002,
-      "service": "GeneralPeace",
+      "service": "SpaceMark",
       "service_position": [
-        60,
-        463
+        96,
+        323
       ],
       "destination_map": 1000,
       "source_terrain_sha256": "cf76b99e7786b4f580f949b2f4d60e9eb2501e994a777df50d52e543b0b7999c",
       "destination_terrain_sha256": "3d8a7ec5d308f8a3cfd5305768093115274265426ce3295f5bc0c111384d9213",
       "verified": true,
-      "observed_at": 1790813061.0,
-      "evidence": "Alex 2026-09-30 19:3x: 'When you get to the north west close to the mine / poltergeist there is a npc that will bring you to the desert.' GeneralPeace (npc.json type 29, model 296, uid 100159) stands at (60, 463), ten tiles from the Conductress's 'Desert City' landing (69, 473) (Suicide's npc survey, 2026-09-27 13:48). desert_gate crosses: approved or offer()-checked dialog pages only, and the arrival on map 1000 is checked by memory."
+      "observed_at": 1790815200.0,
+      "evidence": "Alex 2026-09-30 19:3x: 'When you get to the north west close to the mine / poltergeist there is a npc that will bring you to the desert.' GeneralPeace (model 296) at (60, 463), beside the Conductress's 'Desert City' landing (69, 473), only warns ('This is the way to the Desert City...', one option 'I see.', Suicide 20:32:57). His road runs 176 tiles north to a SpaceMark (npc.json type 27, model 270, uid 101353) at (96, 323) (Suicide's npc survey, 2026-09-27 13:56), early Conquer's map-teleport NPC. desert_gate crosses: approved or offer()-checked dialog pages only (or a click that teleports), and the arrival on map 1000 is checked by memory."
     },
     {
       "source_map": 1000,
