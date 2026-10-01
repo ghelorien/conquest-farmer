@@ -44,6 +44,9 @@ LOW = (
     # The WingedSnake herd's two halves (2026-09-29): same monsters and levels.
     "wingedsnake-west",
     "wingedsnake-east",
+    # Twin City's fields restocked in Phoenix (2026-10-01): same levels.
+    "apparition-phx",
+    "poltergeist-phx",
 )
 
 
