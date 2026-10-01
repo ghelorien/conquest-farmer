@@ -185,6 +185,53 @@ def test_a_quiet_field_reads_the_gate_after_the_quiet_wait(monkeypatch, clock):
     assert overnight.GATE_QUIET_SECONDS <= clock[0] - start < overnight.GATE_QUIET_SECONDS + 1
 
 
+@pytest.mark.parametrize(
+    "reason, hp, searches, read",
+    [
+        ("boss_chase", 800, 0, True),  # half HP or more: at once
+        ("player_attack", 900, 0, True),
+        ("heavy_damage", 300, 1, True),  # low: one quiet-spot search, then read
+        ("arrows_low", 900, 1, False),  # an ordinary return still walks
+    ],
+)
+def test_a_return_forced_by_danger_reads_the_gate_instead_of_walking_into_it(
+    monkeypatch, clock, reason, hp, searches, read
+):
+    # Toxic died at (233, 194) on 2026-10-01 03:07:54: a boss_chase return
+    # spent 60 s on quiet-spot searches beside two ThunderApeMsgrs, then
+    # walked home into them.
+    scene = {
+        "position": (619, 281),
+        "hp": hp,
+        "monsters": [{"name": "ThunderApeMsgr", "position": [626, 281]}],
+    }
+    loop, events, jumps, gates = far_loop(monkeypatch, scene)
+    living = loop.living
+
+    def with_max_hp():
+        health = living()
+        health["embedded_controls"]["life"]["max_hp"] = 1000
+        return health
+
+    loop.living = with_max_hp
+    quiet = []
+    loop.quiet_for_gate = lambda: quiet.append(1) or False
+    loop.return_reason = reason
+    assert loop.gate_home_from_afar() is read
+    assert len(quiet) == searches and gates == ([1020] if read else [])
+    assert events == ["gate_read_under_fire" if read else "gate_deferred_under_fire"]
+
+
+def test_the_return_reason_lasts_until_the_restock_completes(tmp_path):
+    loop = OvernightLoop.__new__(OvernightLoop)
+    loop.state, loop.output, loop.phase, loop.cycles = {}, tmp_path, "hunting", 0
+    loop.record("return_required", reason="boss_chase", activity="leaving")
+    loop.record("travel", activity="Heading to Pharmacist")
+    assert loop.return_reason == "boss_chase"
+    loop.record("restock_complete")
+    assert loop.return_reason is None
+
+
 @pytest.mark.parametrize("bandit_level, read", [(32, True), (55, False), (None, False)])
 def test_monsters_far_below_the_character_do_not_crowd_the_gate(
     monkeypatch, clock, bandit_level, read

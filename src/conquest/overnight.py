@@ -58,6 +58,15 @@ WALLED_GATE_TRIES = 3
 # and a buff refresh that finds no quiet spot cools down for 20 minutes.
 GATE_HARMLESS_LEVELS = 20
 GATE_HIT_TOLERANCE = 0.02
+# A return forced by danger reads the gate under fire instead of walking home
+# past what forced it. Toxic died at (233, 194) on 2026-10-01 03:07:54: a
+# boss_chase return spent 60 s on quiet-spot searches beside two
+# ThunderApeMsgrs (the buff trip's TwinCityGate, then the gate home), then
+# walked home into them. With URGENT_GATE_HP of max HP it reads at once;
+# lower, it heals and evades through one quiet-spot search first. Its buff
+# trip waits for the shopping in town.
+URGENT_RETURNS = ("boss_chase", "heavy_damage", "player_attack")
+URGENT_GATE_HP = 0.5
 # A player is hitting the farmer (B2C allows PK) when HP falls by
 # PK_HIT_SHARE of max HP between two hunt checks beyond what the monsters near
 # can explain, and a player stands within PK_PLAYER_TILES. A Bandit (L32)
@@ -492,6 +501,10 @@ class OvernightLoop:
             pass
 
     def record(self, event, **fields):
+        if event == "return_required":
+            self.return_reason = fields.get("reason")
+        elif event == "restock_complete":
+            self.return_reason = None
         visits = getattr(self, "town_visit", None)
         if visits is not None:
             fields.setdefault("town_visit_id", visits.active_id())
@@ -1876,13 +1889,23 @@ class OvernightLoop:
             and life.get("map_id") == self.route.map_id
             and inside(entry.region, life["position"])
         )
+        urgent = getattr(self, "return_reason", None) in URGENT_RETURNS
+        top = life.get("max_hp") or 0
+        if urgent and top and (life.get("current_hp") or 0) >= URGENT_GATE_HP * top:
+            self.record(
+                "gate_read_under_fire",
+                reason=self.return_reason,
+                activity="Leaving the danger that forced this return: reading the gate at once",
+            )
+            return read_gate(self, home)
         for _ in range(WALLED_GATE_TRIES if walled else 1):
             if self.quiet_for_gate():
                 return read_gate(self, home)
-        if walled:
+        if walled or urgent:
             self.record(
                 "gate_read_under_fire",
-                activity="No quiet spot in a walled-off field; reading the gate anyway",
+                reason=getattr(self, "return_reason", None),
+                activity="No quiet spot, and the walk home crosses the danger; reading the gate anyway",
             )
             return read_gate(self, home)
         self.record(
@@ -2057,11 +2080,13 @@ class OvernightLoop:
         gate_wait = False
         if buff_trip.enabled():
             carried = self.town("supplies")["items"]
-            if buff_trip.refresh_due(carried, home=self.route.restock_map_id):
+            urgent = getattr(self, "return_reason", None) in URGENT_RETURNS
+            if not urgent and buff_trip.refresh_due(carried, home=self.route.restock_map_id):
                 buff_trip.trip(self)
             # Without a gate home the trip waits for the Pharmacist below,
-            # which stocks one, and goes after the shopping.
-            gate_wait = buff_trip.gate_home_missing(
+            # which stocks one, and goes after the shopping. So does the trip
+            # of a return forced by danger: no field gate beside what forced it.
+            gate_wait = urgent or buff_trip.gate_home_missing(
                 carried, home=self.route.restock_map_id
             )
         self.scroll_to_restock_town()
