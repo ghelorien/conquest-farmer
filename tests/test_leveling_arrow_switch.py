@@ -95,8 +95,11 @@ def test_lower_tier_stacks_do_not_count_against_a_better_tier(leveling, monkeypa
     ]
     with pytest.raises(ValueError, match="maximum packs"):
         arrow_upgrades.require_arrow_purchase_room(carried, IRON)
-    # 3: a LuckyArrow refill counts every tier against its eight packs.
+    # 3: a LuckyArrow refill counts every tier against its pack limit.
     assert arrow_upgrades.arrow_pack_count(carried, LUCKY) == 7 + arrow_upgrades.LEVELING_IRON_PACKS
+    arrow_upgrades.require_arrow_purchase_room(carried, LUCKY)
+    spare = arrow_upgrades.LEVELING_LUCKY_PACKS - 7 - arrow_upgrades.LEVELING_IRON_PACKS
+    carried["items"] += [stack(60 + n, LUCKY, 200, 40 + n) for n in range(spare)]
     with pytest.raises(ValueError, match="maximum packs"):
         arrow_upgrades.require_arrow_purchase_room(carried, LUCKY)
     # 4: America farmers keep one equipped pack and one spare across tiers.

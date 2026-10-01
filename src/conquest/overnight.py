@@ -2962,6 +2962,12 @@ class OvernightLoop:
             reserves,
             equipped_ammo=supplies.get("equipped_ammo"),
         )
+        from conquest.arrow_upgrades import within_cap
+
+        if default is not None and not within_cap(kind):
+            # A dearer stack still carried is shot first (combat starts on the
+            # best carried tier); restocks buy the capped tier only.
+            kind = default
         target = refill_target(kind)
         # A measured supply plan may carry fewer packs so more potions fit.
         target = min(target, getattr(self, "planned_arrows", {}).get(kind, target))

@@ -1,6 +1,17 @@
 """Normal archer ammunition selection from live equipment and shop records."""
 
+from pathlib import Path
+
+from conquest.character_context import state_path
+
 NORMAL_ARROWS = {1050000: "LuckyArrow", 1050001: "IronArrow", 1050002: "SpeedArrow"}
+# Per character {"tier_cap": 1050000, "reason": "..."}: the best normal tier
+# a leveling archer buys, whatever its wallet. 2026-10-01 12:3x: Suicide (62)
+# one-shots Apparitions (303 HP) far past a LuckyArrow's 40 attack less, yet
+# IronArrows (4.8 silver an arrow against 1) burned ~17k an hour from a 26k
+# bank with no income there; the next restock would have left ~2k and turned
+# on every silver pile, which cut kills to ~55/min on Bandits.
+POLICY = Path(state_path(".runtime/arrow-policy.json"))
 ARROW_LEVELS = {1050000: 1, 1050001: 32, 1050002: 73}
 # Latest preference: one equipped pack and one spare, across all normal tiers.
 MAX_ARROW_PACKS = 2
@@ -16,8 +27,11 @@ REMNANT_ARROWS = 9
 # 18 minutes (live 2026-09-27), so every town trip was for arrows. The
 # two-pack preference was set for 5,000-arrow SpeedArrow packs. At 15
 # kills/min (level 20, 50 arrows/min) five packs lasted ~20 minutes while
-# the potions lasted ~37: eight packs (~32 minutes) balance the two.
-LEVELING_LUCKY_PACKS = 8
+# the potions lasted ~37: eight packs (~32 minutes) balance the two. At 100+
+# kills/min (Suicide, 62, ~65 arrows/min) eight lasted ~25 minutes against a
+# ~4.5-minute Phoenix round trip from Twin City's fields; sixteen last ~50
+# (supply_plan.plan still fits them to the bag, the potions and the wallet).
+LEVELING_LUCKY_PACKS = 16
 # Leveling archers on 1,000-arrow IronArrow packs shoot ~62-64 arrows a
 # minute on FireSpirits (Toxic and Suicide, level 41, 2026-09-28). Two packs
 # lasted 17-31 minutes against a ~5-minute town trip (~1,050 tiles each way
@@ -55,9 +69,26 @@ def equipped_remnant(kind):
     return REMNANT_ARROWS
 
 
+def tier_cap():
+    """The capped normal tier from POLICY, or None."""
+    from conquest.discord_notify import read_json
+
+    cap = read_json(POLICY).get("tier_cap")
+    return cap if cap in ARROW_LEVELS else None
+
+
+def within_cap(kind):
+    cap = tier_cap()
+    return cap is None or ARROW_LEVELS.get(kind, 0) <= ARROW_LEVELS[cap]
+
+
 def preferred_arrow(level):
     return max(
-        (kind for kind, required in ARROW_LEVELS.items() if required <= level),
+        (
+            kind
+            for kind, required in ARROW_LEVELS.items()
+            if required <= level and within_cap(kind)
+        ),
         key=ARROW_LEVELS.get,
         default=1050000,
     )
@@ -94,6 +125,7 @@ def leveling_tier(level, wallet):
         price = arrow_pack_price(kind)
         if (
             required <= level
+            and within_cap(kind)
             and price
             and price * LEVELING_TIER_PACKS <= wallet
             and required > ARROW_LEVELS[best]

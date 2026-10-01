@@ -341,3 +341,71 @@ def test_a_partial_ironarrow_pack_counts_its_arrows_not_a_full_pack(monkeypatch)
     minutes, potions, packs = best
     assert set(loop.planned_arrows) == {1050001} and packs == 2
     assert minutes == pytest.approx(1400 / 48.768, rel=0.01)
+
+
+@pytest.mark.parametrize("carried_iron", [2, 2000])
+def test_a_capped_tier_plans_luckyarrows_with_a_full_wallet(monkeypatch, carried_iron):
+    # 2026-10-01 12:3x: Suicide (62) one-shots Apparitions (303 HP) with
+    # either tier, but IronArrows burned ~17k an hour from a 26k bank. With
+    # .runtime/arrow-policy.json {"tier_cap": LuckyArrow} the restock plans
+    # 200-arrow LuckyArrow packs although 26k pays five IronArrow packs, and
+    # buys none of the capped tier even with a fresh stack of it carried.
+    from conquest import arrow_upgrades
+    from conquest.discord_notify import write_json
+
+    write_json(arrow_upgrades.POLICY, {"tier_cap": 1050000})
+    items = [{"uid": i, "type_id": 1000020, "amount": 1} for i in range(3)]
+    items.append({"uid": 50, "type_id": 1060023, "amount": 1})  # a CastleGate
+    loop, best, events = ironarrow_restock(
+        monkeypatch,
+        "apparition-phx",
+        {"potions_per_min": 0.006, "arrows_per_min": 65},
+        items,
+        {"uid": 99, "type_id": 1050001, "amount": carried_iron},
+        silver=200,
+        stored=26230,
+    )
+    minutes, potions, packs = best
+    assert set(loop.planned_arrows) == {1050000}
+    assert loop.route.supplies.arrow_type == 1050000
+    assert loop.route.supplies.arrows_restock_to == packs * 200
+    assert packs == arrow_upgrades.LEVELING_LUCKY_PACKS
+    assert events[-1][1]["arrow_type"] == 1050000
+    # The Blacksmith review's adoption keeps restocking the capped tier while
+    # the carried IronArrows are still shot first in combat.
+    from conquest.overnight import OvernightLoop
+
+    real = OvernightLoop.__new__(OvernightLoop)
+    real.route, real.record = loop.route, lambda *a, **kw: None
+    real.planned_arrows = loop.planned_arrows
+    real.town = lambda action, **kw: (
+        {
+            "items": items,
+            "silver": 200,
+            "equipped_ammo": {"uid": 99, "type_id": 1050001, "amount": carried_iron},
+        }
+        if action == "supplies"
+        else {}
+    )
+    monkeypatch.setattr(
+        "conquest.arrow_upgrades.current_arrow",
+        lambda state, default, *a, **kw: 1050001 if carried_iron >= 3 else default,
+    )
+    real.adopt_ammunition(state={"level": 62})
+    assert real.route.supplies.arrow_type == 1050000
+    assert real.route.supplies.arrows_restock_to == packs * 200
+
+
+def test_without_a_cap_the_wallet_still_buys_ironarrows(monkeypatch):
+    items = [{"uid": i, "type_id": 1000020, "amount": 1} for i in range(3)]
+    loop, best, _ = ironarrow_restock(
+        monkeypatch,
+        "apparition-phx",
+        {"potions_per_min": 0.006, "arrows_per_min": 65},
+        items,
+        {"uid": 99, "type_id": 1050001, "amount": 2},
+        silver=200,
+        stored=26230,
+    )
+    assert set(loop.planned_arrows) == {1050001}
+    assert loop.route.supplies.arrow_type == 1050001

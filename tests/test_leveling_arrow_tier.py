@@ -48,3 +48,22 @@ def test_the_review_keeps_a_leveling_archer_that_cannot_pay_on_luckyarrows(monke
     state = {"level": 32, "equipment": {"arrows": {"type_id": 1050000, "attack_min": 10, "attack_max": 10}}}
     a.review_arrows(loop, products, state, 4_000)
     assert bought == []
+
+
+def test_a_tier_cap_holds_the_best_tier_whatever_the_wallet(monkeypatch):
+    from conquest import arrow_upgrades
+    from conquest.discord_notify import write_json
+
+    monkeypatch.setattr(
+        arrow_upgrades, "arrow_pack_price", {1050000: 200, 1050001: 4800, 1050002: 34000}.get
+    )
+    assert arrow_upgrades.leveling_tier(62, 100_000) == 1050001
+    assert arrow_upgrades.preferred_arrow(62) == 1050001
+    write_json(arrow_upgrades.POLICY, {"tier_cap": 1050000, "reason": "test"})
+    assert arrow_upgrades.leveling_tier(62, 100_000) == 1050000
+    assert arrow_upgrades.preferred_arrow(62) == 1050000
+    assert arrow_upgrades.within_cap(1050000) and not arrow_upgrades.within_cap(1050001)
+    # An unknown cap is no cap.
+    write_json(arrow_upgrades.POLICY, {"tier_cap": 123})
+    assert arrow_upgrades.tier_cap() is None
+    assert arrow_upgrades.leveling_tier(80, 100_000) == 1050002

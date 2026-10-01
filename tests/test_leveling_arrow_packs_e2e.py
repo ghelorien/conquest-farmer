@@ -66,7 +66,7 @@ def buys(kind, leveling, start=2):
     loop.route = RouteLibrary().load("robin")
     loop.town = town
     loop.record = lambda *a, **k: None
-    for _ in range(10):
+    for _ in range(arrow_upgrades.LEVELING_LUCKY_PACKS + 4):
         if not loop.buy_supply(5, kind):
             break
     return {"packs_after": arrow_upgrades.arrow_pack_count(state), "bought": len(bought)}
@@ -117,13 +117,14 @@ def run(tmp_path, monkeypatch, name):
     return path
 
 
-def test_leveling_lucky_archer_carries_eight_packs(tmp_path, monkeypatch):
+def test_leveling_lucky_archer_carries_its_pack_limit(tmp_path, monkeypatch):
     first = run(tmp_path, monkeypatch, "first")
     second = run(tmp_path, monkeypatch, "second")
     assert first.read_bytes() == second.read_bytes()  # A5
     a = json.loads(first.read_text(encoding="utf-8"))
-    # A1: 2 -> 8 LuckyArrow packs (1,600 arrows).
-    assert a["leveling_lucky"] == {"packs_after": 8, "bought": 6}
+    # A1: 2 -> LEVELING_LUCKY_PACKS LuckyArrow packs (16: 3,200 arrows).
+    packs = arrow_upgrades.LEVELING_LUCKY_PACKS
+    assert a["leveling_lucky"] == {"packs_after": packs, "bought": packs - 2}
     # A2: America keeps one equipped and one spare.
     assert a["america_lucky"] == {"packs_after": 2, "bought": 0}
     # A3: 5,000-arrow SpeedArrow packs keep the two-pack rule even while
@@ -131,7 +132,8 @@ def test_leveling_lucky_archer_carries_eight_packs(tmp_path, monkeypatch):
     # minutes on FireSpirits, 2026-09-28).
     assert a["leveling_iron"]["packs_after"] == arrow_upgrades.LEVELING_IRON_PACKS
     assert a["leveling_speed"]["packs_after"] == 2
-    # A4: the withdrawal covers six more 200-silver packs than America's.
-    assert a["budget"]["leveling"] - a["budget"]["america"] == 6 * 200
-    # A6: the route refills to eight packs (1,600) while leveling, 400 otherwise.
-    assert a["refill_target"] == {"leveling": 1600, "america": 400}
+    # A4: the withdrawal funds the leveling packs America's cap refuses:
+    # robin refills to 2,000 arrows, nine packs over the 350 carried.
+    assert a["budget"]["leveling"] - a["budget"]["america"] == min(9, packs - 2) * 200
+    # A6: the route refills to its pack limit while leveling, 400 otherwise.
+    assert a["refill_target"] == {"leveling": packs * 200, "america": 400}

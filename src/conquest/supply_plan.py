@@ -223,9 +223,14 @@ def balance(loop):
         return sum(stacks)
 
     lucky = 1050000
-    if (
-        kind != lucky
-        and pack_price > budget
+    from conquest.arrow_upgrades import within_cap
+
+    # A capped tier is never bought, even with a fresh stack of it carried
+    # (that is shot first, then the LuckyArrows: counted_tiers counts it).
+    capped = not within_cap(kind)
+    if kind != lucky and (
+        capped
+        or pack_price > budget
         and carried(counted_tiers(kind)) < ARROW_REFILL_AMOUNTS[kind] // MAX_ARROW_PACKS // 2
     ):
         # No pack of this tier is affordable, so the Blacksmith falls back to
@@ -233,9 +238,17 @@ def balance(loop):
         # planned as one IronArrow pack, Suicide's restock bought 33 potions
         # first and then had bag room for one 200-arrow pack, ~2 minutes of
         # Scatter (2026-09-30 05:25, 3.9k silver).
-        lucky_price = last_verified_price(lucky) or arrow_pack_price(lucky) or 200
-        if lucky_price <= budget:
-            kind, pack_price = lucky, lucky_price
+        # A cap below IronArrow plans the capped tier instead.
+        from conquest.arrow_upgrades import tier_cap
+
+        target = tier_cap() if capped else lucky
+        for option in dict.fromkeys((target, lucky)):
+            price = last_verified_price(option) or arrow_pack_price(option) or (
+                200 if option == lucky else None
+            )
+            if price and price <= budget:
+                kind, pack_price = option, price
+                break
     # Lower-tier stacks kept as a fallback hold their slots.
     tiers = counted_tiers(kind)
     others = sum(
@@ -297,15 +310,13 @@ def balance(loop):
     potions = max(potions, supplies.healing_return_below + 1)
     # adopt_ammunition (run again during the Blacksmith review) keeps this.
     loop.planned_arrows = {kind: packs * pack_size}
+    update = {"healing_restock_to": potions, "arrows_restock_to": packs * pack_size}
+    if capped:
+        # The wallet pays for the capped tier, so buy_refill_arrows would
+        # never fall back by itself: it buys the route's tier.
+        update["arrow_type"] = kind
     loop.route = loop.route.model_copy(
-        update={
-            "supplies": supplies.model_copy(
-                update={
-                    "healing_restock_to": potions,
-                    "arrows_restock_to": packs * pack_size,
-                }
-            )
-        }
+        update={"supplies": supplies.model_copy(update=update)}
     )
     loop.record(
         "supply_plan",

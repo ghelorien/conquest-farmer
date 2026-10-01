@@ -80,6 +80,9 @@ def isolate_live_session_plan(tmp_path, monkeypatch):
 
     monkeypatch.setattr(buff_trip, "POLICY", tmp_path / "buff-trip.json")
     monkeypatch.setattr(buff_trip, "STATE", tmp_path / "buffs.json")
+    from conquest import arrow_upgrades
+
+    monkeypatch.setattr(arrow_upgrades, "POLICY", tmp_path / "arrow-policy.json")
     from conquest import hempknight
 
     monkeypatch.setattr(hempknight, "STATE", tmp_path / "hempknight.json")
