@@ -291,6 +291,26 @@ def valuable_walk_outside(supervisor, approaching, position):
     return holds is not None and not approaching and bool(holds(position))
 
 
+def loot_outranks_escape(supervisor, position):
+    """Whether a valuable pickup under way keeps the turn from every escape
+    jump: Alex 2026-10-01, "Highest priority is always picking up valuable
+    loot over anything else. The only exception is if you are about to die"
+    (native_farm.LOOT_FIRST_HP)."""
+    pending = getattr(supervisor, "valuable_pending", None)
+    first = getattr(supervisor, "loot_first", None)
+    return (
+        callable(pending)
+        and callable(first)
+        and bool(first())
+        and bool(pending(position))
+    )
+
+
+def loot_first_now(supervisor):
+    first = getattr(supervisor, "loot_first", None)
+    return callable(first) and bool(first())
+
+
 def visible_movement_delta(dx, dy, *, horizontal_limit=280, vertical_limit=110):
     """Shorten a jump to stay in the calibrated unobstructed play area."""
     scale = min(
@@ -1010,18 +1030,24 @@ def run_trial(
                         JUMP_SCATTER_REACH,
                         flying=bool(callable(flying) and flying()),
                     )
-                    escape = supervisor.ranged_escape(
-                        (x, y),
-                        (l, t, r, b),
-                        anchor=config.player_anchor,
-                        adjacent_trigger=adjacent_trigger,
-                        reach=reach,
-                        scatter_range=config.attack_range_tiles
-                        if config.jump_scatter
-                        else None,
-                        harmless_level=previous_level - HARMLESS_LEVELS
-                        if previous_level
-                        else None,
+                    # A valuable pickup under way keeps the turn unless the
+                    # farmer is about to die (loot_outranks_escape).
+                    escape = (
+                        None
+                        if loot_outranks_escape(supervisor, (x, y))
+                        else supervisor.ranged_escape(
+                            (x, y),
+                            (l, t, r, b),
+                            anchor=config.player_anchor,
+                            adjacent_trigger=adjacent_trigger,
+                            reach=reach,
+                            scatter_range=config.attack_range_tiles
+                            if config.jump_scatter
+                            else None,
+                            harmless_level=previous_level - HARMLESS_LEVELS
+                            if previous_level
+                            else None,
+                        )
                     )
                     if escape is not None:
                         dx, dy = escape[0] - x, escape[1] - y
@@ -1673,11 +1699,14 @@ def run_trial(
                         or ()
                     )
                 )
+                # Defending (hit while standing) still lets a valuable go first
+                # unless about to die; silver and the kill-drop wait do not.
+                loot_while_defending = defending and loot_first_now(supervisor)
                 if (
                     loot_before_scene
                     and not observe_only
                     and not approaching
-                    and not defending
+                    and (not defending or loot_while_defending)
                 ):
                     supervisor.loot_boundary = (l, t, r, b)
 
@@ -1709,7 +1738,11 @@ def run_trial(
                         inventory,
                         (x, y),
                         loot_dispatch,
-                        **({"valuables_only": True} if scatter_overdue else {}),
+                        **(
+                            {"valuables_only": True}
+                            if scatter_overdue or loot_while_defending
+                            else {}
+                        ),
                     ):
                         time.sleep(0.05)
                         continue

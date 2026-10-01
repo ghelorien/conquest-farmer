@@ -55,11 +55,37 @@ def test_a_pending_silver_walk_does_not_hold_back_a_valuable(monkeypatch):
     assert clicks == [meteor]
 
 
-def test_no_loot_inside_a_boss_clearance(monkeypatch):
-    # Both RatKings parked just outside the Ratling boundary (2026-09-28).
+def test_a_valuable_beside_a_boss_is_taken_unless_about_to_die(monkeypatch):
+    # Alex 2026-10-01 07:2x, after a +1 lay 11 s beside a Bandit boss until
+    # he took it by hand: "Highest priority is always picking up valuable loot
+    # over anything else. The only exception is if you are about to die."
     supervisor, _, _, notes = setup(monkeypatch)
     meteor = GroundItem(1, 1000, 1088001, (12, 10))
     supervisor.ground_items = lambda: (meteor,)
+    supervisor.escape_monsters = (SimpleNamespace(name="RatKing", position=(24, 10)),)
+    supervisor.king_clearance = 15
+    clicks = []
+    assert supervisor.loot_step(BAG, (10, 10), lambda point, **kw: clicks.append(kw["drop"]))
+    assert clicks == [meteor]
+    # About to die (under LOOT_FIRST_HP): the boss's clearance comes first,
+    # as it did for both RatKings parked by the Ratling boundary (2026-09-28).
+    supervisor, _, _, notes = setup(monkeypatch)
+    supervisor.ground_items = lambda: (meteor,)
+    supervisor.escape_monsters = (SimpleNamespace(name="RatKing", position=(24, 10)),)
+    supervisor.king_clearance = 15
+    supervisor.health_share = native_farm.LOOT_FIRST_HP - 0.01
+    no_click = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no click"))
+    supervisor.loot_step(BAG, (10, 10), no_click)
+    observed = [f for e, f in notes if e == "memory_loot_observed"][-1]
+    assert observed["valuable_drops"][0]["reason"] == "boss_nearby"
+
+
+def test_silver_never_walks_into_a_boss_clearance(monkeypatch):
+    supervisor, _, _, notes = setup(monkeypatch)
+    silver = GroundItem(2, 2000, 1090010, (12, 10), spawn_tick=1)
+    supervisor.ground_items = lambda: (silver,)
+    supervisor.own_kill_drop = lambda drop: True
+    monkeypatch.setattr("conquest.memory_ground.wanted_drop", lambda drop: True)
     supervisor.escape_monsters = (SimpleNamespace(name="RatKing", position=(24, 10)),)
     supervisor.king_clearance = 15
     no_click = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no click"))
@@ -68,10 +94,15 @@ def test_no_loot_inside_a_boss_clearance(monkeypatch):
     assert observed["valuable_drops"][0]["reason"] == "boss_nearby"
 
 
-def test_a_loot_walk_never_passes_a_boss(monkeypatch):
+def test_a_loot_walk_passes_a_boss_unless_about_to_die(monkeypatch):
     supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 63))
     # An Aide 11 tiles from the Meteor but 9 from the walk down x=50.
     supervisor.escape_monsters = (SimpleNamespace(name="RatAide", position=(41, 52)),)
+    assert step()
+    assert any(event == "memory_pickup_approach" for event, _ in notes)
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 63))
+    supervisor.escape_monsters = (SimpleNamespace(name="RatAide", position=(41, 52)),)
+    supervisor.health_share = native_farm.LOOT_FIRST_HP - 0.01
     step()
     assert not any(event == "memory_pickup_approach" for event, _ in notes)
     assert any(
@@ -79,6 +110,27 @@ def test_a_loot_walk_never_passes_a_boss(monkeypatch):
         for event, fields in notes
         if event == "memory_pickup_deferred"
     )
+
+
+def test_a_valuable_pickup_under_way_outranks_every_escape(monkeypatch):
+    from conquest.trial import loot_first_now, loot_outranks_escape
+
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 63))
+    assert not loot_outranks_escape(supervisor, (50, 50))  # nothing under way yet
+    assert step() and supervisor.valuable_pending((50, 50))
+    assert loot_outranks_escape(supervisor, (50, 50)) and loot_first_now(supervisor)
+    # About to die: the escapes come back.
+    supervisor.health_share = native_farm.LOOT_FIRST_HP - 0.01
+    assert not loot_outranks_escape(supervisor, (50, 50))
+    assert not loot_first_now(supervisor)
+    # A silver click awaiting its receipt is no reason to skip an escape.
+    supervisor, _, _, _ = setup(monkeypatch)
+    silver = GroundItem(2, 2000, 1090010, (12, 10), spawn_tick=1)
+    supervisor.pending_loot = (silver, BAG, native_farm.time.monotonic())
+    assert not loot_outranks_escape(supervisor, (10, 10))
+    # Supervisors without the loot policy (other farm modes) never skip one.
+    assert not loot_outranks_escape(SimpleNamespace(), (10, 10))
+    assert not loot_outranks_escape(None, (10, 10))
 
 
 def test_a_valuable_walk_may_pass_the_hunting_boundary_by_the_slack(monkeypatch):

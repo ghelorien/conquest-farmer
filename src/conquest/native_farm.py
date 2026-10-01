@@ -109,6 +109,13 @@ FLY_STATUS_SECONDS = 1.0
 # 100 kpm for each over the span of an hour"; every jump from a Bandit is a
 # lost cast.
 HARMLESS_LEVELS = 20
+# Alex 2026-10-01 07:2x, after a +1 lay 11 s beside a Bandit boss until he
+# picked it up by hand (loot_step deferred it "boss_nearby", and escapes kept
+# pulling Toxic off its approach): "Highest priority is always picking up
+# valuable loot over anything else. The only exception is if you are about to
+# die." Under this share of max HP survival (escapes, boss clearance) comes
+# first again.
+LOOT_FIRST_HP = 0.5
 
 @contextmanager
 def logical_coordinates():
@@ -1432,14 +1439,15 @@ class NativeFarmSupervisor:
             if distance > 40:
                 defer("outside_40_tile_search")
                 continue
-            if near_boss(
+            if (drop.silver or not self.loot_first()) and near_boss(
                 drop.position,
                 getattr(self, "escape_monsters", ()),
                 king_clearance=getattr(self, "king_clearance", BOSS_CLEARANCE),
                 elite_clearance=getattr(self, "elite_clearance", BOSS_CLEARANCE),
             ):
                 # Both RatKings parked just outside the Ratling boundary
-                # (2026-09-28): no loot is worth walking into a boss's reach.
+                # (2026-09-28): no silver is worth walking into a boss's
+                # reach, and no valuable either once HP is under LOOT_FIRST_HP.
                 defer("boss_nearby")
                 continue
             viewport = size_for(self.observer)
@@ -1567,6 +1575,20 @@ class NativeFarmSupervisor:
             return chasing  # no wait for kill drops while a Scatter is due
         return chasing or now < self.loot_wait_until
 
+    def loot_first(self):
+        """Whether a valuable outranks every escape and boss clearance now:
+        always, unless HP is under LOOT_FIRST_HP (Alex: "The only exception is
+        if you are about to die")."""
+        return getattr(self, "health_share", 1.0) >= LOOT_FIRST_HP
+
+    def valuable_pending(self, position):
+        """A valuable pickup is under way: its click awaits the receipt, or a
+        chase (an approach step, or a retry beside it) still holds."""
+        pending = getattr(self, "pending_loot", None)
+        return bool(pending and not pending[0].silver) or self.valuable_chase_holds(
+            position
+        )
+
     def chase_valuable(self, drop):
         self.valuable_chase = (
             (drop.uid, drop.object_address),
@@ -1678,7 +1700,8 @@ class NativeFarmSupervisor:
             monsters = getattr(self, "escape_monsters", ())
             king = getattr(self, "king_clearance", BOSS_CLEARANCE)
             elite = getattr(self, "elite_clearance", BOSS_CLEARANCE)
-            if any(
+            # A valuable's walk passes a boss unless HP is under LOOT_FIRST_HP.
+            if (drop.silver or not self.loot_first()) and any(
                 near_boss(tile, monsters, king_clearance=king, elite_clearance=elite)
                 for tile in path
             ):
