@@ -389,8 +389,9 @@ def after_shopping(loop, *, urgent=False):
             loop.overflow_bank_changed = False
         from conquest.buff_trip import silver_needed
 
-        # Carried silver for Twin City's TwinCityGates while buff trips run.
-        reserve = transport_reserve() + silver_needed()
+        # Carried silver for Twin City's TwinCityGates while buff trips run,
+        # or while a Twin City field restocks elsewhere.
+        reserve = transport_reserve() + silver_needed(getattr(loop, "route", None))
         excess = bank["silver"] - reserve
         if excess > 0:
             transfer(loop, "deposit", excess)

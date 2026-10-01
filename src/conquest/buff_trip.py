@@ -82,16 +82,26 @@ def cooling_down(now=None):
     return type(failed) in (int, float) and now - failed < FAILURE_COOLDOWN
 
 
-def silver_needed():
+def silver_needed(route=None):
     """Silver a restock keeps carried for the next trip: GATE_KEEP TwinCityGates
     and a Conductress fare. Twin City's warehouse is not Ape City's, and the
     first trip (2026-09-30 08:38) reached the Pharmacist with 100 silver after
-    the fare and bought no gate."""
-    if not enabled():
-        return 0
+    the fare and bought no gate.
+
+    A Twin City field restocked elsewhere needs the gates without buff trips:
+    stock_on_arrival buys them in Twin City. 2026-10-01 12:06 the Phoenix
+    restock banked all but 200, so Suicide reached Twin City's Pharmacist able
+    to pay for one, and the next cycle walks back from Phoenix."""
     from conquest.return_scroll import GATE_PRICE
 
-    return GATE_KEEP * GATE_PRICE + 200
+    if enabled():
+        return GATE_KEEP * GATE_PRICE + 200
+    if (
+        getattr(route, "map_id", None) == TWIN_CITY
+        and getattr(route, "restock_map_id", TWIN_CITY) != TWIN_CITY
+    ):
+        return GATE_KEEP * GATE_PRICE
+    return 0
 
 
 def gates_carried(items):

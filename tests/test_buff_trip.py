@@ -68,6 +68,24 @@ def test_restocks_keep_silver_carried_for_the_twin_city_gates(clock):
     assert b.silver_needed() == b.GATE_KEEP * r.GATE_PRICE + 200
 
 
+@pytest.mark.parametrize(
+    "map_id, restock, kept",
+    [
+        (1002, 1011, 3 * 200),  # apparition-phx: the gates for the way back
+        (1002, 1002, 0),  # a Twin City restock walks home
+        (1011, 1011, 0),  # a Phoenix field needs no TwinCityGate
+        (None, None, 0),  # no route
+    ],
+)
+def test_a_twin_city_field_restocked_elsewhere_keeps_gate_silver_without_buffs(
+    clock, map_id, restock, kept
+):
+    # 2026-10-01 12:06: buffs off, the Phoenix restock banked all but 200 and
+    # Twin City's Pharmacist sold Suicide one TwinCityGate of the three.
+    route = NS(map_id=map_id, restock_map_id=restock) if map_id else None
+    assert b.silver_needed(route) == kept
+
+
 def test_a_failed_trip_cools_down(clock):
     b.write_json(b.POLICY, {"stigma": True})
     b.write_json(b.STATE, {"failed_at": clock[0]})
