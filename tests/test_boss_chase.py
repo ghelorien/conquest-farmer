@@ -74,6 +74,25 @@ def test_the_walk_in_other_reasons_and_old_escapes_do_not_count(tmp_path):
     assert chase(farmer, path, 130.0 + BOSS_CHASE_WINDOW + 21) is False
 
 
+def test_a_bold_route_dodges_more_before_a_chase_ends_the_hunt(tmp_path):
+    # Alex 2026-10-01 05:2x: "be more bold ... find bigger packs". A route
+    # hunting the packs round its bosses sets its own limit (snakeman-bold 25).
+    path = journal(tmp_path)
+    farmer = NS(route=NS(hunting_boundary=BOX, boss_chase_escapes=25))
+    chase(farmer, path, 100.0)
+    for i in range(24):
+        escape(path, 100.0 + i)
+    assert chase(farmer, path, 130.0) is False
+    escape(path, 131.0)
+    assert chase(farmer, path, 132.0) is True
+    # None keeps the default.
+    farmer = NS(route=NS(hunting_boundary=BOX, boss_chase_escapes=None))
+    chase(farmer, path, 200.0)
+    for i in range(BOSS_CHASE_ESCAPES):
+        escape(path, 200.0 + i)
+    assert chase(farmer, path, 215.0) is True
+
+
 def test_it_reads_new_rows_by_rowid_only(tmp_path):
     # 3
     path = journal(tmp_path)

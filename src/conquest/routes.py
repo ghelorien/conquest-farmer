@@ -321,6 +321,9 @@ class SavedRoute(BaseModel):
     # 1.7 s (2026-09-28 16:36:44), inside the 9-tile clearance it had just
     # crossed.
     elite_clearance: int = Field(default=BOSS_CLEARANCE, ge=BOSS_CLEARANCE, le=24)
+    # Boss escapes inside the box within two minutes that end the hunt
+    # (overnight.boss_chase); None keeps overnight.BOSS_CHASE_ESCAPES (10).
+    boss_chase_escapes: int | None = Field(default=None, ge=5, le=60)
     hunting_boundary: tuple[int, int, int, int]
     patrol_search: PatrolSearchConfig = Field(default_factory=PatrolSearchConfig)
     patrol: tuple[tuple[int, int], ...] = Field(min_length=1, max_length=128)

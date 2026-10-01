@@ -42,6 +42,7 @@ def test_saved_routes_retain_idle_search_policy():
         "thunderape-north": 4,
         "thunderape-west": 4,
         "snakeman-south": 4,
+        "snakeman-bold": 4,
         # The strip expands 1: its south edge keeps off the King holding
         # thunderape-nw's middle (2026-09-30).
         "thunderape-strip": 1,

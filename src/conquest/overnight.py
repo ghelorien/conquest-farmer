@@ -905,7 +905,11 @@ class OvernightLoop:
         self.boss_chase_times = [
             t for t in self.boss_chase_times if now - t <= BOSS_CHASE_WINDOW
         ]
-        return len(self.boss_chase_times) >= BOSS_CHASE_ESCAPES
+        # A route that hunts the packs round its bosses on purpose dodges them
+        # more often before a chase means danger (Alex 2026-10-01 05:2x:
+        # "be more bold ... find bigger packs").
+        limit = getattr(self.route, "boss_chase_escapes", None) or BOSS_CHASE_ESCAPES
+        return len(self.boss_chase_times) >= limit
 
     def restart_runner(self, data):
         """Restart a combat runner stopped by an observation or input error.
@@ -2658,7 +2662,7 @@ class OvernightLoop:
                     "return_required",
                     reason="boss_chase",
                     supplies=supplies,
-                    activity=f"A boss kept closing ({BOSS_CHASE_ESCAPES}+ boss escapes in {BOSS_CHASE_WINDOW // 60} minutes); leaving the field",
+                    activity=f"A boss kept closing ({getattr(self.route, 'boss_chase_escapes', None) or BOSS_CHASE_ESCAPES}+ boss escapes in {BOSS_CHASE_WINDOW // 60} minutes); leaving the field",
                 )
                 self.stop_farm()
                 return
