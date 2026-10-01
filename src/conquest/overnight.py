@@ -58,6 +58,14 @@ WALLED_GATE_TRIES = 3
 # and a buff refresh that finds no quiet spot cools down for 20 minutes.
 GATE_HARMLESS_LEVELS = 20
 GATE_HIT_TOLERANCE = 0.02
+# A player is hitting the farmer (B2C allows PK) when HP falls by
+# PK_HIT_SHARE of max HP between two hunt checks while no living monster is
+# within PK_MONSTER_TILES and a player stands within PK_PLAYER_TILES. A Bandit
+# (L32) takes 1-3% of Suicide's 969 HP a hit; the PKs of 2026-09-30/10-01
+# took 10-23% a hit and killed it in 25 s at 23:18.
+PK_HIT_SHARE = 0.10
+PK_MONSTER_TILES = 3
+PK_PLAYER_TILES = 15
 # Once the hourly restart budget is spent: pause this long (escalating), then
 # replan from fresh reads again instead of stopping for good.
 FAILURE_COOLDOWNS = (120, 300, 600)
@@ -746,6 +754,52 @@ class OvernightLoop:
                         "town_observation_retry", action=action, detail=str(error)
                     )
                 time.sleep(0.25)
+
+    def player_attack(self, life, controls):
+        """Whether a player is hitting the farmer: HP fell by PK_HIT_SHARE of
+        max HP since the last check, no living monster stands within
+        PK_MONSTER_TILES, and a player is within PK_PLAYER_TILES (only then
+        is the scene scanned for players). Returns the nearest players."""
+        hp, top = life.get("current_hp"), life.get("max_hp") or 0
+        last = getattr(self, "pk_last_hp", None)
+        self.pk_last_hp = hp
+        if hp is None or last is None or not top or last - hp < PK_HIT_SHARE * top:
+            return []
+        position = tuple(life.get("position") or ())
+        if not position or any(
+            m.get("position")
+            and m.get("alive") is not False
+            and max(abs(a - b) for a, b in zip(m["position"], position)) <= PK_MONSTER_TILES
+            for m in controls.get("monsters") or []
+        ):
+            return []
+        from conquest.player_scan import players_near
+
+        try:
+            return players_near(self.care.session, position, PK_PLAYER_TILES)
+        except Exception:  # a scene read race: no evidence either way
+            return []
+
+    def flee_player(self, players, supplies):
+        """Leave a PK at once: the gate home without the quiet-spot wait (a
+        player hits through any wait), then the ordinary restock."""
+        self.phase = "restocking"
+        self.record(
+            "player_attack",
+            players=[list(p) for p in players[:4]],
+            supplies=supplies,
+            activity=f"Hit by a player ({players[0][0]} at {players[0][3]} tiles); leaving the field",
+        )
+        self.stop_farm()
+        from conquest.return_scroll import read_gate
+
+        read_gate(self, self.route.restock_map_id)
+        self.record(
+            "return_required",
+            reason="player_attack",
+            supplies=supplies,
+            activity="A player was hitting the farmer; restocking in town",
+        )
 
     def heavy_burn(self, potions, now=None):
         """Whether this hunt used HEAVY_BURN_POTIONS within HEAVY_BURN_WINDOW.
@@ -2532,6 +2586,10 @@ class OvernightLoop:
             )
             if departed is None:
                 departed = supplies["potions"]
+            players = self.player_attack(life, data)
+            if players:
+                self.flee_player(players, supplies)
+                return
             if self.heavy_burn(supplies["potions"]):
                 self.phase = "restocking"
                 self.record(
