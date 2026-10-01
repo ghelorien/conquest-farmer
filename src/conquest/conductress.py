@@ -231,7 +231,8 @@ def read_dialog(observer):
 
 
 def validate_destination(data, destination):
-    choices = {"Phoenix Castle", "Desert City", "Ape Mountain", "Bird Island."}
+    # "Market": Twin City's Market banking origin (meteor-banking.json 1002).
+    choices = {"Phoenix Castle", "Desert City", "Ape Mountain", "Bird Island.", "Market"}
     if destination not in choices:
         raise ValueError("Unsupported leveling destination")
     records = data["records"]

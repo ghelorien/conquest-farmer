@@ -339,23 +339,39 @@ def trip(loop, plan, *, before_submit=None):
                 waypoints = waypoints[nearest:]
             for point in waypoints:
                 loop.travel(tuple(point), activity=plan["activity"], arrival_radius=2)
-    loop.travel(
-        tuple(plan["approach"]),
-        activity=plan["activity"],
-        service_name=None if market_exit else plan["npc"],
-    )
-    service = loop.town("service-locate", name=plan["npc"])
-    if service["identity"] != plan["identity"]:
-        raise ValueError("Meteor route NPC identity changed")
-    open_saved_service(loop, plan["npc"], plan["dialogs"][0])
-    before = loop.town("supplies")
-    if life["map_id"] == 1036 and plan["destination_map"] != 1036:
-        if any(stash_candidate(item) for item in before["items"]):
-            raise ValueError("Stay in Market: valuables appeared before departure")
-    if before_submit:
-        before_submit()
-    for step in plan["dialogs"]:
-        select_saved_dialog(loop, plan["npc"], step)
+    if plan.get("via") == "twin_conductress":
+        # Twin City's Conductress (conductress.TWIN_CONDUCTRESS) has her own
+        # memory-identified path: her seven choices are checked by text
+        # (validate_destination), scrolled into view, then the one chosen is
+        # clicked. Alex 2026-10-01 ~14:50, Twin City's warehouse full: "can
+        # you go to market warehouse instead?"
+        from conquest.conductress import prepare_destination
+
+        loop.travel(tuple(plan["approach"]), activity=plan["activity"])
+        loop.town("conductress-open")
+        prepare_destination(loop, plan["option"])
+        before = loop.town("supplies")
+        if before_submit:
+            before_submit()
+        loop.town("conductress-travel", destination=plan["option"])
+    else:
+        loop.travel(
+            tuple(plan["approach"]),
+            activity=plan["activity"],
+            service_name=None if market_exit else plan["npc"],
+        )
+        service = loop.town("service-locate", name=plan["npc"])
+        if service["identity"] != plan["identity"]:
+            raise ValueError("Meteor route NPC identity changed")
+        open_saved_service(loop, plan["npc"], plan["dialogs"][0])
+        before = loop.town("supplies")
+        if life["map_id"] == 1036 and plan["destination_map"] != 1036:
+            if any(stash_candidate(item) for item in before["items"]):
+                raise ValueError("Stay in Market: valuables appeared before departure")
+        if before_submit:
+            before_submit()
+        for step in plan["dialogs"]:
+            select_saved_dialog(loop, plan["npc"], step)
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
         data = loop.health()["embedded_controls"]
