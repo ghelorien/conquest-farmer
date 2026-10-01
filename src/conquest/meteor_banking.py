@@ -1114,8 +1114,19 @@ def consolidate(loop, stored=None):
         raise ValueError("Meteor consolidation requires a verified round trip")
     bag_uids = {i["uid"] for i in before["items"]}
     needed = sum(i["uid"] not in bag_uids for i in items)
-    if before["capacity"] - len(before["items"]) < needed:
-        raise ValueError("Insufficient free inventory slots for the ten-Meteor batch")
+    free = before["capacity"] - len(before["items"])
+    if free < needed:
+        # Nothing is withdrawn yet: the exchange waits for a roomier visit.
+        # Raising aborted the whole restock, and every retry met the same bag
+        # (Suicide in Phoenix, 2026-10-01 00:45: 20 Amritas, 5 slots free,
+        # 7 stored Meteors to withdraw).
+        loop.record(
+            "meteor_batch_deferred",
+            needed=needed,
+            free=free,
+            activity="Too few free slots for the ten-Meteor batch; the Meteors stay stored",
+        )
+        return False
     from conquest.banking import transfer, transport_reserve
 
     reserve = (

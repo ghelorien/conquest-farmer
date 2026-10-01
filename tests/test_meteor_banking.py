@@ -1177,3 +1177,46 @@ def test_free_route_accepts_unchanged_silver_immediately(monkeypatch):
     loop, plan, submitted, departed = fare_trip(monkeypatch, [500, 500], fare=0)
     m.trip(loop, plan)
     assert departed == [1036]
+
+
+def test_a_bag_too_full_for_the_batch_defers_it_without_a_withdrawal(tmp_path, monkeypatch):
+    # Suicide in Phoenix, 2026-10-01 00:45: 20 Amritas left 5 free slots for
+    # the 7 stored Meteors a batch withdraws; raising aborted every restock.
+    from types import SimpleNamespace as NS
+
+    from conquest import meteor_banking as m
+
+    policy = tmp_path / "meteor.json"
+    policy.write_text(
+        '{"enabled": true, "qualified": true, "exchange": true, "origins": '
+        '{"1011": {"outbound": {"verified": true, "fare": 0}, "return": {"verified": true, "fare": 0}}}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(m, "POLICY", policy)
+    monkeypatch.setattr(m, "_recover_archive_boundary", lambda: None)
+    monkeypatch.setattr("conquest.stored_scroll_queue.capture", lambda *a: None)
+    meteor = lambda uid: {"uid": uid, "type_id": m.METEOR, "amount": 1, "limit": 1}
+    bag = [meteor(i) for i in range(3)] + [
+        {"uid": 100 + i, "type_id": 1000030, "amount": 1, "limit": 1} for i in range(32)
+    ]
+    calls, events = [], []
+
+    def town(action, **fields):
+        calls.append(action)
+        if action == "supplies":
+            return {"items": bag, "capacity": 40, "silver": 1000}
+        if action == "warehouse-items":
+            return {"items": [meteor(50 + i) for i in range(7)]}
+        raise AssertionError(f"no {action} before the slots are checked")
+
+    loop = NS(
+        town=town,
+        living=lambda: {"embedded_controls": {"life": {"map_id": 1011}}},
+        record=lambda event, **fields: events.append((event, fields)),
+    )
+    assert m.consolidate(loop) is False
+    assert calls == ["supplies", "warehouse-items"]
+    assert events == [("meteor_batch_deferred", {
+        "needed": 7, "free": 5,
+        "activity": "Too few free slots for the ten-Meteor batch; the Meteors stay stored",
+    })]
