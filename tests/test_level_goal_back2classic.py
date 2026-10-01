@@ -31,6 +31,7 @@ def runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(level_goal, "SILVER_PICKUP", tmp_path / "silver-pickup.json")
     monkeypatch.setattr(potion_tiers, "TIER", tmp_path / "healing-tier.json")
     monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+    monkeypatch.setattr(level_goal, "_large_piles_only", False)
     from conquest import session_plan
 
     monkeypatch.setattr(session_plan, "PLAN", tmp_path / "session-plan.json")
@@ -603,6 +604,40 @@ def test_the_switch_can_raise_the_floor_pickups_resume_below(monkeypatch):
         monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
         assert level_goal.silver_floor() == level_goal.SILVER_FLOOR
         assert wanted_drop(silver)
+
+
+def test_large_piles_only_keeps_the_walks_to_the_silver_that_pays(monkeypatch):
+    # Suicide 2026-10-01 03:11-03:21, buffed Bandits at L62: 115 pickups in
+    # 9.4 minutes brought 9,250 silver but cut kills from ~150 to ~55 a
+    # minute. 30 large piles held 5,375 of it, 9 small ones 57.
+    import json
+
+    from conquest import banking
+    from conquest.memory_ground import GroundItem, wanted_drop
+
+    bank = level_goal.GOAL.with_name("bank-status.json")
+    monkeypatch.setattr(banking, "STATUS", bank)
+    monkeypatch.setattr(level_goal, "back2classic", lambda: True)
+    piles = {t: GroundItem(1, 100000, t, (1, 1)) for t in (1090000, 1090010, 1090020, 1091000)}
+
+    def wanted():
+        monkeypatch.setattr(level_goal, "_silver_cache", (-float("inf"), False))
+        return {t for t, drop in piles.items() if wanted_drop(drop)}
+
+    level_goal.SILVER_PICKUP.write_text(
+        json.dumps({"enabled": False, "below": 20000, "piles": "large"})
+    )
+    for stored, expected in (
+        (15209, {1090020, 1091000}),  # under "below": large piles and gold
+        (4999, set(piles)),  # under SILVER_FLOOR every pile pays again
+        (25000, set()),  # over "below": no silver at all
+    ):
+        bank.write_text(json.dumps({"stored_silver": stored}))
+        assert wanted() == expected, stored
+    # Without "piles" the switch keeps taking every pile.
+    level_goal.SILVER_PICKUP.write_text(json.dumps({"enabled": False, "below": 20000}))
+    bank.write_text(json.dumps({"stored_silver": 15209}))
+    assert wanted() == set(piles)
 
 
 def test_early_heals_and_jumping_away_outlive_the_goal_on_back2classic(monkeypatch):

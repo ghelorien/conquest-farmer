@@ -48,9 +48,9 @@ def wanted_drop(drop):
     """User's ground allowlist; unknown enhancement never authorizes pickup."""
     if drop.type_id in MONEY_TYPES:
         # Only a fresh character on the level goal funds itself from silver.
-        from conquest.level_goal import collect_silver
+        from conquest.level_goal import silver_wanted
 
-        return collect_silver()
+        return silver_wanted(drop.type_id)
     if drop.type_id in SPECIAL_LOOT_TYPES:
         return True
     if not loot_gear(drop.type_id):

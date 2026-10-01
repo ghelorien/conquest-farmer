@@ -61,6 +61,17 @@ SILVER_FLOOR = 5000
 SILVER_PICKUP = Path(state_path(".runtime/silver-pickup.json"))
 
 
+# Silver drops come in piles: client types 1090000 (small), 1090010
+# (medium), 1090020 (large), and gold 1091000-1091020. On buffed Bandits at
+# L62 (Suicide, 2026-10-01 03:11-03:21) 115 own-kill pickups in 9.4 minutes
+# brought 9,250 silver (~59k/h) but cut kills from ~150 to ~55 a minute; the
+# 30 large piles held 5,375 of it, the 9 small ones 57. The switch's
+# {"piles": "large"} walks to LARGE_PILES only while the bank holds
+# SILVER_FLOOR.
+LARGE_PILES = frozenset((1090020, 1091000, 1091010, 1091020))
+_large_piles_only = False
+
+
 def silver_pickup_requested():
     return read_json(SILVER_PICKUP).get("enabled") is True
 
@@ -86,19 +97,31 @@ def collect_silver():
     silver_floor(), or while its SILVER_PICKUP switch is on (checked every 2 s).
     Otherwise the walks cost kills: Alex 2026-09-28, Toxic and Suicide at 41,
     "No need to pickup silver anymore only unique + items" (he funds the
-    arrows). Only silver from our own kills is walked to (own_kill_drop)."""
-    global _silver_cache
+    arrows). Only silver from our own kills is walked to (own_kill_drop).
+    The large-piles rule (silver_wanted) is refreshed with it."""
+    global _silver_cache, _large_piles_only
     now = time.monotonic()
     if now - _silver_cache[0] >= 2:
+        bank = banked_silver()
         _silver_cache = (
             now,
             bool(goal())
             or (
                 back2classic()
-                and (banked_silver() < silver_floor() or silver_pickup_requested())
+                and (bank < silver_floor() or silver_pickup_requested())
             ),
         )
+        _large_piles_only = (
+            read_json(SILVER_PICKUP).get("piles") == "large"
+            and not goal()
+            and bank >= SILVER_FLOOR
+        )
     return _silver_cache[1]
+
+
+def silver_wanted(type_id):
+    """Whether an own-kill silver drop of this type is worth the walk."""
+    return collect_silver() and (not _large_piles_only or type_id in LARGE_PILES)
 
 
 def start(target_level=SCATTER_LEVEL):
