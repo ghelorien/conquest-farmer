@@ -96,6 +96,12 @@ BOSS_SIGHT_TILES = 12
 # Only remembered bosses this near the farmer shape its walk (each adds a
 # clearance square to every patrol_step's zone).
 BOSS_MEMORY_REACH = 120
+# Fly, the archer's XP skill: this life status bit (xp_skill reads the same
+# one), from a life read at most FLY_STATUS_SECONDS old. Alex 2026-10-01
+# 05:5x: "When you are flying you can be super bold and go in huge packs as
+# you cannot be attacked by melee monsters."
+FLY_STATUS = 0x8000000
+FLY_STATUS_SECONDS = 1.0
 
 @contextmanager
 def logical_coordinates():
@@ -485,6 +491,13 @@ class NativeFarmSupervisor:
         with self.observer.lock:
             return self._xp_skill.step(dispatch)
 
+    def flying(self, now=None):
+        """Whether Fly is up in this loop's life read (status FLY_STATUS, the
+        bit XpSkill verifies Fly by). An old read counts as not flying."""
+        seen = getattr(self, "life_status", None)
+        now = time.monotonic() if now is None else now
+        return bool(seen) and now - seen[0] <= FLY_STATUS_SECONDS and bool(seen[1] & FLY_STATUS)
+
     def scatter_selection_step(self, dispatch):
         from conquest.scatter_selection import ScatterSelection
 
@@ -593,6 +606,7 @@ class NativeFarmSupervisor:
                 self.position = tuple(life.position)
                 self.map_id = life.map_id
                 self.note_health(life)
+                self.life_status = (time.monotonic(), getattr(life, "status", 0) or 0)
             if manual or manual_session_blocked("Farmer"):
                 intent = self.control.snapshot()
                 self.pending_loot = None
@@ -1841,10 +1855,12 @@ class NativeFarmSupervisor:
             if now - getattr(self, "scene_timestamp", -float("inf")) <= 5
             else []
         )
+        # Out of view but seen lately (remember_bosses).
+        remembered = self.remembered_bosses(in_view)
         bosses = []
         if not chase:
-            # Out of view but seen lately (remember_bosses): plan round them too.
-            bosses = in_view + self.remembered_bosses(in_view)
+            # Walks plan round them too.
+            bosses = in_view + remembered
         from conquest.routes import boss_clearance
 
         king = getattr(self, "king_clearance", BOSS_CLEARANCE)
@@ -1855,8 +1871,12 @@ class NativeFarmSupervisor:
         # holds the destination, so the walk went straight at him until the
         # hold. On the Macaque field the patrol kept heading for points and
         # targets beside the MonkeyKing: 42-56 boss escapes in 5 minutes
-        # (04:07-04:22). The patrol weighs only bosses in view.
-        held_by = bosses if not chase else in_view
+        # (04:07-04:22). The patrol weighs remembered bosses as well: a boss
+        # escape lands out of his view, and Toxic's patrol walked back to its
+        # sweep point (244, 514) beside a SnakemanKing and jumped off it again
+        # every ~5 s, nine times in 40 s with no kill, until boss_chase ended
+        # the hunt (2026-10-01 05:42-05:43; at 05:30 too).
+        held_by = bosses if not chase else in_view + remembered
 
         def held_by_boss(point):
             return any(

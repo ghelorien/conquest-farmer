@@ -157,10 +157,36 @@ def test_without_a_gate_home_the_trip_follows_the_shopping(ape_city, monkeypatch
     town, trips = Town(RouteLibrary().load("thunderape-scout")), []
     loop = farmer(town, trips, monkeypatch)
     loop.restock()
-    # The Pharmacist stocked two gates home before the one trip went.
+    # The Pharmacist stocked two gates home before the one trip went, and
+    # topped them back up to two after it read one home.
     assert trips == [{"ride": False, "gates_home": 2}]
-    assert town.bought.count(APE_GATE) == 2 and loop.cycles == 1
-    assert town.count(APE_GATE) == 1 and "restock_complete" in town.events
+    assert town.bought.count(APE_GATE) == 3 and loop.cycles == 1
+    assert town.count(APE_GATE) == 2 and "restock_complete" in town.events
+
+
+def test_a_danger_return_leaves_town_with_a_gate_home(ape_city, monkeypatch):
+    # 2026-10-01 05:30-05:32, Toxic on snakeman-south: a boss-chase return
+    # came home with one ApeCityGate. Six Amrita took the bag to its
+    # free-slot reserve before stock() ran, so no spare was bought, and the
+    # buff trip after the shopping read the only gate home. At 05:43 the next
+    # boss-chase exit had no gate and walked for the Warehouseman from Love
+    # Canyon until Alex stopped it.
+    route = RouteLibrary().load("thunderape-scout")
+    town, trips = Town(route, gates_home=1), []
+    for _ in range(3):
+        town.spend(town.potion)
+    # Filler arrow packs: three potions leave the bag at the reserve.
+    reserve = route.supplies.minimum_free_slots
+    while len(town.items) < 40 - reserve - 3:
+        town.add(town.arrow, amount=1000)
+    loop = farmer(town, trips, monkeypatch)
+    loop.return_reason = "boss_chase"  # urgent: the trip waits for the shopping
+    loop.restock()
+    assert trips == [{"ride": False, "gates_home": 2}]
+    # The spare gate came before the potions took the room...
+    assert town.bought[0] == APE_GATE
+    # ...and the trip's read was bought back: the farmer leaves with two.
+    assert town.count(APE_GATE) == 2 and "restock_complete" in town.events
 
 
 def test_with_a_gate_home_the_trip_goes_first_and_once(ape_city, monkeypatch):

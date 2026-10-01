@@ -798,6 +798,52 @@ def test_the_patrol_passes_over_spots_beside_a_boss_in_view(monkeypatch):
     assert supervisor.patrol_destination == (60, 20) and index == 1
 
 
+def test_the_patrol_passes_over_spots_beside_a_remembered_boss(monkeypatch):
+    # Toxic 2026-10-01 05:42-05:43: each boss escape landed out of the
+    # SnakemanKing's view, and the patrol walked straight back to its sweep
+    # point (244, 514) beside him: nine escapes in 40 s with no kill, until
+    # boss_chase ended the hunt.
+    import numpy as np
+    from conquest.navigation import TerrainMap
+    from conquest.patrol_search import patrol_step
+
+    supervisor, _, _, _ = setup(monkeypatch)
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: 100.0)
+    supervisor.recovery.terrain = TerrainMap(
+        1020, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ()
+    )
+    supervisor.king_clearance = 15
+    supervisor.map_id, supervisor.position = 1020, (30, 30)
+    supervisor.remember_bosses(
+        [SimpleNamespace(entity_id=7, name="SnakemanKing", position=(62, 22))]
+    )
+    # Out of view now, in a fresh scene.
+    supervisor.scene_monsters, supervisor.scene_timestamp = (), 100.0
+    route = ((20, 20), (60, 20), (60, 60), (20, 60))
+    step, index = patrol_step(supervisor, (30, 30), route, 1, (0, 0, 99, 99))
+    assert supervisor.patrol_destination == (60, 60) and index == 2
+    assert max(abs(step[0] - 62), abs(step[1] - 22)) > 15
+    # A forgotten King (remember_bosses' lapse or a look at his empty tile)
+    # frees the spot again.
+    supervisor.boss_memory.clear()
+    _, index = patrol_step(supervisor, (30, 30), route, 1, (0, 0, 99, 99))
+    assert supervisor.patrol_destination == (60, 20) and index == 1
+
+
+def test_flying_reads_the_fly_bit_of_this_loops_life_read(monkeypatch):
+    # Alex 2026-10-01: "When you are flying you can be super bold".
+    supervisor, _, _, _ = setup(monkeypatch)
+    clock = [100.0]
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: clock[0])
+    assert not supervisor.flying()
+    supervisor.life_status = (100.0, native_farm.FLY_STATUS | 0x10)
+    assert supervisor.flying()
+    clock[0] += native_farm.FLY_STATUS_SECONDS + 0.1
+    assert not supervisor.flying()  # an old read is no evidence of Fly
+    supervisor.life_status = (clock[0], 0x10)
+    assert not supervisor.flying()
+
+
 def test_a_detour_never_lands_outside_the_travel_boundary(monkeypatch):
     # A landing beyond the travel boundary stops the runner
     # (reposition_outside_boundary): a detour round King 404773 did at

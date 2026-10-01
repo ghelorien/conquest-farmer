@@ -81,6 +81,10 @@ def scatter_landing(
     fast = getattr(
         getattr(supervisor, "combat_speed", None), "fast_scatter_planning", False
     )
+    # Melee cannot hit an archer in Fly: land among the pack (Alex 2026-10-01:
+    # "When you are flying you can be super bold and go in huge packs").
+    flying = getattr(supervisor, "flying", None)
+    flying = bool(callable(flying) and flying())
     viewport = size_for(getattr(supervisor, "observer", None))
     observed = getattr(supervisor, "scatter_scene_targets", ()) or targets
     if hunting_boundary is not None and getattr(
@@ -194,7 +198,7 @@ def scatter_landing(
             close = sum(
                 max(abs(p[0] - point[0]), abs(p[1] - point[1])) <= 5 for p in live
             )
-            if contact or close > 5:
+            if (contact or close > 5) and not flying:
                 continue
             future = 0.0
             for center, group_count, separation in groups:
@@ -270,6 +274,7 @@ def scatter_landing(
         "contact_targets": landing_contact,
         "nearby_targets_5": landing_close,
         "boss_room": roomy,
+        "flying": flying,
     }
     supervisor.scatter_landings = recent + [(position, now)]
     return destination

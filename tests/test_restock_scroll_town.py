@@ -62,6 +62,31 @@ def test_an_ape_city_restock_reads_its_gate_only_from_far_away(
     assert calls == expected
 
 
+def test_no_gate_home_says_so_before_the_walk(monkeypatch, clock):
+    # 2026-10-01 05:43: Toxic's boss-chase exit from Love Canyon had no
+    # ApeCityGate, and the activity read "Heading to Warehouseman for silver
+    # banking" while it walked out of the canyon.
+    events = []
+    monkeypatch.setattr(return_scroll, "read_gate", lambda loop, home: False)
+    monkeypatch.setattr(return_scroll, "carried", lambda loop, kind: False)
+    loop = OvernightLoop.__new__(OvernightLoop)
+    loop.route = NS(restock_map_id=1020, map_id=1020)
+    loop.record = lambda event, **fields: events.append((event, fields.get("activity")))
+    loop.return_reason = "boss_chase"
+    loop.living = lambda: {
+        "embedded_controls": {
+            "life": {"map_id": 1020, "position": [244, 513], "max_hp": 978, "current_hp": 900}
+        }
+    }
+    assert loop.gate_home_from_afar() is False
+    assert events[-1] == ("gate_home_missing", "No ApeCityGate carried; walking back to town")
+    # A gate carried but not read (a failed read) is not called missing.
+    events.clear()
+    monkeypatch.setattr(return_scroll, "carried", lambda loop, kind: True)
+    assert loop.gate_home_from_afar() is False
+    assert [e for e, _ in events] == ["gate_read_under_fire"]
+
+
 def far_loop(monkeypatch, scene, jump=None):
     """An Ape City restock on the GiantApe plain; ``scene`` holds the live
     life/monsters, and each escape jump runs ``jump(scene)``."""

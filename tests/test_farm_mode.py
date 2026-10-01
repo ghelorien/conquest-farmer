@@ -13,6 +13,15 @@ Failure modes, written before the change:
    leveling jump-Scatter stops doing so.
 5. Farming does not drink earlier than leveling.
 6. A boss near still has to make both modes jump (ranged_escape unchanged).
+
+Alex 2026-10-01 05:5x, of farming's three-at-contact trigger: "Now you're
+jumping a bit too late ... you just need a very tiny buffer when they get
+melee range then you jump back and keep attacking", and "When you are flying
+you can be super bold and go in huge packs as you cannot be attacked by
+melee monsters". Failure modes, written before that change:
+7. Farming waits for monsters at contact, or jumps for one three tiles off.
+8. While flying an ordinary crowd still calls for a jump, or a boss no
+   longer does.
 """
 
 from types import SimpleNamespace as NS
@@ -86,15 +95,18 @@ def test_farming_still_jumps_for_a_big_hit_or_a_hit_at_low_hp(mode_file):
 
 
 def test_escape_triggers_follow_the_mode(mode_file):
-    # 4
+    # 4, 7, 8
     assert farm_mode.escape_trigger(True, False, JUMP_SCATTER_REACH) == (1, JUMP_SCATTER_REACH)
     assert farm_mode.escape_trigger(True, True, JUMP_SCATTER_REACH) == (1, 1)
     assert farm_mode.escape_trigger(False, False, JUMP_SCATTER_REACH) == (2, 1)
+    fly = farm_mode.escape_trigger(True, False, JUMP_SCATTER_REACH, flying=True)
+    assert fly == (farm_mode.FLY_TRIGGER, 1)
     farm_mode.set_mode("farming")
-    assert farm_mode.escape_trigger(True, False, JUMP_SCATTER_REACH) == (
-        farm_mode.FARM_SURROUNDED,
-        1,
-    )
+    assert farm_mode.FARM_REACH == 2 < JUMP_SCATTER_REACH
+    assert farm_mode.escape_trigger(True, False, JUMP_SCATTER_REACH) == (1, farm_mode.FARM_REACH)
+    # A pickup walk is cut short only by a monster at contact.
+    assert farm_mode.escape_trigger(True, True, JUMP_SCATTER_REACH) == (1, 1)
+    assert farm_mode.escape_trigger(True, False, JUMP_SCATTER_REACH, flying=True) == fly
 
 
 def test_farming_drinks_from_sixty_percent(mode_file):
@@ -130,12 +142,32 @@ def escape_supervisor(monsters):
     return s
 
 
-def test_one_monster_two_tiles_off_is_no_reason_to_jump_while_farming(mode_file):
-    # 4, against the real ranged_escape gate
-    s = escape_supervisor([NS(name="WingedSnake", position=(12, 10))])
+def jumps(s, trigger, reach, monkeypatch):
+    """Whether the real ranged_escape gate lets this scene through to the
+    landing search (None means no jump was called for)."""
+
+    def landings_reached(*args, **kwargs):
+        raise RuntimeError("landing search reached")
+
+    monkeypatch.setattr("conquest.navigation.native_movement_delta", landings_reached)
+    s.recovery = NS(terrain=NS(walkable=lambda tile: True))
+    s.observer = None
+    try:
+        assert s.ranged_escape((10, 10), (0, 0, 40, 40), adjacent_trigger=trigger, reach=reach) is None
+    except RuntimeError as error:
+        assert str(error) == "landing search reached"
+        return True
+    return False
+
+
+def test_farming_jumps_a_tile_short_of_melee(mode_file, monkeypatch):
+    # 4, 7, against the real ranged_escape gate
     farm_mode.set_mode("farming")
     trigger, reach = farm_mode.escape_trigger(True, False, JUMP_SCATTER_REACH)
-    assert s.ranged_escape((10, 10), (0, 0, 40, 40), adjacent_trigger=trigger, reach=reach) is None
+    three_off = escape_supervisor([NS(name="Snakeman", position=(13, 10))])
+    assert not jumps(three_off, trigger, reach, monkeypatch)
+    two_off = escape_supervisor([NS(name="Snakeman", position=(12, 10))])
+    assert jumps(two_off, trigger, reach, monkeypatch)
 
 
 def test_a_boss_near_still_needs_a_jump_in_farming_mode(mode_file, monkeypatch):
@@ -143,15 +175,15 @@ def test_a_boss_near_still_needs_a_jump_in_farming_mode(mode_file, monkeypatch):
     s = escape_supervisor([NS(name="WingedSnakeKing", position=(14, 10))])
     farm_mode.set_mode("farming")
     trigger, reach = farm_mode.escape_trigger(True, False, JUMP_SCATTER_REACH)
-    reached = []
+    assert jumps(s, trigger, reach, monkeypatch)
 
-    def landings_reached(*args, **kwargs):
-        reached.append(True)
-        raise RuntimeError("landing search reached")
 
-    monkeypatch.setattr("conquest.navigation.native_movement_delta", landings_reached)
-    s.recovery = NS(terrain=NS(walkable=lambda tile: True))
-    s.observer = None
-    with pytest.raises(RuntimeError, match="landing search reached"):
-        s.ranged_escape((10, 10), (0, 0, 40, 40), adjacent_trigger=trigger, reach=reach)
-    assert reached
+@pytest.mark.parametrize("mode", farm_mode.MODES)
+def test_flying_ignores_an_ordinary_crowd_but_not_a_boss(mode_file, monkeypatch, mode):
+    # 8
+    farm_mode.set_mode(mode)
+    trigger, reach = farm_mode.escape_trigger(True, False, JUMP_SCATTER_REACH, flying=True)
+    crowd = [NS(name="Snakeman", position=(10 + dx, 10 + dy)) for dx in (-1, 0, 1) for dy in (-1, 1)]
+    assert not jumps(escape_supervisor(crowd), trigger, reach, monkeypatch)
+    king = NS(name="SnakemanKing", position=(14, 10))
+    assert jumps(escape_supervisor(crowd + [king]), trigger, reach, monkeypatch)

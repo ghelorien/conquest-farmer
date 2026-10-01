@@ -185,6 +185,30 @@ def test_jump_scatter_never_lands_within_a_monsters_reach():
     )
 
 
+def test_in_fly_the_landing_may_be_among_the_pack():
+    # Alex 2026-10-01: "When you are flying you can be super bold and go in
+    # huge packs as you cannot be attacked by melee monsters."
+    terrain = TerrainMap(1011, 100, 100, np.zeros((100, 100), dtype=bool), "", (), ())
+    # Every landing 8-12 tiles out has a monster within JUMP_SCATTER_REACH.
+    pack = [
+        target(50 + 4 * i, 50 + 4 * j)
+        for i in range(-4, 5)
+        for j in range(-4, 5)
+        if max(abs(i), abs(j)) >= 2
+    ]
+    grounded = SimpleNamespace(recovery=SimpleNamespace(terrain=terrain), flying=lambda: False)
+    assert scatter_landing(grounded, pack, (50, 50), (20, 20, 80, 80), 10) is None
+    flying = SimpleNamespace(recovery=SimpleNamespace(terrain=terrain), flying=lambda: True)
+    landing = scatter_landing(flying, pack, (50, 50), (20, 20, 80, 80), 10)
+    assert landing is not None and flying.scatter_plan["flying"]
+    assert flying.scatter_plan["contact_targets"] > 0
+    # Never onto a monster or beside one: a click there can attack instead.
+    assert all(
+        max(abs(t.world_position[0] - landing[0]), abs(t.world_position[1] - landing[1])) >= 2
+        for t in pack
+    )
+
+
 def test_equal_reach_landing_keeps_the_pack_beyond_five_tiles():
     # Monsters close in during a jump: with more of them planned within five
     # tiles the next move was more often an escape than a cast (13% -> 51%).

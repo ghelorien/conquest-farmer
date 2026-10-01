@@ -996,9 +996,13 @@ def run_trial(
                     from conquest.farm_mode import escape_trigger
 
                     # Leveling jump-Scatter leaves before any monster can hit
-                    # it; farming only when surrounded at contact.
+                    # it; farming a tile short of melee; Fly for no ordinary one.
+                    flying = getattr(supervisor, "flying", None)
                     adjacent_trigger, reach = escape_trigger(
-                        config.jump_scatter, looting, JUMP_SCATTER_REACH
+                        config.jump_scatter,
+                        looting,
+                        JUMP_SCATTER_REACH,
+                        flying=bool(callable(flying) and flying()),
                     )
                     escape = supervisor.ranged_escape(
                         (x, y),

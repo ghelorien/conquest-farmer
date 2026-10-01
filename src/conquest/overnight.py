@@ -1867,11 +1867,26 @@ class OvernightLoop:
         Pharmacist, stocked two at a time) lands in the town instead. The
         Macaque field, ~100 tiles out, keeps walking.
         """
-        from conquest.return_scroll import GATES, read_gate
+        from conquest.return_scroll import GATES, GATE_NAMES, carried, read_gate as read
 
         home = self.route.restock_map_id
         if home not in GATES:
             return False
+
+        def read_gate(loop, home):
+            if read(loop, home):
+                return True
+            # Without one the restock walks from here: at 2026-10-01 05:43 the
+            # activity read "Heading to Warehouseman for silver banking" while
+            # Toxic walked out of Love Canyon.
+            if not carried(loop, GATES[home]):
+                loop.record(
+                    "gate_home_missing",
+                    reason=getattr(loop, "return_reason", None),
+                    activity=f"No {GATE_NAMES[GATES[home]]} carried; walking back to town",
+                )
+            return False
+
         life = self.living()["embedded_controls"]["life"]
         if life.get("map_id") == home:
             from conquest.city_travel import city_for
@@ -2046,6 +2061,31 @@ class OvernightLoop:
             )
             return False
 
+    def restock_gates_home(self):
+        """Buy the restock town's gates back up to two after a trip read one home.
+
+        2026-10-01 05:32: the buff trip after the shopping read Toxic's only
+        ApeCityGate back from Twin City, and the restock ended there. In Love
+        Canyon the boss-chase exit at 05:43 then had no gate and walked for
+        the Warehouseman from the canyon (~1,300 tiles) until Alex stopped it.
+        """
+        from conquest.discord_notify import read_json
+        from conquest.return_scroll import GATES, POLICY as scroll_policy, stock
+
+        kind = GATES.get(self.route.restock_map_id)
+        if kind is None or not read_json(scroll_policy).get("enabled"):
+            return
+        items = self.town("supplies")["items"]
+        if sum(i["amount"] for i in items if i["type_id"] == kind) >= 2:
+            return
+        self.travel(self.route.restock_anchor)
+        self.town("open", vendor_type=3)
+        try:
+            stock(self)
+        finally:
+            self.town("close", window="Shop")
+            self.town("close", window="Inventory")
+
     def restock(self, *, review_both_cities=True):
         visits = getattr(self, "town_visit", None)
         if visits is not None:
@@ -2138,6 +2178,10 @@ class OvernightLoop:
                     arrow_price,
                 ),
             )
+            # The town's own gates before potions take the bag room: at
+            # 2026-10-01 05:31 six Amrita left Toxic's bag at its free-slot
+            # reserve, so stock() after them skipped the spare ApeCityGate.
+            stock(self)
             potion_quote = None
             if arrow_price:
                 try:
@@ -2289,6 +2333,8 @@ class OvernightLoop:
             )
         ):
             toured = buff_trip.trip(self)
+        if toured:
+            self.restock_gates_home()
         # A bag full of protected loot is the reason for this visit. Storage
         # must get its turn before the final free-space check can reject it.
         counts = supply_counts(self.town("supplies"), self.route)
