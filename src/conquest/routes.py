@@ -66,6 +66,55 @@ def route_monster_name(route):
     return route_monster_names(route)[0]
 
 
+def boss_tier(name):
+    """"messenger", "aide" or "king" for a boss or elite name, else None."""
+    import re
+
+    if not name or name in _family_names():
+        return None
+    if re.search(r"(?:messenger|msgr)$", name, flags=re.IGNORECASE):
+        return "messenger"
+    if re.search(r"aide$", name, flags=re.IGNORECASE):
+        return "aide"
+    if re.search(r"(?:king|queen|boss|leader|chieftain)$", name, flags=re.IGNORECASE):
+        return "king"
+    return None
+
+
+# Per character {"ignore": ["king", "messenger", "aide"]}: boss tiers this
+# farmer neither keeps away from nor counts as a threat, so it farms through
+# them. Alex 2026-10-01 ~18:5x, watching Suicide (63) leave fields to bosses:
+# "you shouldnt be scared by kings and messengers they do 0 damage. Be bold
+# maximize farming." (Toxic took ~140-damage boss hits at level ~30 on
+# 2026-09-28, so it stays per character.) Read at most every 5 s; None means
+# the current character's .runtime/boss-policy.json.
+BOSS_POLICY = None
+_boss_policy_cache = [-1e9, frozenset()]
+
+
+def ignored_boss_tiers():
+    import json
+    import time
+
+    now = time.monotonic()
+    if now - _boss_policy_cache[0] < 5:
+        return _boss_policy_cache[1]
+    path = BOSS_POLICY
+    if path is None:
+        from conquest.character_context import state_path
+
+        path = Path(state_path(".runtime/boss-policy.json"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        tiers = frozenset(
+            t for t in data.get("ignore", []) if t in ("king", "messenger", "aide")
+        )
+    except (OSError, ValueError, AttributeError):
+        tiers = frozenset()
+    _boss_policy_cache[:] = [now, tiers]
+    return tiers
+
+
 def boss_name(name):
     """Whether a monster name is a boss or elite: never a target, kept at a
     distance. The elite tiers around the leveling fields are Messenger (81xx),
@@ -73,18 +122,10 @@ def boss_name(name):
     field and BanditAide the Bandit one. On Ape Mountain the server shortens
     Messenger to "Msgr" (GiantApeMsgr 8106, ThunderApeMsgr 8107). An ordinary
     leveling family is never a boss, whatever its name ends with (HawKing,
-    levels 92-96)."""
-    import re
-
-    if name in _family_names():
-        return False
-    return bool(
-        re.search(
-            r"(?:king|queen|boss|leader|chieftain|aide|messenger|msgr)$",
-            name,
-            flags=re.IGNORECASE,
-        )
-    )
+    levels 92-96). A tier in this character's ignored_boss_tiers() is no boss:
+    every keep-away, escape, boss-chase count and loot deferral asks here."""
+    tier = boss_tier(name)
+    return tier is not None and tier not in ignored_boss_tiers()
 
 
 # Tiles an archer keeps from a boss: bosses hit from range. On 2026-09-28

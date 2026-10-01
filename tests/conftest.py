@@ -83,6 +83,10 @@ def isolate_live_session_plan(tmp_path, monkeypatch):
     from conquest import arrow_upgrades
 
     monkeypatch.setattr(arrow_upgrades, "POLICY", tmp_path / "arrow-policy.json")
+    from conquest import routes
+
+    monkeypatch.setattr(routes, "BOSS_POLICY", tmp_path / "boss-policy.json")
+    monkeypatch.setattr(routes, "_boss_policy_cache", [-1e9, frozenset()])
     from conquest import hempknight
 
     monkeypatch.setattr(hempknight, "STATE", tmp_path / "hempknight.json")
