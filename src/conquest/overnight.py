@@ -2378,6 +2378,7 @@ class OvernightLoop:
             visits.returning(self.route.map_id, target=self.identity)
         self.record("hunt_started", activity="Heading back to the hunting area")
         reached = None
+        arrived = False  # supply_plan learns the hunt from its arrival
         last_report = 0
         departed = None  # potions carried at the first supply read of this hunt
         self.potion_samples = []
@@ -2467,6 +2468,11 @@ class OvernightLoop:
                 self.stop_farm()
                 return "urgent_banking"
             supplies = supply_counts(bag, self.route)
+            if reached and not arrived:
+                from conquest import supply_plan
+
+                supply_plan.arrived(self.route.id, supplies)
+                arrived = True
             from conquest.savings import progress
 
             if progress(self, supplies["silver"]):

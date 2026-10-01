@@ -50,6 +50,30 @@ def begin_hunt(route_id, counts, now=None):
     write_json(RATES, data)
 
 
+def arrived(route_id, counts, now=None):
+    """The hunt reached its field: learn its use from here, not from town.
+
+    end_hunt measured from the restock, so the walk in counted as hunting.
+    2026-09-30 23:31-23:56 (Toxic, Love Canyon): 19 of the 25 minutes went on
+    a King-blocked passage. That halved the measured arrow use and tripled the
+    potions (heals while waiting), so the next restock bought 30 potions and
+    one arrow pack. Only a hunt begun for this route moves, and only once.
+    """
+    data = read_json(RATES)
+    current = data.get("current")
+    if not current or current.get("route") != route_id or current.get("arrived"):
+        return False
+    data["current"] = {
+        **current,
+        "at": time.time() if now is None else now,
+        "potions": counts["potions"],
+        "arrows": counts["arrows"],
+        "arrived": True,
+    }
+    write_json(RATES, data)
+    return True
+
+
 def end_hunt(route_id, counts, now=None):
     """Learn the finished hunt's consumption; the new rates, or None."""
     data = read_json(RATES)
