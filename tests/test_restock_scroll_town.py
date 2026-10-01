@@ -21,7 +21,7 @@ def clock(monkeypatch):
     return now
 
 
-@pytest.mark.parametrize("restock_map, expected", [(1002, ["scroll"]), (1011, [])])
+@pytest.mark.parametrize("restock_map, expected", [(1002, ["scroll"])])
 def test_restock_scrolls_only_to_a_twin_city_restock(monkeypatch, restock_map, expected):
     calls = []
     monkeypatch.setattr(return_scroll, "return_to_town", lambda loop: calls.append("scroll") or True)
@@ -34,16 +34,19 @@ def test_restock_scrolls_only_to_a_twin_city_restock(monkeypatch, restock_map, e
 # Suicide died on the ThunderApe -> Ape City runback at (563, 432) on
 # 2026-09-29 22:39: the walk crosses the bosses around the GiantApe plain.
 @pytest.mark.parametrize(
-    "map_id, position, expected",
+    "home, map_id, position, expected",
     [
-        (1020, (330, 300), ["gate:1020"]),  # the ThunderApe field, 245 out
-        (1020, (605, 335), ["gate:1020"]),  # the GiantApe plain, 210 out
-        (1020, (620, 645), []),  # the Macaque field walks home
-        (1002, (381, 21), ["gate:1020"]),  # another map: the gate decides
+        (1020, 1020, (330, 300), ["gate:1020"]),  # the ThunderApe field, 245 out
+        (1020, 1020, (605, 335), ["gate:1020"]),  # the GiantApe plain, 210 out
+        (1020, 1020, (620, 645), []),  # the Macaque field walks home
+        (1020, 1002, (381, 21), ["gate:1020"]),  # another map: the gate decides
+        # Phoenix: the Bandit box reads a CastleGate; by town it walks.
+        (1011, 1011, (420, 450), ["gate:1011"]),
+        (1011, 1011, (200, 260), []),
     ],
 )
 def test_an_ape_city_restock_reads_its_gate_only_from_far_away(
-    monkeypatch, clock, map_id, position, expected
+    monkeypatch, clock, home, map_id, position, expected
 ):
     calls = []
     monkeypatch.setattr(
@@ -53,7 +56,7 @@ def test_an_ape_city_restock_reads_its_gate_only_from_far_away(
         return_scroll, "return_to_town", lambda loop: pytest.fail("a TwinCityGate lands in Twin City")
     )
     loop = OvernightLoop.__new__(OvernightLoop)
-    loop.route = NS(restock_map_id=1020)
+    loop.route = NS(restock_map_id=home)
     loop.living = lambda: {"embedded_controls": {"life": {"map_id": map_id, "position": list(position)}}}
     assert loop.scroll_to_restock_town() is bool(expected)
     assert calls == expected
@@ -180,3 +183,34 @@ def test_a_quiet_field_reads_the_gate_after_the_quiet_wait(monkeypatch, clock):
     assert loop.gate_home_from_afar()
     assert gates == [1020] and jumps == [] and events == []
     assert overnight.GATE_QUIET_SECONDS <= clock[0] - start < overnight.GATE_QUIET_SECONDS + 1
+
+
+@pytest.mark.parametrize("bandit_level, read", [(32, True), (55, False), (None, False)])
+def test_monsters_far_below_the_character_do_not_crowd_the_gate(
+    monkeypatch, clock, bandit_level, read
+):
+    # Alex 2026-09-30 22:1x, the Phoenix Bandits (L32) round Suicide (L60):
+    # "keep atleast 100 kpm ... just go grab the buff again and come back".
+    # The box never leaves 6 tiles free, and a refresh with no quiet spot
+    # cools down for 20 minutes. Their chips (5 of 960 HP) are no hits.
+    bandits = [{"name": "Bandit", "position": [619 + d, 284]} for d in (-3, 0, 3)]
+    for bandit in bandits:
+        if bandit_level is not None:
+            bandit["level"] = bandit_level
+    scene = {"position": (619, 281), "hp": 960, "monsters": bandits}
+
+    def chip(scene):
+        scene["hp"] -= 5
+
+    loop, events, jumps, gates = far_loop(monkeypatch, scene, chip)
+    loop.last_level = 60
+    living = loop.living
+
+    def with_max_hp():
+        health = living()
+        health["embedded_controls"]["life"]["max_hp"] = 960
+        return health
+
+    loop.living = with_max_hp
+    assert loop.gate_home_from_afar() is read
+    assert gates == ([1020] if read else [])

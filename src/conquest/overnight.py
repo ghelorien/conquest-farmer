@@ -52,6 +52,12 @@ GATE_RELAXED_TILES = 6
 # From a walled-off field (a route entry's region) the quiet-spot search runs
 # this many times before the gate is read anyway: there is no walk home.
 WALLED_GATE_TRIES = 3
+# A monster this many levels below the character does not crowd a gate read,
+# and an HP drop under GATE_HIT_TOLERANCE of max HP is not a hit. Bandits
+# (L32) round Suicide (L60) on 2026-09-30 never left 6 tiles free in the box,
+# and a buff refresh that finds no quiet spot cools down for 20 minutes.
+GATE_HARMLESS_LEVELS = 20
+GATE_HIT_TOLERANCE = 0.02
 # Once the hourly restart budget is spent: pause this long (escalating), then
 # replan from fresh reads again instead of stopping for good.
 FAILURE_COOLDOWNS = (120, 300, 600)
@@ -1824,6 +1830,7 @@ class OvernightLoop:
 
         king = getattr(self.route, "king_clearance", BOSS_CLEARANCE)
         elite = getattr(self.route, "elite_clearance", BOSS_CLEARANCE)
+        level = getattr(self, "last_level", 0) or 0
         started = time.monotonic()
         hit_at, last_hp = started, None
         while True:
@@ -1838,7 +1845,8 @@ class OvernightLoop:
             life = controls.get("life") or {}
             now = time.monotonic()
             hp = life.get("current_hp")
-            if last_hp is not None and hp is not None and hp < last_hp:
+            tolerance = GATE_HIT_TOLERANCE * (life.get("max_hp") or 0)
+            if last_hp is not None and hp is not None and hp < last_hp - tolerance:
                 hit_at = now
             last_hp = hp
             position = tuple(life.get("position") or ())
@@ -1849,12 +1857,17 @@ class OvernightLoop:
             ]
             clear = GATE_CLEAR_TILES if now - started < GATE_RELAX_SECONDS else GATE_RELAXED_TILES
             # A failed scene read comes back with no monsters: that is no
-            # evidence of quiet.
+            # evidence of quiet. A monster of unknown level counts.
             crowded = (
                 not position
                 or controls.get("observations_available") is False
                 or any(
                     not boss_name(m.name or "")
+                    and not (
+                        level
+                        and type(getattr(m, "level", None)) is int
+                        and m.level <= level - GATE_HARMLESS_LEVELS
+                    )
                     and max(abs(a - b) for a, b in zip(m.position, position)) <= clear
                     for m in living
                 )

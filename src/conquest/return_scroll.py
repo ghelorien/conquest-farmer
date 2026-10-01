@@ -10,10 +10,14 @@ from conquest.discord_notify import read_json, write_json
 TYPE = 1060020
 # A gate lands in its city's town. Each city's Pharmacist sells its own: the
 # installed ini/shop.json lists TwinCityGate only in Twin City's Shop3 (and
-# Shop3623), ApeCityGate only in Shop10030, and Phoenix's Pharmacist sells
-# CastleGate (live 2026-09-27 17:43). All cost 200 (ini/itemtype.json).
-GATES = {1002: TYPE, 1020: 1060022}
-GATE_NAMES = {TYPE: "TwinCityGate", 1060022: "ApeCityGate"}
+# Shop3623), ApeCityGate only in Shop10030, and CastleGate (1060023, "Teleport
+# to Phoenix Castle") only in Shop10014, Phoenix's Pharmacist (live 2026-09-27
+# 17:43). All cost 200 (ini/itemtype.json). With CastleGates a Phoenix route's
+# buff trip and far restocks land in Phoenix town, instead of the Twin City
+# Conductress's fare, portal 7 and ~250 tiles from Phoenix's west gate (the
+# Bandits, 2026-09-30).
+GATES = {1002: TYPE, 1020: 1060022, 1011: 1060023}
+GATE_NAMES = {TYPE: "TwinCityGate", 1060022: "ApeCityGate", 1060023: "CastleGate"}
 GATE_PRICE = 200
 # Per character: a verified first use qualifies this character's client, and
 # a release folder is immutable (a changed file there blocks route launches).
