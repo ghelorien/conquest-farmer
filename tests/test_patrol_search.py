@@ -64,6 +64,8 @@ def test_saved_routes_retain_idle_search_policy():
         # Suicide's Ratling strip starts at x 528; the Bandit route's
         # expansion reaches 525 (2026-10-01).
         "ratling-strip": 2,
+        # Twin City's field, restocked in Phoenix (2026-10-01).
+        "apparition-phx": 8,
     }
     for route in RouteLibrary().all():
         assert 5 <= route.patrol_search.idle_seconds <= 10
