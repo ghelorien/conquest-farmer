@@ -2417,10 +2417,12 @@ class OvernightLoop:
             uids=[i["uid"] for i in items],
             activity="Heading directly to the warehouse to protect carried valuables",
         )
-        from conquest.return_scroll import return_to_town
         from conquest.world_travel import travel_to_map
 
-        return_to_town(self)
+        # The restock town's own gate (a CastleGate from the Bandits): reading
+        # the TwinCityGate first cost a second scroll home, and the TwinCityGate
+        # the next buff trip needed (Suicide, 2026-10-01 03:59).
+        self.scroll_to_restock_town()
         travel_to_map(self, self.route.restock_map_id)
         self.town("close", window="Shop")
         self.town("close", window="Inventory")

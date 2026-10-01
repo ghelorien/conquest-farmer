@@ -1399,8 +1399,10 @@ def test_urgent_bank_deposits_before_hunting_without_supply_shopping(
         return True
 
     monkeypatch.setattr(banking, "after_shopping", bank)
+    # A Phoenix route reads its CastleGate (scroll_to_restock_town), never a
+    # TwinCityGate to Twin City first (Suicide, 2026-10-01 03:59).
     monkeypatch.setattr(
-        return_scroll, "return_to_town", lambda loop: calls.append("return")
+        return_scroll, "return_to_town", lambda loop: pytest.fail("a second scroll home")
     )
     monkeypatch.setattr(
         world_travel, "travel_to_map", lambda *a: calls.append("travel")
@@ -1410,13 +1412,15 @@ def test_urgent_bank_deposits_before_hunting_without_supply_shopping(
         town=town,
         record=lambda *a, **kw: None,
         restock=lambda: pytest.fail("Stocked bank trip must not shop"),
+        scroll_to_restock_town=lambda: calls.append("scroll"),
+        optional_town_service=lambda: handoff.service_window(loop, town=True),
     )
     if still_carried:
         with pytest.raises(ValueError, match="remain carried"):
             OvernightLoop.bank_urgent_valuables(loop)
     else:
         OvernightLoop.bank_urgent_valuables(loop)
-    assert calls.index("travel") < calls.index("deposit")
+    assert calls.index("scroll") < calls.index("travel") < calls.index("deposit")
     assert "buy" not in calls
     if still_carried:
         assert not any(isinstance(c, tuple) and c[0] == "refill" for c in calls)
