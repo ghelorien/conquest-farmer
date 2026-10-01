@@ -306,6 +306,21 @@ def loot_outranks_escape(supervisor, position):
     )
 
 
+def lone_target(config, observed, position):
+    """Exactly one selected living monster within attack range: single shots,
+    not a Scatter (Alex 2026-10-01: "bro you are casting scatter at 1
+    monster"). None in range is not lone: the jump-Scatter mode then keeps
+    seeking packs, since scatter_landing runs only for the Scatter button.
+    Counting none as lone (1f63211) stopped every pack-seeking jump: Toxic
+    walked an empty Bandit region at 8 kills a minute, 2026-10-01 07:40-07:48.
+    """
+    from conquest.attack_strategy import nearby_group_size
+
+    return bool(config.single_isolated_targets) and (
+        nearby_group_size(observed, position, config.attack_range_tiles) == 1
+    )
+
+
 def loot_first_now(supervisor):
     first = getattr(supervisor, "loot_first", None)
     return callable(first) and bool(first())
@@ -1797,13 +1812,7 @@ def run_trial(
                     )
                 if strategy:
                     strategy.observe(observed, time.monotonic())
-                from conquest.attack_strategy import nearby_group_size
-
-                isolated = (
-                    config.single_isolated_targets
-                    and nearby_group_size(observed, (x, y), config.attack_range_tiles)
-                    < 2
-                )
+                isolated = lone_target(config, observed, (x, y))
 
                 def mode(name):
                     return scatter_attack_mode(config, speed, strategy, isolated, name)

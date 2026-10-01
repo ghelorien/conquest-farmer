@@ -73,6 +73,27 @@ def test_force_jump_scatter_spares_a_lone_target_and_is_disabled_with_missing_sk
     assert ammunition_per_attack(config) == (3 if jump_scatter else 1)
 
 
+def test_a_lone_target_is_exactly_one_in_range():
+    # None in range is not lone: the Scatter mode keeps seeking packs
+    # (Toxic 2026-10-01 07:40-07:48: 8 kills a minute while 0 counted as lone).
+    from types import SimpleNamespace
+    from conquest.trial import lone_target
+
+    def monster(i, x, hp=81):
+        return SimpleNamespace(
+            entity_id=i, object_address=i, world_position=(x, 10), current_hp=hp
+        )
+
+    config = SimpleNamespace(single_isolated_targets=True, attack_range_tiles=16)
+    assert not lone_target(config, [], (10, 10))
+    assert lone_target(config, [monster(1, 20)], (10, 10))
+    assert not lone_target(config, [monster(1, 20), monster(2, 22)], (10, 10))
+    # Out of range or dead ones do not count.
+    assert lone_target(config, [monster(1, 20), monster(2, 40), monster(3, 21, hp=0)], (10, 10))
+    config.single_isolated_targets = False
+    assert not lone_target(config, [monster(1, 20)], (10, 10))
+
+
 def test_force_jump_scatter_is_enabled_for_all_profiles():
     from pathlib import Path
 
