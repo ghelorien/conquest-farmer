@@ -367,7 +367,14 @@ def trip(loop, ride=False):
             if quiet is not None and not quiet():
                 raise ValueError("No quiet spot to read the TwinCityGate")
             if not read_gate(loop, TWIN_CITY):
-                raise ValueError("The TwinCityGate did not complete")
+                # read_gate refuses some reads silently. 2026-10-01 05:09:44
+                # left only this line, and Suicide was near Phoenix 19 s later.
+                here = loop.living()["embedded_controls"]["life"]
+                raise ValueError(
+                    "The TwinCityGate did not complete"
+                    f" (map {here.get('map_id')} at {here.get('position')},"
+                    f" {gates_carried(loop.town('supplies')['items'])} carried)"
+                )
             went = True
         arrived(loop, TWIN_CITY)
         visit_buffer(loop)
