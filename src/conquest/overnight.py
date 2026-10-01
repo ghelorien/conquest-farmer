@@ -988,6 +988,7 @@ class OvernightLoop:
         service_name=None,
         arrival_radius=0,
         avoid=(),
+        stop_at_vendor=True,
     ):
         from conquest.runback_monitor import RunbackMonitor
 
@@ -1018,6 +1019,7 @@ class OvernightLoop:
                 service_name=service_name,
                 arrival_radius=arrival_radius,
                 avoid=avoid,
+                stop_at_vendor=stop_at_vendor,
             )
             outcome = "arrived"
             return result
@@ -1036,12 +1038,18 @@ class OvernightLoop:
         service_name=None,
         arrival_radius=0,
         avoid=(),
+        stop_at_vendor=True,
     ):
         if type(arrival_radius) is not int or not 0 <= arrival_radius <= 2:
             raise ValueError("Intermediate arrival radius must be zero to two tiles")
         from conquest.city_travel import service_role
 
-        vendor_role = service_role(self.terrain.map_id, destination)
+        # A destination on a vendor's service stop ends the walk once that
+        # vendor is reachable (up to 18 tiles off), unless stop_at_vendor is
+        # False: Phoenix's town anchor (191, 250) is the Pharmacist's stop.
+        vendor_role = (
+            service_role(self.terrain.map_id, destination) if stop_at_vendor else None
+        )
         from conquest.arrow_upgrades import NORMAL_ARROWS
 
         purpose = {

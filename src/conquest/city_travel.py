@@ -72,11 +72,16 @@ def ensure_city_visit(loop, *, new_arrival=False):
     left, top, right, bottom = city["town_boundary"]
     x, y = life["position"]
     if not (left <= x <= right and top <= y <= bottom):
-        # Close to the anchor, not merely within the walk's default reach:
-        # Phoenix's CastleGate lands at ~(188, 264), 14 tiles from its anchor
-        # (191, 250) but outside the box, so a default-radius walk "arrived"
-        # without moving and every restart failed below (2026-10-01 11:46).
-        loop.travel(tuple(city["town_anchor"]), activity=activity, arrival_radius=2)
+        # All the way in: Phoenix's CastleGate lands at ~(188, 264), 14 tiles
+        # from its anchor (191, 250) but outside the box. That anchor is the
+        # Pharmacist's service stop, so the walk ended at once (the vendor was
+        # reachable) and every restart failed below (2026-10-01 11:46, 12:48).
+        loop.travel(
+            tuple(city["town_anchor"]),
+            activity=activity,
+            arrival_radius=2,
+            stop_at_vendor=False,
+        )
     fresh = loop.living()
     data = fresh["embedded_controls"]
     after = data["life"]

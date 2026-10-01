@@ -823,6 +823,47 @@ def test_town_arrival_uses_nearby_interaction_position_without_repeated_steps():
     loop.travel((466, 333))
 
 
+def test_a_town_walk_that_must_arrive_does_not_stop_at_the_vendor(monkeypatch):
+    # Phoenix's town anchor (191, 250) is the Pharmacist's stop: a CastleGate
+    # landing at (188, 264) "arrived" without moving (2026-10-01 12:48).
+    from conquest import city_travel, memory_npcs, scene_input
+    import numpy as np
+    from conquest.navigation import TerrainMap
+
+    monkeypatch.setattr(scene_input, "memory_player_anchor", lambda *args: (518, 396))
+    monkeypatch.setattr(city_travel, "service_role", lambda map_id, point: 3)
+    monkeypatch.setattr(
+        memory_npcs, "vendor_identity", lambda map_id, role: SimpleNamespace(position=(18, 10))
+    )
+    blocked = np.ones((30, 30), dtype=bool)
+    blocked[10, 5:19] = False
+
+    def walk(stop_at_vendor):
+        loop = OvernightLoop.__new__(OvernightLoop)
+        loop.route = RouteLibrary().load("turtledove")
+        loop.terrain = TerrainMap(1002, 30, 30, blocked, "", (), ())
+        position = [5, 10]
+        steps = []
+        loop.living = lambda: {"embedded_controls": {"life": {"position": list(position)}}}
+        loop.care = SimpleNamespace(check=lambda h: None, session=None)
+        loop.record = lambda event, **fields: None
+        loop.town = lambda action, **kw: {"reachable": True}
+
+        def step(destination, expected_position):
+            steps.append(destination)
+            position[:] = destination
+            return {"reached": True}
+
+        loop.stepper = SimpleNamespace(step_to=step)
+        loop.travel((18, 10), stop_at_vendor=stop_at_vendor)
+        return position, steps
+
+    position, steps = walk(True)
+    assert position == [5, 10] and not steps  # the reachable vendor ends it
+    position, steps = walk(False)
+    assert position == [18, 10] and steps
+
+
 def test_manual_mouse_priority_prevents_route_controller_refocus():
     from conquest.overnight import OvernightLoop
 
