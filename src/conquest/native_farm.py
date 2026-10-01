@@ -102,6 +102,13 @@ BOSS_MEMORY_REACH = 120
 # you cannot be attacked by melee monsters."
 FLY_STATUS = 0x8000000
 FLY_STATUS_SECONDS = 1.0
+# An ordinary monster this many levels below the archer never calls for an
+# escape jump by coming close; only its hits do (overnight.GATE_HARMLESS_LEVELS
+# for gate reads). Alex 2026-10-01 06:3x sent Toxic (L62) to the Bandits (L32-36)
+# with Suicide (L60, 104-135 kills a minute there) with the goal "minimum of
+# 100 kpm for each over the span of an hour"; every jump from a Bandit is a
+# lost cast.
+HARMLESS_LEVELS = 20
 
 @contextmanager
 def logical_coordinates():
@@ -2093,6 +2100,7 @@ class NativeFarmSupervisor:
         adjacent_trigger=2,
         reach=1,
         scatter_range=None,
+        harmless_level=None,
     ):
         """A bounded clear jump away from memory-verified nearby living monsters.
 
@@ -2104,8 +2112,11 @@ class NativeFarmSupervisor:
         safe landings prefer the one with the most monsters left inside
         Scatter range: the farthest landing often left the pack out of range,
         and 40% of escapes went over 1.5 s without a cast (18:45-18:56).
+        An ordinary monster of level ``harmless_level`` or lower calls for no
+        jump by coming close (HARMLESS_LEVELS); its hits still do.
         """
         from conquest.navigation import native_movement_delta
+        from conquest.routes import BOSS_CLEARANCE, BOSS_ROOM, boss_clearance, boss_name
 
         now = time.monotonic()
         if (
@@ -2115,9 +2126,18 @@ class NativeFarmSupervisor:
             return None
         living = [m.position for m in self.escape_monsters]
         distances = [max(abs(a - b) for a, b in zip(p, position)) for p in living]
-        adjacent = sum(d <= 1 for d in distances)
-        within_reach = sum(d <= reach for d in distances)
-        from conquest.routes import BOSS_CLEARANCE, BOSS_ROOM, boss_clearance, boss_name
+
+        def harmless(monster):
+            return (
+                harmless_level is not None
+                and type(getattr(monster, "level", None)) is int
+                and monster.level <= harmless_level
+                and not boss_name(getattr(monster, "name", "") or "")
+            )
+
+        close = [d for m, d in zip(self.escape_monsters, distances) if not harmless(m)]
+        adjacent = sum(d <= 1 for d in close)
+        within_reach = sum(d <= reach for d in close)
 
         # Bosses hit from range: leave one within its clearance (the route's
         # king_clearance for the King tier, its elite_clearance for Aides and

@@ -999,6 +999,7 @@ def run_trial(
                     pickup = getattr(supervisor, "pending_loot", None)
                     looting = bool(pickup) and time.monotonic() - pickup[2] < 3
                     from conquest.farm_mode import escape_trigger
+                    from conquest.native_farm import HARMLESS_LEVELS
 
                     # Leveling jump-Scatter leaves before any monster can hit
                     # it; farming a tile short of melee; Fly for no ordinary one.
@@ -1017,6 +1018,9 @@ def run_trial(
                         reach=reach,
                         scatter_range=config.attack_range_tiles
                         if config.jump_scatter
+                        else None,
+                        harmless_level=previous_level - HARMLESS_LEVELS
+                        if previous_level
                         else None,
                     )
                     if escape is not None:

@@ -142,7 +142,7 @@ def escape_supervisor(monsters):
     return s
 
 
-def jumps(s, trigger, reach, monkeypatch):
+def jumps(s, trigger, reach, monkeypatch, **kwargs):
     """Whether the real ranged_escape gate lets this scene through to the
     landing search (None means no jump was called for)."""
 
@@ -153,11 +153,39 @@ def jumps(s, trigger, reach, monkeypatch):
     s.recovery = NS(terrain=NS(walkable=lambda tile: True))
     s.observer = None
     try:
-        assert s.ranged_escape((10, 10), (0, 0, 40, 40), adjacent_trigger=trigger, reach=reach) is None
+        assert (
+            s.ranged_escape(
+                (10, 10), (0, 0, 40, 40), adjacent_trigger=trigger, reach=reach, **kwargs
+            )
+            is None
+        )
     except RuntimeError as error:
         assert str(error) == "landing search reached"
         return True
     return False
+
+
+def test_a_monster_far_below_the_archer_is_no_reason_to_jump(mode_file, monkeypatch):
+    # Alex 2026-10-01 06:3x sent Toxic (L62) to the Bandits (L32-36): "goal is
+    # minimum of 100 kpm". Every jump from a Bandit is a lost cast.
+    from conquest.native_farm import HARMLESS_LEVELS
+
+    farm_mode.set_mode("farming")
+    trigger, reach = farm_mode.escape_trigger(True, False, JUMP_SCATTER_REACH)
+    harmless = 62 - HARMLESS_LEVELS
+    bandits = [NS(name="Bandit", level=33, position=(11, 10)), NS(name="Bandit", level=34, position=(10, 11))]
+    assert not jumps(escape_supervisor(bandits), trigger, reach, monkeypatch, harmless_level=harmless)
+    # Without the character's level, as before: they call for the jump.
+    assert jumps(escape_supervisor(bandits), trigger, reach, monkeypatch)
+    # A monster within 20 levels still does, and a boss of any level does.
+    snake = [NS(name="Snakeman", level=62, position=(11, 10))]
+    assert jumps(escape_supervisor(snake), trigger, reach, monkeypatch, harmless_level=harmless)
+    king = [NS(name="BanditKing", level=40, position=(14, 10))]
+    assert jumps(escape_supervisor(king), trigger, reach, monkeypatch, harmless_level=harmless)
+    # A hit worth a jump still is one.
+    hit = escape_supervisor(bandits)
+    hit.last_damage_at = time.monotonic()
+    assert jumps(hit, trigger, reach, monkeypatch, harmless_level=harmless)
 
 
 def test_farming_jumps_a_tile_short_of_melee(mode_file, monkeypatch):
