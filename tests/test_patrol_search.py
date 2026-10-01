@@ -58,6 +58,9 @@ def test_saved_routes_retain_idle_search_policy():
         "giantape-far-west": 1,
         "wingedsnake-west": 1,
         "wingedsnake-east": 1,
+        # The Phoenix Bandit halves split at x = 421 (2026-10-01): 2 tiles
+        # keep each farmer's search out of the other's half.
+        "bandit-west-half": 2,
     }
     for route in RouteLibrary().all():
         assert 5 <= route.patrol_search.idle_seconds <= 10
