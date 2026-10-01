@@ -1230,7 +1230,14 @@ class TownTrade:
             from conquest.scroll_withdrawal import reconcile
 
             return reconcile(self, body["operation_id"], body["uid"])
-        if action == "warehouse-open" and set(body) == {"action"}:
+        if action == "warehouse-open" and (
+            set(body) == {"action"}
+            or (set(body) == {"action", "lift"} and body["lift"] in (32, 64))
+        ):
+            # ``lift`` 64 clicks the Warehouseman's upper body: a player
+            # standing on Phoenix's covered the usual point (Suicide,
+            # 2026-10-01 00:0x), and every open went to the player.
+            lift = body.get("lift", 32)
             identity, npc = self.warehouse_vendor_snapshot()
             if self.reread_warehouse_vendor(identity) != npc:
                 raise ValueError("Vendor moved before interaction")
@@ -1238,7 +1245,7 @@ class TownTrade:
             self.click_npc(
                 npc,
                 lambda: self.reread_warehouse_vendor(identity),
-                point=(npc.draw_position[0], npc.draw_position[1] - 32),
+                point=(npc.draw_position[0], npc.draw_position[1] - lift),
             )
             return {
                 "interacted": True,

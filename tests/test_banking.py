@@ -760,3 +760,37 @@ def test_a_missed_town_warehouse_click_moves_closer_after_one_failure(monkeypatc
     b.open_warehouse(loop)
     assert len(travels) == 1 and attempts == [2]
     assert max(abs(a - bb) for a, bb in zip(travels[0], (225, 244))) <= 4
+
+
+def test_a_player_on_the_warehouseman_gets_one_higher_click(monkeypatch):
+    # Phoenix 2026-10-01 00:0x: from 7 tiles the opens still missed; a player
+    # stood on the Warehouseman and took the usual (draw - 32) click.
+    from conquest import memory_npcs
+
+    monkeypatch.setattr(b.time, "sleep", lambda _: None)
+    monkeypatch.setattr(memory_npcs, "TOWN_VENDORS", [])
+    calls, opened = [], [False]
+
+    def town(action, **fields):
+        calls.append((action, fields.get("lift")))
+        if action == "vendor-status":
+            return {"reachable": True}
+        if action == "warehouse-locate":
+            return {"position": [225, 244]}
+        if action == "warehouse-open":
+            opened[0] = fields.get("lift") == 64
+            return {"interacted": True}
+        if action == "open-bank" and not opened[0]:
+            raise ValueError("Warehouse opening unverified; no repeat input issued")
+        return {}
+
+    loop = NS(
+        living=lambda: {"embedded_controls": {"life": {"map_id": 1011, "position": [228, 250]}}},
+        town=town,
+        travel=lambda *a, **k: pytest.fail("already close"),
+        terrain=NS(walkable=lambda p: True),
+        record=lambda *a, **kw: None,
+    )
+    b.open_warehouse(loop)
+    assert ("warehouse-open", 64) in calls
+    assert [c for c in calls if c[0] == "open-bank"] == [("open-bank", None)] * 3

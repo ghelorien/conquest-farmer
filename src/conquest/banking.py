@@ -252,6 +252,17 @@ def open_warehouse(loop):
                         arrival_radius=1,
                         activity="Moving closer to open the warehouse",
                     )
+            if attempt == 1 and life["map_id"] != 1036:
+                # Still missed from close by: a player standing on him takes
+                # the usual click (Phoenix, 2026-10-01 00:0x). Click his upper
+                # body once; the next open-bank verifies the panel and sends
+                # no click if it is already open.
+                loop.record(
+                    "warehouse_high_click",
+                    activity="Clicking the Warehouseman higher; someone covers the usual point",
+                )
+                loop.town("warehouse-open", lift=64)
+                time.sleep(0.5)
             time.sleep(0.5)
     return loop.town("warehouse-money")
 
