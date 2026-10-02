@@ -82,6 +82,11 @@ VALUABLE_BOUNDARY_SLACK = 12
 # valuable (never silver) within this many tiles of the farmer is walked to
 # wherever it lies: the loot audit showed Uniques and +1s at x 355-389, past
 # the WingedSnake boundary's 352, that were never picked up (2026-09-28).
+# The walk's last stretch counts from the drop too (approach_loot.allowed):
+# 2026-10-01 a Meteor 38 tiles off at (546,377), 33 past the Bandit box, and
+# two 29 tiles off at (475,323), just above its slack, were left on the
+# ground, and Alex approved valuables pulling the farmer past the hunt's edge
+# (2026-10-02). The 40-tile search still bounds every such walk.
 VALUABLE_RADIUS = 25
 # Such a walk holds the trial's boundary return this long after its last step
 # or click, so leaving the box does not turn it straight back.
@@ -1690,7 +1695,11 @@ class NativeFarmSupervisor:
                 inside = boundary[0] <= x <= boundary[2] and boundary[1] <= y <= boundary[3]
                 return inside or (
                     not drop.silver
-                    and max(abs(x - position[0]), abs(y - position[1])) <= VALUABLE_RADIUS
+                    and min(
+                        max(abs(x - position[0]), abs(y - position[1])),
+                        max(abs(x - drop.position[0]), abs(y - drop.position[1])),
+                    )
+                    <= VALUABLE_RADIUS
                 )
 
             if not all(allowed(x, y) for x, y in path):

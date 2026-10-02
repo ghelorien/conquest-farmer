@@ -1,6 +1,6 @@
 """Valuables keep their loot turn while an overdue Scatter makes silver wait,
 and a walk toward one may leave the hunting boundary: by the slack, and
-anywhere within VALUABLE_RADIUS of the farmer.
+anywhere within VALUABLE_RADIUS of the farmer or of the drop.
 
 Toxic 2026-09-28: a Super MeteorEarring 23 tiles off was lost at 14:51 while
 whole loot turns were skipped for the Scatter, and 8 Uniques at x 363-384,
@@ -139,16 +139,30 @@ def test_a_valuable_walk_may_pass_the_hunting_boundary_by_the_slack(monkeypatch)
     supervisor.loot_boundary = (40, 40, 60, 58)
     assert step()
     assert any(event == "memory_pickup_approach" for event, _ in notes)
-    # 22 tiles past it: still deferred.
+
+
+def test_a_valuable_anywhere_in_the_search_is_walked_to(monkeypatch):
+    # 2026-10-01: a Meteor 38 tiles off at (546,377), 33 past the Bandit box,
+    # was deferred as "Loot path leaves hunting boundary"; Alex approved
+    # valuables pulling the farmer past the hunt's edge (2026-10-02). 22 tiles
+    # past the edge and 30 from the farmer: every step lies within 25 of the
+    # farmer or of the drop.
     supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 80))
     supervisor.loot_boundary = (40, 40, 60, 58)
-    step()
-    assert not any(event == "memory_pickup_approach" for event, _ in notes)
-    assert any(
+    assert step()
+    assert any(event == "memory_pickup_approach" for event, _ in notes)
+    assert not any(
         fields.get("detail") == "Loot path leaves hunting boundary"
         for event, fields in notes
         if event == "memory_pickup_deferred"
     )
+    # Past the 40-tile search: never walked to.
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 95))
+    supervisor.loot_boundary = (40, 40, 60, 58)
+    step()
+    assert not any(event == "memory_pickup_approach" for event, _ in notes)
+    observed = [f for e, f in notes if e == "memory_loot_observed"][-1]
+    assert observed["valuable_drops"][0]["reason"] == "outside_40_tile_search"
 
 
 def test_a_valuable_within_25_tiles_is_walked_to_past_the_slack(monkeypatch):

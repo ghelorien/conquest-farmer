@@ -10,6 +10,13 @@ from conquest.addressing import checked_address
 from conquest.memory_build_layout import CLIENT_SHA256_1078
 
 OWNERSHIP_MESSAGE = "You can`t pick up other player`s loot at the moment. Please wait."
+# "At the moment": the killer's protection runs out. A refused drop is skipped
+# OWNERSHIP_RETRY_SECONDS after each refusal and given up after OWNERSHIP_TRIES.
+# Alex 2026-10-02 approved the retry after a Meteor (22:14:33) and an
+# IronHelmet +1 (00:47:52) were left on the Bandit field for good after one
+# refusal each.
+OWNERSHIP_RETRY_SECONDS = 20
+OWNERSHIP_TRIES = 4
 
 
 @dataclass(frozen=True)
@@ -150,17 +157,35 @@ class LootOwnership:
             separators=(",", ":"),
         )
 
+    @staticmethod
+    def refusals(value):
+        """(last refusal time, refusals) of a record; a bare time is one refusal."""
+        if isinstance(value, (int, float)):
+            return float(value), 1
+        try:
+            return float(value[0]), int(value[1])
+        except (TypeError, ValueError, IndexError):
+            return 0.0, OWNERSHIP_TRIES
+
     def blocked(self, drop, map_id):
-        return self.key(drop, map_id) in self.denied
+        value = self.denied.get(self.key(drop, map_id))
+        if value is None:
+            return False
+        refused_at, refusals = self.refusals(value)
+        return refusals >= OWNERSHIP_TRIES or time.time() - refused_at < OWNERSHIP_RETRY_SECONDS
 
     def snapshot(self):
         return self.reader.read()
 
     def reject(self, drop, map_id):
-        self.denied[self.key(drop, map_id)] = time.time()
+        key = self.key(drop, map_id)
+        refusals = self.refusals(self.denied[key])[1] if key in self.denied else 0
+        self.denied[key] = [time.time(), refusals + 1]
         if len(self.denied) > 4096:
             self.denied = dict(
-                sorted(self.denied.items(), key=lambda item: item[1])[-4096:]
+                sorted(self.denied.items(), key=lambda item: self.refusals(item[1])[0])[
+                    -4096:
+                ]
             )
         from conquest.discord_notify import write_json
 
