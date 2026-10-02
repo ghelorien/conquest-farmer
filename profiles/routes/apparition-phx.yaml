@@ -20,26 +20,110 @@ kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
 hunting_boundary:
-- 252
-- 570
-- 340
-- 644
+- 240
+- 552
+- 386
+- 650
 patrol_search:
   idle_seconds: 5.0
   expansion_tiles: 8
   maximum_expansions: 1
   sweep_spacing_tiles: 20
+  regions:
+  - name: center
+    boundary:
+    - 285
+    - 552
+    - 340
+    - 650
+    patrol:
+    - - 299
+      - 606
+    - - 300
+      - 566
+    - - 331
+      - 565
+    - - 330
+      - 600
+    - - 330
+      - 638
+    - - 296
+      - 638
+  - name: east
+    boundary:
+    - 335
+    - 552
+    - 386
+    - 650
+    patrol:
+    - - 350
+      - 566
+    - - 373
+      - 569
+    - - 376
+      - 606
+    - - 350
+      - 606
+    - - 350
+      - 640
+    - - 376
+      - 640
+  - name: west
+    boundary:
+    - 240
+    - 552
+    - 290
+    - 650
+    patrol:
+    - - 256
+      - 568
+    - - 281
+      - 565
+    - - 282
+      - 600
+    - - 256
+      - 600
+    - - 256
+      - 636
+    - - 282
+      - 636
 patrol:
-- - 268
-  - 584
-- - 308
-  - 584
-- - 326
+- - 299
   - 606
-- - 302
-  - 624
-- - 266
-  - 624
+- - 300
+  - 566
+- - 331
+  - 565
+- - 330
+  - 600
+- - 330
+  - 638
+- - 296
+  - 638
+- - 350
+  - 566
+- - 373
+  - 569
+- - 376
+  - 606
+- - 350
+  - 606
+- - 350
+  - 640
+- - 376
+  - 640
+- - 256
+  - 568
+- - 281
+  - 565
+- - 282
+  - 600
+- - 256
+  - 600
+- - 256
+  - 636
+- - 282
+  - 636
 outbound_waypoints:
 - - 430
   - 380
@@ -738,14 +822,15 @@ tasks:
 qualification: travel_verified
 recover_after_death: true
 movement: jump
-notes: 'Twin City''s apparition field restocked in Phoenix (2026-10-01): item storage
-  is per city on B2C, Twin City''s warehouse filled at 10:00 and only Phoenix has
-  a verified Market round trip for Meteor packing and overflow (profiles/meteor-banking.json
-  origins). Restocks read a CastleGate home; the hunt returns by TwinCityGate. Best
-  measured tested circuit: southwest/southeast Apparition field anchored at (300,605),
-  30 verified kills in 161.47 seconds (11.15/min), two verified heals. Broader original
-  route stalled on western river edge; tighter eastern circuit did not sustain a higher
-  rate. One eight-tile expansion stays clear of the failed edge. Ranged defense, bounded
-  escape jumps and two-second movement commitment preserve fresh memory checks. 20
-  kills/min and full-cycle sustained efficiency are not qualified.'
-restock_map_id: 1011
+notes: 'Twin City''s apparition field restocked in Phoenix (2026-10-01): item storage is per
+  city on B2C, Twin City''s warehouse filled at 10:00 and only Phoenix has a verified Market
+  round trip for Meteor packing and overflow (profiles/meteor-banking.json origins). Restocks
+  read a CastleGate home; the hunt returns by TwinCityGate. Best measured tested circuit:
+  southwest/southeast Apparition field anchored at (300,605), 30 verified kills in 161.47
+  seconds (11.15/min), two verified heals. Broader original route stalled on western river
+  edge; tighter eastern circuit did not sustain a higher rate. One eight-tile expansion stays
+  clear of the failed edge. Ranged defense, bounded escape jumps and two-second movement commitment
+  preserve fresh memory checks. 20 kills/min and full-cycle sustained efficiency are not qualified.
+  2026-10-01: widened from [252, 570, 340, 644] to three rotated regions. Laptop2''s species
+  log (22:27-22:51) saw 190 distinct Apparitions at x 238-383, y 557-647 on open, connected
+  ground; 11 of its 40 samples lay north of the old box.'
