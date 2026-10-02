@@ -268,11 +268,12 @@ def unequip_trade(monkeypatch, *, lands=True):
     return trade, state
 
 
-def test_unequip_drags_the_piece_from_its_slot_into_a_free_bag_cell(monkeypatch):
+def test_unequip_drags_the_piece_from_its_slot_onto_the_bag_window(monkeypatch):
     trade, state = unequip_trade(monkeypatch)
     piece = gear_repair.unequip(trade, "necklace")
-    # Necklace slot (278, 236) to bag cell 2, the first free one.
-    assert state["drags"] == [((278, 236), (747, 435), True)]
+    # Necklace slot (278, 236) to the bag's background under its grid, not a
+    # cell (07:39: a release on a free cell lit it but was ignored).
+    assert state["drags"] == [((278, 236), (962, 602), True)]
     assert piece["uid"] == 55 and piece["durability"] == 3412
     assert state["closed"] == 1
 
@@ -282,3 +283,12 @@ def test_a_failed_unequip_still_closes_the_status_window(monkeypatch):
     with pytest.raises(ValueError, match="Unequip unverified"):
         gear_repair.unequip(trade, "necklace")
     assert state["closed"] == 1 and state["worn"]
+
+def test_the_bag_drop_point_stays_clear_of_the_grid_and_drop_gold():
+    from collections import namedtuple
+
+    Grid = namedtuple("Grid", "position size")
+    grid = Grid((647.0, 415.0), (407.0, 175.0))
+    assert gear_repair.bag_drop_point((627.0, 377.0, 447.0, 287.0), grid) == (962, 602)
+    with pytest.raises(ValueError, match="No clear bag background"):
+        gear_repair.bag_drop_point((627.0, 377.0, 447.0, 230.0), grid)

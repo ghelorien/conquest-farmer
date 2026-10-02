@@ -164,6 +164,18 @@ def _overlap(a, b):
     return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 
 
+def bag_drop_point(window, grid):
+    """The Inventory window's background below its item grid, right of the
+    Silver line and clear of the Drop Gold bar at the bottom (07:39 capture:
+    window 447 x 287 at (627, 377), grid bottom 590, Silver 602, Drop Gold
+    632-648)."""
+    x, y, width, height = window
+    below = grid.position[1] + grid.size[1]
+    point = (round(x + width * 0.75), round(below + 12))
+    if not (below < point[1] < y + height - 30 and x < point[0] < x + width):
+        raise ValueError("No clear bag background to drop gear on")
+    return point
+
 def open_bag(trade):
     """The bag's item grid, opening the Inventory from ##Control if needed."""
     from conquest.discard_loot import inventory_button
@@ -183,8 +195,10 @@ def open_bag(trade):
 
 
 def unequip(trade, slot):
-    """Take one worn piece off into the bag: a drag from its Status slot to a
-    free bag cell (2026-10-02 06:54: a right-click on the slot did nothing)."""
+    """Take one worn piece off into the bag: a drag from its Status slot
+    released over the Inventory window's background, Alex's way. 2026-10-02:
+    a right-click on the slot did nothing (06:54), and a release on a free
+    bag cell lit the cell but was ignored (07:39)."""
     from conquest.equipment import read_equipment
     from conquest.merchants.driver import wait_hover_validation
 
@@ -201,14 +215,6 @@ def unequip(trade, slot):
     if len(bag.items) >= bag.capacity:
         raise ValueError("No bag room to take gear off into")
     bag_grid = open_bag(trade)
-    used = {i.slot for i in bag.items if i.slot is not None}
-    free = next((i for i in range(bag.capacity) if i not in used), None)
-    if free is None:
-        raise ValueError("No free bag cell to take gear off into")
-    destination = (
-        round(bag_grid.position[0] + 20 + 40 * (free % 10)),
-        round(bag_grid.position[1] + 20 + 40 * (free // 10)),
-    )
     status = open_status(trade)
     try:
         point = slot_point(status, slot)
@@ -216,6 +222,7 @@ def unequip(trade, slot):
         inventory = windows(trade).get("Inventory")
         if not inventory or _overlap(inventory["geometry"], status["geometry"]):
             raise ValueError("The bag overlaps the Status window; nothing dragged")
+        destination = bag_drop_point(inventory["geometry"], bag_grid)
 
         def guard():
             now = windows(trade)
@@ -227,15 +234,14 @@ def unequip(trade, slot):
                 raise CaptureUnavailable("Bag grid moved before unequipping; nothing pressed")
             if read_equipment(trade.observer)["equipment"].get(slot, {}).get("uid") != item["uid"]:
                 raise CaptureUnavailable("Worn gear changed before unequipping; nothing pressed")
-            if any(i.slot == free for i in trade.inventory.read().items):
-                raise CaptureUnavailable("The free bag cell filled before unequipping; nothing pressed")
+
             if hovered_window(gui) != status["address"]:
                 raise HoverNotReady("Pointer is not over the Status window")
 
         from conquest.foreground import foreground_drag
         from conquest.viewport import size_for
 
-        # A drag from the slot to a free bag cell, as Alex takes gear off. No
+        # A drag from the slot onto the bag window, as Alex takes gear off. No
         # check runs once the button is down: a raise there would release the
         # piece wherever the pointer was, perhaps onto the ground.
         trade.input_attempted = True
