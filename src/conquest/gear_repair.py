@@ -158,23 +158,6 @@ def close_status(trade):
         )
 
 
-def _overlap(a, b):
-    ax, ay, aw, ah = a
-    bx, by, bw, bh = b
-    return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
-
-
-def bag_drop_point(window, grid):
-    """The Inventory window's background below its item grid, right of the
-    Silver line and clear of the Drop Gold bar at the bottom (07:39 capture:
-    window 447 x 287 at (627, 377), grid bottom 590, Silver 602, Drop Gold
-    632-648)."""
-    x, y, width, height = window
-    below = grid.position[1] + grid.size[1]
-    point = (round(x + width * 0.75), round(below + 12))
-    if not (below < point[1] < y + height - 30 and x < point[0] < x + width):
-        raise ValueError("No clear bag background to drop gear on")
-    return point
 
 def open_bag(trade):
     """The bag's item grid, opening the Inventory from ##Control if needed."""
@@ -195,68 +178,60 @@ def open_bag(trade):
 
 
 def unequip(trade, slot):
-    """Take one worn piece off into the bag: a drag from its Status slot
-    released over the Inventory window's background, Alex's way. 2026-10-02:
-    a right-click on the slot did nothing (06:54), and a release on a free
-    bag cell lit the cell but was ignored (07:39)."""
+    """Take one worn piece off into the bag: a double-click on its Status
+    slot. Alex 2026-10-02 07:5x: "its double click on the item, and for bow
+    you gotta remove the arrow first" (repair_worn takes the arrows off
+    first). A right-click (06:54) and a drag (07:39) did nothing."""
     from conquest.equipment import read_equipment
     from conquest.merchants.driver import wait_hover_validation
 
-    if slot not in GEAR_COLUMN or slot == "arrows":
+    if slot not in GEAR_COLUMN:
         raise ValueError("Unsupported gear slot")
     trade.life()
     open_panels = set(windows(trade)) & {"Shop", "Warehouse", "Booth", "Dialog"}
     if open_panels:
         raise ValueError(f"Close {sorted(open_panels)[0]} before unequipping")
     bag = trade.inventory.read()
-    item = read_equipment(trade.observer)["equipment"].get(slot)
+    worn = read_equipment(trade.observer)["equipment"]
+    item = worn.get(slot)
     if not item:
         raise ValueError(f"No {slot} is worn")
+    if slot == "bow" and worn.get("arrows"):
+        raise ValueError("Take the arrows off before the bow")
     if len(bag.items) >= bag.capacity:
         raise ValueError("No bag room to take gear off into")
-    bag_grid = open_bag(trade)
+    carried = sum(i.amount for i in bag.items if i.type_id == item["type_id"])
+
+    def off(pair):
+        now_bag, now_gear = pair
+        if now_gear["equipment"].get(slot):
+            return False
+        if any(i.uid == item["uid"] for i in now_bag.items):
+            return True
+        # Arrows may join a carried pack of their kind.
+        return slot == "arrows" and sum(
+            i.amount for i in now_bag.items if i.type_id == item["type_id"]
+        ) > carried
+
     status = open_status(trade)
     try:
         point = slot_point(status, slot)
         gui = GuiReader.for_session(trade.observer.adapter)
-        inventory = windows(trade).get("Inventory")
-        if not inventory or _overlap(inventory["geometry"], status["geometry"]):
-            raise ValueError("The bag overlaps the Status window; nothing dragged")
-        destination = bag_drop_point(inventory["geometry"], bag_grid)
 
         def guard():
-            now = windows(trade)
-            for name, seen in (("Status", status), ("Inventory", inventory)):
-                fresh = now.get(name)
-                if not fresh or (fresh["address"], fresh["geometry"]) != (seen["address"], seen["geometry"]):
-                    raise CaptureUnavailable(f"{name} window moved before unequipping; nothing pressed")
-            if trade.shop.gui.read("Inventory/##ItemGrid_") != bag_grid:
-                raise CaptureUnavailable("Bag grid moved before unequipping; nothing pressed")
+            fresh = windows(trade).get("Status")
+            if not fresh or (fresh["address"], fresh["geometry"]) != (status["address"], status["geometry"]):
+                raise CaptureUnavailable("Status window moved before unequipping; nothing pressed")
             if read_equipment(trade.observer)["equipment"].get(slot, {}).get("uid") != item["uid"]:
                 raise CaptureUnavailable("Worn gear changed before unequipping; nothing pressed")
-
             if hovered_window(gui) != status["address"]:
                 raise HoverNotReady("Pointer is not over the Status window")
 
-        from conquest.foreground import foreground_drag
-        from conquest.viewport import size_for
-
-        # A drag from the slot onto the bag window, as Alex takes gear off. No
-        # check runs once the button is down: a raise there would release the
-        # piece wherever the pointer was, perhaps onto the ground.
         trade.input_attempted = True
-        foreground_drag(
-            trade.observer.operations.target,
-            point,
-            destination,
-            size_for(trade.observer),
-            before_press=lambda: wait_hover_validation(guard, lambda: None),
-            activate=True,
-        )
+        trade.click(point, before_press=lambda: wait_hover_validation(guard, lambda: None), double=True)
         trade.verified_read(
             lambda: (trade.inventory.read(), read_equipment(trade.observer)),
-            lambda pair: not pair[1]["equipment"].get(slot)
-            and any(i.uid == item["uid"] for i in pair[0].items),
+            off,
             "Unequip unverified; no repeat input issued",
             timeout=3,
         )
@@ -271,7 +246,6 @@ def unequip(trade, slot):
         "durability": item.get("durability"),
         "max_durability": item.get("max_durability"),
     }
-
 
 def confirm_prompt(gui):
     """The shared ###Confirm prompt's strings when one is shown, else None."""
@@ -434,22 +408,46 @@ def worn_out(gear, test_slot=None):
     return [slot for _, slot in sorted(rows)]
 
 
+def rewear_arrows(loop, arrows):
+    """The arrows taken off for a bow repair, or a carried pack of their kind."""
+    bag = loop.town("supplies")["items"]
+    uids = [i["uid"] for i in bag if i.get("uid") == arrows.get("uid")] or [
+        i["uid"] for i in bag if i.get("type_id") == arrows.get("type_id")
+    ]
+    if not uids:
+        raise ValueError("The arrows taken off for the bow repair are not carried")
+    loop.town("close", window="Shop")
+    loop.town("equip-arrows", uid=uids[0])
+
+
+def rewear_left_off(loop):
+    """Wear again what a failed repair left in the bag: the bow before its
+    arrows. Nothing to do (and no town call) when every piece is worn."""
+    pieces = journal().get("pieces", {})
+    left = [
+        (slot, row)
+        for slot, row in pieces.items()
+        if isinstance(row, dict) and row.get("state") not in (None, "worn")
+    ]
+    for slot, row in sorted(left, key=lambda pair: pair[0] == "arrows"):
+        if slot == "arrows":
+            rewear_arrows(loop, row)
+        elif row.get("uid") in {i["uid"] for i in loop.town("supplies")["items"]}:
+            loop.town("close", window="Shop")
+            loop.town("equip", uid=row["uid"])
+        _note(slot, state="worn")
+    return [slot for slot, _ in left]
+
+
 def repair_worn(loop, vendor=5, gear=None):
     """Restock step at a shop: repair worn pieces, always wearing them again.
 
     Pieces left off by an earlier failure are worn first. `gear` is the
     restock review's own read (EquipmentReview.gear); without one nothing is
-    repaired. Each piece: shop closed, unequip, shop open, Repair, shop
-    closed, equip.
+    repaired. Each piece: shop closed, unequip (the bow's arrows first), shop
+    open, Repair, shop closed, equip (the bow, then its arrows).
     """
-    data = journal()
-    for slot, row in list(data.get("pieces", {}).items()):
-        if isinstance(row, dict) and row.get("state") not in (None, "worn"):
-            carried = {i["uid"] for i in loop.town("supplies")["items"]}
-            if row.get("uid") in carried:
-                loop.town("close", window="Shop")
-                loop.town("equip", uid=row["uid"])
-            _note(slot, state="worn")
+    rewear_left_off(loop)
     if gear is None:
         return []
     data = journal()
@@ -460,17 +458,26 @@ def repair_worn(loop, vendor=5, gear=None):
     for slot in worn_out(gear, test_slot):
         loop.record("gear_repair_started", slot=slot, activity=f"Repairing the worn {slot}")
         loop.town("close", window="Shop")
-        piece = loop.town("unequip", slot=slot)
-        _note(slot, uid=piece["uid"], state="off", before=piece.get("durability"))
+        arrows = None
+        if slot == "bow" and gear.get("equipment", {}).get("arrows"):
+            arrows = loop.town("unequip", slot="arrows")
+            _note("arrows", uid=arrows["uid"], type_id=arrows["type_id"], state="off")
         receipt = None
         try:
-            loop.town("open", vendor_type=vendor)
-            receipt = loop.town("repair-item", uid=piece["uid"])
-            _note(slot, state="repaired", after=receipt.get("durability"), cost=receipt.get("cost"))
+            piece = loop.town("unequip", slot=slot)
+            _note(slot, uid=piece["uid"], state="off", before=piece.get("durability"))
+            try:
+                loop.town("open", vendor_type=vendor)
+                receipt = loop.town("repair-item", uid=piece["uid"])
+                _note(slot, state="repaired", after=receipt.get("durability"), cost=receipt.get("cost"))
+            finally:
+                loop.town("close", window="Shop")
+                loop.town("equip", uid=piece["uid"])
+                _note(slot, state="worn")
         finally:
-            loop.town("close", window="Shop")
-            loop.town("equip", uid=piece["uid"])
-            _note(slot, state="worn")
+            if arrows is not None:
+                rewear_arrows(loop, arrows)
+                _note("arrows", state="worn")
         loop.record(
             "gear_repaired",
             slot=slot,

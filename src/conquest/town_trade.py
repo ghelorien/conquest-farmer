@@ -613,6 +613,7 @@ class TownTrade:
         before_press=None,
         before_mouse_down=None,
         allow_dead=False,
+        double=False,
     ):
         # allow_dead: only panel_close's display-panel close, which has no
         # game effect. A travel heal left the Inventory open over the Revive
@@ -638,6 +639,7 @@ class TownTrade:
                 require_foreground=True,
                 before_press=before_press,
                 before_mouse_down=before_mouse_down,
+                **({"double": True} if double else {}),
             )
         except InputAcquisitionBusy as error:
             # Re-enter the whole town operation on retry, including its fresh

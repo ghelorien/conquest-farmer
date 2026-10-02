@@ -216,23 +216,31 @@ def test_repair_presses_repair_then_the_piece_and_reads_the_receipt(monkeypatch)
     assert hovered == ["Repair"]
     assert receipt == {"uid": 101, "durability": 3999, "max_durability": 3999, "cost": 210, "confirmed": None}
 
-def unequip_trade(monkeypatch, *, lands=True):
+def unequip_trade(monkeypatch, *, lands=True, slot="necklace", arrows_worn=False):
     from collections import namedtuple
 
-    from conquest import equipment, foreground, viewport
+    from conquest import equipment
     from conquest.memory_inventory import InventorySnapshot, Item
 
     Window = namedtuple("Window", "address title position size scroll")
-    state = {"worn": True, "status": True, "drags": [], "closed": 0}
-    necklace = {"uid": 55, "type_id": 120095, "durability": 3412, "max_durability": 3999}
+    state = {"worn": True, "status": True, "clicks": [], "closed": 0}
+    pieces = {
+        "necklace": {"uid": 55, "type_id": 120095, "durability": 3412, "max_durability": 3999},
+        "bow": {"uid": 66, "type_id": 500107, "durability": 2142, "max_durability": 5099},
+        "arrows": {"uid": 77, "type_id": 1050001, "durability": 600, "max_durability": 1000},
+    }
+    item = pieces[slot]
 
     def gear(observer):
-        return {"equipment": {"necklace": necklace} if state["worn"] else {}}
+        worn = {slot: item} if state["worn"] else {}
+        if arrows_worn and slot != "arrows":
+            worn["arrows"] = pieces["arrows"]
+        return {"equipment": worn}
 
     def bag():
         items = [Item(1, 1000030, 12, 12, 0), Item(2, 1050001, 1000, 1000, 1)]
         if not state["worn"]:
-            items.append(Item(55, 120095, 3412, 3999, 2))
+            items.append(Item(item["uid"], item["type_id"], item["durability"], item["max_durability"], 2))
         return InventorySnapshot(0, 0, tuple(items), None, 1000, 40)
 
     def windows(trade):
@@ -241,9 +249,9 @@ def unequip_trade(monkeypatch, *, lands=True):
             names["Status"] = {"address": 9, "geometry": (70.0, 109.0, 506.0, 376.0)}
         return names
 
-    def drag(target, source, destination, size, before_press=None, activate=False):
+    def click(point, button="left", before_press=None, double=False, **kwargs):
         before_press()  # every check passes before the button goes down
-        state["drags"].append((source, destination, activate))
+        state["clicks"].append((tuple(point), button, double))
         if lands:
             state["worn"] = False
 
@@ -257,23 +265,16 @@ def unequip_trade(monkeypatch, *, lands=True):
     monkeypatch.setattr(gear_repair, "close_status", close_status)
     monkeypatch.setattr(gear_repair, "hovered_window", lambda gui: 9)
     monkeypatch.setattr(gear_repair.GuiReader, "for_session", classmethod(lambda cls, session: None))
-    monkeypatch.setattr(foreground, "foreground_drag", drag)
-    monkeypatch.setattr(viewport, "size_for", lambda observer: (1416, 876))
-    grid = Window(4, "i", (647.0, 415.0), (407.0, 175.0), (0.0, 0.0))
-    reads = {"Inventory": Window(3, "Inventory", (627.0, 377.0), (447.0, 287.0), (0.0, 0.0)),
-             "Inventory/##ItemGrid_": grid}
-    trade = NS(life=lambda: None, inventory=NS(read=bag), shop=NS(gui=NS(read=reads.__getitem__)),
-               observer=NS(adapter=None, operations=NS(target="game")), verified_read=verified,
-               input_attempted=False)
+    trade = NS(life=lambda: None, inventory=NS(read=bag), shop=NS(gui=None),
+               observer=NS(adapter=None), click=click, verified_read=verified, input_attempted=False)
     return trade, state
 
 
-def test_unequip_drags_the_piece_from_its_slot_onto_the_bag_window(monkeypatch):
+def test_unequip_double_clicks_the_piece_on_its_status_slot(monkeypatch):
     trade, state = unequip_trade(monkeypatch)
     piece = gear_repair.unequip(trade, "necklace")
-    # Necklace slot (278, 236) to the bag's background under its grid, not a
-    # cell (07:39: a release on a free cell lit it but was ignored).
-    assert state["drags"] == [((278, 236), (962, 602), True)]
+    # Alex 07:5x: "its double click on the item".
+    assert state["clicks"] == [((278, 236), "left", True)]
     assert piece["uid"] == 55 and piece["durability"] == 3412
     assert state["closed"] == 1
 
@@ -284,11 +285,57 @@ def test_a_failed_unequip_still_closes_the_status_window(monkeypatch):
         gear_repair.unequip(trade, "necklace")
     assert state["closed"] == 1 and state["worn"]
 
-def test_the_bag_drop_point_stays_clear_of_the_grid_and_drop_gold():
-    from collections import namedtuple
 
-    Grid = namedtuple("Grid", "position size")
-    grid = Grid((647.0, 415.0), (407.0, 175.0))
-    assert gear_repair.bag_drop_point((627.0, 377.0, 447.0, 287.0), grid) == (962, 602)
-    with pytest.raises(ValueError, match="No clear bag background"):
-        gear_repair.bag_drop_point((627.0, 377.0, 447.0, 230.0), grid)
+def test_the_bow_comes_off_only_after_its_arrows(monkeypatch):
+    trade, state = unequip_trade(monkeypatch, slot="bow", arrows_worn=True)
+    with pytest.raises(ValueError, match="arrows off before the bow"):
+        gear_repair.unequip(trade, "bow")
+    assert state["clicks"] == [] and state["closed"] == 0
+    trade, state = unequip_trade(monkeypatch, slot="arrows")
+    assert gear_repair.unequip(trade, "arrows")["uid"] == 77
+    assert state["clicks"] == [((278, 367), "left", True)]  # the arrows slot, fifth
+
+
+def bow_loop():
+    actions = []
+    bag = {"items": []}
+
+    def town(action, **fields):
+        actions.append((action, fields.get("slot") or fields.get("uid") or fields.get("window") or fields.get("vendor_type")))
+        if action == "unequip":
+            uid = {"arrows": 77, "bow": 66}[fields["slot"]]
+            bag["items"].append({"uid": uid, "type_id": {77: 1050001, 66: 500107}[uid]})
+            return {"uid": uid, "type_id": {77: 1050001, 66: 500107}[uid], "slot": fields["slot"],
+                    "durability": 2142, "max_durability": 5099}
+        if action == "repair-item":
+            return {"uid": 66, "durability": 5099, "max_durability": 5099, "cost": 400}
+        if action in ("equip", "equip-arrows"):
+            bag["items"] = [i for i in bag["items"] if i["uid"] != fields["uid"]]
+            return {"equipped": fields["uid"]}
+        if action == "supplies":
+            return {"items": list(bag["items"])}
+        return {}
+
+    return NS(town=town, record=lambda event, **fields: None), actions, bag
+
+
+def test_a_worn_bow_is_repaired_with_its_arrows_off_and_both_go_back_on():
+    loop, actions, bag = bow_loop()
+    worn = gear(bow=2142)
+    assert gear_repair.repair_worn(loop, gear=worn) == ["bow"]
+    assert actions == [
+        ("close", "Shop"), ("unequip", "arrows"), ("unequip", "bow"), ("open", 5),
+        ("repair-item", 66), ("close", "Shop"), ("equip", 66),
+        ("supplies", None), ("close", "Shop"), ("equip-arrows", 77),
+    ]
+    assert bag["items"] == [] and gear_repair.off_body_uids() == frozenset()
+
+
+def test_pieces_left_off_go_back_on_bow_before_arrows():
+    gear_repair._note("arrows", uid=77, type_id=1050001, state="off")
+    gear_repair._note("bow", uid=66, state="off")
+    loop, actions, bag = bow_loop()
+    bag["items"] = [{"uid": 66, "type_id": 500107}, {"uid": 77, "type_id": 1050001}]
+    assert gear_repair.rewear_left_off(loop) == ["arrows", "bow"]
+    assert [a for a in actions if a[0].startswith("equip")] == [("equip", 66), ("equip-arrows", 77)]
+    assert gear_repair.rewear_left_off(loop) == []

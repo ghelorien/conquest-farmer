@@ -151,7 +151,10 @@ def foreground_click(
     layout_guard=None,
     before_mouse_down=None,
     hold_seconds=None,
+    double=False,
 ):
+    # double: a second press-release at the same point 60 ms later, the
+    # client's double-click (gear_repair takes worn gear off with one).
     if button not in ("left", "right"):
         raise ValueError("Unsupported mouse button")
     if type(control) is not bool:
@@ -289,14 +292,21 @@ def foreground_click(
             require_current_client_point()
             if before_mouse_down:
                 before_mouse_down()
-            mouse(down)
-            time.sleep(
+            hold = (
                 hold_seconds
                 if hold_seconds is not None
                 else 0.04
                 if require_foreground
                 else 0.1
             )
+            mouse(down)
+            time.sleep(hold)
+            if double:
+                mouse(up)
+                time.sleep(0.06)
+                require_current_client_point()
+                mouse(down)
+                time.sleep(hold)
         finally:
             mouse(up)
     finally:
@@ -310,6 +320,7 @@ def foreground_click(
         "point": [x, y],
         "button": button,
         "control": control,
+        "double": double,
         "qualified_for_background": False,
     }
 

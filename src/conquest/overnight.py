@@ -258,6 +258,10 @@ def require_bow(loop):
     town = getattr(loop, "town", None)
     if town is None:
         return
+    from conquest.gear_repair import rewear_left_off
+
+    # A bow (or its arrows) left in the bag by a failed repair goes back on.
+    rewear_left_off(loop)
     try:
         gear = town("gear")
     except (ValueError, OSError):
