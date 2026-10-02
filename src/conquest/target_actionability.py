@@ -9,6 +9,7 @@ from conquest.viewport import clear_scene, validate_size
 BLOCKING_PANELS = frozenset(
     {
         "Inventory",
+        "Status",
         "Shop",
         "Warehouse",
         "Booth",

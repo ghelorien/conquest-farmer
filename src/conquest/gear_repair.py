@@ -158,8 +158,33 @@ def close_status(trade):
         )
 
 
+def _overlap(a, b):
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+
+
+def open_bag(trade):
+    """The bag's item grid, opening the Inventory from ##Control if needed."""
+    from conquest.discard_loot import inventory_button
+
+    try:
+        trade.shop.gui.read("Inventory")
+    except ValueError as error:
+        if "not active" not in str(error) and "absent" not in str(error):
+            raise
+        trade.input_attempted = True
+        trade.click(inventory_button(trade.shop.gui))
+        trade.verified_read(lambda: trade.shop.gui.read("Inventory"), bool, "Inventory opening unverified")
+    grid = trade.shop.gui.read("Inventory/##ItemGrid_")
+    if grid.size != (407.0, 175.0) or grid.scroll != (0.0, 0.0):
+        raise ValueError("Inventory grid differs from the qualified layout")
+    return grid
+
+
 def unequip(trade, slot):
-    """Take one worn piece off into the bag (right-click on its Status slot)."""
+    """Take one worn piece off into the bag: a drag from its Status slot to a
+    free bag cell (2026-10-02 06:54: a right-click on the slot did nothing)."""
     from conquest.equipment import read_equipment
     from conquest.merchants.driver import wait_hover_validation
 
@@ -175,29 +200,64 @@ def unequip(trade, slot):
         raise ValueError(f"No {slot} is worn")
     if len(bag.items) >= bag.capacity:
         raise ValueError("No bag room to take gear off into")
-    status = open_status(trade)
-    point = slot_point(status, slot)
-    gui = GuiReader.for_session(trade.observer.adapter)
-
-    def guard():
-        fresh = windows(trade).get("Status")
-        if not fresh or (fresh["address"], fresh["geometry"]) != (status["address"], status["geometry"]):
-            raise CaptureUnavailable("Status window moved before unequipping; no button pressed")
-        if read_equipment(trade.observer)["equipment"].get(slot, {}).get("uid") != item["uid"]:
-            raise CaptureUnavailable("Worn gear changed before unequipping; no button pressed")
-        if hovered_window(gui) != status["address"]:
-            raise HoverNotReady("Pointer is not over the Status window")
-
-    trade.input_attempted = True
-    trade.click(point, "right", before_press=lambda: wait_hover_validation(guard, lambda: None))
-    trade.verified_read(
-        lambda: (trade.inventory.read(), read_equipment(trade.observer)),
-        lambda pair: not pair[1]["equipment"].get(slot)
-        and any(i.uid == item["uid"] for i in pair[0].items),
-        "Unequip unverified; no repeat input issued",
-        timeout=3,
+    bag_grid = open_bag(trade)
+    used = {i.slot for i in bag.items if i.slot is not None}
+    free = next((i for i in range(bag.capacity) if i not in used), None)
+    if free is None:
+        raise ValueError("No free bag cell to take gear off into")
+    destination = (
+        round(bag_grid.position[0] + 20 + 40 * (free % 10)),
+        round(bag_grid.position[1] + 20 + 40 * (free // 10)),
     )
-    close_status(trade)
+    status = open_status(trade)
+    try:
+        point = slot_point(status, slot)
+        gui = GuiReader.for_session(trade.observer.adapter)
+        inventory = windows(trade).get("Inventory")
+        if not inventory or _overlap(inventory["geometry"], status["geometry"]):
+            raise ValueError("The bag overlaps the Status window; nothing dragged")
+
+        def guard():
+            now = windows(trade)
+            for name, seen in (("Status", status), ("Inventory", inventory)):
+                fresh = now.get(name)
+                if not fresh or (fresh["address"], fresh["geometry"]) != (seen["address"], seen["geometry"]):
+                    raise CaptureUnavailable(f"{name} window moved before unequipping; nothing pressed")
+            if trade.shop.gui.read("Inventory/##ItemGrid_") != bag_grid:
+                raise CaptureUnavailable("Bag grid moved before unequipping; nothing pressed")
+            if read_equipment(trade.observer)["equipment"].get(slot, {}).get("uid") != item["uid"]:
+                raise CaptureUnavailable("Worn gear changed before unequipping; nothing pressed")
+            if any(i.slot == free for i in trade.inventory.read().items):
+                raise CaptureUnavailable("The free bag cell filled before unequipping; nothing pressed")
+            if hovered_window(gui) != status["address"]:
+                raise HoverNotReady("Pointer is not over the Status window")
+
+        from conquest.foreground import foreground_drag
+        from conquest.viewport import size_for
+
+        # A drag from the slot to a free bag cell, as Alex takes gear off. No
+        # check runs once the button is down: a raise there would release the
+        # piece wherever the pointer was, perhaps onto the ground.
+        trade.input_attempted = True
+        foreground_drag(
+            trade.observer.operations.target,
+            point,
+            destination,
+            size_for(trade.observer),
+            before_press=lambda: wait_hover_validation(guard, lambda: None),
+            activate=True,
+        )
+        trade.verified_read(
+            lambda: (trade.inventory.read(), read_equipment(trade.observer)),
+            lambda pair: not pair[1]["equipment"].get(slot)
+            and any(i.uid == item["uid"] for i in pair[0].items),
+            "Unequip unverified; no repeat input issued",
+            timeout=3,
+        )
+    finally:
+        # Never leave it open: over the field it takes the farmer's clicks
+        # (2026-10-02 06:54, 35 kills a minute until closed).
+        close_status(trade)
     return {
         "uid": item["uid"],
         "type_id": item["type_id"],

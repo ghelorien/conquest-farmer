@@ -8,7 +8,10 @@ from conquest.merchants.booth_panel_probe import close_point
 from conquest.merchants.driver import wait_hover_validation
 from conquest.character_context import farmer_name
 
-PANELS = ("Booth", "Shop", "Warehouse", "Dialog", "Inventory")
+# Status: gear_repair's display-only gear window, closed like the others before
+# movement (2026-10-02 06:54: left open by a failed unequip, it took the
+# farmer's field clicks).
+PANELS = ("Booth", "Shop", "Warehouse", "Dialog", "Inventory", "Status")
 TRANSACTIONS = {"Trade##TradeWindow", "Add Item to Booth", "###Confirm"}
 
 

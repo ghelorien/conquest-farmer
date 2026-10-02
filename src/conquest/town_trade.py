@@ -1319,8 +1319,14 @@ class TownTrade:
             npc = self.vendor(body["vendor_type"])
             return asdict(self.shop.read(npc.entity_id))
         if action == "close" and set(body) == {"action", "window"}:
-            if body["window"] not in ("Shop", "Inventory", "Warehouse"):
+            # Status: the display-only gear window (gear_repair); 2026-10-02
+            # 06:54 a failed unequip left it open over the field and the
+            # farmer's clicks landed on it (35 kills a minute).
+            if body["window"] not in ("Shop", "Inventory", "Warehouse", "Status"):
                 raise ValueError("Only town panels can be closed")
+            # Only the Status window passes display_only; other panels keep
+            # click_close's own call.
+            display_only = {"display_only": True} if body["window"] == "Status" else {}
             try:
                 window = self.shop.gui.read(body["window"])
             except ValueError as error:
@@ -1361,7 +1367,7 @@ class TownTrade:
             self.input_attempted = True
             from conquest.panel_close import click_close
 
-            click_close(self, body["window"])
+            click_close(self, body["window"], **display_only)
 
             def closed():
                 try:
@@ -1412,6 +1418,7 @@ class TownTrade:
                 click_close(
                     self,
                     body["window"],
+                    **display_only,
                     validate=retry_guard,
                     before_mouse_down=lambda: retry.update(submitted=True),
                 )

@@ -13,6 +13,7 @@ from conquest.win32 import bind
 TRACKED_PANELS = frozenset(
     {
         "Inventory",
+        "Status",
         "Shop",
         "Warehouse",
         "Booth",

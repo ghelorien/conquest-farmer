@@ -215,3 +215,70 @@ def test_repair_presses_repair_then_the_piece_and_reads_the_receipt(monkeypatch)
     assert clicks == [((444, 686), "left"), ((747, 475), "left")]
     assert hovered == ["Repair"]
     assert receipt == {"uid": 101, "durability": 3999, "max_durability": 3999, "cost": 210, "confirmed": None}
+
+def unequip_trade(monkeypatch, *, lands=True):
+    from collections import namedtuple
+
+    from conquest import equipment, foreground, viewport
+    from conquest.memory_inventory import InventorySnapshot, Item
+
+    Window = namedtuple("Window", "address title position size scroll")
+    state = {"worn": True, "status": True, "drags": [], "closed": 0}
+    necklace = {"uid": 55, "type_id": 120095, "durability": 3412, "max_durability": 3999}
+
+    def gear(observer):
+        return {"equipment": {"necklace": necklace} if state["worn"] else {}}
+
+    def bag():
+        items = [Item(1, 1000030, 12, 12, 0), Item(2, 1050001, 1000, 1000, 1)]
+        if not state["worn"]:
+            items.append(Item(55, 120095, 3412, 3999, 2))
+        return InventorySnapshot(0, 0, tuple(items), None, 1000, 40)
+
+    def windows(trade):
+        names = {"Inventory": {"address": 7, "geometry": (627.0, 377.0, 447.0, 287.0)}}
+        if state["status"]:
+            names["Status"] = {"address": 9, "geometry": (70.0, 109.0, 506.0, 376.0)}
+        return names
+
+    def drag(target, source, destination, size, before_press=None, activate=False):
+        before_press()  # every check passes before the button goes down
+        state["drags"].append((source, destination, activate))
+        if lands:
+            state["worn"] = False
+
+    def close_status(trade):
+        state["closed"] += 1
+        state["status"] = False
+
+    monkeypatch.setattr(equipment, "read_equipment", gear)
+    monkeypatch.setattr(gear_repair, "windows", windows)
+    monkeypatch.setattr(gear_repair, "open_status", lambda trade: windows(trade)["Status"])
+    monkeypatch.setattr(gear_repair, "close_status", close_status)
+    monkeypatch.setattr(gear_repair, "hovered_window", lambda gui: 9)
+    monkeypatch.setattr(gear_repair.GuiReader, "for_session", classmethod(lambda cls, session: None))
+    monkeypatch.setattr(foreground, "foreground_drag", drag)
+    monkeypatch.setattr(viewport, "size_for", lambda observer: (1416, 876))
+    grid = Window(4, "i", (647.0, 415.0), (407.0, 175.0), (0.0, 0.0))
+    reads = {"Inventory": Window(3, "Inventory", (627.0, 377.0), (447.0, 287.0), (0.0, 0.0)),
+             "Inventory/##ItemGrid_": grid}
+    trade = NS(life=lambda: None, inventory=NS(read=bag), shop=NS(gui=NS(read=reads.__getitem__)),
+               observer=NS(adapter=None, operations=NS(target="game")), verified_read=verified,
+               input_attempted=False)
+    return trade, state
+
+
+def test_unequip_drags_the_piece_from_its_slot_into_a_free_bag_cell(monkeypatch):
+    trade, state = unequip_trade(monkeypatch)
+    piece = gear_repair.unequip(trade, "necklace")
+    # Necklace slot (278, 236) to bag cell 2, the first free one.
+    assert state["drags"] == [((278, 236), (747, 435), True)]
+    assert piece["uid"] == 55 and piece["durability"] == 3412
+    assert state["closed"] == 1
+
+
+def test_a_failed_unequip_still_closes_the_status_window(monkeypatch):
+    trade, state = unequip_trade(monkeypatch, lands=False)
+    with pytest.raises(ValueError, match="Unequip unverified"):
+        gear_repair.unequip(trade, "necklace")
+    assert state["closed"] == 1 and state["worn"]
