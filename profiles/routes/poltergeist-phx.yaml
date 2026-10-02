@@ -22,15 +22,73 @@ kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
 hunting_boundary:
-- 100
-- 340
-- 165
-- 400
+- 90
+- 320
+- 196
+- 500
 patrol_search:
   idle_seconds: 5.0
   expansion_tiles: 12
   maximum_expansions: 1
   sweep_spacing_tiles: 20
+  regions:
+  - name: north
+    boundary:
+    - 95
+    - 320
+    - 165
+    - 400
+    patrol:
+    - - 110
+      - 345
+    - - 140
+      - 350
+    - - 150
+      - 380
+    - - 130
+      - 390
+    - - 110
+      - 370
+  - name: east
+    boundary:
+    - 140
+    - 320
+    - 196
+    - 410
+    patrol:
+    - - 158
+      - 336
+    - - 186
+      - 346
+    - - 186
+      - 376
+    - - 184
+      - 402
+    - - 160
+      - 398
+    - - 162
+      - 366
+  - name: south
+    boundary:
+    - 90
+    - 400
+    - 160
+    - 500
+    patrol:
+    - - 112
+      - 410
+    - - 146
+      - 408
+    - - 146
+      - 438
+    - - 112
+      - 440
+    - - 106
+      - 470
+    - - 136
+      - 472
+    - - 120
+      - 494
 patrol:
 - - 110
   - 345
@@ -42,6 +100,32 @@ patrol:
   - 390
 - - 110
   - 370
+- - 158
+  - 336
+- - 186
+  - 346
+- - 186
+  - 376
+- - 184
+  - 402
+- - 160
+  - 398
+- - 162
+  - 366
+- - 112
+  - 410
+- - 146
+  - 408
+- - 146
+  - 438
+- - 112
+  - 440
+- - 106
+  - 470
+- - 136
+  - 472
+- - 120
+  - 494
 outbound_waypoints:
 - - 430
   - 380
@@ -1294,10 +1378,13 @@ tasks:
 qualification: planned
 recover_after_death: true
 movement: jump
-notes: 'Twin City''s poltergeist field restocked in Phoenix (2026-10-01): item storage
-  is per city on B2C, Twin City''s warehouse filled at 10:00 and only Phoenix has
-  a verified Market round trip for Meteor packing and overflow (profiles/meteor-banking.json
-  origins). Restocks read a CastleGate home; the hunt returns by TwinCityGate. Hunting
-  seed from installed UserHelpInfo.json; terrain path checked. Live monster survey
-  pending. Savings patrol shifted south/east using memory-logged kill density; northern
-  300-319 band produced only one kill while 320-379 produced hundreds.'
+notes: 'Twin City''s poltergeist field restocked in Phoenix (2026-10-01): item storage is
+  per city on B2C, Twin City''s warehouse filled at 10:00 and only Phoenix has a verified
+  Market round trip for Meteor packing and overflow (profiles/meteor-banking.json origins).
+  Restocks read a CastleGate home; the hunt returns by TwinCityGate. Hunting seed from installed
+  UserHelpInfo.json; terrain path checked. Live monster survey pending. Savings patrol shifted
+  south/east using memory-logged kill density; northern 300-319 band produced only one kill
+  while 320-379 produced hundreds. 2026-10-01: widened from [100, 340, 165, 400] to three
+  rotated regions. Laptop2''s species log saw 185 distinct Poltergeists at x 88-194, y 309-500
+  on open, connected ground; the old box held 14 of 63 samples, and after a rested burst (190-210
+  kills in 2-3 min) it fell to 3-20 kills/min.'
