@@ -4,6 +4,8 @@ destroyed"; his way: unequip into the bag, the shop's Repair, click the item,
 wear it again)."""
 
 import json
+
+import pytest
 from types import SimpleNamespace as NS
 
 from conquest import discard_loot, gear_repair
@@ -79,3 +81,137 @@ def test_a_probe_runs_once_and_only_in_town(monkeypatch):
     assert actions == ["gear-window"] and not gear_repair.PROBE.exists()
     assert events == ["gear_window_probe_opening", "gear_window_probe"]
     assert gear_repair.probe_if_asked(loop) is None and actions == ["gear-window"]
+
+
+def gear(**durability):
+    rows = {"head": 4204, "necklace": 3999, "ring": 4099, "bow": 5099, "armor": 3998, "boots": 4098}
+    return {"equipment": {
+        slot: {"uid": 100 + i, "type_id": 1, "durability": durability.get(slot, top), "max_durability": top}
+        for i, (slot, top) in enumerate(rows.items())
+    } | {"arrows": {"uid": 99, "durability": 300, "max_durability": 1000}}}
+
+
+def test_slots_follow_the_mapped_status_column():
+    status = {"geometry": (70.0, 109.0, 506.0, 376.0)}
+    assert gear_repair.slot_point(status, "head") == (278, 192)
+    assert gear_repair.slot_point(status, "bow") == (278, 323)
+    assert gear_repair.slot_point(status, "boots") == (278, 455)
+
+
+def test_only_pieces_under_the_repair_line_are_repaired_weakest_first():
+    assert gear_repair.worn_out(gear()) == []
+    worn = gear(necklace=2300, bow=1500, ring=2500)  # 58%, 29%, 61%
+    assert gear_repair.worn_out(worn) == ["bow", "necklace"]
+    assert gear_repair.worn_out(gear(necklace=3412), test_slot="necklace") == ["necklace"]
+
+
+def repair_loop(fail=None):
+    actions, events = [], []
+    bag = {"items": []}
+
+    def town(action, **fields):
+        actions.append((action, fields.get("slot") or fields.get("uid") or fields.get("window") or fields.get("vendor_type")))
+        if action == "unequip":
+            bag["items"].append({"uid": 101})
+            return {"uid": 101, "type_id": 1, "slot": fields["slot"], "durability": 2300, "max_durability": 3999}
+        if action == "repair-item":
+            if fail:
+                raise ValueError(fail)
+            return {"uid": 101, "durability": 3999, "max_durability": 3999, "cost": 210}
+        if action == "equip":
+            bag["items"] = [i for i in bag["items"] if i["uid"] != fields["uid"]]
+            return {"equipped": fields["uid"]}
+        if action == "supplies":
+            return {"items": list(bag["items"])}
+        return {}
+
+    loop = NS(town=town, record=lambda event, **fields: events.append(event))
+    return loop, actions, events, bag
+
+
+def test_a_worn_piece_comes_off_is_repaired_and_is_worn_again():
+    loop, actions, events, bag = repair_loop()
+    assert gear_repair.repair_worn(loop, gear=gear(necklace=2300)) == ["necklace"]
+    assert actions == [
+        ("close", "Shop"), ("unequip", "necklace"), ("open", 5), ("repair-item", 101),
+        ("close", "Shop"), ("equip", 101),
+    ]
+    assert events == ["gear_repair_started", "gear_repaired"]
+    assert gear_repair.journal()["pieces"]["necklace"]["state"] == "worn"
+    assert gear_repair.off_body_uids() == frozenset()
+    assert gear_repair.repair_worn(loop) == []  # no gear read: nothing to do
+
+
+def test_a_failed_repair_still_puts_the_piece_back_on():
+    loop, actions, events, bag = repair_loop(fail="Repair unverified; no repeat input issued")
+    with pytest.raises(ValueError, match="Repair unverified"):
+        gear_repair.repair_worn(loop, gear=gear(necklace=2300))
+    assert actions[-2:] == [("close", "Shop"), ("equip", 101)] and bag["items"] == []
+    assert gear_repair.journal()["pieces"]["necklace"]["state"] == "worn"
+
+
+def test_a_piece_left_off_is_worn_first_and_never_banked_or_sold(monkeypatch):
+    from conquest import town_trade, valuables
+
+    gear_repair._note("ring", uid=777, state="off")
+    assert gear_repair.off_body_uids() == {777}
+    ring = {"uid": 777, "type_id": 150118, "slot": 2, "plus": 0}
+    assert not valuables.urgent_storage(ring) and not town_trade.sale_candidate(ring)
+    loop, actions, events, bag = repair_loop()
+    bag["items"].append({"uid": 777})
+    gear_repair.repair_worn(loop, gear=gear())
+    assert actions == [("supplies", None), ("close", "Shop"), ("equip", 777)]
+    assert gear_repair.off_body_uids() == frozenset()
+
+
+def test_a_supervised_test_repair_runs_once():
+    write = gear_repair.write_json
+    write(gear_repair.JOURNAL, {"test_slot": "necklace"})
+    loop, actions, events, bag = repair_loop()
+    assert gear_repair.repair_worn(loop, gear=gear(necklace=3412)) == ["necklace"]
+    assert "test_slot" not in gear_repair.journal()
+    assert gear_repair.repair_worn(loop, gear=gear(necklace=3412)) == []
+
+
+def test_repair_presses_repair_then_the_piece_and_reads_the_receipt(monkeypatch):
+    from collections import namedtuple
+
+    from conquest.memory_inventory import InventorySnapshot, Item
+
+    Window = namedtuple("Window", "address title position size scroll")
+    reads = {
+        "Shop": Window(1, "Shop", (300.0, 263.0), (288.0, 438.0), (0.0, 0.0)),
+        "Shop/##ShopGrid_": Window(2, "g", (320.0, 301.0), (248.0, 370.0), (0.0, 0.0)),
+        "Inventory": Window(3, "Inventory", (627.0, 377.0), (447.0, 287.0), (0.0, 0.0)),
+        "Inventory/##ItemGrid_": Window(4, "i", (647.0, 415.0), (407.0, 175.0), (0.0, 0.0)),
+    }
+    state = {"durability": 2300, "silver": 1000}
+
+    def snapshot():
+        piece = Item(101, 120095, state["durability"], 3999, 12)
+        return InventorySnapshot(0, 0, (piece,), None, state["silver"], 40)
+
+    hovered, clicks = [], []
+
+    def click(point, button="left", before_press=None, **kwargs):
+        if before_press:
+            before_press()
+        clicks.append((tuple(point), button))
+        if len(clicks) == 2:  # the piece, in repair mode
+            state.update(durability=3999, silver=790)
+
+    monkeypatch.setattr(gear_repair, "windows", lambda trade: {"Shop": {"address": 1}})
+    monkeypatch.setattr(
+        gear_repair.GuiReader, "for_session",
+        classmethod(lambda cls, session: NS(assert_hovered=lambda window, label: hovered.append(label))),
+    )
+    monkeypatch.setattr(gear_repair, "confirm_prompt", lambda gui: None)
+    monkeypatch.setattr(gear_repair.time, "sleep", lambda seconds: None)
+    trade = NS(
+        life=lambda: None, inventory=NS(read=snapshot), shop=NS(gui=NS(read=reads.__getitem__)),
+        observer=NS(adapter=None), click=click, input_attempted=False,
+    )
+    receipt = gear_repair.repair_item(trade, 101)
+    assert clicks == [((444, 686), "left"), ((747, 475), "left")]
+    assert hovered == ["Repair"]
+    assert receipt == {"uid": 101, "durability": 3999, "max_durability": 3999, "cost": 210, "confirmed": None}

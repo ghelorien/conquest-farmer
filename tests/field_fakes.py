@@ -202,6 +202,7 @@ class FakeGame:
             return {
                 "level": 110,
                 "equipment": {
+                    "bow": {"uid": 689, "type_id": 500105, "level": 60},
                     "arrows": {"uid": 690, "type_id": SPEED, "level": 73},
                 },
             }

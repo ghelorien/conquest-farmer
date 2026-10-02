@@ -1053,7 +1053,26 @@ class TownTrade:
             from conquest.gear_repair import probe
 
             return probe(self)
+        if action == "unequip" and set(body) == {"action", "slot"}:
+            from conquest.gear_repair import unequip
+
+            return unequip(self, body["slot"])
+        if action == "repair-item" and set(body) == {"action", "uid"}:
+            from conquest.gear_repair import repair_item
+
+            return repair_item(self, body["uid"])
         if action in ("equip", "equip-arrows") and set(body) == {"action", "uid"}:
+            try:
+                self.shop.gui.read("Dialog")
+            except ValueError as error:
+                if "not active" not in str(error) and "absent" not in str(error):
+                    raise
+            else:
+                # An NPC dialog left by a vendor retry can take the
+                # right-click: Toxic's IronBow equip went unverified 4 s after
+                # a Blacksmith "NPC observation expired" retry (2026-10-02
+                # 04:02:20) and the next two shop openings failed too.
+                self.execute({"action": "service-close-panel", "window": "Dialog"})
             from conquest.equipment import (
                 read_equipment,
                 item_details,

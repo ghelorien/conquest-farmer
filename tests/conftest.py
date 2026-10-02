@@ -87,6 +87,7 @@ def isolate_live_session_plan(tmp_path, monkeypatch):
 
     monkeypatch.setattr(equipment, "POLICY", tmp_path / "equipment-policy.json")
     monkeypatch.setattr(gear_repair, "PROBE", tmp_path / "gear-window-probe.json")
+    monkeypatch.setattr(gear_repair, "JOURNAL", tmp_path / "gear-repair.json")
     from conquest import routes
 
     monkeypatch.setattr(routes, "BOSS_POLICY", tmp_path / "boss-policy.json")

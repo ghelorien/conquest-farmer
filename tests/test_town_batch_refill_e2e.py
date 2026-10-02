@@ -337,6 +337,8 @@ class Game:
                 {k: v for k, v in body.items() if k in ("enabled", "paused")}
             )
             return {"ok": True}
+        if operation == "town" and body == {"action": "gear"}:
+            return {"level": 60, "equipment": {"bow": {"uid": 9, "type_id": 500105}}}
         if operation == "town" and body == {"action": "supplies"}:
             supplies = self.route.supplies
             return {

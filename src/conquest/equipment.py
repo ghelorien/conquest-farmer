@@ -61,11 +61,13 @@ def reserved_gear_uids():
     unverified") went to urgent banking a minute later, leaving no bow."""
     from conquest.discord_notify import read_json
 
+    from conquest.gear_repair import off_body_uids
+
     journal = upgrades_journal()
     try:
         info = journal.stat()
     except OSError:
-        return frozenset()
+        return off_body_uids()
     stamp = (str(journal), info.st_mtime_ns, info.st_size)
     if _reserved[0] != stamp:
         attempts = read_json(journal, [])
@@ -81,7 +83,8 @@ def reserved_gear_uids():
                 and a.get("state") in ("bought", "deferred")
             ),
         ]
-    return _reserved[1]
+    # Pieces taken off for repair are worn again, never banked or sold.
+    return _reserved[1] | off_body_uids()
 
 
 @lru_cache(maxsize=1)
@@ -261,8 +264,8 @@ def read_equipment(observer):
         raise ValueError("Character changed during equipment observation")
     try:
         attributes = read_attributes(s)
-    except (ValueError, OSError, AttributeError):
-        attributes = None
+    except (ValueError, OSError, AttributeError, KeyError, TypeError, struct.error):
+        attributes = None  # optional: the stat check then stands aside
     s.assert_identity()
     return {
         "level": level,
@@ -428,6 +431,8 @@ class EquipmentReview:
         self.loop = loop
         # Silver no purchase may touch (gear_circuit keeps its floor).
         self.minimum_reserve = minimum_reserve
+        # The latest gear read, for the restock's repair step (gear_repair).
+        self.gear = None
 
     def visit(self, vendor):
         from conquest.savings import savings_plan
@@ -445,7 +450,7 @@ class EquipmentReview:
         journal = upgrades_journal()
         attempts = read_json(journal, [])
         try:
-            state = loop.town("gear")
+            state = self.gear = loop.town("gear")
             bag = loop.town("supplies")
             shop = loop.town("shop", vendor_type=vendor)
             if (
@@ -545,7 +550,7 @@ class EquipmentReview:
                         receipt=receipt,
                         activity=f"Equipped {product['name']} (level {product['level']})",
                     )
-                    state = loop.town("gear")
+                    state = self.gear = loop.town("gear")
                 except ValueError as error:
                     attempt.update(state="deferred", detail=str(error))
                     write_json(journal, attempts)

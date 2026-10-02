@@ -260,7 +260,7 @@ def require_bow(loop):
         return
     try:
         gear = town("gear")
-    except ValueError:
+    except (ValueError, OSError):
         return  # unreadable now; the runner's own start decides
     equipment = gear.get("equipment") if isinstance(gear, dict) else None
     if not isinstance(equipment, dict) or equipment.get("bow"):
@@ -2318,6 +2318,17 @@ class OvernightLoop:
                     break
                 if not bought:
                     break
+        from conquest.gear_repair import repair_worn
+
+        try:
+            # Alex 2026-10-02: repair gear before it breaks, at the shop.
+            repair_worn(self, gear=getattr(review, "gear", None))
+        except ValueError as error:
+            self.record(
+                "gear_repair_deferred",
+                detail=str(error),
+                activity="Gear repair deferred; continuing the restock",
+            )
         self.town("close", window="Shop")
         self.town("close", window="Inventory")
         from conquest.savings import savings_plan
