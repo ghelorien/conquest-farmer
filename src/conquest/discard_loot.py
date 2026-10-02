@@ -46,6 +46,15 @@ def removal_received(item, before, after):
 
 def inventory_button(gui):
     """Items button: renderer 09a740, second column/top of ##Control's table."""
+    return control_button(gui, 1)
+
+
+def control_button(gui, column):
+    """A top-row button of ##Control's table: 0 Status, 1 Items, 2 Friend,
+    3 Capture, 4 Guild (the bottom row is Action, Trade, Team, Options,
+    Message; game screenshots 2026-09-30 and 2026-10-02)."""
+    if type(column) is not int or not 0 <= column <= 4:
+        raise ValueError("Unknown ##Control column")
     s = gui.session
     window = gui.read("##Control")
     context = struct.unpack("<Q", s.read_block(gui.base + gui.context_rva, 8))[0]
@@ -71,7 +80,8 @@ def inventory_button(gui):
         raise ValueError("Inventory button table is not current")
     left, top, right, bottom = struct.unpack_from("<4f", record, 0xF0)
     columns = struct.unpack_from("<Q", record, 0x18)[0]
-    column = s.read_block(columns + 104, 104)
+    offset = 104 * column
+    column = s.read_block(columns + offset, 104)
     x1, x2 = struct.unpack_from("<2f", column, 0x34)
     if (
         bottom - top != 40
@@ -85,7 +95,7 @@ def inventory_button(gui):
         s.read_block(context + 0x4338, 16) != header
         or fresh[:0x20] != record[:0x20]
         or fresh[0xF0:0x100] != record[0xF0:0x100]
-        or s.read_block(columns + 104 + 0x34, 8) != column[0x34:0x3C]
+        or s.read_block(columns + offset + 0x34, 8) != column[0x34:0x3C]
         or gui.read("##Control") != window
     ):
         raise ValueError("Inventory button moved during observation")

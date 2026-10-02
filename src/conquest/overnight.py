@@ -2549,6 +2549,9 @@ class OvernightLoop:
 
             ensure_city_visit(self)
         require_bow(self)
+        from conquest.gear_repair import probe_if_asked
+
+        probe_if_asked(self)
         from conquest.conductress_shortcut import ride
 
         # Alex: the Conductress to Ape City is the fast way to the far fields.

@@ -75,8 +75,10 @@ def bring_into_view(trade, name):
     return True
 
 
-def click_close(trade, name, *, validate=None, before_mouse_down=None):
-    if name not in ("Inventory", "Shop", "Warehouse"):
+def click_close(trade, name, *, validate=None, before_mouse_down=None, display_only=False):
+    # display_only: a panel with no game effect at all (gear_repair's Status
+    # window); the press still waits for the pointer over its "#CLOSE".
+    if name not in ("Inventory", "Shop", "Warehouse") and not display_only:
         raise ValueError("Unsupported display panel")
     gui = GuiReader.for_session(trade.observer.adapter)
 

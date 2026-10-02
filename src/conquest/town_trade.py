@@ -1049,6 +1049,10 @@ class TownTrade:
             raise ValueError(
                 "Equipment could not be scrolled into the live shop viewport"
             )
+        if action == "gear-window" and set(body) == {"action"}:
+            from conquest.gear_repair import probe
+
+            return probe(self)
         if action in ("equip", "equip-arrows") and set(body) == {"action", "uid"}:
             from conquest.equipment import (
                 read_equipment,
