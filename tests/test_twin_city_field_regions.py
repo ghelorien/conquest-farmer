@@ -22,8 +22,10 @@ FIELDS = {
     # route: (region names, the box the regions must cover)
     "poltergeist": (["north", "east", "south"], (95, 320, 190, 495)),
     "poltergeist-phx": (["north", "east", "south"], (95, 320, 190, 495)),
-    "apparition": (["center", "east", "west"], (240, 557, 383, 647)),
-    "apparition-phx": (["center", "east", "west"], (240, 557, 383, 647)),
+    # Apparitions were seen from x 238, but the box stays clear of the
+    # failed western edge (test_routes.py): Scatter reaches them from x 248.
+    "apparition": (["center", "east", "west"], (248, 558, 383, 647)),
+    "apparition-phx": (["center", "east", "west"], (248, 558, 383, 647)),
 }
 
 

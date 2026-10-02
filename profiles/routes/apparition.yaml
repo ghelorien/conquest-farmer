@@ -20,8 +20,8 @@ kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
 hunting_boundary:
-- 240
-- 552
+- 248
+- 558
 - 386
 - 650
 patrol_search:
@@ -33,7 +33,7 @@ patrol_search:
   - name: center
     boundary:
     - 285
-    - 552
+    - 558
     - 340
     - 650
     patrol:
@@ -52,7 +52,7 @@ patrol_search:
   - name: east
     boundary:
     - 335
-    - 552
+    - 558
     - 386
     - 650
     patrol:
@@ -70,8 +70,8 @@ patrol_search:
       - 640
   - name: west
     boundary:
-    - 240
-    - 552
+    - 248
+    - 558
     - 290
     - 650
     patrol:

@@ -20,8 +20,8 @@ kite_when_surrounded: true
 jump_scatter: true
 attack_range_tiles: 16
 hunting_boundary:
-- 240
-- 552
+- 248
+- 558
 - 386
 - 650
 patrol_search:
@@ -33,7 +33,7 @@ patrol_search:
   - name: center
     boundary:
     - 285
-    - 552
+    - 558
     - 340
     - 650
     patrol:
@@ -52,7 +52,7 @@ patrol_search:
   - name: east
     boundary:
     - 335
-    - 552
+    - 558
     - 386
     - 650
     patrol:
@@ -70,8 +70,8 @@ patrol_search:
       - 640
   - name: west
     boundary:
-    - 240
-    - 552
+    - 248
+    - 558
     - 290
     - 650
     patrol:
@@ -831,6 +831,6 @@ notes: 'Twin City''s apparition field restocked in Phoenix (2026-10-01): item st
   edge; tighter eastern circuit did not sustain a higher rate. One eight-tile expansion stays
   clear of the failed edge. Ranged defense, bounded escape jumps and two-second movement commitment
   preserve fresh memory checks. 20 kills/min and full-cycle sustained efficiency are not qualified.
-  2026-10-01: widened from [252, 570, 340, 644] to three rotated regions. Laptop2''s species
+  2026-10-01: widened from [252, 570, 340, 644] to three rotated regions in [248, 558, 386, 650] (the idle search keeps clear of the failed western edge, x < 240, and y < 550). Laptop2''s species
   log (22:27-22:51) saw 190 distinct Apparitions at x 238-383, y 557-647 on open, connected
   ground; 11 of its 40 samples lay north of the old box.'
