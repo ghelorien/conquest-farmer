@@ -91,6 +91,15 @@ VALUABLE_RADIUS = 25
 # Such a walk holds the trial's boundary return this long after its last step
 # or click, so leaving the box does not turn it straight back.
 VALUABLE_CHASE_SECONDS = 3
+# A valuable's approach that meets a moving farmer (projection or action
+# changed before input) holds combat this long so the next try sees a settled
+# frame, then not again for LOOT_SETTLE_COOLDOWN; never under LOOT_FIRST_HP.
+# Suicide 2026-10-01 21:00-04:30: 4 of its 7 missed valuables (an Elite armor
+# deferred 8 times, a Unique ring, a +1, a Meteor) were lost to "Player
+# projection changed before loot input" while each retry's Scatter jump moved
+# the farmer again.
+LOOT_SETTLE_SECONDS = 1.5
+LOOT_SETTLE_COOLDOWN = 3.0
 # Ground drops audit_loot remembers (by uid and address) before starting over.
 LOOT_AUDIT_MEMORY = 5000
 # A boss seen this recently still shapes walks once out of view (Kings idle
@@ -1587,11 +1596,14 @@ class NativeFarmSupervisor:
         return getattr(self, "health_share", 1.0) >= LOOT_FIRST_HP
 
     def valuable_pending(self, position):
-        """A valuable pickup is under way: its click awaits the receipt, or a
-        chase (an approach step, or a retry beside it) still holds."""
+        """A valuable pickup is under way: its click awaits the receipt, a
+        chase (an approach step, or a retry beside it) still holds, or its
+        approach waits for a moving farmer to settle (loot_settling)."""
         pending = getattr(self, "pending_loot", None)
-        return bool(pending and not pending[0].silver) or self.valuable_chase_holds(
-            position
+        return (
+            bool(pending and not pending[0].silver)
+            or self.valuable_chase_holds(position)
+            or self.loot_settling()
         )
 
     def chase_valuable(self, drop):
@@ -1733,7 +1745,8 @@ class NativeFarmSupervisor:
                 if drop not in self.ground_items():
                     return deferred("Ground item changed before approach", lasting=False)
                 if tuple(self.read_life().position) != tuple(position):
-                    return deferred("Player moved before loot approach", lasting=False)
+                    deferred("Player moved before loot approach", lasting=False)
+                    return self.settle_for_valuable(drop)
             dispatch(point, control=max(abs(dx), abs(dy)) >= 8)
             self.last_loot_approach_deferred = None
             self.loot_approach_ready = time.monotonic() + 0.6
@@ -1757,9 +1770,35 @@ class NativeFarmSupervisor:
             # walks away. "Player projection changed before loot input" ended
             # nearly every chase; a Meteor 6 tiles off took 25 s while the
             # farmer drifted 12+ tiles away between steps (Suicide 2026-09-29).
-            return deferred("Valuable approach: " + str(error), lasting=False)
+            deferred("Valuable approach: " + str(error), lasting=False)
+            # Combat waits a moment too: its next jump would move the frame again.
+            return self.settle_for_valuable(drop)
         except ValueError as error:
             return deferred("Valuable approach: " + str(error))
+
+    def settle_for_valuable(self, drop):
+        """Hold the turn (True) up to LOOT_SETTLE_SECONDS for a valuable whose
+        approach met a moving farmer, then not again for LOOT_SETTLE_COOLDOWN."""
+        if drop.silver or not self.loot_first():
+            return False
+        now = time.monotonic()
+        key = (drop.uid, drop.object_address)
+        settle = getattr(self, "loot_settle", None)
+        if (
+            settle is None
+            or settle[0] != key
+            or now - settle[1] >= LOOT_SETTLE_SECONDS + LOOT_SETTLE_COOLDOWN
+        ):
+            settle = self.loot_settle = (key, now)
+        return now - settle[1] < LOOT_SETTLE_SECONDS
+
+    def loot_settling(self):
+        settle = getattr(self, "loot_settle", None)
+        return bool(
+            settle is not None
+            and time.monotonic() - settle[1] < LOOT_SETTLE_SECONDS
+            and self.loot_first()
+        )
 
     def movement_failed(self, position, destination):
         # A failed landing is dynamic evidence, not a permanent terrain edit.

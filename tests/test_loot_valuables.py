@@ -178,6 +178,36 @@ def test_a_valuable_within_25_tiles_is_walked_to_past_the_slack(monkeypatch):
     assert supervisor.valuable_chase_holds((50, 66))
 
 
+def test_a_valuable_approach_holds_combat_while_the_farmer_settles(monkeypatch):
+    # Suicide 2026-10-01 21:00-04:30: an Elite armor deferred 8 times, a Unique
+    # ring, a +1 and a Meteor were lost to "Player projection changed before
+    # loot input" while each retry's Scatter jump moved the farmer again.
+    from conquest.capture import CaptureUnavailable
+
+    clock = [100.0]
+    monkeypatch.setattr(native_farm.time, "monotonic", lambda: clock[0])
+    supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 63))
+
+    def moving(point, **kw):
+        raise CaptureUnavailable("Player projection changed before loot input; reobserving")
+
+    loot = lambda: supervisor.loot_step(BAG, (50, 50), moving)
+    assert loot()  # the turn is held: no Scatter jump moves the frame again
+    assert supervisor.valuable_pending((50, 50))  # and no escape jump either
+    clock[0] += 1.0
+    assert loot()
+    clock[0] += 0.6  # past LOOT_SETTLE_SECONDS: combat gets its turn back
+    assert not loot()
+    assert not supervisor.valuable_pending((50, 50))
+    clock[0] += native_farm.LOOT_SETTLE_COOLDOWN
+    assert loot()  # a fresh hold once the cooldown is over
+    # About to die: never held.
+    supervisor.loot_settle = None
+    supervisor.health_share = native_farm.LOOT_FIRST_HP - 0.01
+    assert not loot()
+    assert not supervisor.valuable_pending((50, 50))
+
+
 def test_a_valuable_chase_ends_when_the_drop_leaves_the_ground(monkeypatch):
     supervisor, notes, clicks, step = meteor_field(monkeypatch, (50, 74))
     supervisor.loot_boundary = (40, 40, 60, 58)
