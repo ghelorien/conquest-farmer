@@ -123,9 +123,43 @@ def boss_name(name):
     Messenger to "Msgr" (GiantApeMsgr 8106, ThunderApeMsgr 8107). An ordinary
     leveling family is never a boss, whatever its name ends with (HawKing,
     levels 92-96). A tier in this character's ignored_boss_tiers() is no boss:
-    every keep-away, escape, boss-chase count and loot deferral asks here."""
+    every keep-away, escape, boss-chase count and loot deferral asks here.
+    A boss at IGNORABLE_BOSS_LEVEL or above (client table) stays a boss."""
     tier = boss_tier(name)
-    return tier is not None and tier not in ignored_boss_tiers()
+    if tier is None:
+        return False
+    if tier not in ignored_boss_tiers():
+        return True
+    level = monster_levels().get(name)
+    return type(level) is int and level >= IGNORABLE_BOSS_LEVEL
+
+
+# Alex 2026-10-01: kings and messengers "do 0 damage", meaning the level-22
+# GhostKing and its peers on the leveling fields. The client table also has
+# the BladeGhostKing (level 82) among the ghosts: 2026-10-02 14:23 Suicide
+# (level 64) lost ~960 HP in four seconds at (170, 333) on the Poltergeist
+# field and died. An ignored tier never covers a boss this strong.
+IGNORABLE_BOSS_LEVEL = 50
+
+
+@lru_cache(maxsize=1)
+def monster_levels():
+    """{name: level} from the installed client's ini/monster.json."""
+    import json
+    from pathlib import Path
+
+    from conquest.character_context import installation_path
+
+    try:
+        rows = json.loads(
+            Path(
+                installation_path(r"C:\Program Files\Classic Conquer 2.0\ini\monster.json")
+            ).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return {}
+    rows = rows if isinstance(rows, list) else list(rows.values())
+    return {r["name"]: r.get("level") for r in rows if isinstance(r, dict) and r.get("name")}
 
 
 # Tiles an archer keeps from a boss: bosses hit from range. On 2026-09-28

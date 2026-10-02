@@ -29,7 +29,8 @@ def test_without_a_policy_every_boss_tier_is_still_a_boss():
     assert routes.boss_tier("Poltergeist") is None
 
 
-def test_ignored_tiers_are_no_bosses_and_the_rest_still_are():
+def test_ignored_tiers_are_no_bosses_and_the_rest_still_are(monkeypatch):
+    monkeypatch.setattr(routes, "monster_levels", dict)  # the tier rule alone
     policy(["king", "messenger"])
     assert not routes.boss_name("BanditKing") and not routes.boss_name("CateranBoss")
     assert not routes.boss_name("RatMessenger") and not routes.boss_name("GiantApeMsgr")
@@ -55,3 +56,13 @@ def test_keep_away_checks_farm_through_ignored_bosses():
     assert routes.near_boss((100, 100), [king])
     policy(["king", "messenger", "aide"])
     assert not routes.near_boss((100, 100), [king])
+
+
+def test_an_ignored_tier_never_covers_a_boss_far_above_the_field(monkeypatch):
+    # 2026-10-02 14:23: Suicide (64) died in ~4 s on the Poltergeist field,
+    # where the client table also lists the BladeGhostKing (82).
+    monkeypatch.setattr(routes, "monster_levels", lambda: {"GhostKing": 22, "BladeGhostKing": 82})
+    policy(["king", "messenger", "aide"])
+    assert not routes.boss_name("GhostKing")
+    assert routes.boss_name("BladeGhostKing")
+    assert not routes.boss_name("BanditKing")  # not in the table: the policy stands
