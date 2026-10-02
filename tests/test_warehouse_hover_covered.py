@@ -98,6 +98,10 @@ class FakeGame:
         self.releases_over_cover = 0
         self.panels = ["Warehouse", "Inventory"]
         self.gui_error = None
+        # True: the Inventory really sat under the Warehouse, so moving it
+        # clear uncovers every cell (Suicide, 2026-10-02 17:46).
+        self.uncover_on_move = False
+        self.panel_moves = 0
 
     def is_covered(self, phase):
         return (phase, "*") in self.covered or (
@@ -428,6 +432,12 @@ class Harness:
         if action == "open-bank":
             game.panels = ["Warehouse", "Inventory"]
             return {"opened": True}
+        if action == "panel-clear":
+            assert (body["window"], body["of"]) == ("Inventory", "Warehouse")
+            game.panel_moves += 1
+            if game.uncover_on_move:
+                game.covered.clear()
+            return {"moved": game.uncover_on_move}
         if action == "warehouse-deposit":
             return deposit(game, self.monkeypatch, body["uid"])
         if action == "warehouse-money-deposit":
@@ -540,6 +550,37 @@ def test_special_or_urgent_item_persistently_covered_fails_closed(
     assert not any(n.startswith("silver_") for n in harness.names())
     assert not banking.LEDGER.exists()
     assert harness.actions.count("warehouse-deposit") == 2
+
+
+def test_urgent_item_under_the_warehouse_is_banked_after_moving_the_inventory(
+    banking_env, monkeypatch, instant_hover_wait
+):
+    # Suicide, 2026-10-02 17:46: a valuable in bag slot 15 sat under the
+    # Warehouse window; every reopen left it covered and every retry failed.
+    game = FakeGame([(42, DRAGONBALL, 15, None)], covered={("source", "*")})
+    game.uncover_on_move = True
+    harness = Harness(game, monkeypatch, banking_env)
+    banking.stash_urgent_valuables(harness.loop)
+    assert game.panel_moves == 1 and game.presses == 1
+    assert [i.uid for i in game.stored] == [42]
+    assert harness.actions.count("warehouse-deposit") == 2
+    assert harness.names().count("warehouse_inventory_moved") == 1
+
+
+def test_a_cover_that_is_not_the_warehouse_moves_no_panel(
+    banking_env, monkeypatch, instant_hover_wait
+):
+    game = FakeGame([(42, SUPER_GEAR, 1, 0)], covered={("source", 1)})
+    harness = Harness(game, monkeypatch, banking_env)
+    original = module.TownTrade.warehouse_hover_diagnostic
+
+    def diagnostic(self, *args, **kwargs):
+        found = original(self, *args, **kwargs)
+        return {**found, "hovered_window": {"name": "Shop"}}
+
+    monkeypatch.setattr(module.TownTrade, "warehouse_hover_diagnostic", diagnostic)
+    banking.deposit_item(harness.loop, _item_dict(game.carried[0]), allow_defer=True)
+    assert game.panel_moves == 0 and [i.uid for i in game.stored] == [42]
 
 
 def test_urgent_path_never_defers(banking_env, monkeypatch, instant_hover_wait):

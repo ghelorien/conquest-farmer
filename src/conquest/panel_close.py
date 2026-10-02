@@ -24,18 +24,8 @@ def bring_into_view(trade, name):
     """
     if name not in ("Inventory", "Shop", "Warehouse"):
         raise ValueError("Unsupported display panel")
-    from conquest.foreground import foreground_drag
-    from conquest.merchants.memory import unpack
-    from conquest.viewport import size_for
-
     gui = GuiReader.for_session(trade.observer.adapter)
-
-    def current():
-        matches = [w for w in gui.windows() if w["name"] == name]
-        if len(matches) != 1:
-            raise CaptureUnavailable("Display panel absent or ambiguous")
-        return matches[0]
-
+    current = _panel(gui, name)
     window = current()
     x, y, width, height = window["geometry"]
     view_width, view_height = gui.viewport_size()
@@ -44,6 +34,62 @@ def bring_into_view(trade, name):
     if not dx and not dy:
         return False
     grab = (round(max(x, 0) + GRAB_INSET), round(max(y, 0) + TITLE_BAR / 2))
+    return _drag(trade, gui, current, window, grab, dx, dy)
+
+
+def move_clear_of(trade, name, other):
+    """Drag one town panel off another panel that covers part of it.
+
+    Suicide, 2026-10-02 17:46: its Inventory sat at (122, 396) under the
+    Warehouse at (67, 109) 312x460 (a day earlier it was at x = 766), so bag
+    columns 0-5 were covered. Reopening the warehouse moved nothing, and the
+    urgent deposit of a valuable in slot 15 failed every retry. The panel goes
+    to the viewport's far side from the other one, at the same height, and
+    is grabbed by a title-bar point that the other panel does not cover. True
+    once moved, False when they do not overlap.
+    """
+    panels = ("Inventory", "Shop", "Warehouse")
+    if name not in panels or other not in panels or name == other:
+        raise ValueError("Unsupported display panel")
+    gui = GuiReader.for_session(trade.observer.adapter)
+    current = _panel(gui, name)
+    window = current()
+    x, y, width, height = window["geometry"]
+    ox, oy, ow, oh = _panel(gui, other)()["geometry"]
+    if x >= ox + ow or ox >= x + width or y >= oy + oh or oy >= y + height:
+        return False
+    view_width, view_height = gui.viewport_size()
+    right = view_width - VIEW_MARGIN - width
+    if right >= ox + ow + VIEW_MARGIN:
+        target = right
+    elif ox >= VIEW_MARGIN + width + VIEW_MARGIN:
+        target = VIEW_MARGIN
+    else:
+        raise ValueError(f"No room beside the {other} for the {name}")
+    top = min(max(y, VIEW_MARGIN), view_height - VIEW_MARGIN - height)
+    grab = [round(x + GRAB_INSET), round(y + TITLE_BAR / 2)]
+    if ox <= grab[0] < ox + ow and oy <= grab[1] < oy + oh:
+        grab[0] = round(ox + ow + GRAB_INSET / 2)
+    return _drag(trade, gui, current, window, tuple(grab), target - x, top - y)
+
+
+def _panel(gui, name):
+    def current():
+        matches = [w for w in gui.windows() if w["name"] == name]
+        if len(matches) != 1:
+            raise CaptureUnavailable("Display panel absent or ambiguous")
+        return matches[0]
+
+    return current
+
+
+def _drag(trade, gui, current, window, grab, dx, dy):
+    """Drag a panel by its title bar and verify where memory puts it."""
+    from conquest.foreground import foreground_drag
+    from conquest.merchants.memory import unpack
+    from conquest.viewport import size_for
+
+    x, y, width, _ = window["geometry"]
     if not (x < grab[0] < x + width - 2 * GRAB_INSET and y <= grab[1] < y + TITLE_BAR):
         raise ValueError("No visible title bar to drag the panel by")
     drop = (round(grab[0] + dx), round(grab[1] + dy))
@@ -71,7 +117,7 @@ def bring_into_view(trade, name):
     )
     moved = current()["geometry"]
     if abs(moved[0] - (x + dx)) > 2 or abs(moved[1] - (y + dy)) > 2:
-        raise ValueError(f"Panel move was not verified ({name} at {moved[:2]})")
+        raise ValueError(f"Panel move was not verified ({window['name']} at {moved[:2]})")
     return True
 
 

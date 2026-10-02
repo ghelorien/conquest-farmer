@@ -1051,6 +1051,10 @@ class TownTrade:
             raise ValueError(
                 "Equipment could not be scrolled into the live shop viewport"
             )
+        if action == "panel-clear" and set(body) == {"action", "window", "of"}:
+            from conquest.panel_close import move_clear_of
+
+            return {"moved": move_clear_of(self, body["window"], body["of"])}
         if action == "gear-window" and set(body) == {"action"}:
             from conquest.gear_repair import probe
 
