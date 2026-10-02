@@ -53,6 +53,12 @@ EMERGENCY_SCROLL = 1060020
 # each redraw with no step between adds TRAVEL_PADDING, up to this many times.
 RETURN_REPLAN_WAIT_SECONDS = 3.0
 RETURN_REPLAN_WIDENINGS = 3
+# A hunt (not a walk back) with no traversable patrol step for this long walks
+# back to the hunting anchor. 2026-10-01 21:44-21:53 (Suicide, WingedSnakes):
+# the idle search had widened the box 12 tiles, the farmer stood at (279,105)
+# just outside the field when it narrowed again, every patrol path failed and
+# it waited 9 minutes ("Navigation blocked") until moved by a route change.
+PATROL_STALL_RETURN_SECONDS = 15.0
 
 
 def scatter_receipt_ready(
@@ -481,6 +487,14 @@ def run_trial(
     navigation_waiting = False
     navigation_wait_since = 0.0
     return_replan_due = False
+    patrol_stall_return = False
+    # (attack attempts, time) when patrol steps began failing with no attack
+    # since: a hunt that keeps shooting between failed steps is no stall.
+    patrol_stall_mark = None
+    # The anchor a patrol-stall return must actually reach: the stalled spot
+    # can lie inside the (search-widened) boundary, where an ordinary return
+    # "arrives" at once without a step.
+    stall_return_target = None
     # Travel-boundary redraws with no movement between (RETURN_REPLAN_WIDENINGS).
     return_replans = 0
     escape_settle_until = 0
@@ -677,7 +691,17 @@ def run_trial(
                     timing.observe_arrival(moving, (x, y))
                     timing.stage("care_skill_checks")
                 l, t, r, b = config.boundary
-                if approaching and l <= x <= r and t <= y <= b:
+                if (
+                    approaching
+                    and l <= x <= r
+                    and t <= y <= b
+                    and (
+                        stall_return_target is None
+                        or max(abs(x - stall_return_target[0]), abs(y - stall_return_target[1]))
+                        <= 3
+                    )
+                ):
+                    stall_return_target = None
                     if supervisor and hasattr(supervisor, "finish_runback"):
                         supervisor.finish_runback("arrived")
                     approaching, moving = False, None
@@ -692,6 +716,7 @@ def run_trial(
                 outside = recovery is None and (
                     (approaching and return_replan_due)
                     or not (l <= x <= r and t <= y <= b)
+                    or patrol_stall_return
                 )
                 if outside and valuable_walk_outside(supervisor, approaching, (x, y)):
                     # Alex 2026-09-29: "There should be a 25 tile radius for
@@ -754,7 +779,10 @@ def run_trial(
                             else {}
                         ),
                     )
+                    if patrol_stall_return:
+                        stall_return_target = tuple(config.hunting_anchor)
                     return_replan_due = False
+                    patrol_stall_return = False
                     return_replan_reason = "no_step_inside"
                     if hasattr(supervisor, "start_runback"):
                         supervisor.start_runback(boundary_return_target)
@@ -2421,6 +2449,7 @@ def run_trial(
                         if navigation_waiting:
                             event("navigation_resumed")
                             navigation_waiting = False
+                        patrol_stall_mark = None
                         return_replans = 0
                         return_hold_since = None
                         event(
@@ -2463,6 +2492,10 @@ def run_trial(
                         event("navigation_wait", reason=str(error))
                         navigation_wait_since = waited_at
                     navigation_waiting = True
+                    if approaching:
+                        patrol_stall_mark = None
+                    elif patrol_stall_mark is None or patrol_stall_mark[0] != attempts:
+                        patrol_stall_mark = (attempts, waited_at)
                     if (
                         approaching
                         and config.hunting_anchor is not None
@@ -2478,6 +2511,21 @@ def run_trial(
                         # from here, as when the farmer leaves it.
                         return_replan_due = True
                         navigation_wait_since = waited_at
+                    elif (
+                        patrol_stall_mark is not None
+                        and supervisor is not None
+                        and config.hunting_anchor is not None
+                        and waited_at - patrol_stall_mark[1] >= PATROL_STALL_RETURN_SECONDS
+                    ):
+                        # In the field with no patrol step: walk back to the
+                        # anchor through the ordinary boundary return.
+                        patrol_stall_return = True
+                        event(
+                            "patrol_stall_return",
+                            waited=round(waited_at - patrol_stall_mark[1], 1),
+                            activity="No patrol step; walking back to the hunting anchor",
+                        )
+                        patrol_stall_mark = None
                     time.sleep(0.1)
                     continue
                 if not focus_paused:
