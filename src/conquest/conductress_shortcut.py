@@ -104,6 +104,12 @@ def ride(loop):
         from conquest.banking import ensure_transport
         from conquest.conductress import prepare_destination
 
+        # Town input first. Back from the Market (2026-10-01 22:21), the
+        # restarted route reached town with farming already on; the banking
+        # walk for the fare was refused ("Travel care cannot share input with
+        # farming") and Suicide walked to the Poltergeists. hunt() turns
+        # farming on again right after the ride.
+        loop.stop_farm()
         ensure_transport(loop, minimum=FARE * 2)
         # Checked before walking to her: with 39 silver and an empty bank her
         # dialog refused the fare and the route failed (live 2026-09-27).

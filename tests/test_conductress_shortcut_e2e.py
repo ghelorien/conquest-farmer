@@ -43,6 +43,11 @@ class Twin:
         self.dialog_ok, self.moves = dialog_ok, moves
         self.actions = []
         self.events = []
+        self.farming = False
+
+    def stop_farm(self):
+        self.actions.append("stop_farm")
+        self.farming = False
 
     def town(self, action, **fields):
         self.actions.append(action)
@@ -71,6 +76,8 @@ def town_travel(twin, log=None):
     def travel(target, *, arrival_radius=0, **kw):
         if type(arrival_radius) is not int or not 0 <= arrival_radius <= 2:
             raise ValueError("Intermediate arrival radius must be zero to two tiles")
+        if twin.farming:  # TravelCare.check
+            raise ValueError("Travel care cannot share input with farming")
         twin.actions.append("travel")
         if log is not None:
             log.append((target, {"arrival_radius": arrival_radius, **kw}))
@@ -86,6 +93,7 @@ def loop_for(twin, route=APPARITION):
         living=lambda: {"embedded_controls": {"life": twin.life()}},
         health=lambda: {"embedded_controls": {"life": twin.life(), "observed_at": shortcut.time.time()}},
         record=lambda event, **fields: twin.events.append(event),
+        stop_farm=twin.stop_farm,
     )
 
 
@@ -113,6 +121,8 @@ def test_no_ride_without_a_shortcut_or_outside_town(state):
     twin.position = [300, 600]  # already in the field
     assert shortcut.ride(loop_for(twin)) is False
     assert "conductress-travel" not in twin.actions
+    # Never Farming Off for a ride that is not taken (in the field above).
+    assert "stop_farm" not in twin.actions
 
 
 def test_failure_before_payment_walks_instead(state, monkeypatch):
@@ -229,3 +239,14 @@ def test_unplannable_walk_from_town_takes_the_ride_but_a_dead_end_landing_does_n
     loop.terrain = twin_city({(TOWN, FIELD): 653, (TOWN, HER): 111})
     assert shortcut.ride(loop) is False
     assert "conductress-travel" not in twin.actions
+
+
+def test_a_route_restarted_with_farming_on_still_rides(state):
+    # 2026-10-01 22:21: back from the Market, the restarted route reached town
+    # with farming on, the walk for the fare refused to share input with
+    # farming, and Suicide walked to the Poltergeists instead of riding.
+    twin = Twin()
+    twin.farming = True
+    assert shortcut.ride(loop_for(twin)) is True
+    assert twin.actions.index("stop_farm") < twin.actions.index("travel")
+    assert twin.actions.count("conductress-travel") == 1
