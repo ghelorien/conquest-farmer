@@ -249,6 +249,28 @@ def needs_town(counts, route, *, departed=None, reserve=False):
     )
 
 
+def require_bow(loop):
+    """A bow before farming. Without one the farm runner cannot start
+    ("Pointer is null or outside supported user address space"): Toxic stood
+    in Phoenix for 40 minutes after its HerderBow broke at 0 durability
+    (2026-10-02 04:01). A restock's Blacksmith review fills the empty slot
+    with a bow the character can equip."""
+    town = getattr(loop, "town", None)
+    if town is None:
+        return
+    try:
+        gear = town("gear")
+    except ValueError:
+        return  # unreadable now; the runner's own start decides
+    equipment = gear.get("equipment") if isinstance(gear, dict) else None
+    if not isinstance(equipment, dict) or equipment.get("bow"):
+        return
+    loop.record("bow_missing", activity="No bow equipped; buying one before hunting")
+    loop.restock()
+    if not town("gear").get("equipment", {}).get("bow"):
+        raise ValueError("No bow equipped and none could be bought; not hunting")
+
+
 def last_verified_price(type_id, path=None):
     """Price of the newest verified purchase of this type, or None.
 
@@ -2526,6 +2548,7 @@ class OvernightLoop:
             from conquest.city_travel import ensure_city_visit
 
             ensure_city_visit(self)
+        require_bow(self)
         from conquest.conductress_shortcut import ride
 
         # Alex: the Conductress to Ape City is the fast way to the far fields.

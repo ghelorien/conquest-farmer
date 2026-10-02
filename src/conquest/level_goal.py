@@ -213,6 +213,11 @@ def due(level, *, gear=None, city=None, silver=None):
         return None
     if level >= data["target_level"]:
         return "reached"
+    from conquest.equipment import upgrades_enabled
+
+    if not upgrades_enabled():
+        # Alex 2026-10-02: no trips to replace working gear.
+        return None
     reviewed = data.get("reviewed_level")
     if reviewed is None:
         # Start counting from the first verified level; starter gear is fine.

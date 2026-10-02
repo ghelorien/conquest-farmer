@@ -69,6 +69,10 @@ def sale_candidate(item):
     kind = get("type_id")
     if kind in PROTECTED_VALUABLES or storage_only(item) or urgent_storage(item):
         return False
+    from conquest.equipment import reserved_gear_uids
+
+    if get("uid") in reserved_gear_uids():
+        return False  # bought to wear; the next review equips it
     if junk_type(kind):
         return True
     # User authorized sales after inspecting the client formatter's + field.

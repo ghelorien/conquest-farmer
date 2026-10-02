@@ -55,11 +55,18 @@ def urgent_storage(item):
         else lambda key, default=None: getattr(item, key, default)
     )
     kind = get("type_id")
-    return (
+    if not (
         get("slot") is not None
         and type(kind) is int
         and (kind in DRAGONBALL_TYPES or kind // 1000 in URGENT_EQUIPMENT_FAMILIES)
-    )
+    ):
+        return False
+    if kind in DRAGONBALL_TYPES:
+        return True
+    # Gear bought to wear stays carried for its equip (equipment.py).
+    from conquest.equipment import reserved_gear_uids
+
+    return get("uid") not in reserved_gear_uids()
 
 
 def storage_only(item):

@@ -1,8 +1,11 @@
 """Memory-qualified archer shop upgrades during scheduled town visits."""
 
 from conquest.character_context import state_path
+import json
 import struct
 from dataclasses import asdict
+from functools import lru_cache
+from pathlib import Path
 from conquest.addressing import checked_address
 from conquest.memory_build_layout import read_build_layout
 
@@ -17,6 +20,124 @@ SLOTS = {
 }
 VENDORS = {5: ("bow", "arrows"), 1: ("ring", "boots", "necklace"), 4: ("armor", "head")}
 RESERVE_SILVER = 3000
+# Per-character gear rule. Alex 2026-10-02 04:5x: "I don't want you to look
+# at replacing your gear unless the gear [doesn't work] anymore", so with
+# {"upgrades": false} reviews, gear trips and level_goal buy nothing for a
+# slot that holds gear; an empty slot (gear that broke and vanished) is still
+# filled. Without the file the reviews keep buying upgrades.
+POLICY = Path(state_path(".runtime/equipment-policy.json"))
+# The character's attributes in the inventory owner (the role record whose
+# name is at +0xA4, classic-1078-inventory-candidate.yaml) on build 1078. Live
+# 2026-10-02, Suicide level 64: Strength 40, Spirit 0, Agility 139, Vitality
+# 20, then the base maximum HP 1017 = 3 x (40 + 0 + 139) + 24 x 20, the archer
+# formula, which checks every read. Toxic's gear circuit bought an IronBow
+# (Strength 41, Agility 141) at level 65 that the client would not equip, and
+# its HerderBow had just broken (04:01).
+ATTRIBUTES = {"strength": 0x3D8, "spirit": 0x3DC, "agility": 0x3E0, "vitality": 0x3E4}
+BASE_HP = 0x3F0
+# Durability and its limit: the inventory layout's item amount and limit.
+DURABILITY = 0x62
+CLIENT_ITEMS = r"C:\Program Files\Classic Conquer 2.0\ini\itemtype.json"
+
+
+# Equip attempts per level and item for a slot that lost its gear.
+EMPTY_SLOT_ATTEMPTS = 3
+_reserved = [None, frozenset()]
+
+
+def upgrades_journal():
+    return Path(state_path(".runtime/equipment-upgrades.json"))
+
+
+def upgrades_enabled():
+    from conquest.discord_notify import read_json
+
+    return read_json(POLICY).get("upgrades", True) is not False
+
+
+def reserved_gear_uids():
+    """Gear bought to wear whose equip did not land: never banked or sold, so
+    the next review equips it. Toxic's IronBow (2026-10-02 04:02, "Equip
+    unverified") went to urgent banking a minute later, leaving no bow."""
+    from conquest.discord_notify import read_json
+
+    journal = upgrades_journal()
+    try:
+        info = journal.stat()
+    except OSError:
+        return frozenset()
+    stamp = (str(journal), info.st_mtime_ns, info.st_size)
+    if _reserved[0] != stamp:
+        attempts = read_json(journal, [])
+        if not isinstance(attempts, list):
+            attempts = []
+        _reserved[:] = [
+            stamp,
+            frozenset(
+                a["uid"]
+                for a in attempts
+                if isinstance(a, dict)
+                and type(a.get("uid")) is int
+                and a.get("state") in ("bought", "deferred")
+            ),
+        ]
+    return _reserved[1]
+
+
+@lru_cache(maxsize=1)
+def client_requirements():
+    """{type_id: (strength, agility)} for gear from the installed client's
+    ini/itemtype.json: shop records carry no attribute requirements."""
+    from conquest.character_context import installation_path
+
+    try:
+        rows = json.loads(Path(installation_path(CLIENT_ITEMS)).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {
+        row["id"]: (row.get("requiredStrength") or 0, row.get("requiredAgility") or 0)
+        for row in rows
+        if isinstance(row, dict) and type(row.get("id")) is int and category(row["id"])
+    }
+
+
+def read_attributes(session):
+    """Strength, agility, vitality and spirit, or None when the read does not
+    check out against the base maximum HP."""
+    from conquest.addressing import resolve_object
+    from conquest.memory_build_layout import CLIENT_SHA256_1078, inventory_reader_layouts
+
+    player, inventory = inventory_reader_layouts(session)
+    if inventory.expected_sha256 != CLIENT_SHA256_1078 or inventory.owner_root_rva is None:
+        return None
+    owner = resolve_object(
+        session,
+        expected_sha256=inventory.expected_sha256,
+        module=player.module,
+        root_rva=inventory.owner_root_rva,
+        pointer_offsets=inventory.owner_pointer_offsets,
+        vtable_rva=inventory.owner_vtable_rva,
+    )
+    start = min(ATTRIBUTES.values())
+    return parse_attributes(session.read_block(owner + start, BASE_HP + 4 - start))
+
+
+def parse_attributes(raw):
+    """The attribute block from +0x3D8 through the base HP, or None."""
+    start = min(ATTRIBUTES.values())
+    values = {
+        name: struct.unpack_from("<I", raw, offset - start)[0]
+        for name, offset in ATTRIBUTES.items()
+    }
+    base_hp = struct.unpack_from("<I", raw, BASE_HP - start)[0]
+    if (
+        any(value > 2000 for value in values.values())
+        or base_hp
+        != 3 * (values["strength"] + values["agility"] + values["spirit"])
+        + 24 * values["vitality"]
+    ):
+        return None
+    return values
 
 
 def leveling_archer():
@@ -99,6 +220,8 @@ def item_details(session, address, base):
         attack_max=struct.unpack_from("<H", raw, 0x50)[0],
         defense=struct.unpack_from("<H", raw, 0x54)[0],
         dodge=struct.unpack_from("<H", raw, 0x58)[0],
+        durability=struct.unpack_from("<H", raw, DURABILITY)[0],
+        max_durability=struct.unpack_from("<H", raw, DURABILITY + 2)[0],
     )
 
 
@@ -136,12 +259,17 @@ def read_equipment(observer):
     fresh = observer.read_life()
     if fresh.object_address != actor or fresh.dead_candidate:
         raise ValueError("Character changed during equipment observation")
+    try:
+        attributes = read_attributes(s)
+    except (ValueError, OSError, AttributeError):
+        attributes = None
     s.assert_identity()
     return {
         "level": level,
         "profession": profession,
         "map_id": fresh.map_id,
         "equipment": equipped,
+        "attributes": attributes,
     }
 
 
@@ -172,8 +300,17 @@ def upgrade_reason(product, state):
         and not leveling_archer()
     ):
         return "Armor form does not match"
+    attributes = state.get("attributes")
+    if attributes:
+        needs = client_requirements().get(get("type_id"))
+        if needs and (
+            needs[0] > attributes["strength"] or needs[1] > attributes["agility"]
+        ):
+            return "Strength or agility below the requirement"
     if not old:
         return None
+    if not upgrades_enabled():
+        return "Keeping working gear (upgrades off)"
     if (
         old.get("plus") != 0
         or old["type_id"] % 10 >= 7
@@ -301,12 +438,11 @@ class EquipmentReview:
 
                 review_ammunition(self.loop)
             return True
-        from pathlib import Path
         import time
         from conquest.discord_notify import read_json, write_json
 
         loop = self.loop
-        journal = Path(state_path(".runtime/equipment-upgrades.json"))
+        journal = upgrades_journal()
         attempts = read_json(journal, [])
         try:
             state = loop.town("gear")
@@ -359,7 +495,11 @@ class EquipmentReview:
             )
             for product in choices:
                 key = (state["level"], product["type_id"])
-                if any((a["level"], a["type_id"]) == key for a in attempts):
+                tried = sum((a["level"], a["type_id"]) == key for a in attempts)
+                # An empty slot (gear that broke) tries again, equipping the
+                # carried purchase before buying another; worn gear does not.
+                empty = not state["equipment"].get(category(product["type_id"]))
+                if tried >= (EMPTY_SLOT_ATTEMPTS if empty else 1):
                     continue
                 attempt = {
                     "level": state["level"],

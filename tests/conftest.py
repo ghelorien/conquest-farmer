@@ -83,6 +83,9 @@ def isolate_live_session_plan(tmp_path, monkeypatch):
     from conquest import arrow_upgrades
 
     monkeypatch.setattr(arrow_upgrades, "POLICY", tmp_path / "arrow-policy.json")
+    from conquest import equipment
+
+    monkeypatch.setattr(equipment, "POLICY", tmp_path / "equipment-policy.json")
     from conquest import routes
 
     monkeypatch.setattr(routes, "BOSS_POLICY", tmp_path / "boss-policy.json")
