@@ -451,9 +451,17 @@ def store_before_leaving_market(loop):
     """
     from conquest.banking import close_warehouse, deposit_item, open_warehouse
     from conquest.discord_notify import read_json
-    from conquest.meteor_banking import JOURNAL, approach_market_warehouse, carried
+    from conquest.meteor_banking import (
+        JOURNAL,
+        TERMINAL,
+        approach_market_warehouse,
+        carried,
+    )
 
-    if read_json(JOURNAL).get("phase") not in (None, "completed"):
+    # Any finished trip counts, the operator-overridden one too: Toxic's 12:44
+    # trip ended that way around a manual Off/On and looped "Stay in Market"
+    # (Laptop1, 2026-10-03).
+    if read_json(JOURNAL).get("phase") not in (None, *TERMINAL):
         return
     # A route restart still holds its hunting map's terrain: the first try
     # planned the Market walk on Twin City's ("Route endpoint is blocked").

@@ -338,9 +338,12 @@ def test_market_departure_keeps_valuables_and_uncertain_transfer_safe(
         w.return_from_market(loop, 1011)
 
 
-@pytest.mark.parametrize("deposit_works", [True, False])
+@pytest.mark.parametrize(
+    "deposit_works, journal",
+    [(True, None), (False, None), (True, "completed"), (True, "operator_overridden")],
+)
 def test_valuables_carried_into_the_market_are_banked_there_before_leaving(
-    tmp_path, monkeypatch, deposit_works
+    tmp_path, monkeypatch, deposit_works, journal
 ):
     # Suicide, 2026-10-03 00:58: brought into the Market by hand with a +1 ring
     # and a unique MaskBag, it refused to leave and never banked them.
@@ -352,6 +355,10 @@ def test_valuables_carried_into_the_market_are_banked_there_before_leaving(
     policy = tmp_path / "policy.json"
     policy.write_text(json.dumps({"origins": {"1002": {"return": plan}}}))
     monkeypatch.setattr(meteor_banking, "POLICY", policy)
+    if journal:
+        # Every finished Meteor trip counts: Toxic's operator-overridden one
+        # looped "Stay in Market" (2026-10-03 12:50).
+        meteor_banking.JOURNAL.write_text(json.dumps({"phase": journal}))
     bag = [
         {"uid": 7, "type_id": 150005, "slot": 20, "plus": 1},
         {"uid": 8, "type_id": 1050001, "slot": 3, "plus": 0},
