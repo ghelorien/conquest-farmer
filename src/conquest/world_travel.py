@@ -404,6 +404,8 @@ def return_from_market(loop, destination):
     ):
         raise ValueError("Market departure needs a verified return itinerary")
     if any(stash_candidate(item) for item in loop.town("supplies")["items"]):
+        store_before_leaving_market(loop)
+    if any(stash_candidate(item) for item in loop.town("supplies")["items"]):
         raise ValueError(
             "Stay in Market: store protected valuables before returning to the route"
         )
@@ -435,6 +437,41 @@ def return_from_market(loop, destination):
         activity="Returned from Market; resuming the saved farming route",
     )
     ensure_city_visit(loop, new_arrival=True)
+
+
+def store_before_leaving_market(loop):
+    """Bank carried valuables in the Market warehouse before a route return.
+
+    Suicide, 2026-10-03 00:58: brought into the Market by hand with a +1 ring
+    and a unique MaskBag, its route restart refused to leave ("Stay in Market")
+    and urgent banking only knew the Twin City warehouse, which needs that same
+    departure, so it retried in the Market with no kills. Only outside a Meteor
+    trip: an unfinished trip stores in Market through market_bank, whose own
+    journal keeps the receipts.
+    """
+    from conquest.banking import close_warehouse, deposit_item, open_warehouse
+    from conquest.discord_notify import read_json
+    from conquest.meteor_banking import JOURNAL, approach_market_warehouse, carried
+
+    if read_json(JOURNAL).get("phase") not in (None, "completed"):
+        return
+    approach_market_warehouse(
+        loop, "Storing carried valuables in Market before returning to the route"
+    )
+    open_warehouse(loop)
+    try:
+        for item in carried(loop):
+            receipt = deposit_item(loop, item)
+            if receipt.get("verified_in_warehouse") is not True:
+                raise ValueError("Market deposit receipt missing; no return issued")
+            loop.record(
+                "valuable_stored",
+                **receipt,
+                plus=item.get("plus"),
+                activity="Valuable safely stored in Market before returning to the route",
+            )
+    finally:
+        close_warehouse(loop)
 
 
 def recheck_market_departure(loop):

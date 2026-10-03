@@ -326,13 +326,72 @@ def test_market_departure_keeps_valuables_and_uncertain_transfer_safe(
     )
     bag = [{"uid": 1, "type_id": 1088000, "slot": 0, "plus": 0}]
     loop = NS(route=NS(restock_map_id=1011), town=lambda *a: {"items": bag})
+    # An unfinished Meteor trip stores in Market through its own journal.
+    meteor_banking.JOURNAL.write_text('{"phase": "stored_in_market"}')
     with pytest.raises(ValueError, match="store protected"):
         w.return_from_market(loop, 1011)
+    meteor_banking.JOURNAL.unlink()
     bag.clear()
     Path(".runtime").mkdir()
     Path(".runtime/market-route-departure.json").write_text('{"phase":"submitted"}')
     with pytest.raises(ValueError, match="uncertain"):
         w.return_from_market(loop, 1011)
+
+
+@pytest.mark.parametrize("deposit_works", [True, False])
+def test_valuables_carried_into_the_market_are_banked_there_before_leaving(
+    tmp_path, monkeypatch, deposit_works
+):
+    # Suicide, 2026-10-03 00:58: brought into the Market by hand with a +1 ring
+    # and a unique MaskBag, it refused to leave and never banked them.
+    from types import SimpleNamespace as NS
+    from conquest import banking, meteor_banking
+
+    monkeypatch.chdir(tmp_path)
+    plan = {"verified": True, "source_map": 1036, "destination_map": 1002}
+    policy = tmp_path / "policy.json"
+    policy.write_text(json.dumps({"origins": {"1002": {"return": plan}}}))
+    monkeypatch.setattr(meteor_banking, "POLICY", policy)
+    bag = [
+        {"uid": 7, "type_id": 150005, "slot": 20, "plus": 1},
+        {"uid": 8, "type_id": 1050001, "slot": 3, "plus": 0},
+    ]
+    calls = []
+
+    def deposit(loop, item):
+        calls.append(("deposit", item["uid"]))
+        if not deposit_works:
+            return {"verified_in_warehouse": False}
+        bag.remove(item)
+        return {"stored": item["uid"], "verified_in_warehouse": True}
+
+    monkeypatch.setattr(banking, "deposit_item", deposit)
+    monkeypatch.setattr(banking, "open_warehouse", lambda loop: calls.append("open"))
+    monkeypatch.setattr(banking, "close_warehouse", lambda loop: calls.append("close"))
+    monkeypatch.setattr(
+        meteor_banking, "approach_market_warehouse", lambda loop, why: calls.append("walk")
+    )
+    monkeypatch.setattr(
+        meteor_banking, "trip", lambda l, p, **kw: (kw["before_submit"](), calls.append("trip"))
+    )
+    from conquest import city_travel
+
+    monkeypatch.setattr(city_travel, "ensure_city_visit", lambda l, **k: calls.append("city"))
+    events = []
+    loop = NS(
+        route=NS(restock_map_id=1002),
+        town=lambda *a, **k: {"items": list(bag)},
+        living=lambda: {"target": {"pid": 1}},
+        record=lambda name, **fields: events.append(name),
+    )
+    if deposit_works:
+        w.return_from_market(loop, 1002)
+        assert calls == ["walk", "open", ("deposit", 7), "close", "trip", "city"]
+        assert events.count("valuable_stored") == 1
+    else:
+        with pytest.raises(ValueError, match="receipt missing"):
+            w.return_from_market(loop, 1002)
+        assert "trip" not in calls and calls[-1] == "close"
 
 
 def test_a_carried_gate_home_counts_as_the_way_back(monkeypatch):
