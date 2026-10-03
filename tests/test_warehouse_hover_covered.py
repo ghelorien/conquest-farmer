@@ -567,8 +567,17 @@ def test_urgent_item_under_the_warehouse_is_banked_after_moving_the_inventory(
     assert harness.names().count("warehouse_inventory_moved") == 1
 
 
-def test_a_cover_that_is_not_the_warehouse_moves_no_panel(
-    banking_env, monkeypatch, instant_hover_wait
+@pytest.mark.parametrize(
+    "cover, moves",
+    [
+        ("Shop", 0),
+        # The Warehouse's own item grid is a child window (Suicide, 2026-10-03
+        # 15:30: the Inventory sat under 'Warehouse/ScrollingRegion_03B91C0E').
+        ("Warehouse/ScrollingRegion_03B91C0E", 1),
+    ],
+)
+def test_only_a_warehouse_cover_moves_the_inventory(
+    banking_env, monkeypatch, instant_hover_wait, cover, moves
 ):
     game = FakeGame([(42, SUPER_GEAR, 1, 0)], covered={("source", 1)})
     harness = Harness(game, monkeypatch, banking_env)
@@ -576,11 +585,11 @@ def test_a_cover_that_is_not_the_warehouse_moves_no_panel(
 
     def diagnostic(self, *args, **kwargs):
         found = original(self, *args, **kwargs)
-        return {**found, "hovered_window": {"name": "Shop"}}
+        return {**found, "hovered_window": {"name": cover}}
 
     monkeypatch.setattr(module.TownTrade, "warehouse_hover_diagnostic", diagnostic)
     banking.deposit_item(harness.loop, _item_dict(game.carried[0]), allow_defer=True)
-    assert game.panel_moves == 0 and [i.uid for i in game.stored] == [42]
+    assert game.panel_moves == moves and [i.uid for i in game.stored] == [42]
 
 
 def test_urgent_path_never_defers(banking_env, monkeypatch, instant_hover_wait):

@@ -568,11 +568,12 @@ def deposit_item(loop, item, *, allow_defer=False):
             )
             close_warehouse(loop)
             open_warehouse(loop)
-            hovered = diagnostic.get("hovered_window") or {}
-            if hovered.get("name") == "Warehouse":
+            hovered = str((diagnostic.get("hovered_window") or {}).get("name") or "")
+            if hovered == "Warehouse" or hovered.startswith("Warehouse/"):
                 # The client keeps each window where it was last dragged, so a
                 # reopen alone cannot uncover a bag cell under the Warehouse
-                # itself (Suicide's Inventory at (122, 396), 2026-10-02 17:46).
+                # itself (Suicide's Inventory at (122, 396), 2026-10-02 17:46)
+                # or under its item grid, a child window (15:30 the next day).
                 moved = loop.town("panel-clear", window="Inventory", of="Warehouse")
                 loop.record(
                     "warehouse_inventory_moved",
