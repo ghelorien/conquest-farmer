@@ -368,8 +368,12 @@ def test_valuables_carried_into_the_market_are_banked_there_before_leaving(
     monkeypatch.setattr(banking, "deposit_item", deposit)
     monkeypatch.setattr(banking, "open_warehouse", lambda loop: calls.append("open"))
     monkeypatch.setattr(banking, "close_warehouse", lambda loop: calls.append("close"))
+    # The walk must plan on the Market's terrain, not the hunting map's.
+    monkeypatch.setattr(w, "read_terrain", lambda root, map_id: f"terrain-{map_id}")
     monkeypatch.setattr(
-        meteor_banking, "approach_market_warehouse", lambda loop, why: calls.append("walk")
+        meteor_banking,
+        "approach_market_warehouse",
+        lambda loop, why: calls.append(("walk", loop.terrain)),
     )
     monkeypatch.setattr(
         meteor_banking, "trip", lambda l, p, **kw: (kw["before_submit"](), calls.append("trip"))
@@ -383,10 +387,13 @@ def test_valuables_carried_into_the_market_are_banked_there_before_leaving(
         town=lambda *a, **k: {"items": list(bag)},
         living=lambda: {"target": {"pid": 1}},
         record=lambda name, **fields: events.append(name),
+        terrain="terrain-1002",
     )
     if deposit_works:
         w.return_from_market(loop, 1002)
-        assert calls == ["walk", "open", ("deposit", 7), "close", "trip", "city"]
+        assert calls == [
+            ("walk", "terrain-1036"), "open", ("deposit", 7), "close", "trip", "city"
+        ]
         assert events.count("valuable_stored") == 1
     else:
         with pytest.raises(ValueError, match="receipt missing"):

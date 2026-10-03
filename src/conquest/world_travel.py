@@ -455,6 +455,9 @@ def store_before_leaving_market(loop):
 
     if read_json(JOURNAL).get("phase") not in (None, "completed"):
         return
+    # A route restart still holds its hunting map's terrain: the first try
+    # planned the Market walk on Twin City's ("Route endpoint is blocked").
+    loop.terrain = read_terrain(CLIENT_ROOT, 1036)
     approach_market_warehouse(
         loop, "Storing carried valuables in Market before returning to the route"
     )
