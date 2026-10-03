@@ -301,6 +301,35 @@ class TownTrade:
         if unpack(gui.session, context + 0x3EC0, "<Q")[0] != address:
             raise HoverNotReady("Warehouse drag endpoint is covered by another window")
 
+    def keep_inventory_clear_of(self, panel):
+        """Move the Inventory off an open town panel it overlaps.
+
+        Suicide, 2026-10-03 16:28, Twin City Pharmacist: panel-clear had put
+        the Inventory at x = 8 under the Shop (which sits at x = 8 since
+        bring_into_view), so every buy right-click and sale drop landed on
+        the Inventory and nothing was bought or sold. True once moved.
+        """
+        from conquest.capture import CaptureUnavailable
+        from conquest.merchants.memory import HoverNotReady
+        from conquest.panel_close import move_clear_of
+
+        try:
+            return move_clear_of(self, "Inventory", panel)
+        except (CaptureUnavailable, HoverNotReady, ValueError, OSError, AttributeError):
+            # One of them is closed, or the move did not verify: the click's
+            # own hover check still refuses a covered point before any press.
+            return False
+
+    def require_hover_in(self, name):
+        """The pointer's topmost window must be `name` or one of its children."""
+        from conquest.merchants.memory import HoverNotReady
+
+        address, windows = self.hovered_gui_window()
+        hovered = next((w for w in windows if w["address"] == address), {})
+        label = hovered.get("name") or ""
+        if label != name and not label.startswith(name + "/"):
+            raise HoverNotReady(f"{name} point is covered by {label or 'no window'}")
+
     def hovered_gui_window(self):
         """Read-only: ImGui's hovered-window pointer and the live window registry."""
         from conquest.merchants.memory import GuiReader, unpack
@@ -1013,13 +1042,23 @@ class TownTrade:
                         expected_size=size_for(self.observer),
                     )
                     continue
+                self.keep_inventory_clear_of("Shop")
                 if (
                     self.shop.read(npc.entity_id) != shop
                     or self.vendor(body["vendor_type"]) != npc
                 ):
                     raise ValueError("Shop or vendor changed before buying")
                 self.input_attempted = True
-                self.click(point, "right")
+                # A right-click that lands on the Inventory equips that item.
+                from conquest.merchants.driver import wait_hover_validation
+
+                self.click(
+                    point,
+                    "right",
+                    before_press=lambda: wait_hover_validation(
+                        lambda: self.require_hover_in("Shop"), lambda: None
+                    ),
+                )
                 after = self.verified_read(
                     self.inventory.read,
                     lambda b: (
@@ -1478,12 +1517,22 @@ class TownTrade:
                 require_arrow_purchase_room(before, product.type_id)
             if before.silver < product.price or len(before.items) >= before.capacity:
                 raise ValueError("Insufficient funds or inventory room to restock")
+            self.keep_inventory_clear_of("Shop")
             fresh = self.shop.read(npc.entity_id)
             if fresh != shop or self.vendor(body["vendor_type"]) != npc:
                 raise ValueError("Shop or vendor changed before buying")
             point = shop.point(product)
             self.input_attempted = True
-            self.click(point, "right")
+            # A right-click that lands on the Inventory uses or equips that item.
+            from conquest.merchants.driver import wait_hover_validation
+
+            self.click(
+                point,
+                "right",
+                before_press=lambda: wait_hover_validation(
+                    lambda: self.require_hover_in("Shop"), lambda: None
+                ),
+            )
             after = self.verified_read(
                 self.inventory.read,
                 lambda after: (
@@ -1534,6 +1583,7 @@ class TownTrade:
                     "Selected item is absent or protected from automatic sale"
                 )
             item = candidates[0]
+            self.keep_inventory_clear_of("Shop")
             grid = self.shop.gui.read("Inventory/##ItemGrid_")
             if grid.size != (407.0, 175.0) or grid.scroll != (0.0, 0.0):
                 raise ValueError("Inventory grid differs from its calibrated layout")
@@ -1552,11 +1602,17 @@ class TownTrade:
             )
             self.life()
             self.input_attempted = True
+            from conquest.merchants.driver import wait_hover_validation
+
             foreground_drag(
                 self.observer.operations.target,
                 point,
                 destination,
                 size_for(self.observer),
+                before_press=lambda: wait_hover_validation(
+                    lambda: self.require_hover_in("Inventory"), lambda: None
+                ),
+                before_release=lambda: self.require_hover_in("Shop"),
             )
             # A 1-2 arrow remnant can sell for 0 silver (live 2026-09-26), so
             # its proof is leaving the bag without silver loss. Every other

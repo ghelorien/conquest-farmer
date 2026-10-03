@@ -101,7 +101,9 @@ def trade(monkeypatch, shop, bag, clicks):
     t.life = lambda: NS(dead_candidate=False)
     t.input_attempted = False
 
-    def click(point, button):
+    def click(point, button, before_press=None):
+        # A buy right-click must be hover-checked over the Shop first.
+        assert button != "right" or before_press is not None
         snap = shop.snapshot()
         cell = next(
             (p for p in snap.products if _visible(snap, p) and snap.point(p) == tuple(point)),

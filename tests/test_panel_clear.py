@@ -120,6 +120,38 @@ def test_only_town_panels_are_moved(monkeypatch):
     assert drags == []
 
 
+def test_a_shop_click_point_under_the_inventory_is_refused():
+    # Suicide, 2026-10-03 16:28: buy right-clicks landed on the Inventory,
+    # where a right-click uses or equips the item under the pointer.
+    trade = t.TownTrade.__new__(t.TownTrade)
+    trade.hovered_gui_window = lambda: (
+        0xABC,
+        [{"name": "Inventory/##ItemGrid_A800F95C", "address": 0xABC}],
+    )
+    with pytest.raises(panel_close.HoverNotReady, match="covered by Inventory"):
+        trade.require_hover_in("Shop")
+    trade.hovered_gui_window = lambda: (0xDEF, [{"name": "Shop/##Grid", "address": 0xDEF}])
+    trade.require_hover_in("Shop")
+
+
+def test_the_inventory_is_kept_off_the_shop_and_a_closed_panel_is_no_error(monkeypatch):
+    from conquest.capture import CaptureUnavailable
+
+    calls = []
+    monkeypatch.setattr(
+        panel_close, "move_clear_of", lambda trade, name, other: calls.append((name, other)) or True
+    )
+    trade = t.TownTrade.__new__(t.TownTrade)
+    assert trade.keep_inventory_clear_of("Shop") is True
+    assert calls == [("Inventory", "Shop")]
+
+    def closed(trade, name, other):
+        raise CaptureUnavailable("Display panel absent or ambiguous")
+
+    monkeypatch.setattr(panel_close, "move_clear_of", closed)
+    assert trade.keep_inventory_clear_of("Shop") is False
+
+
 def test_the_town_action_moves_the_named_panel(monkeypatch):
     # 4
     calls = []
