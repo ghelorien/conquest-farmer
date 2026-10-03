@@ -70,7 +70,10 @@ class Game:
             capacity=40,
         )
 
-    def drag(self, target, source, destination, size):
+    def drag(self, target, source, destination, size, **guards):
+        # The sale drag is hover-checked (press over the Inventory, release
+        # over the Shop); this fake has no GUI windows to hover.
+        assert set(guards) == {"before_press", "before_release"}
         self.drags += 1
         if self.takes:
             self.items = [i for i in self.items if i.uid != 7001]
